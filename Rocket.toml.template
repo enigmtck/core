@@ -1,0 +1,6 @@
+[global]
+port = 8010
+address = "0.0.0.0"
+
+[global.databases]
+enigmatick = { url = "postgres://<username>:<password>@localhost/enigmatick" }
