@@ -1,10 +1,14 @@
 // @generated automatically by Diesel CLI.
 
 diesel::table! {
-    note_subjects (id) {
+    followers (id) {
         id -> Int4,
-        note_id -> Int4,
+        created_at -> Timestamptz,
+        updated_at -> Timestamptz,
         profile_id -> Int4,
+        ap_id -> Varchar,
+        actor -> Varchar,
+        followed_ap_id -> Varchar,
     }
 }
 
@@ -16,6 +20,8 @@ diesel::table! {
         uuid -> Varchar,
         profile_id -> Int4,
         content -> Varchar,
+        ap_to -> Jsonb,
+        ap_tag -> Nullable<Jsonb>,
     }
 }
 
@@ -30,6 +36,23 @@ diesel::table! {
         summary -> Nullable<Varchar>,
         public_key -> Varchar,
         private_key -> Varchar,
+    }
+}
+
+diesel::table! {
+    remote_activities (id) {
+        id -> Int4,
+        created_at -> Timestamptz,
+        updated_at -> Timestamptz,
+        profile_id -> Int4,
+        context -> Nullable<Jsonb>,
+        kind -> Varchar,
+        ap_id -> Varchar,
+        ap_to -> Nullable<Jsonb>,
+        cc -> Nullable<Jsonb>,
+        actor -> Varchar,
+        published -> Nullable<Varchar>,
+        ap_object -> Nullable<Jsonb>,
     }
 }
 
@@ -53,13 +76,33 @@ diesel::table! {
     }
 }
 
-diesel::joinable!(note_subjects -> notes (note_id));
-diesel::joinable!(note_subjects -> profiles (profile_id));
-diesel::joinable!(notes -> profiles (profile_id));
+diesel::table! {
+    remote_notes (id) {
+        id -> Int4,
+        created_at -> Timestamptz,
+        updated_at -> Timestamptz,
+        profile_id -> Int4,
+        ap_id -> Varchar,
+        published -> Nullable<Varchar>,
+        url -> Nullable<Varchar>,
+        attributed_to -> Nullable<Varchar>,
+        ap_to -> Nullable<Jsonb>,
+        cc -> Nullable<Jsonb>,
+        content -> Varchar,
+        attachment -> Nullable<Jsonb>,
+        tag -> Nullable<Jsonb>,
+        replies -> Nullable<Jsonb>,
+        signature -> Nullable<Jsonb>,
+    }
+}
+
+diesel::joinable!(followers -> profiles (profile_id));
 
 diesel::allow_tables_to_appear_in_same_query!(
-    note_subjects,
+    followers,
     notes,
     profiles,
+    remote_activities,
     remote_actors,
+    remote_notes,
 );

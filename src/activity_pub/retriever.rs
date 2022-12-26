@@ -1,25 +1,117 @@
 use reqwest::Client;
+use reqwest::StatusCode;
 use url::{Url, ParseError};
-use chrono::Utc;
+use std::time::SystemTime;
 
-use crate::activity_pub::Actor;
-use crate::signing::sign;
+use crate::activity_pub::{ApActor, ApObject};
+use crate::models::remote_actors::{NewRemoteActor, RemoteActor};
+use crate::signing::{sign, SignParams};
 use crate::models::profiles::Profile;
+use crate::db::{Db, create_remote_actor, get_remote_actor_by_apid};
 
-pub async fn get_actor(profile: Profile, id: String) -> Actor {
-    let u = Url::parse(&id).unwrap();
-    let host = u.host().unwrap().to_string();
-    let path = u.path().to_string();
-    let date = Utc::now().to_string();
+pub async fn get_actor(conn: &Db, profile: Profile, id: String) -> Option<RemoteActor> {
+    match get_remote_actor_by_apid(conn, id.clone()).await {
+        Some(remote_actor) => {
+            log::debug!("actor retrieved from storage");
+            Option::from(remote_actor)
+        },
+        None => {
+            log::debug!("performing remote lookup for actor");
+            let u = Url::parse(&id).unwrap();
+            let host = u.host().unwrap().to_string();
+            let path = u.path().to_string();
+            let now = SystemTime::now();
+            let date = httpdate::fmt_http_date(now);
 
-    let signature = sign(profile, format!("get {}", path), host, date.clone());
-    
-    let client = Client::new();
-    let actor: Actor = client.get(&id)
-        .header("Signature", &signature)
-        .header("Date", date)
-        .header("Accept", "application/ld+json; profile=\"http://www.w3.org/ns/activitystreams\"")
-        .send().await.unwrap().json().await.unwrap();
+            let signature = sign(
+                SignParams {
+                    profile,
+                    request_target: format!("get {}", path),
+                    host,
+                    date: date.clone(),
+                    digest: Option::None }
+            ).await;
+            
+            let client = Client::new();
+            match client.get(&id)
+                .header("Signature", &signature)
+                .header("Date", date)
+                .header("Accept", "application/ld+json; profile=\"http://www.w3.org/ns/activitystreams\"")
+                .send()
+                .await {
+                    Ok(resp) => {
+                        match resp.status() {
+                            StatusCode::ACCEPTED | StatusCode::OK => {
+                                let actor: ApActor = resp.json().await.unwrap();
+                                create_remote_actor(conn, NewRemoteActor::from(actor)).await
+                            },
+                            StatusCode::GONE => {
+                                log::debug!("GONE: {:#?}", resp.status());
+                                Option::None
+                            },
+                            _ => {
+                                log::debug!("STATUS: {:#?}", resp.status());
+                                Option::None
+                            }
+                        }                        
+                    },
+                    Err(e) => {
+                        log::debug!("{:#?}", e);
+                        Option::None
+                    }
+                }
+        }
+    }
+}
 
-    actor
+pub async fn get_followers(conn: &Db, profile: Profile, id: String) {
+    if let Some(actor) = get_actor(conn, profile.clone(), id.clone()).await {
+        log::debug!("performing remote lookup for actor's followers");
+        
+        let url = Url::parse(&actor.followers).unwrap();
+        let host = url.host().unwrap().to_string();
+        let path = url.path().to_string();
+        
+        let now = SystemTime::now();
+        let date = httpdate::fmt_http_date(now);
+
+        let signature = sign(
+            SignParams {
+                profile,
+                request_target: format!("get {}", path),
+                host,
+                date: date.clone(),
+                digest: Option::None }
+        ).await;
+        
+        let client = Client::new();
+        match client.get(&actor.followers)
+            .header("Signature", &signature)
+            .header("Date", date)
+            .header("Accept", "application/ld+json; profile=\"http://www.w3.org/ns/activitystreams\"")
+            .send()
+            .await
+        {
+            Ok(resp) => {
+                match resp.status() {
+                    StatusCode::ACCEPTED | StatusCode::OK => {
+                        let j: ApObject = serde_json::from_str(&resp.text().await.unwrap()).unwrap();
+                        log::debug!("followers\n{:#?}", j);
+                    },
+                    StatusCode::GONE => {
+                        log::debug!("GONE: {:#?}", resp.status());
+                        //Option::None;
+                    },
+                    _ => {
+                        log::debug!("STATUS: {:#?}", resp.status());
+                        //Option::None;
+                    }
+                }                        
+            },
+            Err(e) => {
+                log::debug!("{:#?}", e);
+                //Option::None;
+            }
+        }
+    }
 }

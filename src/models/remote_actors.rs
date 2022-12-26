@@ -1,4 +1,4 @@
-use crate::activity_pub::Actor;
+use crate::activity_pub::ApActor;
 use crate::schema::remote_actors;
 use chrono::{DateTime, Utc};
 use diesel::{AsChangeset, Identifiable, Insertable, Queryable};
@@ -21,15 +21,15 @@ pub struct NewRemoteActor {
     pub public_key: Value,
 }
 
-impl From<Actor> for NewRemoteActor {
-    fn from(actor: Actor) -> NewRemoteActor {
+impl From<ApActor> for NewRemoteActor {
+    fn from(actor: ApActor) -> NewRemoteActor {
         NewRemoteActor {
-            context: serde_json::to_value(&actor.context).unwrap(),
-            kind: actor.kind,
-            ap_id: actor.id,
-            name: actor.name,
+            context: serde_json::to_value(actor.base.context.unwrap()).unwrap(),
+            kind: actor.kind.to_string(),
+            ap_id: actor.base.id.unwrap(),
+            name: actor.base.name.unwrap(),
             preferred_username: actor.preferred_username,
-            summary: actor.summary,
+            summary: actor.base.summary.unwrap(),
             inbox: actor.inbox,
             outbox: actor.outbox,
             followers: actor.followers,

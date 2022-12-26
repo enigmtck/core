@@ -4,7 +4,7 @@ CREATE TABLE remote_actors (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   context JSONB NOT NULL,
   kind VARCHAR NOT NULL,
-  ap_id VARCHAR NOT NULL,
+  ap_id VARCHAR UNIQUE NOT NULL,
   name VARCHAR NOT NULL,
   preferred_username VARCHAR,
   summary VARCHAR,
