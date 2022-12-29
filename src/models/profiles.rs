@@ -14,7 +14,7 @@ pub struct NewProfile {
     pub private_key: String,
 }
 
-#[derive(Identifiable, Queryable, AsChangeset, Serialize, Clone)]
+#[derive(Identifiable, Queryable, AsChangeset, Serialize, Clone, Debug)]
 #[table_name = "profiles"]
 pub struct Profile {
     #[serde(skip_serializing)]

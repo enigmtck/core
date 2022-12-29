@@ -4,7 +4,6 @@ use rsa::{
     pkcs8::EncodePrivateKey, pkcs8::EncodePublicKey, pkcs8::LineEnding, RsaPrivateKey, RsaPublicKey,
 };
 
-use std::error::Error;
 use uuid::Uuid;
 
 pub fn establish_connection() -> diesel::PgConnection {

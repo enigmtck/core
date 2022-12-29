@@ -6,7 +6,10 @@ use crate::models::profiles::Profile;
 use rsa::pkcs1v15::{SigningKey, VerifyingKey};
 use rsa::signature::{RandomizedSigner, Signature, Verifier};
 use rsa::{pkcs8::DecodePrivateKey, pkcs8::DecodePublicKey, RsaPrivateKey, RsaPublicKey};
-use sha2::Sha256;
+use sha2::{Sha256, Digest};
+use url::Url;
+use std::time::SystemTime;
+use std::fmt::{self, Debug};
 
 #[derive(Clone)]
 pub struct VerifyParams {
@@ -94,65 +97,113 @@ pub async fn verify(conn: Db, params: VerifyParams) -> bool {
     }
 }
 
+// #[derive(Clone)]
+// pub struct SignParams {
+//     pub profile: Profile,
+//     pub request_target: String,
+//     pub host: String,
+//     pub date: String,
+//     pub digest: Option<String>,
+// }
+
+#[derive(Debug, Clone)]
+pub enum Method {
+    Get,
+    Post
+}
+
+impl fmt::Display for Method {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        Debug::fmt(self, f)
+    }
+}
+
 #[derive(Clone)]
 pub struct SignParams {
     pub profile: Profile,
-    pub request_target: String,
-    pub host: String,
+    pub url: String,
+    pub body: Option<String>,
+    pub method: Method,
+}
+
+pub struct SignResponse {
+    pub signature: String,
     pub date: String,
     pub digest: Option<String>,
 }
 
-pub async fn sign(params: SignParams) -> String {
+pub fn sign(params: SignParams) -> SignResponse {
     // (request-target): post /users/justin/inbox
     // host: ser.endipito.us
     // date: Tue, 20 Dec 2022 22:02:48 GMT
     // digest: sha-256=uus37v4gf3z6ze+jtuyk+8xsT01FhYOi/rOoDfFV1u4=
+
+    let digest = {
+        if let Some(body) = params.body {
+            let mut hasher = Sha256::new();
+            hasher.update(body.as_bytes());
+            let hashed = base64::encode(hasher.finalize());
+            Option::from(format!("sha-256={}", hashed))
+        } else {
+            Option::None
+        }
+    };
+
+    let url = Url::parse(&params.url).unwrap();
+    let host = url.host().unwrap().to_string();
+    let request_target = format!("{} {}", params.method.to_string().to_lowercase(), url.path().to_string());
+    
+    let now = SystemTime::now();
+    let date = httpdate::fmt_http_date(now);
 
     let actor = ApActor::from(params.profile.clone());
 
     let private_key = RsaPrivateKey::from_pkcs8_pem(&params.profile.private_key).unwrap();
     let signing_key = SigningKey::<Sha256>::new_with_prefix(private_key);
 
-    match params.digest {
-        Some(digest) => {
-            let structured_data = format!(
-                "(request-target): {}\nhost: {}\ndate: {}\ndigest: {}",
-                params.request_target,
-                params.host,
-                params.date,
-                digest
-            );
 
-            log::debug!("\n{}", structured_data);
+    if let Some(digest) = digest {
+        let structured_data = format!(
+            "(request-target): {}\nhost: {}\ndate: {}\ndigest: {}",
+            request_target,
+            host,
+            date,
+            digest
+        );
+
+        log::debug!("\n{}", structured_data);
             
-            let mut rng = rand::thread_rng();
-            let signature = signing_key.sign_with_rng(&mut rng, structured_data.as_bytes());
+        let mut rng = rand::thread_rng();
+        let signature = signing_key.sign_with_rng(&mut rng, structured_data.as_bytes());
 
-            format!(
+        SignResponse {
+            signature: format!(
                 "keyId=\"{}\",headers=\"(request-target) host date digest\",signature=\"{}\"",
                 actor.public_key.id,
-                base64::encode(signature.as_bytes())
-            )
-        },
-        None => {
-            let structured_data = format!(
-                "(request-target): {}\nhost: {}\ndate: {}\n",
-                params.request_target,
-                params.host,
-                params.date
-            );
+                base64::encode(signature.as_bytes())),
+            date,
+            digest: Option::from(digest)
+         }
+    } else {
+        let structured_data = format!(
+            "(request-target): {}\nhost: {}\ndate: {}\n",
+            request_target,
+            host,
+            date
+        );
 
-            log::debug!("\n{}", structured_data);
+        log::debug!("\n{}", structured_data);
 
-            let mut rng = rand::thread_rng();
-            let signature = signing_key.sign_with_rng(&mut rng, structured_data.as_bytes());
+        let mut rng = rand::thread_rng();
+        let signature = signing_key.sign_with_rng(&mut rng, structured_data.as_bytes());
 
-            format!(
+        SignResponse {
+            signature: format!(
                 "keyId=\"{}\",headers=\"(request-target) host date\",signature=\"{}\"",
                 actor.public_key.id,
-                base64::encode(signature.as_bytes())
-            )
+                base64::encode(signature.as_bytes())),
+            date,
+            digest: Option::None
         }
     }
 }

@@ -1,32 +1,30 @@
 use crate::activity_pub::{ApActivity, ApObject};
-use crate::schema::followers;
+use crate::schema::leaders;
 use chrono::{DateTime, Utc};
 use diesel::{AsChangeset, Identifiable, Insertable, Queryable};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 #[derive(Serialize, Deserialize, Insertable, Default, Debug)]
-#[table_name = "followers"]
-pub struct NewFollower {
+#[table_name = "leaders"]
+pub struct NewLeader {
     pub profile_id: i32,
-    pub ap_id: String,
     pub actor: String,
-    pub followed_ap_id: String,
+    pub leader_ap_id: String,
     pub uuid: String,
 }
 
-impl From<ApActivity> for NewFollower {
-    fn from(activity: ApActivity) -> NewFollower {
-        let mut o = Option::<String>::None;
+impl From<ApActivity> for NewLeader {
+    fn from(activity: ApActivity) -> NewLeader {
+        let mut object = Option::<String>::None;
 
         if let ApObject::Plain(x) = activity.object {
-            o = Some(x);
+            object = Some(x);
         };
 
-        NewFollower {
-            ap_id: activity.base.id.unwrap(),
+        NewLeader {
             actor: activity.actor,
-            followed_ap_id: o.unwrap_or_default(),
+            leader_ap_id: object.unwrap_or_default(),
             uuid: Uuid::new_v4().to_string(),
             ..Default::default()
         }
@@ -34,15 +32,16 @@ impl From<ApActivity> for NewFollower {
 }
 
 #[derive(Identifiable, Queryable, AsChangeset, Serialize, Clone, Default, Debug)]
-#[table_name = "followers"]
-pub struct Follower {
+#[table_name = "leaders"]
+pub struct Leader {
     #[serde(skip_serializing)]
     pub id: i32,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
     pub profile_id: i32,
-    pub ap_id: String,
     pub actor: String,
-    pub followed_ap_id: String,
+    pub leader_ap_id: String,
     pub uuid: String,
+    pub accept_ap_id: Option<String>,
+    pub accepted: Option<bool>,
 }

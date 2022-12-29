@@ -1,41 +1,36 @@
 use reqwest::Client;
 use reqwest::StatusCode;
-use url::{Url, ParseError};
-use std::time::SystemTime;
 
 use crate::activity_pub::{ApActor, ApObject};
 use crate::models::remote_actors::{NewRemoteActor, RemoteActor};
-use crate::signing::{sign, SignParams};
+use crate::signing::{sign, SignParams, Method};
 use crate::models::profiles::Profile;
-use crate::db::{Db, create_remote_actor, get_remote_actor_by_apid};
+use crate::db::{Db, create_remote_actor, get_remote_actor_by_ap_id};
 
 pub async fn get_actor(conn: &Db, profile: Profile, id: String) -> Option<RemoteActor> {
-    match get_remote_actor_by_apid(conn, id.clone()).await {
+    match get_remote_actor_by_ap_id(conn, id.clone()).await {
         Some(remote_actor) => {
             log::debug!("actor retrieved from storage");
             Option::from(remote_actor)
         },
         None => {
             log::debug!("performing remote lookup for actor");
-            let u = Url::parse(&id).unwrap();
-            let host = u.host().unwrap().to_string();
-            let path = u.path().to_string();
-            let now = SystemTime::now();
-            let date = httpdate::fmt_http_date(now);
 
+            let url = id.clone();
+            let body = Option::None;
+            let method = Method::Get;
+            
             let signature = sign(
-                SignParams {
-                    profile,
-                    request_target: format!("get {}", path),
-                    host,
-                    date: date.clone(),
-                    digest: Option::None }
-            ).await;
+                SignParams { profile,
+                             url,
+                             body,
+                             method }
+            );
             
             let client = Client::new();
             match client.get(&id)
-                .header("Signature", &signature)
-                .header("Date", date)
+                .header("Signature", &signature.signature)
+                .header("Date", signature.date)
                 .header("Accept", "application/ld+json; profile=\"http://www.w3.org/ns/activitystreams\"")
                 .send()
                 .await {
@@ -64,30 +59,30 @@ pub async fn get_actor(conn: &Db, profile: Profile, id: String) -> Option<Remote
     }
 }
 
-pub async fn get_followers(conn: &Db, profile: Profile, id: String) {
+pub async fn get_followers(conn: &Db, profile: Profile, id: String, page: Option<usize>) {
     if let Some(actor) = get_actor(conn, profile.clone(), id.clone()).await {
         log::debug!("performing remote lookup for actor's followers");
-        
-        let url = Url::parse(&actor.followers).unwrap();
-        let host = url.host().unwrap().to_string();
-        let path = url.path().to_string();
-        
-        let now = SystemTime::now();
-        let date = httpdate::fmt_http_date(now);
 
+        let page = match page {
+            Some(x) => format!("{}?page={}", actor.followers, x),
+            None => actor.followers.to_string()
+        };
+            
+        let url = page.clone();
+        let body = Option::None;
+        let method = Method::Get;
+    
         let signature = sign(
-            SignParams {
-                profile,
-                request_target: format!("get {}", path),
-                host,
-                date: date.clone(),
-                digest: Option::None }
-        ).await;
+            SignParams { profile,
+                         url,
+                         body,
+                         method }
+        );
         
         let client = Client::new();
-        match client.get(&actor.followers)
-            .header("Signature", &signature)
-            .header("Date", date)
+        match client.get(&page)
+            .header("Signature", &signature.signature)
+            .header("Date", signature.date)
             .header("Accept", "application/ld+json; profile=\"http://www.w3.org/ns/activitystreams\"")
             .send()
             .await

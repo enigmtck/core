@@ -1,4 +1,4 @@
-use crate::activity_pub::{ApActor, ApCollection, ApNote, ApOrderedCollection};
+use crate::activity_pub::{ApActivity, ApActor, ApCollection, ApNote, ApOrderedCollection};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::fmt;
@@ -96,8 +96,8 @@ pub enum ApObject {
     Plain(String),
     Note(ApNote),
     Actor(ApActor),
-    Collection(ApCollection),
     OrderedCollection(ApOrderedCollection),
+    Collection(ApCollection),
     Identifier(ApIdentifier),
     Complex(ApFlexible),
     #[default]
@@ -225,11 +225,11 @@ impl fmt::Display for ApActorType {
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(untagged)]
-pub enum ApBaseObjectSuperType {
-    Base(ApBaseObjectType),
-    Object(ApObjectType),
-    Link(ApLinkType),
-    Actor(ApActorType),
+pub enum ApBaseObjectSuper {
+    Activity(ApActivity),
+    Actor(ApActor),
+    Object(ApObject),
+    Base(ApBaseObject),
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]

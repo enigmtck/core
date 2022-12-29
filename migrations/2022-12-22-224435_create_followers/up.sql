@@ -6,6 +6,7 @@ CREATE TABLE followers (
   ap_id VARCHAR NOT NULL UNIQUE,
   actor VARCHAR NOT NULL,
   followed_ap_id VARCHAR NOT NULL,
+  uuid VARCHAR NOT NULL UNIQUE,
   CONSTRAINT fk_profile_followers FOREIGN KEY(profile_id) REFERENCES profiles(id),
   CONSTRAINT uniq_actor_followed UNIQUE (actor, followed_ap_id)
 );

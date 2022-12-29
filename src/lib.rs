@@ -28,4 +28,8 @@ lazy_static! {
         dotenv().ok();
         env::var("SERVER_NAME").expect("SERVER_NAME must be set")
     };
+    pub static ref FAKTORY_URL: String = {
+        dotenv().ok();
+        env::var("FAKTORY_URL").expect("FAKTORY_URL must be set")
+    };
 }

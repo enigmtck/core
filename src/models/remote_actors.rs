@@ -39,7 +39,7 @@ impl From<ApActor> for NewRemoteActor {
     }
 }
 
-#[derive(Identifiable, Queryable, AsChangeset, Serialize, Clone)]
+#[derive(Identifiable, Queryable, AsChangeset, Serialize, Clone, Debug)]
 #[table_name = "remote_actors"]
 pub struct RemoteActor {
     #[serde(skip_serializing)]

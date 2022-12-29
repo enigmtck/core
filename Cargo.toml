@@ -11,7 +11,7 @@ env_logger = "0.10"
 dotenvy = "0.15"
 chrono = { version = "0.4", features = ["serde"] }
 lazy_static = "1.4.0"
-uuid = { version = "1", features = ["v4"] }
+uuid = { version = "1", features = ["v4", "serde"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1.0"
 serde_with = "2"
@@ -19,12 +19,14 @@ rsa = "0.7.2"
 rand = "0.8"
 sha2 = { version = "0.10", features = ["oid"] }
 base64 = "0.20"
-reqwest = { version = "0.11", features = ["json"] }
+reqwest = { version = "0.11", features = ["json", "blocking"] }
 url = "2.3"
 hex = "0.4"
 httpdate = "1"
 regex = "1"
-data-encoding = "2"
+faktory = "0.12"
+r2d2 = "0.8"
+tokio = { version = "1.23", features = ["rt"] }
 
 rocket = { version = "0.5.0-rc.2", features = ["json"] }
 diesel = { version = "1.4.8", features = ["postgres", "chrono", "r2d2", "serde_json"] }

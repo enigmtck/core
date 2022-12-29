@@ -9,6 +9,21 @@ diesel::table! {
         ap_id -> Varchar,
         actor -> Varchar,
         followed_ap_id -> Varchar,
+        uuid -> Varchar,
+    }
+}
+
+diesel::table! {
+    leaders (id) {
+        id -> Int4,
+        created_at -> Timestamptz,
+        updated_at -> Timestamptz,
+        profile_id -> Int4,
+        actor -> Varchar,
+        leader_ap_id -> Varchar,
+        uuid -> Varchar,
+        accept_ap_id -> Nullable<Varchar>,
+        accepted -> Nullable<Bool>,
     }
 }
 
@@ -97,9 +112,11 @@ diesel::table! {
 }
 
 diesel::joinable!(followers -> profiles (profile_id));
+diesel::joinable!(leaders -> profiles (profile_id));
 
 diesel::allow_tables_to_appear_in_same_query!(
     followers,
+    leaders,
     notes,
     profiles,
     remote_activities,
