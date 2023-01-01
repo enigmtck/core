@@ -97,6 +97,11 @@ fn main() {
     let mut consumer = ConsumerBuilder::default();
     consumer.register("acknowledge_followers", acknowledge_followers);
 
+    consumer.register("test_job", |job| {
+        debug!("{:#?}", job);
+        Ok(())
+    });
+                      
     let mut consumer = consumer
         .connect(Some("tcp://:password@localhost:7419"))
         .unwrap();

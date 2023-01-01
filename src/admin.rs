@@ -1,0 +1,96 @@
+use crate::db::{Db, create_profile, get_profile_by_username};
+use crate::models::profiles::{NewProfile, Profile};
+use orion::pwhash;
+use serde_json::Value;
+use rsa::{
+    pkcs8::EncodePrivateKey, pkcs8::EncodePublicKey, pkcs8::LineEnding, RsaPrivateKey, RsaPublicKey,
+};
+
+use uuid::Uuid;
+
+struct KeyPair {
+    private_key: RsaPrivateKey,
+    public_key: RsaPublicKey,
+}
+
+fn get_key_pair() -> KeyPair {
+    let mut rng = rand::thread_rng();
+    let bits = 2048;
+    let private_key = RsaPrivateKey::new(&mut rng, bits).expect("failed");
+    let public_key = RsaPublicKey::from(&private_key);
+
+    KeyPair {
+        private_key,
+        public_key,
+    }
+}
+
+pub async fn authenticate(
+    conn: &Db,
+    username: String,
+    password: String) -> Option<Profile> {
+
+    if let Ok(password) = pwhash::Password::from_slice(password.as_bytes()) {
+        if let Some(profile) = get_profile_by_username(conn, username).await {
+            if let Some(encoded_password_hash) = profile.clone().password {
+                if let Ok(password_hash) = pwhash::PasswordHash::from_encoded(&encoded_password_hash) {
+                    if pwhash::hash_password_verify(&password_hash, &password).is_ok() {
+                        Option::from(profile)
+                    } else {
+                        Option::None
+                    }
+                } else {
+                    Option::None
+                }
+            } else {
+                Option::None
+            }
+        } else {
+            Option::None
+        }
+    } else {
+        Option::None
+    }
+}
+
+pub async fn create_user(
+    conn: &Db,
+    username: String,
+    display_name: String,
+    password: String,
+    client_public_key: Option<String>,
+    keystore: Option<Value>,
+) -> Option<Profile> {
+    let key_pair = get_key_pair();
+
+    if let Ok(password) = pwhash::Password::from_slice(password.as_bytes()) {
+        // the example memory cost is 1<<16 (64MB); that taxes my system quite a bit,
+        // so I'm using 8MB - this should be increased as available power permits
+        if let Ok(hash) = pwhash::hash_password(&password, 3, 1<<4) {
+            let new_profile = NewProfile {
+                uuid: Uuid::new_v4().to_string(),
+                username,
+                display_name,
+                summary: Option::None,
+                private_key: key_pair
+                    .private_key
+                    .to_pkcs8_pem(LineEnding::default())
+                    .unwrap()
+                    .to_string(),
+                public_key: key_pair
+                    .public_key
+                    .to_public_key_pem(LineEnding::default())
+                    .unwrap(),
+                password: Option::from(hash.unprotected_as_encoded().to_string()),
+                client_public_key,
+                keystore
+            };
+
+            create_profile(conn, new_profile).await
+        } else {
+            Option::None
+        }
+    } else {
+        Option::None
+    }
+}

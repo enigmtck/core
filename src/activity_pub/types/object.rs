@@ -232,7 +232,7 @@ pub enum ApBaseObjectSuper {
     Base(ApBaseObject),
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, Default)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct ApBaseObject {
     #[serde(rename = "@context")]
@@ -293,4 +293,41 @@ pub struct ApBaseObject {
     pub id: Option<String>,
     #[serde(skip_serializing)]
     pub uuid: Option<String>,
+}
+
+impl Default for ApBaseObject {
+    fn default() -> ApBaseObject {
+        ApBaseObject {
+            context: Option::from(ApContext::Plain(
+                "https://www.w3.org/ns/activitystreams".to_string(),
+            )),
+            to: Option::None,
+            cc: Option::None,
+            bcc: Option::None,
+            tag: Option::None,
+            attachment: Option::None,
+            attributed_to: Option::None,
+            audience: Option::None,
+            content: Option::None,
+            name: Option::None,
+            end_time: Option::None,
+            generator: Option::None,
+            icon: Option::None,
+            in_reply_to: Option::None,
+            location: Option::None,
+            preview: Option::None,
+            published: Option::None,
+            replies: Option::None,
+            start_time: Option::None,
+            summary: Option::None,
+            updated: Option::None,
+            url: Option::None,
+            bto: Option::None,
+            media_type: Option::None,
+            duration: Option::None,
+            kind: Option::None,
+            id: Option::None,
+            uuid: Option::None,
+        }
+    }
 }

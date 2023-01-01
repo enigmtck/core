@@ -35,9 +35,6 @@ impl From<Profile> for ApActor {
 
         ApActor {
             base: ApBaseObject {
-                context: Option::from(ApContext::Plain(
-                    "https://www.w3.org/ns/activitystreams".to_string(),
-                )),
                 name: Option::from(profile.display_name),
                 summary: Option::from(profile.summary.unwrap_or_default()),
                 id: Option::from(format!("{}/user/{}", server_url, profile.username)),

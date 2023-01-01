@@ -1,10 +1,12 @@
 #[macro_use]
 extern crate rocket;
 
-use enigmatick::activity_pub::{ApActivityType, ApOrderedCollection, FollowersPage, ApBaseObjectSuper};
+use enigmatick::activity_pub::{ApActivityType, ApOrderedCollection, FollowersPage, LeadersPage, ApBaseObjectSuper, ApIdentifier};
+use enigmatick::admin;
 use enigmatick::models::notes::{NewNote, Note};
 use enigmatick::models::remote_notes::NewRemoteNote;
 use enigmatick::models::remote_activities::NewRemoteActivity;
+use enigmatick::models::profiles::Profile;
 use enigmatick::models::followers::NewFollower;
 use enigmatick::models::leaders::NewLeader;
 use enigmatick::activity_pub::{ApObject, ApActor, ApNote, ApActivity, retriever, sender};
@@ -20,7 +22,11 @@ use enigmatick::db::{Db,
                      update_leader_by_uuid,
                      get_remote_activity_by_ap_id,
                      get_followers_by_profile_id,
-                     get_remote_actor_by_ap_id};
+                     get_leaders_by_profile_id,
+                     get_leader_by_profile_id_and_ap_id,
+                     delete_leader,
+                     get_remote_actor_by_ap_id,
+                     delete_remote_actor_by_ap_id};
 use enigmatick::signing::{sign, verify, VerifyParams, SignParams, Method};
 
 use faktory::{Producer, Job};
@@ -29,43 +35,66 @@ use rocket::http::RawStr;
 use rocket::request::{FromParam, FromRequest, Request, Outcome};
 use rocket::serde::json::Json;
 use rocket::serde::json::Error;
-use rocket::http::Status;
-// use rocket::fairing::{Fairing, Info, Kind, self};
-// use rocket::{Rocket, Build, State};
-use rocket::State;
+use rocket::http::{Status, Header};
+use rocket::fairing::{Fairing, Info, Kind, self};
+use rocket::{Rocket, Build, Response};
 
+use serde::Deserialize;
+use serde_json::Value;
 use reqwest::Client;
 use std::net::TcpStream;
 use std::sync::{Arc, Mutex};
 
+#[derive(Clone)]
 pub struct FaktoryConnection {
     pub producer: Arc<Mutex<Producer<TcpStream>>>
 }
 
-// impl FaktoryConnection {
-//     pub fn fairing() -> impl Fairing {
-//         FaktoryConnectionFairing
-//     }
-// }
-// struct FaktoryConnectionFairing;
+impl FaktoryConnection {
+    pub fn fairing() -> impl Fairing {
+        FaktoryConnectionFairing
+    }
+}
+struct FaktoryConnectionFairing;
 
-// #[rocket::async_trait]
-// impl Fairing for FaktoryConnectionFairing {
-//     fn info(&self) -> Info {
-//         Info {
-//             name: "Faktory Connection",
-//             kind: Kind::Ignite | Kind::Liftoff | Kind::Response
-//         }
-//     }
+#[rocket::async_trait]
+impl Fairing for FaktoryConnectionFairing {
+    fn info(&self) -> Info {
+        Info {
+            name: "Faktory Connection",
+            kind: Kind::Ignite
+        }
+    }
 
-//     async fn on_ignite(&self, rocket: Rocket<Build>) -> fairing::Result {
-//         log::info!("connecting to faktory");
-        
-//         Ok(rocket.manage(FaktoryConnection {
-//             producer: Producer::connect(Some("tcp://:password@localhost:7419")).unwrap()
-//         }))
-//     }
-// }
+    async fn on_ignite(&self, rocket: Rocket<Build>) -> fairing::Result {
+        Ok(rocket.manage(FaktoryConnection {
+            producer: Arc::new(
+                Mutex::new(
+                    Producer::connect(
+                        Some("tcp://:password@localhost:7419")).unwrap()
+                )
+            )
+        }))
+    }
+}
+
+#[derive(Debug)]
+pub enum FaktoryConnectionError {
+    Failed
+}
+
+#[rocket::async_trait]
+impl <'r> FromRequest<'r> for FaktoryConnection {
+    type Error = FaktoryConnectionError;
+
+    async fn from_request(request: &'r Request<'_>) -> Outcome<Self, Self::Error> {
+        if let Some(faktory) = request.rocket().state::<FaktoryConnection>() {
+            Outcome::Success(faktory.clone())
+        } else {
+            Outcome::Failure((Status::BadRequest, FaktoryConnectionError::Failed))
+        }
+    }
+}
 
 pub struct Signed(bool);
 
@@ -173,8 +202,18 @@ pub async fn profile(conn: Db, handle: Handle<'_>) -> Result<Json<ApActor>, Stat
 }
 
 #[get("/user/<username>/test")]
-pub async fn test(conn: Db, faktory: &State<FaktoryConnection>, username: String)
-                  -> Result<Json<ApActor>, Status> {    
+pub async fn test(conn: Db, faktory: FaktoryConnection, username: String)
+                  -> Result<Json<ApActor>, Status> {
+    match faktory.producer.try_lock() {
+        Ok(mut x) => {
+            if x.enqueue(Job::new("test_job", vec!["arg"]))
+                .is_err() {
+                    log::error!("failed to enqueue job");
+                }
+        },
+        Err(e) => log::debug!("failed to lock mutex: {}", e)
+    }
+    
     match get_profile_by_username(&conn, username).await {
         Some(profile) => {
             retriever::get_followers(&conn,
@@ -224,6 +263,24 @@ pub async fn get_followers(conn: Db, username: String) -> Result<Json<ApOrderedC
             page: 0,
             profile,
             followers
+        })))
+
+        //log::debug!("followers: {:#?}", followers);
+    } else {
+        Err(Status::NoContent)
+    }
+}
+
+#[get("/user/<username>/following")]
+pub async fn get_leaders(conn: Db, username: String) -> Result<Json<ApOrderedCollection>, Status> {
+
+    if let Some(profile) = get_profile_by_username(&conn, username).await {
+        let leaders = get_leaders_by_profile_id(&conn, profile.id).await;
+
+        Ok(Json(ApOrderedCollection::from(LeadersPage {
+            page: 0,
+            profile,
+            leaders
         })))
 
         //log::debug!("followers: {:#?}", followers);
@@ -313,6 +370,64 @@ pub async fn get_followers(conn: Db, username: String) -> Result<Json<ApOrderedC
 //     ),
 // },
 
+#[derive(Deserialize, Debug, Clone)]
+pub struct NewUser {
+    pub username: String,
+    pub password: String,
+    pub display_name: String,
+    pub client_public_key: String,
+    pub keystore: Value,
+}
+
+#[post("/api/user/create", format="json", data="<user>")]
+pub async fn create_user(conn: Db, user: Result<Json<NewUser>, Error<'_>>)
+                         -> Result<Json<Profile>, Status>
+{
+    debug!("raw\n{:#?}", user);
+
+    if let Ok(user) = user {
+        if let Some(profile) =
+            admin::create_user(&conn,
+                               user.username.clone(),
+                               user.display_name.clone(),
+                               user.password.clone(), 
+                               Some(user.client_public_key.clone()),
+                               Some(user.keystore.clone())).await {
+                Ok(Json(profile))
+        } else {
+            Err(Status::NoContent)
+        }
+    } else {
+        Err(Status::NoContent)
+    }
+}
+
+#[derive(Deserialize, Debug, Clone)]
+pub struct AuthenticationData {
+    pub username: String,
+    pub password: String,
+}
+
+#[post("/api/user/authenticate", format="json", data="<user>")]
+pub async fn authenticate_user(conn: Db, user: Result<Json<AuthenticationData>, Error<'_>>)
+                               -> Result<Json<Profile>, Status>
+{
+    debug!("raw\n{:#?}", user);
+
+    if let Ok(user) = user {
+        if let Some(profile) =
+            admin::authenticate(&conn,
+                               user.username.clone(),
+                               user.password.clone()).await {
+                Ok(Json(profile))
+        } else {
+            Err(Status::NoContent)
+        }
+    } else {
+        Err(Status::NoContent)
+    }
+}
+
 #[post("/user/<username>/outbox", format="json", data="<object>")]
 pub async fn
     outbox_post(conn: Db,
@@ -327,25 +442,54 @@ pub async fn
             Ok(object) => match object {
                 Json(ApBaseObjectSuper::Activity(mut activity)) => {
                     debug!("this looks like an ApActivity\n{:#?}", activity);
-                    match activity.kind {
+                    match activity.kind {                        
+                        ApActivityType::Undo => {
+                            debug!("this looks like an Unfollow (Undo) activity");
+
+                            activity.actor = format!("{}/user/{}", *enigmatick::SERVER_URL, profile.username);
+
+                            if let ApObject::Plain(ap_id) = activity.object {
+                                if let Some(leader) = get_leader_by_profile_id_and_ap_id(&conn,
+                                                                                         profile.id,
+                                                                                         ap_id.clone()).await {
+                                    // taking the leader ap_id and converting it to the leader uuid locator seems
+                                    // like cheating here. but I'm doing it anyway.
+                                    debug!("leader retrieved: {}", leader.uuid);
+                                    let locator = format!("{}/leader/{}", *enigmatick::SERVER_URL, leader.uuid);
+                                    
+                                    activity.object = ApObject::Identifier(ApIdentifier {id: locator});
+                                    debug!("updated activity\n{:#?}", activity);
+
+                                    if let Some(actor) = get_remote_actor_by_ap_id(&conn, ap_id).await {
+                                        if sender::send_activity(activity, profile, actor).await.is_ok() {
+                                            debug!("sent undo follow request successfully");
+                                            if delete_leader(&conn, leader.id).await.is_ok() {
+                                                debug!("leader record deleted successfully");
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        },
                         ApActivityType::Follow => {
                             debug!("this looks like a Follow activity");
                             
-                            activity.actor = format!("https://enigmatick.jdt.dev/user/{}", profile.username);
+                            activity.actor = format!("{}/user/{}", *enigmatick::SERVER_URL, profile.username);
                             
                             let mut leader = NewLeader::from(activity.clone());
                             leader.profile_id = profile.id;
 
                             if let Some(leader) = create_leader(&conn, leader).await {
                                 debug!("leader created: {}", leader.uuid);
-                                activity.base.id = Option::from(format!("https://enigmatick.jdt.dev/leader/{}",
+                                activity.base.id = Option::from(format!("{}/leader/{}",
+                                                                        *enigmatick::SERVER_URL, 
                                                                         leader.uuid));
                                 
                                 debug!("updated activity\n{:#?}", activity);
 
                                 if let ApObject::Plain(object) = activity.clone().object {
                                     if let Some(actor) = get_remote_actor_by_ap_id(&conn, object).await {
-                                        if sender::send_follow(activity, profile, actor).await.is_ok() {
+                                        if sender::send_activity(activity, profile, actor).await.is_ok() {
                                             debug!("sent follow request successfully");
                                         }
                                     }
@@ -418,7 +562,7 @@ pub async fn
 pub async fn
     inbox_post(signed: Signed,
                conn: Db,
-               faktory: &State<FaktoryConnection>,
+               faktory: FaktoryConnection,
                username: String,
                activity: Result<Json<ApActivity>, Error<'_>>)
                -> Result<Status, Status> {
@@ -444,6 +588,17 @@ pub async fn
             }
 
             match activity.kind {
+                ApActivityType::Delete => {
+                    debug!("this looks like a Delete activity");
+
+                    if let ApObject::Plain(ap_id) = activity.object {
+                        if ap_id == activity.actor && delete_remote_actor_by_ap_id(&conn, ap_id).await.is_ok() {
+                            debug!("remote actor record deleted");
+                        }
+                    }
+
+                    Ok(Status::Accepted)
+                },
                 ApActivityType::Create => {
                     match activity.object {
                         ApObject::Note(x) => {
@@ -536,20 +691,45 @@ pub async fn
     }
 }
 
+// TODO: Remove all of this CORS stuff for production; this is just to allow for testing on a single machine
+// using different ports for services (i.e., a production server would expose the HTTP endpoints through a
+// a common server name:port
+/// Catches all OPTION requests in order to get the CORS related Fairing triggered.
+#[options("/<_..>")]
+fn all_options() {
+    /* Intentionally left empty */
+}
+
+pub struct Cors;
+
+#[rocket::async_trait]
+impl Fairing for Cors {
+    fn info(&self) -> Info {
+        Info {
+            name: "Cross-Origin-Resource-Sharing Fairing",
+            kind: Kind::Response,
+        }
+    }
+
+    async fn on_response<'r>(&self, _request: &'r Request<'_>, response: &mut Response<'r>) {
+        response.set_header(Header::new("Access-Control-Allow-Origin", "*"));
+        response.set_header(Header::new(
+            "Access-Control-Allow-Methods",
+            "POST, PATCH, PUT, DELETE, HEAD, OPTIONS, GET",
+        ));
+        response.set_header(Header::new("Access-Control-Allow-Headers", "*"));
+        response.set_header(Header::new("Access-Control-Allow-Credentials", "true"));
+    }
+}
+
 #[launch]
 fn rocket() -> _ {
     env_logger::init();
     
     rocket::build()
-        .manage(FaktoryConnection {
-            producer: Arc::new(
-                Mutex::new(
-                    Producer::connect(
-                        Some("tcp://:password@localhost:7419")).unwrap()
-                )
-            )
-        })
+        .attach(FaktoryConnection::fairing())
         .attach(Db::fairing())
+        .attach(Cors)
         .mount("/", routes![
             person,
             profile,
@@ -557,6 +737,10 @@ fn rocket() -> _ {
             outbox_post,
             inbox_post,
             get_followers,
-            test
+            get_leaders,
+            create_user,
+            authenticate_user,
+            test,
+            all_options
         ])
 }

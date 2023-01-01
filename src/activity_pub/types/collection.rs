@@ -1,5 +1,5 @@
 use crate::activity_pub::{ApBaseObject, ApBaseObjectType, ApContext, ApObject};
-use crate::models::{followers::Follower, profiles::Profile};
+use crate::models::{followers::Follower, leaders::Leader, profiles::Profile};
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
@@ -44,12 +44,10 @@ impl From<FollowersPage> for ApOrderedCollection {
             ApOrderedCollection {
                 base: ApCollection {
                     base: ApBaseObject {
-                        context: Option::from(ApContext::Plain(
-                            "https://www.w3.org/ns/activitystreams".to_string(),
-                        )),
                         kind: Option::from(ApBaseObjectType::OrderedCollection),
                         id: Option::from(format!(
-                            "https://enigmatick.jdt.dev/users/{}/followers",
+                            "{}/users/{}/followers",
+                            *crate::SERVER_URL,
                             request.profile.username
                         )),
                         ..Default::default()
@@ -64,6 +62,55 @@ impl From<FollowersPage> for ApOrderedCollection {
                         .followers
                         .into_iter()
                         .map(|x| ApObject::Plain(x.actor))
+                        .collect::<Vec<ApObject>>(),
+                ),
+            }
+        } else {
+            ApOrderedCollection {
+                base: ApCollection {
+                    base: ApBaseObject {
+                        ..Default::default()
+                    },
+                    part_of: Option::None,
+                    ..Default::default()
+                },
+                ordered_items: Option::None,
+            }
+        }
+    }
+}
+
+#[derive(Clone)]
+pub struct LeadersPage {
+    pub page: u32,
+    pub profile: Profile,
+    pub leaders: Vec<Leader>,
+}
+
+impl From<LeadersPage> for ApOrderedCollection {
+    fn from(request: LeadersPage) -> Self {
+        if request.page == 0 {
+            ApOrderedCollection {
+                base: ApCollection {
+                    base: ApBaseObject {
+                        kind: Option::from(ApBaseObjectType::OrderedCollection),
+                        id: Option::from(format!(
+                            "{}/users/{}/following",
+                            *crate::SERVER_URL,
+                            request.profile.username
+                        )),
+                        ..Default::default()
+                    },
+                    total_items: request.leaders.len() as u32,
+                    first: Option::None,
+                    part_of: Option::None,
+                    ..Default::default()
+                },
+                ordered_items: Option::from(
+                    request
+                        .leaders
+                        .into_iter()
+                        .map(|x| ApObject::Plain(x.leader_ap_id))
                         .collect::<Vec<ApObject>>(),
                 ),
             }

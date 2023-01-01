@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use crate::activity_pub::{retriever, ApActor, ApPublicKey};
-use crate::db::Db;
+use crate::db::{Db, get_profile_by_username};
 use crate::models::profiles::Profile;
 use rsa::pkcs1v15::{SigningKey, VerifyingKey};
 use rsa::signature::{RandomizedSigner, Signature, Verifier};
@@ -22,7 +22,7 @@ pub struct VerifyParams {
     pub content_type: String,
 }
 
-fn build_verify_string(params: VerifyParams) -> (String, String, String) {
+fn build_verify_string(params: VerifyParams) -> (String, String, String, String, bool, Option<String>) {
     let mut signature_map = HashMap::<String, String>::new();
     
     let parts_re = regex::Regex::new(r#"(\w+)="(.+?)""#).unwrap();
@@ -34,9 +34,24 @@ fn build_verify_string(params: VerifyParams) -> (String, String, String) {
     
     log::debug!("map: {:#?}", signature_map);
 
+
     let key_id = signature_map.get("keyId").unwrap();
     let key_id_parts = key_id.split('#').collect::<Vec<&str>>();
     let ap_id = key_id_parts[0].to_string();
+    let key_selector = key_id_parts[1].to_string();
+
+    let local_pattern = format!(r#"(\w+://){}/user/(.+?)#(.+)"#, &*crate::SERVER_NAME);
+    let local_re = regex::Regex::new(local_pattern.as_str()).unwrap();
+    
+    let mut local = false;
+    let mut username = Option::<String>::None;
+
+    if let Some(captures) = local_re.captures(&key_selector) {
+        local = true;
+        username = Option::from(captures[2].to_string());
+        log::debug!("key_re: {:#?}", captures);
+    }
+                                              
     let mut verify_string = String::new();
 
     for part in signature_map.get("headers").unwrap().split(' ') {
@@ -53,36 +68,58 @@ fn build_verify_string(params: VerifyParams) -> (String, String, String) {
     log::debug!("verify_string\n{}", verify_string);
 
     // (verify, signature, ap_id)
-    (verify_string.trim_end().to_string(), signature_map.get("signature").unwrap().to_string(), ap_id)
+    (verify_string.trim_end().to_string(), signature_map.get("signature").unwrap().to_string(), ap_id, key_selector, local, username)
 }
 
 pub async fn verify(conn: Db, params: VerifyParams) -> bool {
     
-    let (verify_string, signature_str, ap_id) = build_verify_string(params.clone());
+    let (verify_string, signature_str, ap_id, key_selector, local, username) = build_verify_string(params.clone());
 
-    if let Some(actor) = retriever::get_actor(&conn, params.profile, ap_id).await {
+    fn verify(public_key: RsaPublicKey, signature_str: String, verify_string: String) -> bool {
+        let verifying_key: VerifyingKey<Sha256> = VerifyingKey::new_with_prefix(public_key);
+        log::debug!("signature string: {}", signature_str);
+        
+        let s = base64::decode(signature_str.as_bytes()).unwrap();
+
+        let signature: rsa::pkcs1v15::Signature = rsa::pkcs1v15::Signature::from(s);
+        match verifying_key.verify(verify_string.as_bytes(), &signature) {
+            Ok(_) => {
+                log::debug!("signature verification successful");
+                true
+            },
+            Err(_) => {
+                log::debug!("signature verification failed");
+                false
+            }
+        }
+    }
+    
+    if local && key_selector == "client-key" {
+        if let Some(username) = username {
+            if let Some(profile) = get_profile_by_username(&conn, username).await {
+                if let Some(public_key) = profile.client_public_key {
+                    if let Ok(public_key) = RsaPublicKey::from_public_key_pem(&public_key) {
+                        verify(public_key, signature_str, verify_string)
+                    } else {
+                        false
+                    }
+                } else {
+                    false
+                }
+            } else {
+                false
+            }
+        } else {
+            false
+        }
+    } else if let Some(actor) = retriever::get_actor(&conn, params.profile, ap_id).await {
         if let Some(public_key_value) = actor.public_key {
             if let Ok(public_key) = serde_json::from_value::<ApPublicKey>(public_key_value) {
                 log::debug!("remote public key\n{}\n", public_key.public_key_pem);
                 if let Ok(public_key) =
                     RsaPublicKey::from_public_key_pem(&public_key.public_key_pem)
                 {
-                    let verifying_key: VerifyingKey<Sha256> = VerifyingKey::new_with_prefix(public_key);
-                    log::debug!("signature string: {}", signature_str);
-                    
-                    let s = base64::decode(signature_str.as_bytes()).unwrap();
-
-                    let signature: rsa::pkcs1v15::Signature = rsa::pkcs1v15::Signature::from(s);
-                    match verifying_key.verify(verify_string.as_bytes(), &signature) {
-                        Ok(_) => {
-                            log::debug!("signature verification successful");
-                            true
-                        },
-                        Err(_) => {
-                            log::debug!("signature verification failed");
-                            false
-                        }
-                    }
+                    verify(public_key, signature_str, verify_string)
                 } else {
                     false
                 }

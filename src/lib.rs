@@ -9,6 +9,7 @@ use lazy_static::lazy_static;
 use std::env;
 
 pub mod activity_pub;
+pub mod admin;
 pub mod db;
 pub mod models;
 pub mod schema;

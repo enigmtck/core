@@ -15,6 +15,14 @@ use crate::models::profiles::{Profile, NewProfile};
 #[database("enigmatick")]
 pub struct Db(diesel::PgConnection);
 
+pub async fn get_leader_by_profile_id_and_ap_id(conn: &Db, profile_id: i32, leader_ap_id: String) -> Option<Leader> {
+    use schema::leaders::dsl::{leaders, profile_id as pid, leader_ap_id as lid};
+
+    match conn.run(move |c| leaders.filter(pid.eq(profile_id).and(lid.eq(leader_ap_id))).first::<Leader>(c)).await {
+        Ok(x) => Option::from(x),
+        Err(_) => Option::None
+    }
+}
 
 pub async fn update_leader_by_uuid(conn: &Db, leader_uuid: String, accept_ap_id: String) -> Option<Leader> {
     use schema::leaders::dsl::{leaders, accept_ap_id as aapid, uuid, accepted};
@@ -35,6 +43,15 @@ pub async fn create_leader(conn: &Db, leader: NewLeader) -> Option<Leader> {
                    .get_result::<Leader>(c)).await {
         Ok(x) => Some(x),
         Err(_) => Option::None
+    }
+}
+
+pub async fn delete_leader(conn: &Db, leader_id: i32) -> Result<(), ()> {
+    use schema::leaders::dsl::leaders;
+
+    match conn.run(move |c| diesel::delete(leaders.find(leader_id)).execute(c)).await {
+        Ok(_) => Ok(()),
+        Err(_) => Err(())
     }
 }
 
@@ -111,6 +128,15 @@ pub async fn create_remote_actor(conn: &Db, actor: NewRemoteActor) -> Option<Rem
     }
 }
 
+pub async fn delete_remote_actor_by_ap_id(conn: &Db, remote_actor_ap_id: String) -> Result<(), ()> {
+    use schema::remote_actors::dsl::{remote_actors, ap_id};
+
+    match conn.run(move |c| diesel::delete(remote_actors.filter(ap_id.eq(remote_actor_ap_id))).execute(c)).await {
+        Ok(_) => Ok(()),
+        Err(_) => Err(())
+    }
+}
+
 pub async fn get_remote_actor_by_ap_id(conn: &Db, apid: String) -> Option<RemoteActor> {
     use self::schema::remote_actors::dsl::{remote_actors, ap_id};
 
@@ -120,30 +146,44 @@ pub async fn get_remote_actor_by_ap_id(conn: &Db, apid: String) -> Option<Remote
     }
 }
 
-pub async fn create_profile(conn: &Db,
-                            username: String,
-                            display_name: String,
-                            summary: Option<String>,
-                            private_key: String,
-                            public_key: String)
-                            -> Option<Profile> {
+pub async fn create_profile(conn: &Db, profile: NewProfile) -> Option<Profile> {
     use schema::profiles;
 
-    let new_profile = NewProfile {
-        uuid: Uuid::new_v4().to_string(),
-        username,
-        display_name,
-        summary,
-        private_key,
-        public_key };
-
     match conn.run(move |c| diesel::insert_into(profiles::table)
-                   .values(&new_profile)
+                   .values(&profile)
                    .get_result::<Profile>(c)).await {
         Ok(x) => Some(x),
-        Err(_) => Option::None
+        Err(e) => {
+            log::debug!("database failure: {:#?}", e);
+            Option::None
+        }
     }
 }
+
+// pub async fn create_profile(conn: &Db,
+//                             username: String,
+//                             display_name: String,
+//                             summary: Option<String>,
+//                             private_key: String,
+//                             public_key: String)
+//                             -> Option<Profile> {
+//     use schema::profiles;
+
+//     let new_profile = NewProfile {
+//         uuid: Uuid::new_v4().to_string(),
+//         username,
+//         display_name,
+//         summary,
+//         private_key,
+//         public_key };
+
+//     match conn.run(move |c| diesel::insert_into(profiles::table)
+//                    .values(&new_profile)
+//                    .get_result::<Profile>(c)).await {
+//         Ok(x) => Some(x),
+//         Err(_) => Option::None
+//     }
+// }
 
 pub async fn get_profile(conn: &Db, id: i32) -> Option<Profile> {
     use self::schema::profiles::dsl::profiles;
@@ -180,10 +220,22 @@ pub async fn delete_follower_by_ap_id(conn: &Db, ap_id: String) -> bool {
 }
 
 pub async fn get_followers_by_profile_id(conn: &Db, profile_id: i32) -> Vec<Follower> {
-    use self::schema::followers::dsl::{followers, profile_id as pid};
+    use self::schema::followers::dsl::{followers, profile_id as pid, created_at};
 
     match conn.run(move |c| followers.filter(pid.eq(profile_id))
+                   .order_by(created_at.desc())
                    .get_results::<Follower>(c)).await {
+        Ok(x) => x,
+        Err(_) => vec![]
+    }
+}
+
+pub async fn get_leaders_by_profile_id(conn: &Db, profile_id: i32) -> Vec<Leader> {
+    use self::schema::leaders::dsl::{leaders, profile_id as pid, created_at};
+
+    match conn.run(move |c| leaders.filter(pid.eq(profile_id))
+                   .order_by(created_at.desc())
+                   .get_results::<Leader>(c)).await {
         Ok(x) => x,
         Err(_) => vec![]
     }

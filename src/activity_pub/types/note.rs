@@ -16,9 +16,6 @@ impl From<ApActor> for ApNote {
     fn from(actor: ApActor) -> Self {
         ApNote {
             base: ApBaseObject {
-                context: Option::from(ApContext::Plain(
-                    "https://www.w3.org/ns/activitystreams".to_string(),
-                )),
                 tag: Option::from(vec![]),
                 attributed_to: Some(ApFlexible::Single(serde_json::Value::from(
                     actor.base.id.unwrap(),

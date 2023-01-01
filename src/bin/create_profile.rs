@@ -54,6 +54,9 @@ pub fn create_profile(
             .public_key
             .to_public_key_pem(LineEnding::default())
             .unwrap(),
+        password: Option::None,
+        keystore: Option::None,
+        client_public_key: Option::None,
     };
 
     match diesel::insert_into(profiles::table)

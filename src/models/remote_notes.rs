@@ -25,10 +25,24 @@ pub struct NewRemoteNote {
 impl From<ApNote> for NewRemoteNote {
     fn from(note: ApNote) -> NewRemoteNote {
         if let Some(ApFlexible::Single(attributed_to)) = note.base.attributed_to {
+            let url = match note.base.url.clone() {
+                Some(ApFlexible::Single(x)) => Option::from(x.as_str().unwrap().to_string()),
+                _ => Option::None,
+            };
+
+            let published = match note.base.published.clone() {
+                Some(x) => Option::from(x),
+                _ => Option::None,
+            };
+
             NewRemoteNote {
+                url,
+                published,
                 ap_id: note.base.id.unwrap(),
                 attributed_to: Some(attributed_to.as_str().unwrap().to_string()),
-                ap_to: Option::from(serde_json::to_value(&note.base.to).unwrap()),
+                ap_to: Option::from(serde_json::to_value(&note.to).unwrap()),
+                cc: Option::from(serde_json::to_value(&note.base.cc).unwrap()),
+                replies: Option::from(serde_json::to_value(&note.base.replies).unwrap()),
                 tag: Option::from(serde_json::to_value(&note.base.tag).unwrap()),
                 content: note.content,
                 ..Default::default()

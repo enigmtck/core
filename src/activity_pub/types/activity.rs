@@ -31,9 +31,6 @@ impl From<ApNote> for ApActivity {
 
             ApActivity {
                 base: ApBaseObject {
-                    context: Option::from(ApContext::Plain(
-                        "https://www.w3.org/ns/activitystreams".to_string(),
-                    )),
                     to: note.clone().base.to,
                     kind: Option::None,
                     id: note.clone().base.id,

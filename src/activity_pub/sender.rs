@@ -18,7 +18,7 @@ pub async fn send_follower_accept(ap_id: String, profile: Profile, actor: Remote
             )),
             ..Default::default()
         },
-        actor: format!("https://enigmatick.jdt.dev/user/{}", profile.username),
+        actor: format!("{}/user/{}", *crate::SERVER_URL, profile.username),
         kind: ApActivityType::Accept,
         object: ApObject::Identifier(ApIdentifier { id: ap_id }),
     };
@@ -65,15 +65,15 @@ pub async fn send_follower_accept(ap_id: String, profile: Profile, actor: Remote
 }
 
 
-pub async fn send_follow(activity: ApActivity, profile: Profile, actor: RemoteActor) -> Result<(), ()> {
-    debug!("in send_follow_request");
+pub async fn send_activity(activity: ApActivity, profile: Profile, actor: RemoteActor) -> Result<(), ()> {
+    debug!("in send_activity_request");
 
-    let follow_json = serde_json::to_string(&activity).unwrap();
+    let activity_json = serde_json::to_string(&activity).unwrap();
     
-    debug!("json: {}", follow_json);
+    debug!("json: {}", activity_json);
 
     let url = actor.inbox.clone();
-    let body = Option::from(follow_json.clone());
+    let body = Option::from(activity_json.clone());
     let method = Method::Post;
     
     let signature = sign(
@@ -92,7 +92,7 @@ pub async fn send_follow(activity: ApActivity, profile: Profile, actor: RemoteAc
             "Content-Type",
             "application/activity+json",
         )
-        .body(follow_json);
+        .body(activity_json);
 
     debug!("{:#?}", client);
     

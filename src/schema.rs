@@ -51,6 +51,9 @@ diesel::table! {
         summary -> Nullable<Varchar>,
         public_key -> Varchar,
         private_key -> Varchar,
+        password -> Nullable<Varchar>,
+        keystore -> Nullable<Jsonb>,
+        client_public_key -> Nullable<Varchar>,
     }
 }
 
