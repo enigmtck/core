@@ -22,7 +22,7 @@ pub struct VerifyParams {
     pub content_type: String,
 }
 
-fn build_verify_string(params: VerifyParams) -> (String, String, String, String, bool, Option<String>) {
+fn build_verify_string(params: VerifyParams) -> (String, String, String, Option<String>, bool, Option<String>) {
     let mut signature_map = HashMap::<String, String>::new();
     
     let parts_re = regex::Regex::new(r#"(\w+)="(.+?)""#).unwrap();
@@ -40,15 +40,17 @@ fn build_verify_string(params: VerifyParams) -> (String, String, String, String,
     let ap_id = key_id_parts[0].to_string();
     let key_selector = key_id_parts[1].to_string();
 
-    let local_pattern = format!(r#"(\w+://){}/user/(.+?)#(.+)"#, &*crate::SERVER_NAME);
+    let local_pattern = format!(r#"(\w+://{}/user/(.+?))#(.+)"#, &*crate::SERVER_NAME);
     let local_re = regex::Regex::new(local_pattern.as_str()).unwrap();
     
     let mut local = false;
     let mut username = Option::<String>::None;
+    let mut key_selector = Option::<String>::None;
 
-    if let Some(captures) = local_re.captures(&key_selector) {
+    if let Some(captures) = local_re.captures(key_id) {
         local = true;
         username = Option::from(captures[2].to_string());
+        key_selector = Option::from(captures[3].to_string());
         log::debug!("key_re: {:#?}", captures);
     }
                                               
@@ -65,10 +67,21 @@ fn build_verify_string(params: VerifyParams) -> (String, String, String, String,
         }
     }
 
-    log::debug!("verify_string\n{}", verify_string);
+    log::debug!("verify_string\n{}\nap_id: {:#?}\nkey_selector: {:#?}\nlocal: {}\nusername: {:#?}\n",
+                verify_string,
+                ap_id,
+                key_selector,
+                local,
+                username);
+    
 
     // (verify, signature, ap_id)
-    (verify_string.trim_end().to_string(), signature_map.get("signature").unwrap().to_string(), ap_id, key_selector, local, username)
+    (verify_string.trim_end().to_string(),
+     signature_map.get("signature").unwrap().to_string(),
+     ap_id,
+     key_selector,
+     local,
+     username)
 }
 
 pub async fn verify(conn: Db, params: VerifyParams) -> bool {
@@ -94,7 +107,7 @@ pub async fn verify(conn: Db, params: VerifyParams) -> bool {
         }
     }
     
-    if local && key_selector == "client-key" {
+    if local && key_selector == Some("client-key".to_string()) {
         if let Some(username) = username {
             if let Some(profile) = get_profile_by_username(&conn, username).await {
                 if let Some(public_key) = profile.client_public_key {
@@ -188,7 +201,7 @@ pub fn sign(params: SignParams) -> SignResponse {
 
     let url = Url::parse(&params.url).unwrap();
     let host = url.host().unwrap().to_string();
-    let request_target = format!("{} {}", params.method.to_string().to_lowercase(), url.path().to_string());
+    let request_target = format!("{} {}", params.method.to_string().to_lowercase(), url.path());
     
     let now = SystemTime::now();
     let date = httpdate::fmt_http_date(now);

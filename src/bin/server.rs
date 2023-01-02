@@ -118,9 +118,9 @@ impl<'r> FromRequest<'r> for Signed {
         let host = request.host().unwrap().to_string();
         let path = request.uri().path().to_string();
 
-        //log::debug!("request: {:#?}", request);
+        log::debug!("request: {:#?}", request);
 
-        let username_re = regex::Regex::new(r"(/user/)([a-zA-Z0-9]+)(/.*)").unwrap();
+        let username_re = regex::Regex::new(r"(/user/)([a-zA-Z0-9_]+)(/.*)").unwrap();
         if let Some(username_match) = username_re.captures(&path) {
             if let Some(username) = username_match.get(2) {
                 match get_profile_by_username(&conn, username.as_str().to_string()).await {
@@ -132,6 +132,15 @@ impl<'r> FromRequest<'r> for Signed {
                         let date_vec: Vec<_> = request.headers().get("date").collect();
                         if date_vec.len() == 1 {
                             date = date_vec[0].to_string();
+                        } else {
+                            // browser fetch is a jerk and forbids the "date" header; browsers
+                            // aggressively strips it, so I use Enigmatick-Date as a backup
+                            let enigmatick_date_vec: Vec<_> =
+                                request.headers().get("enigmatick-date").collect();
+
+                            if enigmatick_date_vec.len() == 1 {
+                                date = enigmatick_date_vec[0].to_string();
+                            }
                         }
 
                         let mut digest = Option::<String>::None;
@@ -428,12 +437,14 @@ pub async fn authenticate_user(conn: Db, user: Result<Json<AuthenticationData>, 
     }
 }
 
-#[post("/user/<username>/outbox", format="json", data="<object>")]
+#[post("/user/<username>/outbox", format="application/activity+json", data="<object>")]
 pub async fn
-    outbox_post(conn: Db,
-                username: String,
-                object: Result<Json<ApBaseObjectSuper>, Error<'_>>)
-                -> Result<Json<Note>, Status>
+    outbox_post(
+        signed: Signed,
+        conn: Db,
+        username: String,
+        object: Result<Json<ApBaseObjectSuper>, Error<'_>>)
+    -> Result<Json<Note>, Status>
 {
     debug!("raw\n{:#?}", object);
 
