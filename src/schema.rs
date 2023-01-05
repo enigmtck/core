@@ -1,6 +1,20 @@
 // @generated automatically by Diesel CLI.
 
 diesel::table! {
+    encrypted_sessions (id) {
+        id -> Int4,
+        created_at -> Timestamptz,
+        updated_at -> Timestamptz,
+        profile_id -> Int4,
+        ap_to -> Varchar,
+        attributed_to -> Varchar,
+        instrument -> Jsonb,
+        reference -> Nullable<Varchar>,
+        uuid -> Varchar,
+    }
+}
+
+diesel::table! {
     followers (id) {
         id -> Int4,
         created_at -> Timestamptz,
@@ -95,6 +109,22 @@ diesel::table! {
 }
 
 diesel::table! {
+    remote_encrypted_sessions (id) {
+        id -> Int4,
+        created_at -> Timestamptz,
+        updated_at -> Timestamptz,
+        profile_id -> Int4,
+        actor -> Varchar,
+        kind -> Varchar,
+        ap_id -> Varchar,
+        ap_to -> Varchar,
+        attributed_to -> Varchar,
+        instrument -> Jsonb,
+        reference -> Nullable<Varchar>,
+    }
+}
+
+diesel::table! {
     remote_notes (id) {
         id -> Int4,
         created_at -> Timestamptz,
@@ -114,15 +144,19 @@ diesel::table! {
     }
 }
 
+diesel::joinable!(encrypted_sessions -> profiles (profile_id));
 diesel::joinable!(followers -> profiles (profile_id));
 diesel::joinable!(leaders -> profiles (profile_id));
+diesel::joinable!(remote_encrypted_sessions -> profiles (profile_id));
 
 diesel::allow_tables_to_appear_in_same_query!(
+    encrypted_sessions,
     followers,
     leaders,
     notes,
     profiles,
     remote_activities,
     remote_actors,
+    remote_encrypted_sessions,
     remote_notes,
 );

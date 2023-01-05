@@ -8,5 +8,6 @@ pub use types::collection::{ApCollection, ApOrderedCollection, FollowersPage, Le
 pub use types::note::ApNote;
 pub use types::object::{
     ApActivityType, ApActorType, ApBaseObject, ApBaseObjectSuper, ApBaseObjectType, ApContext,
-    ApFlexible, ApIdentifier, ApObject, ApObjectType, ApTag, ApTagType,
+    ApFlexible, ApIdentifier, ApInstrument, ApObject, ApObjectType, ApTag, ApTagType,
 };
+pub use types::session::ApSession;

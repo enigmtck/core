@@ -3,3 +3,4 @@ pub mod actor;
 pub mod collection;
 pub mod note;
 pub mod object;
+pub mod session;

@@ -3,12 +3,14 @@ extern crate rocket;
 
 use enigmatick::activity_pub::{ApActivityType, ApOrderedCollection, FollowersPage, LeadersPage, ApBaseObjectSuper, ApIdentifier};
 use enigmatick::admin;
+use enigmatick::models::encrypted_sessions::NewEncryptedSession;
 use enigmatick::models::notes::{NewNote, Note};
 use enigmatick::models::remote_notes::NewRemoteNote;
 use enigmatick::models::remote_activities::NewRemoteActivity;
 use enigmatick::models::profiles::Profile;
 use enigmatick::models::followers::NewFollower;
 use enigmatick::models::leaders::NewLeader;
+use enigmatick::models::remote_encrypted_sessions::NewRemoteEncryptedSession;
 use enigmatick::activity_pub::{ApObject, ApActor, ApNote, ApActivity, retriever, sender};
 use enigmatick::webfinger::WebFinger;
 use enigmatick::db::{Db,
@@ -26,7 +28,9 @@ use enigmatick::db::{Db,
                      get_leader_by_profile_id_and_ap_id,
                      delete_leader,
                      get_remote_actor_by_ap_id,
-                     delete_remote_actor_by_ap_id};
+                     delete_remote_actor_by_ap_id,
+                     create_remote_encrypted_session,
+                     create_encrypted_session};
 use enigmatick::signing::{sign, verify, VerifyParams, SignParams, Method};
 
 use faktory::{Producer, Job};
@@ -385,7 +389,7 @@ pub struct NewUser {
     pub password: String,
     pub display_name: String,
     pub client_public_key: String,
-    pub keystore: Value,
+    pub keystore: String,
 }
 
 #[post("/api/user/create", format="json", data="<user>")]
@@ -395,13 +399,15 @@ pub async fn create_user(conn: Db, user: Result<Json<NewUser>, Error<'_>>)
     debug!("raw\n{:#?}", user);
 
     if let Ok(user) = user {
-        if let Some(profile) =
+        let keystore_value: serde_json::Value = serde_json::from_str(&user.keystore.clone()).unwrap();
+        
+        if let Some(profile) =    
             admin::create_user(&conn,
                                user.username.clone(),
                                user.display_name.clone(),
                                user.password.clone(), 
                                Some(user.client_public_key.clone()),
-                               Some(user.keystore.clone())).await {
+                               Some(keystore_value)).await {
                 Ok(Json(profile))
         } else {
             Err(Status::NoContent)
@@ -444,128 +450,165 @@ pub async fn
         conn: Db,
         username: String,
         object: Result<Json<ApBaseObjectSuper>, Error<'_>>)
-    -> Result<Json<Note>, Status>
+    -> Result<Status, Status>
 {
     debug!("raw\n{:#?}", object);
 
-    match get_profile_by_username(&conn, username).await {
-        Some(profile) => match object {
-            Ok(object) => match object {
-                Json(ApBaseObjectSuper::Activity(mut activity)) => {
-                    debug!("this looks like an ApActivity\n{:#?}", activity);
-                    match activity.kind {                        
-                        ApActivityType::Undo => {
-                            debug!("this looks like an Unfollow (Undo) activity");
+    if let Signed(true) = signed {
+        match get_profile_by_username(&conn, username).await {
+            Some(profile) => match object {
+                Ok(object) => match object {
+                    Json(ApBaseObjectSuper::Activity(mut activity)) => {
+                        debug!("this looks like an ApActivity\n{:#?}", activity);
+                        match activity.kind {                        
+                            ApActivityType::Undo => {
+                                debug!("this looks like an Unfollow (Undo) activity");
 
-                            activity.actor = format!("{}/user/{}", *enigmatick::SERVER_URL, profile.username);
+                                activity.actor = format!("{}/user/{}", *enigmatick::SERVER_URL, profile.username);
 
-                            if let ApObject::Plain(ap_id) = activity.object {
-                                if let Some(leader) = get_leader_by_profile_id_and_ap_id(&conn,
-                                                                                         profile.id,
-                                                                                         ap_id.clone()).await {
-                                    // taking the leader ap_id and converting it to the leader uuid locator seems
-                                    // like cheating here. but I'm doing it anyway.
-                                    debug!("leader retrieved: {}", leader.uuid);
-                                    let locator = format!("{}/leader/{}", *enigmatick::SERVER_URL, leader.uuid);
+                                if let ApObject::Plain(ap_id) = activity.object {
+                                    if let Some(leader) = get_leader_by_profile_id_and_ap_id(&conn,
+                                                                                             profile.id,
+                                                                                             ap_id.clone()).await {
+                                        // taking the leader ap_id and converting it to the leader uuid locator seems
+                                        // like cheating here. but I'm doing it anyway.
+                                        debug!("leader retrieved: {}", leader.uuid);
+                                        let locator = format!("{}/leader/{}", *enigmatick::SERVER_URL, leader.uuid);
+                                        
+                                        activity.object = ApObject::Identifier(ApIdentifier {id: locator});
+                                        debug!("updated activity\n{:#?}", activity);
+
+                                        if let Some(actor) = get_remote_actor_by_ap_id(&conn, ap_id).await {
+                                            if sender::send_activity(activity, profile, actor).await.is_ok() {
+                                                debug!("sent undo follow request successfully");
+                                                if delete_leader(&conn, leader.id).await.is_ok() {
+                                                    debug!("leader record deleted successfully");
+                                                    Ok(Status::Accepted)
+                                                } else {
+                                                    Err(Status::NoContent)
+                                                }
+                                            } else {
+                                                Err(Status::NoContent)
+                                            }
+                                        } else {
+                                            Err(Status::NoContent)
+                                        }
+                                    } else {
+                                        Err(Status::NoContent)
+                                    }
+                                } else {
+                                    Err(Status::NoContent)
+                                }
+                            },
+                            ApActivityType::Follow => {
+                                debug!("this looks like a Follow activity");
+                                
+                                activity.actor = format!("{}/user/{}", *enigmatick::SERVER_URL, profile.username);
+                                
+                                let mut leader = NewLeader::from(activity.clone());
+                                leader.profile_id = profile.id;
+
+                                if let Some(leader) = create_leader(&conn, leader).await {
+                                    debug!("leader created: {}", leader.uuid);
+                                    activity.base.id = Option::from(format!("{}/leader/{}",
+                                                                            *enigmatick::SERVER_URL, 
+                                                                            leader.uuid));
                                     
-                                    activity.object = ApObject::Identifier(ApIdentifier {id: locator});
                                     debug!("updated activity\n{:#?}", activity);
 
-                                    if let Some(actor) = get_remote_actor_by_ap_id(&conn, ap_id).await {
-                                        if sender::send_activity(activity, profile, actor).await.is_ok() {
-                                            debug!("sent undo follow request successfully");
-                                            if delete_leader(&conn, leader.id).await.is_ok() {
-                                                debug!("leader record deleted successfully");
+                                    if let ApObject::Plain(object) = activity.clone().object {
+                                        if let Some(actor) = get_remote_actor_by_ap_id(&conn, object).await {
+                                            if sender::send_activity(activity, profile, actor).await.is_ok() {
+                                                debug!("sent follow request successfully");
+                                                Ok(Status::Accepted)
+                                            } else {
+                                                Err(Status::NoContent)
                                             }
+                                        } else {
+                                            Err(Status::NoContent)
                                         }
+                                    } else {
+                                        Err(Status::NoContent)
                                     }
+                                } else {
+                                    Err(Status::NoContent)
                                 }
-                            }
-                        },
-                        ApActivityType::Follow => {
-                            debug!("this looks like a Follow activity");
-                            
-                            activity.actor = format!("{}/user/{}", *enigmatick::SERVER_URL, profile.username);
-                            
-                            let mut leader = NewLeader::from(activity.clone());
-                            leader.profile_id = profile.id;
-
-                            if let Some(leader) = create_leader(&conn, leader).await {
-                                debug!("leader created: {}", leader.uuid);
-                                activity.base.id = Option::from(format!("{}/leader/{}",
-                                                                        *enigmatick::SERVER_URL, 
-                                                                        leader.uuid));
-                                
-                                debug!("updated activity\n{:#?}", activity);
-
-                                if let ApObject::Plain(object) = activity.clone().object {
-                                    if let Some(actor) = get_remote_actor_by_ap_id(&conn, object).await {
-                                        if sender::send_activity(activity, profile, actor).await.is_ok() {
-                                            debug!("sent follow request successfully");
-                                        }
-                                    }
-                                }
-                            }
-                        },
-                        _ => debug!("looks like something else")
-                    }
-
-                    Err(Status::NoContent)
-                },
-                Json(ApBaseObjectSuper::Object(ApObject::Note(note))) => {
-                    debug!("this looks like an ApNote");
-                    
-                    let create = ApActivity::from(note.clone());
-
-                    let n = NewNote { uuid: create.clone().base.uuid.unwrap(),
-                                      profile_id: profile.id,
-                                      content: note.content,
-                                      ap_to: note.to.clone().into(),
-                                      ap_tag: Option::from(serde_json::to_value(&note.base.tag).unwrap()) };
-                    
-                    if let Some(created_note) = create_note(&conn, n).await {
-                        for recipient in note.to {                            
-                            let profile = profile.clone();
-                            if let Some(receiver) = retriever::get_actor(&conn,
-                                                                         profile.clone(),
-                                                                         recipient.clone()).await {
-                                let url = receiver.inbox;
-
-                                let body = Option::from(serde_json::to_string(&create).unwrap());
-                                let method = Method::Post;
-                                
-                                let signature = sign(
-                                    SignParams { profile,
-                                                 url: url.clone(),
-                                                 body: body.clone(),
-                                                 method }
-                                );
-
-                                let client = Client::new().post(&url)
-                                    .header("Date", signature.date)
-                                    .header("Digest", signature.digest.unwrap())
-                                    .header("Signature", &signature.signature)
-                                    .header("Content-Type",
-                                            "application/ld+json; profile=\"http://www.w3.org/ns/activitystreams\"")
-                                    .body(body.unwrap());
-                                
-                                if let Ok(resp) = client.send().await {
-                                    if let Ok(text) = resp.text().await {
-                                        debug!("send successful to: {}\n{}", recipient, text);
-                                    }
-                                }
+                            },
+                            _ => {
+                                debug!("looks like something else");
+                                Err(Status::NoContent)
                             }
                         }
-                        Ok(Json(created_note))
-                    } else {
-                        Err(Status::NoContent)
-                    }
+                    },
+                    Json(ApBaseObjectSuper::Object(ApObject::Note(note))) => {
+                        debug!("this looks like an ApNote");
+                        
+                        let create = ApActivity::from(note.clone());
+
+                        let n = NewNote { uuid: create.clone().base.uuid.unwrap(),
+                                          profile_id: profile.id,
+                                          content: note.content,
+                                          ap_to: note.to.clone().into(),
+                                          ap_tag: Option::from(serde_json::to_value(&note.base.tag).unwrap()) };
+                        
+                        if let Some(created_note) = create_note(&conn, n).await {
+                            for recipient in note.to {                            
+                                let profile = profile.clone();
+                                if let Some(receiver) = retriever::get_actor(&conn,
+                                                                             profile.clone(),
+                                                                             recipient.clone()).await {
+                                    let url = receiver.inbox;
+
+                                    let body = Option::from(serde_json::to_string(&create).unwrap());
+                                    let method = Method::Post;
+                                    
+                                    let signature = sign(
+                                        SignParams { profile,
+                                                     url: url.clone(),
+                                                     body: body.clone(),
+                                                     method }
+                                    );
+
+                                    let client = Client::new().post(&url)
+                                        .header("Date", signature.date)
+                                        .header("Digest", signature.digest.unwrap())
+                                        .header("Signature", &signature.signature)
+                                        .header("Content-Type",
+                                                "application/ld+json; profile=\"http://www.w3.org/ns/activitystreams\"")
+                                        .body(body.unwrap());
+                                    
+                                    if let Ok(resp) = client.send().await {
+                                        if let Ok(text) = resp.text().await {
+                                            debug!("send successful to: {}\n{}", recipient, text);
+                                        }
+                                    }
+                                }
+                            }
+                            Ok(Status::Accepted)
+                        } else {
+                            Err(Status::NoContent)
+                        }
+                    },
+                    Json(ApBaseObjectSuper::Object(ApObject::Session(session))) => {
+                        debug!("this looks like an encrypted session");
+
+                        let mut encrypted_session = NewEncryptedSession::from(session);
+                        encrypted_session.profile_id = profile.id;
+                        
+                        if create_encrypted_session(&conn, encrypted_session).await.is_some() {
+                            Ok(Status::Accepted)
+                        } else {
+                            Err(Status::NoContent)
+                        }
+                    },
+                    _ => Err(Status::NoContent)
                 },
-                _ => Err(Status::NoContent)
+                Err(_) => Err(Status::NoContent)
             },
-            Err(_) => Err(Status::NoContent)
-        },
-        None => Err(Status::NoContent)
+            None => Err(Status::NoContent)
+        }
+    } else {
+        Err(Status::NoContent)
     }
 }
 
@@ -579,7 +622,9 @@ pub async fn
                -> Result<Status, Status> {
     
     debug!("inbox: {:#?}", activity);
-    
+
+    // if let (Ok(activity), Some(profile)) =
+    //     (activity, get_profile_by_username(&conn, username).await)
     if let (Ok(activity), Some(profile), Signed(true)) =
         (activity, get_profile_by_username(&conn, username).await, signed)
     {                          
@@ -690,6 +735,34 @@ pub async fn
                     } else {
                         Err(Status::NoContent)
                     }
+                },
+                ApActivityType::Invite => {
+                    debug!("this looks like an encryption session invite activity");
+                    let mut remote_encrypted_session =
+                        NewRemoteEncryptedSession::from(activity.clone());
+                    remote_encrypted_session.profile_id = profile.id;
+                    
+                    if create_remote_encrypted_session(&conn, remote_encrypted_session)
+                        .await.is_some() {
+                        Ok(Status::Accepted)
+                    } else {
+                        Err(Status::NoContent)
+                    }
+                    
+                },
+                ApActivityType::Join => {
+                    debug!("this looks like an encryption session join activity");
+                    let mut remote_encrypted_session =
+                        NewRemoteEncryptedSession::from(activity.clone());
+                    remote_encrypted_session.profile_id = profile.id;
+                    
+                    if create_remote_encrypted_session(&conn, remote_encrypted_session)
+                        .await.is_some() {
+                        Ok(Status::Accepted)
+                    } else {
+                        Err(Status::NoContent)
+                    }
+                    
                 },
                 _ => Ok(Status::Accepted)
             }

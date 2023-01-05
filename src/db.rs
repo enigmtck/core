@@ -4,9 +4,11 @@ use diesel::prelude::*;
 use crate::models::remote_notes::{NewRemoteNote, RemoteNote};
 use crate::models::remote_actors::{NewRemoteActor, RemoteActor};
 use crate::models::remote_activities::{NewRemoteActivity, RemoteActivity};
+use crate::models::remote_encrypted_sessions::{NewRemoteEncryptedSession, RemoteEncryptedSession};
 use crate::models::followers::{NewFollower, Follower};
 use crate::models::leaders::{NewLeader, Leader};
 use crate::models::notes::{NewNote, Note};
+use crate::models::encrypted_sessions::{NewEncryptedSession, EncryptedSession};
 use crate::schema;
 use crate::models::profiles::{Profile, NewProfile};
 
@@ -32,6 +34,28 @@ pub async fn update_leader_by_uuid(conn: &Db, leader_uuid: String, accept_ap_id:
                    .get_result::<Leader>(c)).await {
         Ok(x) => Some(x),
         Err(_) => Option::None
+    }
+}
+
+pub async fn create_remote_encrypted_session(conn: &Db, remote_encrypted_session: NewRemoteEncryptedSession) -> Option<RemoteEncryptedSession> {
+    use schema::remote_encrypted_sessions;
+
+    match conn.run(move |c| diesel::insert_into(remote_encrypted_sessions::table)
+                   .values(&remote_encrypted_session)
+                   .get_result::<RemoteEncryptedSession>(c)).await {
+        Ok(x) => Some(x),
+        Err(e) => { log::debug!("{:#?}",e); Option::None}
+    }
+}
+
+pub async fn create_encrypted_session(conn: &Db, encrypted_session: NewEncryptedSession) -> Option<EncryptedSession> {
+    use schema::encrypted_sessions;
+
+    match conn.run(move |c| diesel::insert_into(encrypted_sessions::table)
+                   .values(&encrypted_session)
+                   .get_result::<EncryptedSession>(c)).await {
+        Ok(x) => Some(x),
+        Err(e) => { log::debug!("{:#?}",e); Option::None}
     }
 }
 
