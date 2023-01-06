@@ -24,12 +24,12 @@ pub struct NewRemoteActor {
 impl From<ApActor> for NewRemoteActor {
     fn from(actor: ApActor) -> NewRemoteActor {
         NewRemoteActor {
-            context: serde_json::to_value(actor.base.context.unwrap()).unwrap(),
+            context: serde_json::to_value(actor.context.unwrap()).unwrap(),
             kind: actor.kind.to_string(),
-            ap_id: actor.base.id.unwrap(),
-            name: actor.base.name.unwrap(),
+            ap_id: actor.id.unwrap(),
+            name: actor.name.unwrap(),
             preferred_username: actor.preferred_username,
-            summary: actor.base.summary.unwrap(),
+            summary: actor.summary.unwrap(),
             inbox: actor.inbox,
             outbox: actor.outbox,
             followers: actor.followers,

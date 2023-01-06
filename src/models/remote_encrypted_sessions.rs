@@ -25,10 +25,10 @@ impl From<ApActivity> for NewRemoteEncryptedSession {
         if let ApObject::Session(session) = activity.object {
             ret.actor = activity.actor;
             ret.kind = activity.kind.to_string();
-            ret.ap_id = session.base.id.unwrap();
+            ret.ap_id = session.id.unwrap();
             ret.ap_to = session.to;
             ret.attributed_to = session.attributed_to;
-            ret.reference = session.base.reference;
+            ret.reference = session.reference;
             ret.instrument = serde_json::to_value(session.instrument).unwrap();
         }
 

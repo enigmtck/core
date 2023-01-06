@@ -1,12 +1,14 @@
-use crate::activity_pub::{ApBaseObject, ApBaseObjectType, ApContext, ApObject};
+use crate::activity_pub::{ApBaseObjectType, ApContext, ApObject};
 use crate::models::{followers::Follower, leaders::Leader, profiles::Profile};
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct ApCollection {
-    #[serde(flatten)]
-    pub base: ApBaseObject,
+    pub context: Option<ApContext>,
+    #[serde(rename = "type")]
+    pub kind: ApBaseObjectType,
+    pub id: Option<String>,
     pub total_items: u32,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub items: Option<Vec<ApObject>>,
@@ -43,15 +45,12 @@ impl From<FollowersPage> for ApOrderedCollection {
         if request.page == 0 {
             ApOrderedCollection {
                 base: ApCollection {
-                    base: ApBaseObject {
-                        kind: Option::from(ApBaseObjectType::OrderedCollection),
-                        id: Option::from(format!(
-                            "{}/users/{}/followers",
-                            *crate::SERVER_URL,
-                            request.profile.username
-                        )),
-                        ..Default::default()
-                    },
+                    kind: ApBaseObjectType::OrderedCollection,
+                    id: Option::from(format!(
+                        "{}/users/{}/followers",
+                        *crate::SERVER_URL,
+                        request.profile.username
+                    )),
                     total_items: request.followers.len() as u32,
                     first: Option::None,
                     part_of: Option::None,
@@ -68,9 +67,6 @@ impl From<FollowersPage> for ApOrderedCollection {
         } else {
             ApOrderedCollection {
                 base: ApCollection {
-                    base: ApBaseObject {
-                        ..Default::default()
-                    },
                     part_of: Option::None,
                     ..Default::default()
                 },
@@ -92,15 +88,12 @@ impl From<LeadersPage> for ApOrderedCollection {
         if request.page == 0 {
             ApOrderedCollection {
                 base: ApCollection {
-                    base: ApBaseObject {
-                        kind: Option::from(ApBaseObjectType::OrderedCollection),
-                        id: Option::from(format!(
-                            "{}/users/{}/following",
-                            *crate::SERVER_URL,
-                            request.profile.username
-                        )),
-                        ..Default::default()
-                    },
+                    kind: ApBaseObjectType::OrderedCollection,
+                    id: Option::from(format!(
+                        "{}/users/{}/following",
+                        *crate::SERVER_URL,
+                        request.profile.username
+                    )),
                     total_items: request.leaders.len() as u32,
                     first: Option::None,
                     part_of: Option::None,
@@ -117,9 +110,6 @@ impl From<LeadersPage> for ApOrderedCollection {
         } else {
             ApOrderedCollection {
                 base: ApCollection {
-                    base: ApBaseObject {
-                        ..Default::default()
-                    },
                     part_of: Option::None,
                     ..Default::default()
                 },

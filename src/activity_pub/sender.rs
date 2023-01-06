@@ -2,7 +2,7 @@ use reqwest::Client;
 use log::{debug, info, error};
 
 use crate::activity_pub::{
-    ApActivity, ApActivityType, ApContext, ApBaseObject, ApIdentifier, ApObject,
+    ApActivity, ApActivityType, ApIdentifier, ApObject,
 };
 use crate::models::profiles::Profile;
 use crate::models::remote_actors::RemoteActor;
@@ -12,15 +12,10 @@ pub async fn send_follower_accept(ap_id: String, profile: Profile, actor: Remote
     debug!("in send_follower_accept");
 
     let activity = ApActivity {
-        base: ApBaseObject {
-            context: Option::from(ApContext::Plain(
-                "https://www.w3.org/ns/activitystreams".to_string(),
-            )),
-            ..Default::default()
-        },
         actor: format!("{}/user/{}", *crate::SERVER_URL, profile.username),
         kind: ApActivityType::Accept,
         object: ApObject::Identifier(ApIdentifier { id: ap_id }),
+        ..Default::default()
     };
 
     let accept_json = serde_json::to_string(&activity).unwrap();
@@ -65,14 +60,14 @@ pub async fn send_follower_accept(ap_id: String, profile: Profile, actor: Remote
 }
 
 
-pub async fn send_activity(activity: ApActivity, profile: Profile, actor: RemoteActor) -> Result<(), ()> {
+pub async fn send_activity(activity: ApActivity, profile: Profile, inbox: String) -> Result<(), ()> {
     debug!("in send_activity_request");
 
     let activity_json = serde_json::to_string(&activity).unwrap();
     
     debug!("json: {}", activity_json);
 
-    let url = actor.inbox.clone();
+    let url = inbox.clone();
     let body = Option::from(activity_json.clone());
     let method = Method::Post;
     
@@ -84,7 +79,7 @@ pub async fn send_activity(activity: ApActivity, profile: Profile, actor: Remote
     );
 
     let client = Client::new()
-        .post(&actor.inbox)
+        .post(&inbox)
         .header("Date", signature.date)
         .header("Digest", signature.digest.unwrap_or_default())
         .header("Signature", &signature.signature)
@@ -99,7 +94,7 @@ pub async fn send_activity(activity: ApActivity, profile: Profile, actor: Remote
     match client.send().await {
         Ok(resp) => {
             match resp.text().await {
-                Ok(text) => info!("send successful to: {}\n{}", actor.inbox, text),
+                Ok(text) => info!("send successful to: {}\n{}", inbox, text),
                 Err(e) => error!("reqwest response error: {:#?}", e)
             }
         },

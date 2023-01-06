@@ -1,10 +1,16 @@
 #[macro_use]
 extern crate log;
 
-use enigmatick::activity_pub::sender::send_follower_accept;
-use enigmatick::models::followers::Follower;
-use enigmatick::models::profiles::Profile;
-use enigmatick::models::remote_actors::RemoteActor;
+use enigmatick::{
+    activity_pub::sender::send_follower_accept,
+    helper::get_local_username_from_ap_id,
+    models::{
+        followers::Follower,
+        profiles::Profile,
+        remote_actors::RemoteActor,
+        remote_encrypted_sessions::RemoteEncryptedSession,
+    }
+};
 
 use diesel::prelude::*;
 use diesel::r2d2::ConnectionManager;
@@ -23,6 +29,53 @@ lazy_static! {
         let manager = ConnectionManager::<PgConnection>::new(database_url);
         Pool::new(manager).expect("failed to create db pool")
     };
+}
+
+pub fn get_remote_encrypted_session_by_ap_id(apid: String) -> Option<RemoteEncryptedSession> {
+    use enigmatick::schema::remote_encrypted_sessions::dsl::{remote_encrypted_sessions, ap_id};
+
+    if let Ok(conn) = POOL.get() {
+        match remote_encrypted_sessions.filter(ap_id.eq(apid)).first::<RemoteEncryptedSession>(&conn) {
+            Ok(x) => Option::from(x),
+            Err(_) => Option::None
+        }
+    } else {
+        Option::None
+    }
+}
+
+pub fn get_profile_by_username(username: String) -> Option<Profile> {
+    use enigmatick::schema::profiles::dsl::{profiles, username as u};
+
+    if let Ok(conn) = POOL.get() {
+        match profiles.filter(u.eq(username)).first::<Profile>(&conn) {
+            Ok(x) => Option::from(x),
+            Err(_) => Option::None
+        }
+    } else {
+        Option::None
+    }
+}
+
+fn provide_one_time_key(job: Job) -> io::Result<()> {
+    // look up remote_encrypted_session with ap_id from job.args()
+
+    for ap_id in job.args() {
+        let ap_id = ap_id.as_str().unwrap().to_string();
+
+        if let Some(session) = get_remote_encrypted_session_by_ap_id(ap_id) {
+            if let Some(username) = get_local_username_from_ap_id(session.ap_to) {
+                if let Some(profile) = get_profile_by_username(username) {
+                    // send Join activity with Identity and OTK
+                    if let Some(keystore) = profile.keystore {
+                        let identity_key = keystore.olm_identity_public_key;
+                        
+                    }
+                }
+            }
+        }
+    }
+    Ok(())
 }
 
 fn acknowledge_followers(job: Job) -> io::Result<()> {
@@ -96,6 +149,7 @@ fn main() {
 
     let mut consumer = ConsumerBuilder::default();
     consumer.register("acknowledge_followers", acknowledge_followers);
+    consumer.register("provide_one_time_key", provide_one_time_key);
 
     consumer.register("test_job", |job| {
         debug!("{:#?}", job);

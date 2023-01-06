@@ -1,9 +1,9 @@
-use crate::activity_pub::{ApActorType, ApBaseObject, ApContext};
+use crate::activity_pub::{ApActorType, ApContext};
 use crate::models::profiles::Profile;
 use serde::{Deserialize, Serialize};
 use serde_with::serde_as;
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct ApPublicKey {
     pub id: String,
@@ -15,10 +15,14 @@ pub struct ApPublicKey {
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct ApActor {
-    #[serde(flatten)]
-    pub base: ApBaseObject,
+    #[serde(rename = "@context")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub context: Option<ApContext>,
     #[serde(rename = "type")]
     pub kind: ApActorType,
+    pub name: Option<String>,
+    pub summary: Option<String>,
+    pub id: Option<String>,
     pub preferred_username: String,
     pub inbox: String,
     pub outbox: String,
@@ -29,17 +33,35 @@ pub struct ApActor {
     pub public_key: ApPublicKey,
 }
 
+impl Default for ApActor {
+    fn default() -> ApActor {
+        ApActor {
+            context: Option::from(ApContext::Plain(
+                "https://www.w3.org/ns/activitystreams".to_string(),
+            )),
+            kind: ApActorType::default(),
+            name: Option::None,
+            summary: Option::None,
+            id: Option::None,
+            preferred_username: String::new(),
+            inbox: String::new(),
+            outbox: String::new(),
+            followers: String::new(),
+            following: String::new(),
+            liked: Option::None,
+            public_key: ApPublicKey::default(),
+        }
+    }
+}
+
 impl From<Profile> for ApActor {
     fn from(profile: Profile) -> Self {
         let server_url = &*crate::SERVER_URL;
 
         ApActor {
-            base: ApBaseObject {
-                name: Option::from(profile.display_name),
-                summary: Option::from(profile.summary.unwrap_or_default()),
-                id: Option::from(format!("{}/user/{}", server_url, profile.username)),
-                ..Default::default()
-            },
+            name: Option::from(profile.display_name),
+            summary: Option::from(profile.summary.unwrap_or_default()),
+            id: Option::from(format!("{}/user/{}", server_url, profile.username)),
             kind: ApActorType::Person,
             preferred_username: profile.username.clone(),
             inbox: format!("{}/user/{}/inbox/", server_url, profile.username),
@@ -52,6 +74,7 @@ impl From<Profile> for ApActor {
                 owner: format!("{}/user/{}", server_url, profile.username),
                 public_key_pem: profile.public_key,
             },
+            ..Default::default()
         }
     }
 }

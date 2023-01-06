@@ -24,7 +24,7 @@ impl From<ApActivity> for NewFollower {
         };
 
         NewFollower {
-            ap_id: activity.base.id.unwrap(),
+            ap_id: activity.id.unwrap(),
             actor: activity.actor,
             followed_ap_id: o.unwrap_or_default(),
             uuid: Uuid::new_v4().to_string(),

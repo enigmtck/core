@@ -1,104 +1,49 @@
 #[macro_use]
 extern crate rocket;
 
-use enigmatick::activity_pub::{ApActivityType, ApOrderedCollection, FollowersPage, LeadersPage, ApBaseObjectSuper, ApIdentifier};
-use enigmatick::admin;
-use enigmatick::models::encrypted_sessions::NewEncryptedSession;
-use enigmatick::models::notes::{NewNote, Note};
-use enigmatick::models::remote_notes::NewRemoteNote;
-use enigmatick::models::remote_activities::NewRemoteActivity;
-use enigmatick::models::profiles::Profile;
-use enigmatick::models::followers::NewFollower;
-use enigmatick::models::leaders::NewLeader;
-use enigmatick::models::remote_encrypted_sessions::NewRemoteEncryptedSession;
-use enigmatick::activity_pub::{ApObject, ApActor, ApNote, ApActivity, retriever, sender};
-use enigmatick::webfinger::WebFinger;
-use enigmatick::db::{Db,
-                     get_profile_by_username,
-                     create_note,
-                     create_remote_activity,
-                     create_remote_note,
-                     create_follower,
-                     delete_follower_by_ap_id,
-                     create_leader,
-                     update_leader_by_uuid,
-                     get_remote_activity_by_ap_id,
-                     get_followers_by_profile_id,
-                     get_leaders_by_profile_id,
-                     get_leader_by_profile_id_and_ap_id,
-                     delete_leader,
-                     get_remote_actor_by_ap_id,
-                     delete_remote_actor_by_ap_id,
-                     create_remote_encrypted_session,
-                     create_encrypted_session};
-use enigmatick::signing::{sign, verify, VerifyParams, SignParams, Method};
+use enigmatick::{
+    admin,
+    outbox,
+    inbox,
+    FaktoryConnection,
+    models::{
+        remote_activities::NewRemoteActivity,
+        profiles::Profile,
+    },
+    activity_pub::{
+        ApObject,
+        ApActor,
+        ApActivity,
+        retriever,
+        ApActivityType,
+        ApOrderedCollection,
+        FollowersPage,
+        LeadersPage,
+        ApBaseObjectSuper
+    },
+    webfinger::WebFinger,
+    db::{
+        Db,
+        get_profile_by_username,
+        create_remote_activity,
+        get_followers_by_profile_id,
+        get_leaders_by_profile_id
+    },
+    signing::{verify, VerifyParams}
+};
 
-use faktory::{Producer, Job};
+use faktory::Job;
 
-use rocket::http::RawStr;
-use rocket::request::{FromParam, FromRequest, Request, Outcome};
-use rocket::serde::json::Json;
-use rocket::serde::json::Error;
-use rocket::http::{Status, Header};
-use rocket::fairing::{Fairing, Info, Kind, self};
-use rocket::{Rocket, Build, Response};
+use rocket::{
+    Response,
+    http::RawStr,
+    request::{FromParam, FromRequest, Request, Outcome},
+    serde::json::{Json, Error},
+    http::{Status, Header},
+    fairing::{Fairing, Info, Kind},
+};
 
 use serde::Deserialize;
-use serde_json::Value;
-use reqwest::Client;
-use std::net::TcpStream;
-use std::sync::{Arc, Mutex};
-
-#[derive(Clone)]
-pub struct FaktoryConnection {
-    pub producer: Arc<Mutex<Producer<TcpStream>>>
-}
-
-impl FaktoryConnection {
-    pub fn fairing() -> impl Fairing {
-        FaktoryConnectionFairing
-    }
-}
-struct FaktoryConnectionFairing;
-
-#[rocket::async_trait]
-impl Fairing for FaktoryConnectionFairing {
-    fn info(&self) -> Info {
-        Info {
-            name: "Faktory Connection",
-            kind: Kind::Ignite
-        }
-    }
-
-    async fn on_ignite(&self, rocket: Rocket<Build>) -> fairing::Result {
-        Ok(rocket.manage(FaktoryConnection {
-            producer: Arc::new(
-                Mutex::new(
-                    Producer::connect(
-                        Some("tcp://:password@localhost:7419")).unwrap()
-                )
-            )
-        }))
-    }
-}
-
-#[derive(Debug)]
-pub enum FaktoryConnectionError {
-    Failed
-}
-
-#[rocket::async_trait]
-impl <'r> FromRequest<'r> for FaktoryConnection {
-    type Error = FaktoryConnectionError;
-
-    async fn from_request(request: &'r Request<'_>) -> Outcome<Self, Self::Error> {
-        if let Some(faktory) = request.rocket().state::<FaktoryConnection>() {
-            Outcome::Success(faktory.clone())
-        } else {
-            Outcome::Failure((Status::BadRequest, FaktoryConnectionError::Failed))
-        }
-    }
-}
 
 pub struct Signed(bool);
 
@@ -138,7 +83,7 @@ impl<'r> FromRequest<'r> for Signed {
                             date = date_vec[0].to_string();
                         } else {
                             // browser fetch is a jerk and forbids the "date" header; browsers
-                            // aggressively strips it, so I use Enigmatick-Date as a backup
+                            // aggressively strip it, so I use Enigmatick-Date as a backup
                             let enigmatick_date_vec: Vec<_> =
                                 request.headers().get("enigmatick-date").collect();
 
@@ -174,7 +119,8 @@ impl<'r> FromRequest<'r> for Signed {
                                     Outcome::Success(Signed(false))
                                 }
                             },
-                            _ => Outcome::Failure((Status::BadRequest, SignatureError::MultipleSignatures)),
+                            _ => Outcome::Failure((Status::BadRequest,
+                                                   SignatureError::MultipleSignatures)),
                         }
                     },
                     None => Outcome::Failure((Status::BadRequest, SignatureError::LocalUserNotFound)),
@@ -244,6 +190,7 @@ pub async fn test(conn: Db, faktory: FaktoryConnection, username: String)
 pub async fn person(conn: Db, username: String) -> Result<Json<ApActor>, Status> {
     match get_profile_by_username(&conn, username).await {
         Some(profile) => {
+            debug!("profile\n{:#?}", profile);
             Ok(Json(ApActor::from(profile)))
         },
         None => Err(Status::NoContent)
@@ -301,87 +248,6 @@ pub async fn get_leaders(conn: Db, username: String) -> Result<Json<ApOrderedCol
         Err(Status::NoContent)
     }
 }
-
-// 2022-12-29T01:26:54Z DEBUG server] created_remote_activity
-//     RemoteActivity {
-//         id: 501,
-//         created_at: 2022-12-29T01:26:54.146936Z,
-//         updated_at: 2022-12-29T01:26:54.146936Z,
-//         profile_id: 1,
-//         context: Some(
-//             String("https://www.w3.org/ns/activitystreams"),
-//         ),
-//         kind: "Follow",
-//         ap_id: "https://ser.endipito.us/4bf6fc9f-c63a-49a4-85f1-48deedc17a62",
-//         ap_to: Some(
-//             Array [],
-//         ),
-//         cc: Some(
-//             Array [],
-//         ),
-//         actor: "https://ser.endipito.us/users/lloyd",
-//         published: None,
-//         ap_object: Some(
-//             String("https://enigmatick.jdt.dev/user/justin"),
-//         ),
-//     }
-// [2022-12-29T01:26:54Z DEBUG server] created_follower
-//     Follower {
-//         id: 17,
-//         created_at: 2022-12-29T01:26:54.155454Z,
-//         updated_at: 2022-12-29T01:26:54.155454Z,
-//         profile_id: 1,
-//         ap_id: "https://ser.endipito.us/4bf6fc9f-c63a-49a4-85f1-48deedc17a62",
-//         actor: "https://ser.endipito.us/users/lloyd",
-//         followed_ap_id: "https://enigmatick.jdt.dev/user/justin",
-//         uuid: "1e8e2500-c564-4064-a9c3-fda05058a430",
-//     }
-
-// ApActivity {
-//     base: ApBaseObject {
-//         context: Some(
-//             Plain(
-//                 "https://www.w3.org/ns/activitystreams",
-//             ),
-//         ),
-//         to: None,
-//         cc: None,
-//         bcc: None,
-//         tag: None,
-//         attachment: None,
-//         attributed_to: None,
-//         audience: None,
-//         content: None,
-//         name: None,
-//         end_time: None,
-//         generator: None,
-//         icon: None,
-//         in_reply_to: None,
-//         location: None,
-//         preview: None,
-//         published: None,
-//         replies: None,
-//         start_time: None,
-//         summary: None,
-//         updated: None,
-//         url: None,
-//         bto: None,
-//         media_type: None,
-//         duration: None,
-//         kind: None,
-//         id: Some(
-//             "https://ser.endipito.us/users/justin#accepts/follows/846",
-//         ),
-//         uuid: None,
-//     },
-//     kind: Accept,
-//     actor: "https://ser.endipito.us/users/justin",
-//     object: Identifier(
-//         ApIdentifier {
-//             id: "https://enigmatick.jdt.dev/leader/f208be33-55c9-44f7-8533-d36da8a8d4cf",
-//         },
-//     ),
-// },
 
 #[derive(Deserialize, Debug, Clone)]
 pub struct NewUser {
@@ -458,148 +324,19 @@ pub async fn
         match get_profile_by_username(&conn, username).await {
             Some(profile) => match object {
                 Ok(object) => match object {
-                    Json(ApBaseObjectSuper::Activity(mut activity)) => {
-                        debug!("this looks like an ApActivity\n{:#?}", activity);
+                    Json(ApBaseObjectSuper::Activity(activity)) => {
                         match activity.kind {                        
-                            ApActivityType::Undo => {
-                                debug!("this looks like an Unfollow (Undo) activity");
-
-                                activity.actor = format!("{}/user/{}", *enigmatick::SERVER_URL, profile.username);
-
-                                if let ApObject::Plain(ap_id) = activity.object {
-                                    if let Some(leader) = get_leader_by_profile_id_and_ap_id(&conn,
-                                                                                             profile.id,
-                                                                                             ap_id.clone()).await {
-                                        // taking the leader ap_id and converting it to the leader uuid locator seems
-                                        // like cheating here. but I'm doing it anyway.
-                                        debug!("leader retrieved: {}", leader.uuid);
-                                        let locator = format!("{}/leader/{}", *enigmatick::SERVER_URL, leader.uuid);
-                                        
-                                        activity.object = ApObject::Identifier(ApIdentifier {id: locator});
-                                        debug!("updated activity\n{:#?}", activity);
-
-                                        if let Some(actor) = get_remote_actor_by_ap_id(&conn, ap_id).await {
-                                            if sender::send_activity(activity, profile, actor).await.is_ok() {
-                                                debug!("sent undo follow request successfully");
-                                                if delete_leader(&conn, leader.id).await.is_ok() {
-                                                    debug!("leader record deleted successfully");
-                                                    Ok(Status::Accepted)
-                                                } else {
-                                                    Err(Status::NoContent)
-                                                }
-                                            } else {
-                                                Err(Status::NoContent)
-                                            }
-                                        } else {
-                                            Err(Status::NoContent)
-                                        }
-                                    } else {
-                                        Err(Status::NoContent)
-                                    }
-                                } else {
-                                    Err(Status::NoContent)
-                                }
-                            },
-                            ApActivityType::Follow => {
-                                debug!("this looks like a Follow activity");
-                                
-                                activity.actor = format!("{}/user/{}", *enigmatick::SERVER_URL, profile.username);
-                                
-                                let mut leader = NewLeader::from(activity.clone());
-                                leader.profile_id = profile.id;
-
-                                if let Some(leader) = create_leader(&conn, leader).await {
-                                    debug!("leader created: {}", leader.uuid);
-                                    activity.base.id = Option::from(format!("{}/leader/{}",
-                                                                            *enigmatick::SERVER_URL, 
-                                                                            leader.uuid));
-                                    
-                                    debug!("updated activity\n{:#?}", activity);
-
-                                    if let ApObject::Plain(object) = activity.clone().object {
-                                        if let Some(actor) = get_remote_actor_by_ap_id(&conn, object).await {
-                                            if sender::send_activity(activity, profile, actor).await.is_ok() {
-                                                debug!("sent follow request successfully");
-                                                Ok(Status::Accepted)
-                                            } else {
-                                                Err(Status::NoContent)
-                                            }
-                                        } else {
-                                            Err(Status::NoContent)
-                                        }
-                                    } else {
-                                        Err(Status::NoContent)
-                                    }
-                                } else {
-                                    Err(Status::NoContent)
-                                }
-                            },
-                            _ => {
-                                debug!("looks like something else");
-                                Err(Status::NoContent)
-                            }
+                            ApActivityType::Undo =>
+                                outbox::activity::undo(conn, activity, profile).await,
+                            ApActivityType::Follow =>
+                                outbox::activity::follow(conn, activity, profile).await,
+                            _ => Err(Status::NoContent)
                         }
                     },
-                    Json(ApBaseObjectSuper::Object(ApObject::Note(note))) => {
-                        debug!("this looks like an ApNote");
-                        
-                        let create = ApActivity::from(note.clone());
-
-                        let n = NewNote { uuid: create.clone().base.uuid.unwrap(),
-                                          profile_id: profile.id,
-                                          content: note.content,
-                                          ap_to: note.to.clone().into(),
-                                          ap_tag: Option::from(serde_json::to_value(&note.base.tag).unwrap()) };
-                        
-                        if let Some(created_note) = create_note(&conn, n).await {
-                            for recipient in note.to {                            
-                                let profile = profile.clone();
-                                if let Some(receiver) = retriever::get_actor(&conn,
-                                                                             profile.clone(),
-                                                                             recipient.clone()).await {
-                                    let url = receiver.inbox;
-
-                                    let body = Option::from(serde_json::to_string(&create).unwrap());
-                                    let method = Method::Post;
-                                    
-                                    let signature = sign(
-                                        SignParams { profile,
-                                                     url: url.clone(),
-                                                     body: body.clone(),
-                                                     method }
-                                    );
-
-                                    let client = Client::new().post(&url)
-                                        .header("Date", signature.date)
-                                        .header("Digest", signature.digest.unwrap())
-                                        .header("Signature", &signature.signature)
-                                        .header("Content-Type",
-                                                "application/ld+json; profile=\"http://www.w3.org/ns/activitystreams\"")
-                                        .body(body.unwrap());
-                                    
-                                    if let Ok(resp) = client.send().await {
-                                        if let Ok(text) = resp.text().await {
-                                            debug!("send successful to: {}\n{}", recipient, text);
-                                        }
-                                    }
-                                }
-                            }
-                            Ok(Status::Accepted)
-                        } else {
-                            Err(Status::NoContent)
-                        }
-                    },
+                    Json(ApBaseObjectSuper::Object(ApObject::Note(note))) => 
+                        outbox::object::note(conn, note, profile).await,
                     Json(ApBaseObjectSuper::Object(ApObject::Session(session))) => {
-                        debug!("this looks like an encrypted session");
-
-                        let mut encrypted_session = NewEncryptedSession::from(session);
-                        encrypted_session.profile_id = profile.id;
-                        
-                        if create_encrypted_session(&conn, encrypted_session).await.is_some() {
-                            Ok(Status::Accepted)
-                        } else {
-                            Err(Status::NoContent)
-                        }
+                        outbox::object::session(conn, session, profile).await
                     },
                     _ => Err(Status::NoContent)
                 },
@@ -644,127 +381,16 @@ pub async fn
             }
 
             match activity.kind {
-                ApActivityType::Delete => {
-                    debug!("this looks like a Delete activity");
-
-                    if let ApObject::Plain(ap_id) = activity.object {
-                        if ap_id == activity.actor && delete_remote_actor_by_ap_id(&conn, ap_id).await.is_ok() {
-                            debug!("remote actor record deleted");
-                        }
-                    }
-
-                    Ok(Status::Accepted)
-                },
-                ApActivityType::Create => {
-                    match activity.object {
-                        ApObject::Note(x) => {
-                            let mut n = NewRemoteNote::from(x);
-                            n.profile_id = profile.id;
-
-                            if let Some(created_note) = create_remote_note(&conn, n). await {
-                                log::debug!("created_remote_note\n{:#?}", created_note);
-                                Ok(Status::Accepted)
-                            } else {
-                                log::debug!("create_remote_note failed");
-                                Err(Status::NoContent)
-                            }
-                        },
-                        _ => Err(Status::NoContent)
-                    }
-                },
-                ApActivityType::Follow => {
-                    let mut f = NewFollower::from(activity);
-                    f.profile_id = profile.id;
-
-                    if let Some(created_follower) = create_follower(&conn, f). await {
-                        log::debug!("created_follower\n{:#?}", created_follower);
-
-                        match faktory.producer.try_lock() {
-                            Ok(mut x) => {
-                                if x.enqueue(Job::new("acknowledge_followers", vec![created_follower.uuid]))
-                                    .is_err() {
-                                    log::error!("failed to enqueue job");
-                                }
-                            },
-                            Err(e) => log::debug!("failed to lock mutex: {}", e)
-                        }
-                        
-                        Ok(Status::Accepted)
-                    } else {
-                        log::debug!("create_follower failed");
-                        Err(Status::NoContent)
-                    }
-                },
-                ApActivityType::Undo => {
-                    if let ApObject::Identifier(x) = activity.object {
-                        if let Some(x) = get_remote_activity_by_ap_id(&conn, x.id).await {
-                            if x.kind == ApActivityType::Follow.to_string() &&
-                                delete_follower_by_ap_id(&conn, x.ap_id).await {
-                                    Ok(Status::Accepted)
-                                } else {
-                                    Err(Status::NoContent)
-                                }
-                        } else {
-                            Err(Status::NoContent)
-                        }
-                    } else {
-                        Err(Status::NoContent)
-                    }
-                },
-                ApActivityType::Accept => {
-                    if let ApObject::Identifier(x) = activity.object {
-                        let ap_id_re = regex::Regex::new(r#"(\w+://)(.+?/)+(.+)"#).unwrap();
-                        if let Some(ap_id_match) = ap_id_re.captures(&x.id) {
-                            debug!("ap_id_match: {:#?}", ap_id_match);
-
-                            let matches = ap_id_match.len();
-                            let uuid = ap_id_match.get(matches-1).unwrap().as_str();
-
-                            if let Some(id) = activity.base.id {
-                                if update_leader_by_uuid(&conn, uuid.to_string(), id).await.is_some() {
-                                    Ok(Status::Accepted)
-                                } else {
-                                    Err(Status::NoContent)
-                                }
-                            } else {
-                                Err(Status::NoContent)
-                            }
-                        } else {
-                            Err(Status::NoContent)
-                        }
-                    } else {
-                        Err(Status::NoContent)
-                    }
-                },
-                ApActivityType::Invite => {
-                    debug!("this looks like an encryption session invite activity");
-                    let mut remote_encrypted_session =
-                        NewRemoteEncryptedSession::from(activity.clone());
-                    remote_encrypted_session.profile_id = profile.id;
-                    
-                    if create_remote_encrypted_session(&conn, remote_encrypted_session)
-                        .await.is_some() {
-                        Ok(Status::Accepted)
-                    } else {
-                        Err(Status::NoContent)
-                    }
-                    
-                },
-                ApActivityType::Join => {
-                    debug!("this looks like an encryption session join activity");
-                    let mut remote_encrypted_session =
-                        NewRemoteEncryptedSession::from(activity.clone());
-                    remote_encrypted_session.profile_id = profile.id;
-                    
-                    if create_remote_encrypted_session(&conn, remote_encrypted_session)
-                        .await.is_some() {
-                        Ok(Status::Accepted)
-                    } else {
-                        Err(Status::NoContent)
-                    }
-                    
-                },
-                _ => Ok(Status::Accepted)
+                ApActivityType::Delete => inbox::activity::delete(conn, activity).await,
+                ApActivityType::Create => inbox::activity::create(conn, activity, profile).await,
+                ApActivityType::Follow =>
+                    inbox::activity::follow(conn, faktory, activity, profile).await,
+                ApActivityType::Undo => inbox::activity::undo(conn, activity).await,
+                ApActivityType::Accept => inbox::activity::accept(conn, activity).await,
+                ApActivityType::Invite =>
+                    inbox::activity::invite(conn, faktory, activity, profile).await,
+                ApActivityType::Join => inbox::activity::join(conn, activity, profile).await,
+                _ => Err(Status::NoContent)
             }
         } else {
             Err(Status::NoContent)

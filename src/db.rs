@@ -1,6 +1,7 @@
 use rocket_sync_db_pools::{database, diesel};
 use uuid::Uuid;
 use diesel::prelude::*;
+use diesel::sql_types::{Array, Jsonb, Text};
 use crate::models::remote_notes::{NewRemoteNote, RemoteNote};
 use crate::models::remote_actors::{NewRemoteActor, RemoteActor};
 use crate::models::remote_activities::{NewRemoteActivity, RemoteActivity};
@@ -16,6 +17,10 @@ use crate::models::profiles::{Profile, NewProfile};
 // database name
 #[database("enigmatick")]
 pub struct Db(diesel::PgConnection);
+
+sql_function!{
+    fn jsonb_set(target: Jsonb, path: Array<Text>, new_value: Jsonb) -> Jsonb
+}
 
 pub async fn get_leader_by_profile_id_and_ap_id(conn: &Db, profile_id: i32, leader_ap_id: String) -> Option<Leader> {
     use schema::leaders::dsl::{leaders, profile_id as pid, leader_ap_id as lid};
@@ -45,6 +50,16 @@ pub async fn create_remote_encrypted_session(conn: &Db, remote_encrypted_session
                    .get_result::<RemoteEncryptedSession>(c)).await {
         Ok(x) => Some(x),
         Err(e) => { log::debug!("{:#?}",e); Option::None}
+    }
+}
+
+pub async fn get_remote_encrypted_session_by_ap_id(conn: &Db, apid: String)
+                                                   -> Option<RemoteEncryptedSession> {
+    use self::schema::remote_encrypted_sessions::dsl::{remote_encrypted_sessions, ap_id};
+
+    match conn.run(move |c| remote_encrypted_sessions.filter(ap_id.eq(apid)).first::<RemoteEncryptedSession>(c)).await {
+        Ok(x) => Option::from(x),
+        Err(_) => Option::None
     }
 }
 

@@ -66,7 +66,7 @@ diesel::table! {
         public_key -> Varchar,
         private_key -> Varchar,
         password -> Nullable<Varchar>,
-        keystore -> Nullable<Jsonb>,
+        keystore -> Jsonb,
         client_public_key -> Nullable<Varchar>,
     }
 }
@@ -147,7 +147,10 @@ diesel::table! {
 diesel::joinable!(encrypted_sessions -> profiles (profile_id));
 diesel::joinable!(followers -> profiles (profile_id));
 diesel::joinable!(leaders -> profiles (profile_id));
+diesel::joinable!(notes -> profiles (profile_id));
+diesel::joinable!(remote_activities -> profiles (profile_id));
 diesel::joinable!(remote_encrypted_sessions -> profiles (profile_id));
+diesel::joinable!(remote_notes -> profiles (profile_id));
 
 diesel::allow_tables_to_appear_in_same_query!(
     encrypted_sessions,

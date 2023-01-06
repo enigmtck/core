@@ -7,7 +7,7 @@ pub use types::actor::{ApActor, ApPublicKey};
 pub use types::collection::{ApCollection, ApOrderedCollection, FollowersPage, LeadersPage};
 pub use types::note::ApNote;
 pub use types::object::{
-    ApActivityType, ApActorType, ApBaseObject, ApBaseObjectSuper, ApBaseObjectType, ApContext,
-    ApFlexible, ApIdentifier, ApInstrument, ApObject, ApObjectType, ApTag, ApTagType,
+    ApActivityType, ApActorType, ApBaseObjectSuper, ApBaseObjectType, ApContext, ApFlexible,
+    ApIdentifier, ApInstrument, ApObject, ApObjectType, ApTag, ApTagType,
 };
 pub use types::session::ApSession;
