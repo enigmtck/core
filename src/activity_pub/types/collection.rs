@@ -1,8 +1,9 @@
 use crate::activity_pub::{ApBaseObjectType, ApContext, ApObject};
 use crate::models::{followers::Follower, leaders::Leader, profiles::Profile};
 use serde::{Deserialize, Serialize};
+use uuid::Uuid;
 
-#[derive(Serialize, Deserialize, Clone, Debug, Default)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct ApCollection {
     pub context: Option<ApContext>,
@@ -24,13 +25,46 @@ pub struct ApCollection {
     part_of: Option<String>,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+impl Default for ApCollection {
+    fn default() -> ApCollection {
+        ApCollection {
+            context: Option::from(ApContext::Plain(
+                "https://www.w3.org/ns/activitystreams".to_string(),
+            )),
+            kind: ApBaseObjectType::Collection,
+            id: Option::from(format!(
+                "https://{}/collections/{}",
+                *crate::SERVER_NAME,
+                Uuid::new_v4()
+            )),
+            total_items: 0,
+            items: Option::None,
+            first: Option::None,
+            last: Option::None,
+            next: Option::None,
+            current: Option::None,
+            part_of: Option::None,
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct ApOrderedCollection {
     #[serde(flatten)]
     pub base: ApCollection,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ordered_items: Option<Vec<ApObject>>,
+}
+
+impl From<Vec<ApObject>> for ApCollection {
+    fn from(objects: Vec<ApObject>) -> Self {
+        ApCollection {
+            total_items: objects.len() as u32,
+            items: Option::from(objects),
+            ..Default::default()
+        }
+    }
 }
 
 #[derive(Clone)]

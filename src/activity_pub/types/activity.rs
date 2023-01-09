@@ -1,4 +1,7 @@
-use crate::activity_pub::{ApActivityType, ApContext, ApFlexible, ApNote, ApObject, ApSession};
+use crate::activity_pub::{
+    ApActivityType, ApContext, ApEncryptedMessage, ApFlexible, ApInstrument, ApNote, ApObject,
+    ApSession,
+};
 use serde::{Deserialize, Serialize};
 use serde_with::serde_as;
 use std::fmt::Debug;
@@ -73,12 +76,44 @@ impl From<ApSession> for ApActivity {
         let mut session = session;
         session.context = Option::None;
 
+        let mut kind = ApActivityType::Invite;
+
+        if let ApInstrument::Multiple(_) = session.instrument {
+            kind = ApActivityType::Join;
+        }
+
         ApActivity {
             id: Option::from(format!("{}#join", session.id.clone().unwrap_or_default())),
-            kind: ApActivityType::Invite,
+            kind,
             to: Option::from(vec![session.to.clone()]),
             actor: session.attributed_to.clone(),
             object: ApObject::Session(session),
+            ..Default::default()
+        }
+    }
+}
+
+impl From<ApEncryptedMessage> for ApActivity {
+    fn from(encrypted_message: ApEncryptedMessage) -> Self {
+        let mut encrypted_message = encrypted_message;
+        encrypted_message.context = Option::None;
+        let uuid = Uuid::new_v4().to_string();
+
+        let attributed_to = encrypted_message.attributed_to.clone();
+
+        encrypted_message.id = format!(
+            "https://{}/encrypted-messages/{}",
+            *crate::SERVER_NAME,
+            uuid
+        );
+
+        ApActivity {
+            kind: ApActivityType::Create,
+            id: Option::from(format!("{}#encrypted-message", encrypted_message.id)),
+            uuid: Option::from(uuid),
+            to: Option::from(encrypted_message.to.clone()),
+            actor: attributed_to,
+            object: ApObject::EncryptedMessage(encrypted_message),
             ..Default::default()
         }
     }

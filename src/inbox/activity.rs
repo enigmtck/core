@@ -1,6 +1,6 @@
 use crate::{
     FaktoryConnection,
-    activity_pub::{ApActivity, ApObject, ApActivityType},
+    activity_pub::{ApActivity, ApObject, ApActivityType, ApEncryptedMessage},
     db::{
         delete_remote_actor_by_ap_id,
         create_remote_note,
@@ -9,13 +9,14 @@ use crate::{
         delete_follower_by_ap_id,
         update_leader_by_uuid,
         create_remote_encrypted_session,
-        Db
+        create_encrypted_session,
+        Db, create_remote_encrypted_message
     },
     models::{
         profiles::Profile,
         remote_notes::NewRemoteNote,
         followers::NewFollower,
-        remote_encrypted_sessions::NewRemoteEncryptedSession,
+        remote_encrypted_sessions::NewRemoteEncryptedSession, encrypted_sessions::{EncryptedSession, NewEncryptedSession}, remote_encrypted_messages::NewRemoteEncryptedMessage,
     },
 };
 use log::debug;
@@ -28,12 +29,24 @@ pub async fn delete(conn: Db, activity: ApActivity) -> Result<Status, Status> {
             debug!("remote actor record deleted");
         }
     }
-
+ 
     Ok(Status::Accepted)
 }
 
 pub async fn create(conn: Db, activity: ApActivity, profile: Profile) -> Result<Status, Status> {
     match activity.object {
+        ApObject::EncryptedMessage(x) => {
+            let mut n = NewRemoteEncryptedMessage::from(x);
+            n.profile_id = profile.id;
+
+            if let Some(created_message) = create_remote_encrypted_message(&conn, n).await {
+                log::debug!("created_remote_encrypted_message\n{:#?}", created_message);
+                Ok(Status::Accepted)
+            } else {
+                log::debug!("create_remote_encrypted_message failed");
+                Err(Status::NoContent)
+            }
+        },
         ApObject::Note(x) => {
             let mut n = NewRemoteNote::from(x);
             n.profile_id = profile.id;
@@ -152,7 +165,19 @@ pub async fn join(conn: Db, activity: ApActivity, profile: Profile)
     remote_encrypted_session.profile_id = profile.id;
     
     if create_remote_encrypted_session(&conn, remote_encrypted_session).await.is_some() {
-        Ok(Status::Accepted)
+
+        if let ApObject::Session(session) = activity.object {
+            let mut encrypted_session: NewEncryptedSession = session.into();
+            encrypted_session.profile_id = profile.id;
+            
+            if create_encrypted_session(&conn, encrypted_session).await.is_some() {
+                Ok(Status::Accepted)
+            } else {
+                Err(Status::NoContent)
+            }
+        } else {
+            Err(Status::NoContent)
+        }
     } else {
         Err(Status::NoContent)
     }

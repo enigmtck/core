@@ -1,6 +1,21 @@
 // @generated automatically by Diesel CLI.
 
 diesel::table! {
+    encrypted_messages (id) {
+        id -> Int4,
+        created_at -> Timestamptz,
+        updated_at -> Timestamptz,
+        uuid -> Varchar,
+        profile_id -> Int4,
+        ap_to -> Jsonb,
+        attributed_to -> Varchar,
+        cc -> Nullable<Jsonb>,
+        in_reply_to -> Nullable<Varchar>,
+        encrypted_content -> Varchar,
+    }
+}
+
+diesel::table! {
     encrypted_sessions (id) {
         id -> Int4,
         created_at -> Timestamptz,
@@ -109,6 +124,22 @@ diesel::table! {
 }
 
 diesel::table! {
+    remote_encrypted_messages (id) {
+        id -> Int4,
+        created_at -> Timestamptz,
+        updated_at -> Timestamptz,
+        profile_id -> Int4,
+        ap_id -> Varchar,
+        ap_to -> Jsonb,
+        cc -> Nullable<Jsonb>,
+        attributed_to -> Varchar,
+        published -> Varchar,
+        in_reply_to -> Nullable<Varchar>,
+        encrypted_content -> Jsonb,
+    }
+}
+
+diesel::table! {
     remote_encrypted_sessions (id) {
         id -> Int4,
         created_at -> Timestamptz,
@@ -144,15 +175,18 @@ diesel::table! {
     }
 }
 
+diesel::joinable!(encrypted_messages -> profiles (profile_id));
 diesel::joinable!(encrypted_sessions -> profiles (profile_id));
 diesel::joinable!(followers -> profiles (profile_id));
 diesel::joinable!(leaders -> profiles (profile_id));
 diesel::joinable!(notes -> profiles (profile_id));
 diesel::joinable!(remote_activities -> profiles (profile_id));
+diesel::joinable!(remote_encrypted_messages -> profiles (profile_id));
 diesel::joinable!(remote_encrypted_sessions -> profiles (profile_id));
 diesel::joinable!(remote_notes -> profiles (profile_id));
 
 diesel::allow_tables_to_appear_in_same_query!(
+    encrypted_messages,
     encrypted_sessions,
     followers,
     leaders,
@@ -160,6 +194,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     profiles,
     remote_activities,
     remote_actors,
+    remote_encrypted_messages,
     remote_encrypted_sessions,
     remote_notes,
 );

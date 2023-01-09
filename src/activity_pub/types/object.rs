@@ -1,4 +1,6 @@
-use crate::activity_pub::{ApActivity, ApActor, ApCollection, ApNote, ApOrderedCollection};
+use crate::activity_pub::{
+    ApActivity, ApActor, ApCollection, ApEncryptedMessage, ApNote, ApOrderedCollection,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::fmt;
@@ -31,16 +33,31 @@ pub struct ApIdentifier {
     pub id: String,
 }
 
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub enum ApBasicContentType {
+    IdentityKey,
+    SessionKey,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct ApBasicContent {
+    #[serde(rename = "type")]
+    pub kind: ApBasicContentType,
+    pub content: String,
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 #[serde(untagged)]
 pub enum ApObject {
     Plain(String),
     Session(ApSession),
+    EncryptedMessage(ApEncryptedMessage),
     Note(ApNote),
     Actor(ApActor),
     OrderedCollection(ApOrderedCollection),
     Collection(ApCollection),
     Identifier(ApIdentifier),
+    Basic(ApBasicContent),
     Complex(ApFlexible),
     #[default]
     Unknown,
@@ -106,20 +123,21 @@ impl fmt::Display for ApBaseObjectType {
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub enum ApObjectType {
     Article,
-    Audio,
+    //Audio,
     Document,
-    Event,
+    //Event,
     Image,
     Note,
     Page,
-    Place,
+    //Place,
     Profile,
-    Relationship,
-    Tombstone,
-    Video,
+    //Relationship,
+    //Tombstone,
+    //Video,
     EncryptedSession,
     IdentityKey,
     SessionKey,
+    EncryptedMessage,
 }
 
 impl fmt::Display for ApObjectType {

@@ -335,15 +335,32 @@ pub async fn
                     },
                     Json(ApBaseObjectSuper::Object(ApObject::Note(note))) => 
                         outbox::object::note(conn, note, profile).await,
-                    Json(ApBaseObjectSuper::Object(ApObject::Session(session))) => {
-                        outbox::object::session(conn, session, profile).await
-                    },
+                    Json(ApBaseObjectSuper::Object(ApObject::EncryptedMessage(encrypted_message))) => 
+                        outbox::object::encrypted_message(conn, encrypted_message, profile).await,
+                    Json(ApBaseObjectSuper::Object(ApObject::Session(session))) => 
+                        outbox::object::session(conn, session, profile).await,
                     _ => Err(Status::NoContent)
                 },
                 Err(_) => Err(Status::NoContent)
             },
             None => Err(Status::NoContent)
         }
+    } else {
+        Err(Status::NoContent)
+    }
+}
+
+#[get("/user/<username>/inbox", format="application/activity+json")]
+pub async fn inbox_get(signed: Signed, conn: Db, username: String) -> Result<Json<ApObject>, Status> {
+
+    debug!("inbox get request received");
+
+    if let (Some(profile), Signed(true)) =
+        (get_profile_by_username(&conn, username).await, signed)
+    {
+        let sessions = inbox::retrieve::encrypted_sessions(conn, profile).await;
+        debug!("sessions\n{:#?}", sessions);
+        Ok(Json(sessions))
     } else {
         Err(Status::NoContent)
     }
@@ -446,6 +463,7 @@ fn rocket() -> _ {
             webfinger,
             outbox_post,
             inbox_post,
+            inbox_get,
             get_followers,
             get_leaders,
             create_user,

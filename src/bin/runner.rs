@@ -2,13 +2,21 @@
 extern crate log;
 
 use enigmatick::{
-    activity_pub::sender::send_follower_accept,
+    activity_pub::{
+        sender::{
+            send_follower_accept,
+            send_activity
+        },
+        JoinData, ApSession, ApActivity, retriever
+    },
     helper::get_local_username_from_ap_id,
+    db::jsonb_set,
     models::{
         followers::Follower,
-        profiles::Profile,
+        profiles::{Profile, KeyStore},
         remote_actors::RemoteActor,
         remote_encrypted_sessions::RemoteEncryptedSession,
+        encrypted_sessions::{EncryptedSession, NewEncryptedSession}
     }
 };
 
@@ -29,6 +37,21 @@ lazy_static! {
         let manager = ConnectionManager::<PgConnection>::new(database_url);
         Pool::new(manager).expect("failed to create db pool")
     };
+}
+
+pub fn create_encrypted_session(encrypted_session: NewEncryptedSession) -> Option<EncryptedSession> {
+    use enigmatick::schema::encrypted_sessions;
+
+    if let Ok(conn) = POOL.get() {
+        match diesel::insert_into(encrypted_sessions::table)
+            .values(&encrypted_session)
+            .get_result::<EncryptedSession>(&conn) {
+                Ok(x) => Some(x),
+                Err(e) => { log::debug!("{:#?}",e); Option::None }
+            }
+    } else {
+        Option::None
+    }
 }
 
 pub fn get_remote_encrypted_session_by_ap_id(apid: String) -> Option<RemoteEncryptedSession> {
@@ -57,19 +80,102 @@ pub fn get_profile_by_username(username: String) -> Option<Profile> {
     }
 }
 
+pub fn get_remote_actor_by_ap_id(apid: String) -> Option<RemoteActor> {
+    use enigmatick::schema::remote_actors::dsl::{remote_actors, ap_id};
+
+    if let Ok(conn) = POOL.get() {
+        match remote_actors.filter(ap_id.eq(apid)).first::<RemoteActor>(&conn) {
+            Ok(x) => Option::from(x),
+            Err(_) => Option::None
+        }
+    } else {
+        Option::None
+    }
+}
+
+pub fn update_otk_by_username(username: String, keystore: KeyStore) -> Option<Profile> {
+    use enigmatick::schema::profiles::dsl::{profiles, username as u, keystore as k};
+
+    if let Ok(conn) = POOL.get() {
+        match diesel::update(profiles.filter(u.eq(username)))
+            .set(k.eq(jsonb_set(k,
+                                vec![String::from("olm_one_time_keys")],
+                                serde_json::to_value(keystore.olm_one_time_keys).unwrap())))
+            .get_result::<Profile>(&conn) {
+                Ok(x) => Some(x),
+                Err(_) => Option::None
+            }
+    } else {
+        Option::None
+    }
+}
+
 fn provide_one_time_key(job: Job) -> io::Result<()> {
     // look up remote_encrypted_session with ap_id from job.args()
 
+    let rt = Runtime::new().unwrap();
+    let handle = rt.handle();
+    
     for ap_id in job.args() {
         let ap_id = ap_id.as_str().unwrap().to_string();
 
         if let Some(session) = get_remote_encrypted_session_by_ap_id(ap_id) {
-            if let Some(username) = get_local_username_from_ap_id(session.ap_to) {
-                if let Some(profile) = get_profile_by_username(username) {
-                    // send Join activity with Identity and OTK
-                    if let Some(keystore) = profile.keystore {
-                        let identity_key = keystore.olm_identity_public_key;
+            // this is the username of the Enigmatick user who received the Invite
+            if let Some(username) = get_local_username_from_ap_id(session.ap_to.clone()) {
+                if let Some(profile) = get_profile_by_username(username.clone()) {
+                    if let Some(actor) = get_remote_actor_by_ap_id(session.attributed_to.clone()) {
+                        // send Join activity with Identity and OTK to attributed_to
+                        let mut keystore = profile.keystore.clone();
                         
+                        if let Some(identity_key) = keystore.olm_identity_public_key.clone() {
+                            if let Some(mut otk) = keystore.olm_one_time_keys.clone() {
+                                let mut keys = otk.keys().collect::<Vec<&String>>();
+
+                                // it feels nice to address these in order, but I'm not sure
+                                // that it actually matters; I may remove these
+                                keys.sort();
+                                keys.reverse();
+                                
+                                let key = keys.first().unwrap().to_string();
+                                let value = otk.remove(&key).unwrap();
+                                log::debug!("identity_key\n{:#?}", identity_key);
+                                log::debug!("value\n{:#?}", value);
+                                keystore.olm_one_time_keys = Some(otk);
+                                if update_otk_by_username(username, keystore).is_some() {
+                                    let session = ApSession::from(JoinData {
+                                        one_time_key: base64::encode(value),
+                                        identity_key,
+                                        to: session.attributed_to,
+                                        attributed_to: session.ap_to,
+                                        reference: session.ap_id
+                                    });
+                                    
+                                    let activity = ApActivity::from(session.clone());
+                                    let mut encrypted_session =
+                                        NewEncryptedSession::from(session.clone());
+                                    encrypted_session.profile_id = profile.id;
+
+                                    // this activity should be saved so that the id makes sense
+                                    // but it's not right now
+                                    log::debug!("activity\n{:#?}", activity);
+
+                                    if create_encrypted_session(encrypted_session).is_some() {
+                                        handle.block_on(async {
+                                            match send_activity(activity, profile, actor.inbox).await {
+                                                Ok(_) => {
+                                                    info!("join sent: {:#?}", actor.ap_id);
+                                                }
+                                                Err(e) => error!("error: {:#?}", e),
+                                            }
+                                        });
+                                    } else {
+                                        log::error!("failed to save encrypted_session");
+                                    }
+                                } else {
+                                    log::error!("failed to update keystore");
+                                }
+                            }
+                        }   
                     }
                 }
             }

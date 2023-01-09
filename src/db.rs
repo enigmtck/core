@@ -2,6 +2,8 @@ use rocket_sync_db_pools::{database, diesel};
 use uuid::Uuid;
 use diesel::prelude::*;
 use diesel::sql_types::{Array, Jsonb, Text};
+use crate::models::encrypted_messages::{NewEncryptedMessage, EncryptedMessage};
+use crate::models::remote_encrypted_messages::{NewRemoteEncryptedMessage, RemoteEncryptedMessage};
 use crate::models::remote_notes::{NewRemoteNote, RemoteNote};
 use crate::models::remote_actors::{NewRemoteActor, RemoteActor};
 use crate::models::remote_activities::{NewRemoteActivity, RemoteActivity};
@@ -42,6 +44,28 @@ pub async fn update_leader_by_uuid(conn: &Db, leader_uuid: String, accept_ap_id:
     }
 }
 
+pub async fn create_encrypted_message(conn: &Db, encrypted_message: NewEncryptedMessage) -> Option<EncryptedMessage> {
+    use schema::encrypted_messages;
+
+    match conn.run(move |c| diesel::insert_into(encrypted_messages::table)
+                   .values(&encrypted_message)
+                   .get_result::<EncryptedMessage>(c)).await {
+        Ok(x) => Some(x),
+        Err(e) => { log::debug!("{:#?}",e); Option::None}
+    }
+}
+
+pub async fn create_remote_encrypted_message(conn: &Db, remote_encrypted_message: NewRemoteEncryptedMessage) -> Option<RemoteEncryptedMessage> {
+    use schema::remote_encrypted_messages;
+
+    match conn.run(move |c| diesel::insert_into(remote_encrypted_messages::table)
+                   .values(&remote_encrypted_message)
+                   .get_result::<RemoteEncryptedMessage>(c)).await {
+        Ok(x) => Some(x),
+        Err(e) => { log::debug!("{:#?}",e); Option::None}
+    }
+}
+
 pub async fn create_remote_encrypted_session(conn: &Db, remote_encrypted_session: NewRemoteEncryptedSession) -> Option<RemoteEncryptedSession> {
     use schema::remote_encrypted_sessions;
 
@@ -71,6 +95,16 @@ pub async fn create_encrypted_session(conn: &Db, encrypted_session: NewEncrypted
                    .get_result::<EncryptedSession>(c)).await {
         Ok(x) => Some(x),
         Err(e) => { log::debug!("{:#?}",e); Option::None}
+    }
+}
+
+pub async fn get_encrypted_sessions_by_profile_id(conn: &Db, id: i32)
+                                                   -> Vec<EncryptedSession> {
+    use self::schema::encrypted_sessions::dsl::{encrypted_sessions, profile_id};
+
+    match conn.run(move |c| encrypted_sessions.filter(profile_id.eq(id)).get_results::<EncryptedSession>(c)).await {
+        Ok(x) => x,
+        Err(_) => vec![]
     }
 }
 

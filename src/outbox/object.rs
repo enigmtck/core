@@ -1,9 +1,10 @@
 use crate::{
-    activity_pub::{ApActivity, ApActor, sender, retriever, ApNote, ApSession},
+    activity_pub::{ApActivity, ApActor, sender, retriever, ApNote, ApSession, ApEncryptedMessage},
     db::{
         get_remote_actor_by_ap_id,
         create_note,
         create_encrypted_session,
+        create_encrypted_message,
         get_profile_by_username,
         Db
     },
@@ -15,6 +16,7 @@ use crate::{
         profiles::Profile,
         notes::NewNote,
         encrypted_sessions::NewEncryptedSession,
+        encrypted_messages::NewEncryptedMessage,
     },
     signing::{Method, sign, SignParams},
 };
@@ -100,6 +102,52 @@ pub async fn session(conn: Db, session: ApSession, profile: Profile) -> Result<S
             let activity = ApActivity::from(session);
             if sender::send_activity(activity, profile, inbox).await.is_ok() {
                 debug!("sent join request successfully");
+                Ok(Status::Accepted)
+            } else {
+                Err(Status::NoContent)
+            }
+        } else {
+            Err(Status::NoContent)
+        }
+    } else {
+        Err(Status::NoContent)
+    }
+}
+
+pub async fn encrypted_message(conn: Db, message: ApEncryptedMessage, profile: Profile) -> Result<Status, Status> {
+    let mut encrypted_message = NewEncryptedMessage::from(message.clone());
+    encrypted_message.profile_id = profile.id;
+
+    if create_encrypted_message(&conn, encrypted_message.clone()).await.is_some() {
+        let mut message = message;
+        message.id = format!("{}/encrypted-messages/{}",
+                             *crate::SERVER_URL,
+                             encrypted_message.uuid);
+
+        let mut inbox = Option::<String>::None;
+
+        // eventually I want this to handle multiple recipients, but not today
+        let message_to = message.to.first().unwrap();
+        let message_to = message_to.clone();
+        
+        if is_local(message_to.clone()) {
+            if let Some(username) = get_local_username_from_ap_id(
+                message_to.to_string()) {
+                if let Some(profile) =
+                    get_profile_by_username(&conn, username).await {
+                        inbox = Option::from(ApActor::from(profile).inbox);
+                    }
+            }
+        } else if let Some(actor) = get_remote_actor_by_ap_id(
+            &conn,
+            message_to.to_string()).await {
+            inbox = Option::from(actor.inbox);
+        }
+
+        if let Some(inbox) = inbox {
+            let activity = ApActivity::from(message);
+            if sender::send_activity(activity, profile, inbox).await.is_ok() {
+                debug!("sent encypted message create successfully");
                 Ok(Status::Accepted)
             } else {
                 Err(Status::NoContent)
