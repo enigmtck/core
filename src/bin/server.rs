@@ -8,7 +8,7 @@ use enigmatick::{
     FaktoryConnection,
     models::{
         remote_activities::NewRemoteActivity,
-        profiles::Profile,
+        profiles::{Profile, KeyStore, update_olm_external_identity_keys_by_username, update_olm_sessions_by_username},
     },
     activity_pub::{
         ApObject,
@@ -69,7 +69,7 @@ impl<'r> FromRequest<'r> for Signed {
 
         log::debug!("request: {:#?}", request);
 
-        let username_re = regex::Regex::new(r"(/user/)([a-zA-Z0-9_]+)(/.*)").unwrap();
+        let username_re = regex::Regex::new(r"(?:/api)?(/user/)([a-zA-Z0-9_]+)(/.*)").unwrap();
         if let Some(username_match) = username_re.captures(&path) {
             if let Some(username) = username_match.get(2) {
                 match get_profile_by_username(&conn, username.as_str().to_string()).await {
@@ -283,6 +283,62 @@ pub async fn create_user(conn: Db, user: Result<Json<NewUser>, Error<'_>>)
     }
 }
 
+#[post("/api/user/<username>/update_olm_sessions", format="json", data="<keystore>")]
+pub async fn update_olm_sessions(signed: Signed,
+                                   conn: Db,
+                                   username: String,
+                                   keystore: Result<Json<KeyStore>, Error<'_>>)
+                                   -> Result<Json<Profile>, Status>
+{
+    debug!("raw\n{:#?}", keystore);
+
+    if let Signed(true) = signed {
+        if let Ok(Json(keystore)) = keystore {        
+            if let Some(profile) =
+                update_olm_sessions_by_username(
+                    &conn,
+                    username,
+                    keystore).await {
+                    Ok(Json(profile))
+                } else {
+                    Err(Status::NoContent)
+                }
+        } else {
+            Err(Status::NoContent)
+        }
+    } else {
+        Err(Status::NoContent)
+    }
+}
+
+#[post("/api/user/<username>/update_identity_cache", format="json", data="<keystore>")]
+pub async fn update_identity_cache(signed: Signed,
+                                   conn: Db,
+                                   username: String,
+                                   keystore: Result<Json<KeyStore>, Error<'_>>)
+                                   -> Result<Json<Profile>, Status>
+{
+    debug!("raw\n{:#?}", keystore);
+
+    if let Signed(true) = signed {
+        if let Ok(Json(keystore)) = keystore {        
+            if let Some(profile) =
+                update_olm_external_identity_keys_by_username(
+                    &conn,
+                    username,
+                    keystore).await {
+                    Ok(Json(profile))
+                } else {
+                    Err(Status::NoContent)
+                }
+        } else {
+            Err(Status::NoContent)
+        }
+    } else {
+        Err(Status::NoContent)
+    }
+}
+
 #[derive(Deserialize, Debug, Clone)]
 pub struct AuthenticationData {
     pub username: String,
@@ -309,7 +365,7 @@ pub async fn authenticate_user(conn: Db, user: Result<Json<AuthenticationData>, 
     }
 }
 
-#[post("/user/<username>/outbox", format="application/activity+json", data="<object>")]
+#[post("/user/<username>/outbox", data="<object>")]
 pub async fn
     outbox_post(
         signed: Signed,
@@ -335,8 +391,6 @@ pub async fn
                     },
                     Json(ApBaseObjectSuper::Object(ApObject::Note(note))) => 
                         outbox::object::note(conn, note, profile).await,
-                    Json(ApBaseObjectSuper::Object(ApObject::EncryptedMessage(encrypted_message))) => 
-                        outbox::object::encrypted_message(conn, encrypted_message, profile).await,
                     Json(ApBaseObjectSuper::Object(ApObject::Session(session))) => 
                         outbox::object::session(conn, session, profile).await,
                     _ => Err(Status::NoContent)
@@ -350,7 +404,7 @@ pub async fn
     }
 }
 
-#[get("/user/<username>/inbox", format="application/activity+json")]
+#[get("/user/<username>/inbox")]
 pub async fn inbox_get(signed: Signed, conn: Db, username: String) -> Result<Json<ApObject>, Status> {
 
     debug!("inbox get request received");
@@ -358,15 +412,15 @@ pub async fn inbox_get(signed: Signed, conn: Db, username: String) -> Result<Jso
     if let (Some(profile), Signed(true)) =
         (get_profile_by_username(&conn, username).await, signed)
     {
-        let sessions = inbox::retrieve::encrypted_sessions(conn, profile).await;
-        debug!("sessions\n{:#?}", sessions);
-        Ok(Json(sessions))
+        let inbox = inbox::retrieve::all(conn, profile).await;
+        debug!("inbox\n{:#?}", inbox);
+        Ok(Json(inbox))
     } else {
         Err(Status::NoContent)
     }
 }
 
-#[post("/user/<username>/inbox", format="application/activity+json", data="<activity>")]
+#[post("/user/<username>/inbox", data="<activity>")]
 pub async fn
     inbox_post(signed: Signed,
                conn: Db,
@@ -387,11 +441,13 @@ pub async fn
         if retriever::get_actor(&conn,
                                 profile.clone(),
                                 activity.actor.clone()).await.is_some()
-        {
-            let mut n = NewRemoteActivity::from(activity.clone());
-            n.profile_id = profile.id;
-            
-            if let Some(created_activity) = create_remote_activity(&conn, n).await {
+        {    
+            if let Some(created_activity) =
+                create_remote_activity(
+                    &conn,
+                    NewRemoteActivity::from(
+                        (activity.clone(),
+                         profile.id))).await {
                 log::debug!("created_remote_activity\n{:#?}", created_activity);
             } else {
                 log::debug!("create_remote_activity failed");
@@ -468,6 +524,8 @@ fn rocket() -> _ {
             get_leaders,
             create_user,
             authenticate_user,
+            update_identity_cache,
+            update_olm_sessions,
             test,
             all_options
         ])

@@ -1,9 +1,6 @@
 use rocket_sync_db_pools::{database, diesel};
-use uuid::Uuid;
 use diesel::prelude::*;
 use diesel::sql_types::{Array, Jsonb, Text};
-use crate::models::encrypted_messages::{NewEncryptedMessage, EncryptedMessage};
-use crate::models::remote_encrypted_messages::{NewRemoteEncryptedMessage, RemoteEncryptedMessage};
 use crate::models::remote_notes::{NewRemoteNote, RemoteNote};
 use crate::models::remote_actors::{NewRemoteActor, RemoteActor};
 use crate::models::remote_activities::{NewRemoteActivity, RemoteActivity};
@@ -41,28 +38,6 @@ pub async fn update_leader_by_uuid(conn: &Db, leader_uuid: String, accept_ap_id:
                    .get_result::<Leader>(c)).await {
         Ok(x) => Some(x),
         Err(_) => Option::None
-    }
-}
-
-pub async fn create_encrypted_message(conn: &Db, encrypted_message: NewEncryptedMessage) -> Option<EncryptedMessage> {
-    use schema::encrypted_messages;
-
-    match conn.run(move |c| diesel::insert_into(encrypted_messages::table)
-                   .values(&encrypted_message)
-                   .get_result::<EncryptedMessage>(c)).await {
-        Ok(x) => Some(x),
-        Err(e) => { log::debug!("{:#?}",e); Option::None}
-    }
-}
-
-pub async fn create_remote_encrypted_message(conn: &Db, remote_encrypted_message: NewRemoteEncryptedMessage) -> Option<RemoteEncryptedMessage> {
-    use schema::remote_encrypted_messages;
-
-    match conn.run(move |c| diesel::insert_into(remote_encrypted_messages::table)
-                   .values(&remote_encrypted_message)
-                   .get_result::<RemoteEncryptedMessage>(c)).await {
-        Ok(x) => Some(x),
-        Err(e) => { log::debug!("{:#?}",e); Option::None}
     }
 }
 
@@ -145,6 +120,16 @@ pub async fn get_follower_by_uuid(conn: &Db, uuid: String) -> Option<Follower> {
     match conn.run(move |c| followers.filter(uid.eq(uuid)).first::<Follower>(c)).await {
         Ok(x) => Option::from(x),
         Err(_) => Option::None
+    }
+}
+
+pub async fn get_remote_notes_by_profile_id(conn: &Db, id: i32)
+                                                   -> Vec<RemoteNote> {
+    use self::schema::remote_notes::dsl::{remote_notes, profile_id};
+
+    match conn.run(move |c| remote_notes.filter(profile_id.eq(id)).get_results::<RemoteNote>(c)).await {
+        Ok(x) => x,
+        Err(_) => vec![]
     }
 }
 

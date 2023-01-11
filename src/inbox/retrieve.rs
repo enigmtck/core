@@ -1,23 +1,12 @@
 use crate::{
-    activity_pub::{ApActivity, ApActivityType, ApObject, ApCollection, ApSession},
+    activity_pub::{ApObject, ApCollection, ApSession, ApNote},
     db::{
-        create_encrypted_session, create_follower, create_remote_encrypted_session,
-        create_remote_note, delete_follower_by_ap_id, delete_remote_actor_by_ap_id,
-        get_encrypted_sessions_by_profile_id, get_remote_activity_by_ap_id, update_leader_by_uuid,
+        get_encrypted_sessions_by_profile_id,
+        get_remote_notes_by_profile_id,
         Db,
     },
-    models::{
-        encrypted_sessions::{EncryptedSession, NewEncryptedSession},
-        followers::NewFollower,
-        profiles::Profile,
-        remote_encrypted_sessions::NewRemoteEncryptedSession,
-        remote_notes::NewRemoteNote,
-    },
-    FaktoryConnection,
+    models::profiles::Profile,
 };
-use faktory::Job;
-use log::debug;
-use rocket::http::Status;
 
 pub async fn encrypted_sessions(conn: Db, profile: Profile) -> ApObject {
     let sessions = get_encrypted_sessions_by_profile_id(&conn, profile.id).await;
@@ -26,3 +15,36 @@ pub async fn encrypted_sessions(conn: Db, profile: Profile) -> ApObject {
     
     ApObject::Collection(ApCollection::from(collection))
 }
+
+pub async fn remote_notes(conn: Db, profile: Profile) -> ApObject {
+    let remote_notes = get_remote_notes_by_profile_id(&conn, profile.id).await;
+
+    let collection: Vec<ApObject> = remote_notes.iter().map(|x| { ApObject::Note(ApNote::from(x.clone())) }).collect();
+    
+    ApObject::Collection(ApCollection::from(collection))
+}
+
+pub async fn all(conn: Db, profile: Profile) -> ApObject {
+    let mut consolidated: Vec<ApObject> = vec![];
+    
+    let remote_notes = get_remote_notes_by_profile_id(&conn, profile.id).await;
+    let remote_notes_collection: Vec<ApObject> = remote_notes.iter().map(|x| {
+        let mut note = ApNote::from(x.clone());
+        note.context = Option::None;
+        ApObject::Note(note)
+    }).collect();
+    consolidated.extend(remote_notes_collection);
+
+    let sessions = get_encrypted_sessions_by_profile_id(&conn, profile.id).await;
+    let sessions_collection: Vec<ApObject> = sessions.iter().map(|x| {
+        let mut session = ApSession::from(x.clone());
+        session.context = Option::None;
+        ApObject::Session(session)
+    }).collect();
+    consolidated.extend(sessions_collection);
+
+    
+    ApObject::Collection(ApCollection::from(consolidated))
+}
+
+

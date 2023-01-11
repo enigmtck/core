@@ -4,9 +4,13 @@ CREATE TABLE notes (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   uuid VARCHAR UNIQUE NOT NULL,
   profile_id INT NOT NULL,
-  content VARCHAR NOT NULL,
+  kind VARCHAR NOT NULL,
   ap_to JSONB NOT NULL,
-  ap_tag JSONB,
+  cc JSONB,
+  tag JSONB,
+  attributed_to VARCHAR NOT NULL,
+  in_reply_to VARCHAR,
+  content VARCHAR NOT NULL,
   CONSTRAINT fk_profile_notes FOREIGN KEY(profile_id) REFERENCES profiles(id)
 );
 

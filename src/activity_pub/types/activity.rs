@@ -1,6 +1,6 @@
-use crate::activity_pub::{
-    ApActivityType, ApContext, ApEncryptedMessage, ApFlexible, ApInstrument, ApNote, ApObject,
-    ApSession,
+use crate::{
+    activity_pub::{ApActivityType, ApContext, ApInstrument, ApNote, ApObject, ApSession},
+    models::notes::NewNote,
 };
 use serde::{Deserialize, Serialize};
 use serde_with::serde_as;
@@ -17,7 +17,6 @@ pub struct ApActivity {
     #[serde(rename = "type")]
     pub kind: ApActivityType,
     pub id: Option<String>,
-    pub uuid: Option<String>,
     pub actor: String,
     pub to: Option<Vec<String>>,
     pub cc: Option<Vec<String>>,
@@ -33,7 +32,6 @@ impl Default for ApActivity {
             )),
             kind: ApActivityType::default(),
             id: Option::None,
-            uuid: Option::None,
             actor: String::new(),
             to: Option::None,
             cc: Option::None,
@@ -45,28 +43,13 @@ impl Default for ApActivity {
 
 impl From<ApNote> for ApActivity {
     fn from(note: ApNote) -> Self {
-        let mut note = note;
-        note.context = Option::None;
-        let uuid = Uuid::new_v4().to_string();
-
-        if let Some(ApFlexible::Single(attributed_to)) = note.clone().attributed_to {
-            let attributed_to = attributed_to.as_str().unwrap();
-
-            note.id = Option::from(format!("{}/posts/{}", attributed_to, uuid));
-
-            ApActivity {
-                kind: ApActivityType::Create,
-                id: note.clone().id,
-                uuid: Option::from(uuid),
-                to: Option::from(note.clone().to),
-                actor: attributed_to.to_string(),
-                object: ApObject::Note(note),
-                ..Default::default()
-            }
-        } else {
-            ApActivity {
-                ..Default::default()
-            }
+        ApActivity {
+            kind: ApActivityType::Create,
+            id: Some(format!("{}#create", note.clone().id.unwrap())),
+            to: Option::from(note.clone().to),
+            actor: note.clone().attributed_to,
+            object: ApObject::Note(note),
+            ..Default::default()
         }
     }
 }
@@ -88,32 +71,6 @@ impl From<ApSession> for ApActivity {
             to: Option::from(vec![session.to.clone()]),
             actor: session.attributed_to.clone(),
             object: ApObject::Session(session),
-            ..Default::default()
-        }
-    }
-}
-
-impl From<ApEncryptedMessage> for ApActivity {
-    fn from(encrypted_message: ApEncryptedMessage) -> Self {
-        let mut encrypted_message = encrypted_message;
-        encrypted_message.context = Option::None;
-        let uuid = Uuid::new_v4().to_string();
-
-        let attributed_to = encrypted_message.attributed_to.clone();
-
-        encrypted_message.id = format!(
-            "https://{}/encrypted-messages/{}",
-            *crate::SERVER_NAME,
-            uuid
-        );
-
-        ApActivity {
-            kind: ApActivityType::Create,
-            id: Option::from(format!("{}#encrypted-message", encrypted_message.id)),
-            uuid: Option::from(uuid),
-            to: Option::from(encrypted_message.to.clone()),
-            actor: attributed_to,
-            object: ApObject::EncryptedMessage(encrypted_message),
             ..Default::default()
         }
     }

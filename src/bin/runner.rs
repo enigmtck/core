@@ -16,7 +16,7 @@ use enigmatick::{
         profiles::{Profile, KeyStore},
         remote_actors::RemoteActor,
         remote_encrypted_sessions::RemoteEncryptedSession,
-        encrypted_sessions::{EncryptedSession, NewEncryptedSession}
+        encrypted_sessions::{EncryptedSession, NewEncryptedSession}, remote_activities::{NewRemoteActivity, RemoteActivity}
     }
 };
 
@@ -37,6 +37,21 @@ lazy_static! {
         let manager = ConnectionManager::<PgConnection>::new(database_url);
         Pool::new(manager).expect("failed to create db pool")
     };
+}
+
+pub fn create_remote_activity(remote_activity: NewRemoteActivity) -> Option<RemoteActivity> {
+    use enigmatick::schema::remote_activities;
+
+    if let Ok(conn) = POOL.get() {
+        match diesel::insert_into(remote_activities::table)
+            .values(&remote_activity)
+            .get_result::<RemoteActivity>(&conn) {
+                Ok(x) => Some(x),
+                Err(e) => { log::debug!("{:#?}",e); Option::None }
+            }
+    } else {
+        Option::None
+    }
 }
 
 pub fn create_encrypted_session(encrypted_session: NewEncryptedSession) -> Option<EncryptedSession> {

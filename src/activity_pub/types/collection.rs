@@ -6,6 +6,8 @@ use uuid::Uuid;
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct ApCollection {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "@context")]
     pub context: Option<ApContext>,
     #[serde(rename = "type")]
     pub kind: ApBaseObjectType,

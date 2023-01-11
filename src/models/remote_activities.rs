@@ -19,9 +19,15 @@ pub struct NewRemoteActivity {
     pub ap_object: Option<Value>,
 }
 
-impl From<ApActivity> for NewRemoteActivity {
-    fn from(activity: ApActivity) -> NewRemoteActivity {
+type IdentifiedActivity = (ApActivity, i32);
+
+impl From<IdentifiedActivity> for NewRemoteActivity {
+    fn from(activity: IdentifiedActivity) -> NewRemoteActivity {
+        let profile_id = activity.1;
+        let activity = activity.0;
+
         NewRemoteActivity {
+            profile_id,
             context: Option::from(serde_json::to_value(&activity.context).unwrap()),
             kind: activity.kind.to_string(),
             ap_id: activity.id.unwrap(),
@@ -30,7 +36,6 @@ impl From<ApActivity> for NewRemoteActivity {
             actor: activity.actor,
             published: activity.published,
             ap_object: Option::from(serde_json::to_value(&activity.object).unwrap()),
-            ..Default::default()
         }
     }
 }

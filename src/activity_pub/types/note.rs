@@ -1,16 +1,17 @@
-use crate::activity_pub::{ApActor, ApContext, ApFlexible, ApObjectType, ApTag};
+use crate::{
+    activity_pub::{ApActor, ApContext, ApFlexible, ApObjectType, ApTag},
+    models::{notes::NewNote, remote_notes::RemoteNote},
+};
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct ApNote {
-    // #[serde(flatten)]
-    // pub base: ApBaseObject,
     #[serde(rename = "@context")]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub context: Option<ApContext>,
     pub tag: Option<Vec<ApTag>>,
-    pub attributed_to: Option<ApFlexible>,
+    pub attributed_to: String,
     pub id: Option<String>,
     #[serde(rename = "type")]
     pub kind: ApObjectType,
@@ -23,43 +24,8 @@ pub struct ApNote {
     pub cc: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub replies: Option<ApFlexible>,
+    pub in_reply_to: Option<String>,
     pub content: String,
-}
-
-impl Default for ApNote {
-    fn default() -> ApNote {
-        ApNote {
-            context: Option::from(ApContext::Plain(
-                "https://www.w3.org/ns/activitystreams".to_string(),
-            )),
-            tag: Option::None,
-            attributed_to: Option::None,
-            id: Option::None,
-            kind: ApObjectType::Note,
-            to: vec![],
-            url: Option::None,
-            published: Option::None,
-            cc: Option::None,
-            replies: Option::None,
-            content: String::new(),
-        }
-    }
-}
-
-impl From<ApActor> for ApNote {
-    fn from(actor: ApActor) -> Self {
-        ApNote {
-            tag: Option::from(vec![]),
-            attributed_to: Some(ApFlexible::Single(serde_json::Value::from(
-                actor.id.unwrap(),
-            ))),
-            id: Option::None,
-            kind: ApObjectType::Note,
-            to: vec![],
-            content: String::new(),
-            ..Default::default()
-        }
-    }
 }
 
 impl ApNote {
@@ -76,5 +42,89 @@ impl ApNote {
     pub fn tag(mut self, tag: ApTag) -> Self {
         self.tag.as_mut().expect("unwrap failed").push(tag);
         self
+    }
+}
+
+impl Default for ApNote {
+    fn default() -> ApNote {
+        ApNote {
+            context: Option::from(ApContext::Plain(
+                "https://www.w3.org/ns/activitystreams".to_string(),
+            )),
+            tag: Option::None,
+            attributed_to: String::new(),
+            id: Option::None,
+            kind: ApObjectType::Note,
+            to: vec![],
+            url: Option::None,
+            published: Option::None,
+            cc: Option::None,
+            replies: Option::None,
+            in_reply_to: Option::None,
+            content: String::new(),
+        }
+    }
+}
+
+impl From<ApActor> for ApNote {
+    fn from(actor: ApActor) -> Self {
+        ApNote {
+            tag: Option::from(vec![]),
+            attributed_to: actor.id.unwrap(),
+            id: Option::None,
+            kind: ApObjectType::Note,
+            to: vec![],
+            content: String::new(),
+            ..Default::default()
+        }
+    }
+}
+
+impl From<NewNote> for ApNote {
+    fn from(note: NewNote) -> Self {
+        let kind = match note.kind.as_str() {
+            "Note" => ApObjectType::Note,
+            "EncryptedNote" => ApObjectType::EncryptedNote,
+            _ => ApObjectType::default(),
+        };
+
+        ApNote {
+            tag: serde_json::from_value(note.tag.into()).unwrap(),
+            attributed_to: note.attributed_to,
+            id: Option::from(format!(
+                "https://{}/notes/{}",
+                *crate::SERVER_NAME,
+                note.uuid
+            )),
+            kind,
+            to: serde_json::from_value(note.ap_to).unwrap(),
+            content: note.content,
+            ..Default::default()
+        }
+    }
+}
+
+impl From<RemoteNote> for ApNote {
+    fn from(remote_note: RemoteNote) -> ApNote {
+        let kind = match remote_note.kind.as_str() {
+            "Note" => ApObjectType::Note,
+            "EncryptedNote" => ApObjectType::EncryptedNote,
+            _ => ApObjectType::default(),
+        };
+
+        ApNote {
+            id: Some(remote_note.ap_id),
+            kind,
+            published: remote_note.published,
+            url: Option::from(ApFlexible::Single(remote_note.url.into())),
+            to: serde_json::from_value(remote_note.ap_to.into()).unwrap(),
+            cc: serde_json::from_value(remote_note.cc.into()).unwrap(),
+            tag: serde_json::from_value(remote_note.tag.into()).unwrap(),
+            attributed_to: remote_note.attributed_to.unwrap_or_default(),
+            content: remote_note.content,
+            replies: serde_json::from_value(remote_note.replies.into()).unwrap(),
+            in_reply_to: remote_note.in_reply_to,
+            ..Default::default()
+        }
     }
 }

@@ -1,6 +1,6 @@
 use crate::{
     FaktoryConnection,
-    activity_pub::{ApActivity, ApObject, ApActivityType, ApEncryptedMessage},
+    activity_pub::{ApActivity, ApObject, ApActivityType, ApInstrument, ApBasicContentType},
     db::{
         delete_remote_actor_by_ap_id,
         create_remote_note,
@@ -10,13 +10,14 @@ use crate::{
         update_leader_by_uuid,
         create_remote_encrypted_session,
         create_encrypted_session,
-        Db, create_remote_encrypted_message
+        Db,
     },
     models::{
-        profiles::Profile,
+        profiles::{Profile, update_olm_external_identity_keys_by_username},
         remote_notes::NewRemoteNote,
         followers::NewFollower,
-        remote_encrypted_sessions::NewRemoteEncryptedSession, encrypted_sessions::{EncryptedSession, NewEncryptedSession}, remote_encrypted_messages::NewRemoteEncryptedMessage,
+        remote_encrypted_sessions::NewRemoteEncryptedSession,
+        encrypted_sessions::{EncryptedSession, NewEncryptedSession},
     },
 };
 use log::debug;
@@ -35,18 +36,6 @@ pub async fn delete(conn: Db, activity: ApActivity) -> Result<Status, Status> {
 
 pub async fn create(conn: Db, activity: ApActivity, profile: Profile) -> Result<Status, Status> {
     match activity.object {
-        ApObject::EncryptedMessage(x) => {
-            let mut n = NewRemoteEncryptedMessage::from(x);
-            n.profile_id = profile.id;
-
-            if let Some(created_message) = create_remote_encrypted_message(&conn, n).await {
-                log::debug!("created_remote_encrypted_message\n{:#?}", created_message);
-                Ok(Status::Accepted)
-            } else {
-                log::debug!("create_remote_encrypted_message failed");
-                Err(Status::NoContent)
-            }
-        },
         ApObject::Note(x) => {
             let mut n = NewRemoteNote::from(x);
             n.profile_id = profile.id;
@@ -133,6 +122,23 @@ pub async fn accept(conn: Db, activity: ApActivity) -> Result<Status, Status> {
 pub async fn invite(conn: Db, faktory: FaktoryConnection, activity: ApActivity, profile: Profile)
                     -> Result<Status, Status>
 {
+    if let ApObject::Session(session) = activity.clone().object {
+        if let ApInstrument::Single(instrument) = session.instrument {
+            if let ApObject::Basic(basic) = *instrument {
+                if basic.kind == ApBasicContentType::IdentityKey {
+                    let mut keystore = profile.keystore.clone();
+                    if let Some(mut keys) = keystore.olm_external_identity_keys {
+                        keys.insert(session.attributed_to, basic.content);
+                        keystore.olm_external_identity_keys = Some(keys);
+                        update_olm_external_identity_keys_by_username(&conn,
+                                                                      profile.username,
+                                                                      keystore).await;
+                    }
+                }
+            }
+        }
+    }
+    
     let mut remote_encrypted_session = NewRemoteEncryptedSession::from(activity.clone());
     remote_encrypted_session.profile_id = profile.id;
 
