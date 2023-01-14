@@ -23,14 +23,15 @@ pub struct NewRemoteNote {
     pub signature: Option<Value>,
 }
 
-impl From<ApNote> for NewRemoteNote {
-    fn from(note: ApNote) -> NewRemoteNote {
-        let url = match note.url.clone() {
+type IdentifiedApNote = (ApNote, i32);
+impl From<IdentifiedApNote> for NewRemoteNote {
+    fn from(note: IdentifiedApNote) -> NewRemoteNote {
+        let url = match note.clone().0.url {
             Some(ApFlexible::Single(x)) => Option::from(x.as_str().unwrap().to_string()),
             _ => Option::None,
         };
 
-        let published = match note.published.clone() {
+        let published = match note.clone().0.published {
             Some(x) => Option::from(x),
             _ => Option::None,
         };
@@ -38,20 +39,21 @@ impl From<ApNote> for NewRemoteNote {
         NewRemoteNote {
             url,
             published,
-            kind: note.kind.to_string(),
-            ap_id: note.id.unwrap(),
-            attributed_to: Some(note.attributed_to),
-            ap_to: Option::from(serde_json::to_value(&note.to).unwrap()),
-            cc: Option::from(serde_json::to_value(&note.cc).unwrap()),
-            replies: Option::from(serde_json::to_value(&note.replies).unwrap()),
-            tag: Option::from(serde_json::to_value(&note.tag).unwrap()),
-            content: note.content,
+            kind: note.0.clone().kind.to_string(),
+            ap_id: note.0.clone().id.unwrap(),
+            attributed_to: Some(note.0.attributed_to),
+            ap_to: Option::from(serde_json::to_value(&note.0.to).unwrap()),
+            cc: Option::from(serde_json::to_value(&note.0.cc).unwrap()),
+            replies: Option::from(serde_json::to_value(&note.0.replies).unwrap()),
+            tag: Option::from(serde_json::to_value(&note.0.tag).unwrap()),
+            content: note.0.content,
+            profile_id: note.1,
             ..Default::default()
         }
     }
 }
 
-#[derive(Identifiable, Queryable, AsChangeset, Serialize, Clone, Default, Debug)]
+#[derive(Identifiable, Queryable, AsChangeset, Serialize, Deserialize, Clone, Default, Debug)]
 #[table_name = "remote_notes"]
 pub struct RemoteNote {
     #[serde(skip_serializing)]
@@ -66,7 +68,7 @@ pub struct RemoteNote {
     pub ap_to: Option<Value>,
     pub cc: Option<Value>,
     pub tag: Option<Value>,
-    pub attributed_to: Option<String>,
+    pub attributed_to: String,
     pub content: String,
     pub attachment: Option<Value>,
     pub replies: Option<Value>,

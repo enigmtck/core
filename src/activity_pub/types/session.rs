@@ -2,7 +2,9 @@ use crate::{
     activity_pub::{
         ApBasicContent, ApBasicContentType, ApContext, ApInstrument, ApObject, ApObjectType,
     },
-    models::encrypted_sessions::EncryptedSession,
+    models::{
+        encrypted_sessions::EncryptedSession, remote_encrypted_sessions::RemoteEncryptedSession,
+    },
 };
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -80,6 +82,20 @@ impl From<EncryptedSession> for ApSession {
                 *crate::SERVER_NAME,
                 session.uuid
             )),
+            reference: session.reference,
+            to: session.ap_to,
+            attributed_to: session.attributed_to,
+            instrument: serde_json::from_value(session.instrument).unwrap(),
+
+            ..Default::default()
+        }
+    }
+}
+
+impl From<RemoteEncryptedSession> for ApSession {
+    fn from(session: RemoteEncryptedSession) -> ApSession {
+        ApSession {
+            id: Option::from(session.ap_id),
             reference: session.reference,
             to: session.ap_to,
             attributed_to: session.attributed_to,

@@ -1,6 +1,6 @@
 use crate::{
     activity_pub::{ApActor, ApContext, ApFlexible, ApObjectType, ApTag},
-    models::{notes::NewNote, remote_notes::RemoteNote},
+    models::{notes::NewNote, remote_notes::RemoteNote, timeline::TimelineItem},
 };
 use serde::{Deserialize, Serialize};
 
@@ -66,6 +66,30 @@ impl Default for ApNote {
     }
 }
 
+impl From<TimelineItem> for ApNote {
+    fn from(timeline: TimelineItem) -> Self {
+        let url: Option<ApFlexible> = {
+            if let Some(url) = timeline.url {
+                Option::from(ApFlexible::from(url))
+            } else {
+                Option::None
+            }
+        };
+
+        ApNote {
+            tag: serde_json::from_value(timeline.tag.unwrap_or_default()).unwrap(),
+            attributed_to: timeline.attributed_to,
+            id: Some(timeline.ap_id),
+            url,
+            published: timeline.published,
+            replies: Option::None,
+            in_reply_to: timeline.in_reply_to,
+            content: timeline.content,
+            ..Default::default()
+        }
+    }
+}
+
 impl From<ApActor> for ApNote {
     fn from(actor: ApActor) -> Self {
         ApNote {
@@ -120,7 +144,7 @@ impl From<RemoteNote> for ApNote {
             to: serde_json::from_value(remote_note.ap_to.into()).unwrap(),
             cc: serde_json::from_value(remote_note.cc.into()).unwrap(),
             tag: serde_json::from_value(remote_note.tag.into()).unwrap(),
-            attributed_to: remote_note.attributed_to.unwrap_or_default(),
+            attributed_to: remote_note.attributed_to,
             content: remote_note.content,
             replies: serde_json::from_value(remote_note.replies.into()).unwrap(),
             in_reply_to: remote_note.in_reply_to,

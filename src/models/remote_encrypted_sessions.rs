@@ -18,28 +18,29 @@ pub struct NewRemoteEncryptedSession {
     pub reference: Option<String>,
 }
 
-impl From<ApActivity> for NewRemoteEncryptedSession {
-    fn from(activity: ApActivity) -> NewRemoteEncryptedSession {
-        let mut ret = NewRemoteEncryptedSession::default();
-
-        if let ApObject::Session(session) = activity.object {
-            ret.actor = activity.actor;
-            ret.kind = activity.kind.to_string();
-            ret.ap_id = session.id.unwrap();
-            ret.ap_to = session.to;
-            ret.attributed_to = session.attributed_to;
-            ret.reference = session.reference;
-            ret.instrument = serde_json::to_value(session.instrument).unwrap();
+type IdentifiedApActivity = (ApActivity, i32);
+impl From<IdentifiedApActivity> for NewRemoteEncryptedSession {
+    fn from(activity: IdentifiedApActivity) -> NewRemoteEncryptedSession {
+        if let ApObject::Session(session) = activity.0.object {
+            NewRemoteEncryptedSession {
+                actor: activity.0.actor,
+                kind: activity.0.kind.to_string(),
+                profile_id: activity.1,
+                ap_id: session.id.unwrap(),
+                ap_to: session.to,
+                attributed_to: session.attributed_to,
+                reference: session.reference,
+                instrument: serde_json::to_value(session.instrument).unwrap(),
+            }
+        } else {
+            NewRemoteEncryptedSession::default()
         }
-
-        ret
     }
 }
 
-#[derive(Identifiable, Queryable, AsChangeset, Serialize, Clone, Default, Debug)]
+#[derive(Identifiable, Queryable, AsChangeset, Serialize, Deserialize, Clone, Default, Debug)]
 #[table_name = "remote_encrypted_sessions"]
 pub struct RemoteEncryptedSession {
-    #[serde(skip_serializing)]
     pub id: i32,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,

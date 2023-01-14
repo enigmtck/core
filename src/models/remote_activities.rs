@@ -30,7 +30,7 @@ impl From<IdentifiedActivity> for NewRemoteActivity {
             profile_id,
             context: Option::from(serde_json::to_value(&activity.context).unwrap()),
             kind: activity.kind.to_string(),
-            ap_id: activity.id.unwrap(),
+            ap_id: activity.id.unwrap_or_default(),
             ap_to: Option::from(serde_json::to_value(activity.to.unwrap_or_default()).unwrap()),
             cc: Option::from(serde_json::to_value(activity.cc.unwrap_or_default()).unwrap()),
             actor: activity.actor,

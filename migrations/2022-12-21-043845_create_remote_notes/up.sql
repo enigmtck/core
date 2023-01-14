@@ -10,7 +10,7 @@ CREATE TABLE remote_notes (
   ap_to JSONB,
   cc JSONB,
   tag JSONB,
-  attributed_to VARCHAR,
+  attributed_to VARCHAR NOT NULL,
   content VARCHAR NOT NULL,
   attachment JSONB,
   replies JSONB,

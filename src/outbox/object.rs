@@ -83,8 +83,7 @@ pub async fn note(conn: Db, note: ApNote, profile: Profile) -> Result<Status, St
 }
 
 pub async fn session(conn: Db, session: ApSession, profile: Profile) -> Result<Status, Status> {
-    let mut encrypted_session = NewEncryptedSession::from(session.clone());
-    encrypted_session.profile_id = profile.id;
+    let encrypted_session: NewEncryptedSession = (session.clone(), profile.id).into();
 
     if create_encrypted_session(&conn, encrypted_session.clone()).await.is_some() {
         let mut session = session;

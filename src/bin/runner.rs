@@ -3,21 +3,26 @@ extern crate log;
 
 use enigmatick::{
     activity_pub::{
-        sender::{
-            send_follower_accept,
-            send_activity
-        },
-        JoinData, ApSession, ApActivity, retriever
+        retriever,
+        sender::{send_activity, send_follower_accept},
+        ApActivity, ApObjectType, ApSession, JoinData,
     },
-    helper::get_local_username_from_ap_id,
     db::jsonb_set,
+    helper::get_local_username_from_ap_id,
     models::{
+        encrypted_sessions::{EncryptedSession, NewEncryptedSession},
         followers::Follower,
-        profiles::{Profile, KeyStore},
+        processing_queue::{NewProcessingItem, ProcessingItem},
+        profiles::{KeyStore, Profile},
+        remote_activities::{NewRemoteActivity, RemoteActivity},
         remote_actors::RemoteActor,
         remote_encrypted_sessions::RemoteEncryptedSession,
-        encrypted_sessions::{EncryptedSession, NewEncryptedSession}, remote_activities::{NewRemoteActivity, RemoteActivity}
-    }
+        remote_notes::RemoteNote,
+        timeline::{
+            NewTimelineItem, NewTimelineItemCc, NewTimelineItemTo, TimelineItem, TimelineItemCc,
+            TimelineItemTo,
+        },
+    },
 };
 
 use diesel::prelude::*;
@@ -45,37 +50,130 @@ pub fn create_remote_activity(remote_activity: NewRemoteActivity) -> Option<Remo
     if let Ok(conn) = POOL.get() {
         match diesel::insert_into(remote_activities::table)
             .values(&remote_activity)
-            .get_result::<RemoteActivity>(&conn) {
-                Ok(x) => Some(x),
-                Err(e) => { log::debug!("{:#?}",e); Option::None }
+            .get_result::<RemoteActivity>(&conn)
+        {
+            Ok(x) => Some(x),
+            Err(e) => {
+                log::error!("{:#?}", e);
+                Option::None
             }
+        }
     } else {
         Option::None
     }
 }
 
-pub fn create_encrypted_session(encrypted_session: NewEncryptedSession) -> Option<EncryptedSession> {
+pub fn create_processing_item(processing_item: NewProcessingItem) -> Option<ProcessingItem> {
+    use enigmatick::schema::processing_queue;
+
+    if let Ok(conn) = POOL.get() {
+        match diesel::insert_into(processing_queue::table)
+            .values(&processing_item)
+            .get_result::<ProcessingItem>(&conn)
+        {
+            Ok(x) => Some(x),
+            Err(e) => {
+                log::error!("{:#?}", e);
+                Option::None
+            }
+        }
+    } else {
+        Option::None
+    }
+}
+
+pub fn create_timeline_item_to(timeline_item_to: NewTimelineItemTo) -> Option<TimelineItemTo> {
+    use enigmatick::schema::timeline_to;
+
+    if let Ok(conn) = POOL.get() {
+        match diesel::insert_into(timeline_to::table)
+            .values(&timeline_item_to)
+            .get_result::<TimelineItemTo>(&conn)
+        {
+            Ok(x) => Some(x),
+            Err(e) => {
+                log::error!("{:#?}", e);
+                Option::None
+            }
+        }
+    } else {
+        Option::None
+    }
+}
+
+pub fn create_timeline_item_cc(timeline_item_cc: NewTimelineItemCc) -> Option<TimelineItemCc> {
+    use enigmatick::schema::timeline_cc;
+
+    if let Ok(conn) = POOL.get() {
+        match diesel::insert_into(timeline_cc::table)
+            .values(&timeline_item_cc)
+            .get_result::<TimelineItemCc>(&conn)
+        {
+            Ok(x) => Some(x),
+            Err(e) => {
+                log::error!("{:#?}", e);
+                Option::None
+            }
+        }
+    } else {
+        Option::None
+    }
+}
+
+pub fn create_timeline_item(timeline_item: NewTimelineItem) -> Option<TimelineItem> {
+    use enigmatick::schema::timeline;
+
+    if let Ok(conn) = POOL.get() {
+        match diesel::insert_into(timeline::table)
+            .values(&timeline_item)
+            .get_result::<TimelineItem>(&conn)
+        {
+            Ok(x) => Some(x),
+            Err(e) => {
+                log::error!("{:#?}", e);
+                Option::None
+            }
+        }
+    } else {
+        Option::None
+    }
+}
+
+pub fn create_encrypted_session(
+    encrypted_session: NewEncryptedSession,
+) -> Option<EncryptedSession> {
     use enigmatick::schema::encrypted_sessions;
 
     if let Ok(conn) = POOL.get() {
         match diesel::insert_into(encrypted_sessions::table)
             .values(&encrypted_session)
-            .get_result::<EncryptedSession>(&conn) {
-                Ok(x) => Some(x),
-                Err(e) => { log::debug!("{:#?}",e); Option::None }
+            .get_result::<EncryptedSession>(&conn)
+        {
+            Ok(x) => Some(x),
+            Err(e) => {
+                log::error!("{:#?}", e);
+                Option::None
             }
+        }
     } else {
         Option::None
     }
 }
 
 pub fn get_remote_encrypted_session_by_ap_id(apid: String) -> Option<RemoteEncryptedSession> {
-    use enigmatick::schema::remote_encrypted_sessions::dsl::{remote_encrypted_sessions, ap_id};
+    use enigmatick::schema::remote_encrypted_sessions::dsl::{ap_id, remote_encrypted_sessions};
 
+    log::debug!("looking for remote_encrypted_session_by_ap_id: {:#?}", apid);
     if let Ok(conn) = POOL.get() {
-        match remote_encrypted_sessions.filter(ap_id.eq(apid)).first::<RemoteEncryptedSession>(&conn) {
+        match remote_encrypted_sessions
+            .filter(ap_id.eq(apid))
+            .first::<RemoteEncryptedSession>(&conn)
+        {
             Ok(x) => Option::from(x),
-            Err(_) => Option::None
+            Err(e) => {
+                log::error!("{:#?}", e);
+                Option::None
+            }
         }
     } else {
         Option::None
@@ -88,7 +186,10 @@ pub fn get_profile_by_username(username: String) -> Option<Profile> {
     if let Ok(conn) = POOL.get() {
         match profiles.filter(u.eq(username)).first::<Profile>(&conn) {
             Ok(x) => Option::from(x),
-            Err(_) => Option::None
+            Err(e) => {
+                log::error!("{:#?}", e);
+                Option::None
+            }
         }
     } else {
         Option::None
@@ -96,12 +197,18 @@ pub fn get_profile_by_username(username: String) -> Option<Profile> {
 }
 
 pub fn get_remote_actor_by_ap_id(apid: String) -> Option<RemoteActor> {
-    use enigmatick::schema::remote_actors::dsl::{remote_actors, ap_id};
+    use enigmatick::schema::remote_actors::dsl::{ap_id, remote_actors};
 
     if let Ok(conn) = POOL.get() {
-        match remote_actors.filter(ap_id.eq(apid)).first::<RemoteActor>(&conn) {
+        match remote_actors
+            .filter(ap_id.eq(apid))
+            .first::<RemoteActor>(&conn)
+        {
             Ok(x) => Option::from(x),
-            Err(_) => Option::None
+            Err(e) => {
+                log::error!("{:#?}", e);
+                Option::None
+            }
         }
     } else {
         Option::None
@@ -109,17 +216,23 @@ pub fn get_remote_actor_by_ap_id(apid: String) -> Option<RemoteActor> {
 }
 
 pub fn update_otk_by_username(username: String, keystore: KeyStore) -> Option<Profile> {
-    use enigmatick::schema::profiles::dsl::{profiles, username as u, keystore as k};
+    use enigmatick::schema::profiles::dsl::{keystore as k, profiles, username as u};
 
     if let Ok(conn) = POOL.get() {
         match diesel::update(profiles.filter(u.eq(username)))
-            .set(k.eq(jsonb_set(k,
-                                vec![String::from("olm_one_time_keys")],
-                                serde_json::to_value(keystore.olm_one_time_keys).unwrap())))
-            .get_result::<Profile>(&conn) {
-                Ok(x) => Some(x),
-                Err(_) => Option::None
+            .set(k.eq(jsonb_set(
+                k,
+                vec![String::from("olm_one_time_keys")],
+                serde_json::to_value(keystore.olm_one_time_keys).unwrap(),
+            )))
+            .get_result::<Profile>(&conn)
+        {
+            Ok(x) => Some(x),
+            Err(e) => {
+                log::error!("{:#?}", e);
+                Option::None
             }
+        }
     } else {
         Option::None
     }
@@ -130,7 +243,7 @@ fn provide_one_time_key(job: Job) -> io::Result<()> {
 
     let rt = Runtime::new().unwrap();
     let handle = rt.handle();
-    
+
     for ap_id in job.args() {
         let ap_id = ap_id.as_str().unwrap().to_string();
 
@@ -141,7 +254,7 @@ fn provide_one_time_key(job: Job) -> io::Result<()> {
                     if let Some(actor) = get_remote_actor_by_ap_id(session.attributed_to.clone()) {
                         // send Join activity with Identity and OTK to attributed_to
                         let mut keystore = profile.keystore.clone();
-                        
+
                         if let Some(identity_key) = keystore.olm_identity_public_key.clone() {
                             if let Some(mut otk) = keystore.olm_one_time_keys.clone() {
                                 let mut keys = otk.keys().collect::<Vec<&String>>();
@@ -150,7 +263,7 @@ fn provide_one_time_key(job: Job) -> io::Result<()> {
                                 // that it actually matters; I may remove these
                                 keys.sort();
                                 keys.reverse();
-                                
+
                                 let key = keys.first().unwrap().to_string();
                                 let value = otk.remove(&key).unwrap();
                                 log::debug!("identity_key\n{:#?}", identity_key);
@@ -162,13 +275,12 @@ fn provide_one_time_key(job: Job) -> io::Result<()> {
                                         identity_key,
                                         to: session.attributed_to,
                                         attributed_to: session.ap_to,
-                                        reference: session.ap_id
+                                        reference: session.ap_id,
                                     });
-                                    
+
                                     let activity = ApActivity::from(session.clone());
-                                    let mut encrypted_session =
-                                        NewEncryptedSession::from(session.clone());
-                                    encrypted_session.profile_id = profile.id;
+                                    let encrypted_session: NewEncryptedSession =
+                                        (session.clone(), profile.id).into();
 
                                     // this activity should be saved so that the id makes sense
                                     // but it's not right now
@@ -176,7 +288,9 @@ fn provide_one_time_key(job: Job) -> io::Result<()> {
 
                                     if create_encrypted_session(encrypted_session).is_some() {
                                         handle.block_on(async {
-                                            match send_activity(activity, profile, actor.inbox).await {
+                                            match send_activity(activity, profile, actor.inbox)
+                                                .await
+                                            {
                                                 Ok(_) => {
                                                     info!("join sent: {:#?}", actor.ap_id);
                                                 }
@@ -190,7 +304,7 @@ fn provide_one_time_key(job: Job) -> io::Result<()> {
                                     log::error!("failed to update keystore");
                                 }
                             }
-                        }   
+                        }
                     }
                 }
             }
@@ -235,7 +349,13 @@ fn acknowledge_followers(job: Job) -> io::Result<()> {
                                         debug!("actor\n{:#?}\n", actor);
 
                                         handle.block_on(async {
-                                            match send_follower_accept(ap_id, profile, actor.clone()).await {
+                                            match send_follower_accept(
+                                                ap_id,
+                                                profile,
+                                                actor.clone(),
+                                            )
+                                            .await
+                                            {
                                                 Ok(_) => {
                                                     info!("accept sent: {:#?}", actor.ap_id);
                                                 }
@@ -261,6 +381,85 @@ fn acknowledge_followers(job: Job) -> io::Result<()> {
     Ok(())
 }
 
+fn process_join(job: Job) -> io::Result<()> {
+    let ap_ids = job.args();
+
+    debug!("running process_join job: {:#?}", ap_ids);
+
+    for ap_id in ap_ids {
+        if let Some(session) =
+            get_remote_encrypted_session_by_ap_id(ap_id.as_str().unwrap().to_string())
+        {
+            create_processing_item(session.into());
+        }
+    }
+
+    Ok(())
+}
+
+fn process_remote_note(job: Job) -> io::Result<()> {
+    use enigmatick::schema::remote_notes::dsl::{ap_id as rn_id, remote_notes};
+
+    debug!("running process_remote_note job");
+
+    let ap_ids = job.args();
+
+    match POOL.get() {
+        Ok(conn) => {
+            for ap_id in ap_ids {
+                let ap_id = ap_id.as_str().unwrap().to_string();
+                debug!("looking for ap_id: {}", ap_id);
+
+                match remote_notes
+                    .filter(rn_id.eq(ap_id))
+                    .first::<RemoteNote>(&conn)
+                {
+                    Ok(remote_note) => {
+                        if remote_note.kind == "Note" {
+                            if let Some(actor) =
+                                get_remote_actor_by_ap_id(remote_note.clone().attributed_to)
+                            {
+                                if let Some(timeline_item) =
+                                    create_timeline_item((remote_note.clone(), actor.id).into())
+                                {
+                                    if let Some(ap_to) = remote_note.clone().ap_to {
+                                        let to_vec: Vec<String> =
+                                            serde_json::from_value(ap_to).unwrap();
+
+                                        for to in to_vec {
+                                            create_timeline_item_to(
+                                                (timeline_item.clone(), to).into(),
+                                            );
+                                        }
+                                    }
+
+                                    if let Some(cc) = remote_note.clone().cc {
+                                        let cc_vec: Vec<String> =
+                                            serde_json::from_value(cc).unwrap();
+
+                                        for cc in cc_vec {
+                                            create_timeline_item_cc(
+                                                (timeline_item.clone(), cc).into(),
+                                            );
+                                        }
+                                    };
+                                }
+                            }
+                        } else if remote_note.kind == "EncryptedNote" {
+                            debug!("adding to processing queue");
+                            create_processing_item(remote_note.into());
+                        }
+                    }
+                    Err(e) => error!("error: {:#?}", e),
+                }
+            }
+        }
+        Err(e) => error!("error: {:#?}", e),
+    }
+
+    Ok(())
+}
+
 fn main() {
     env_logger::init();
 
@@ -271,12 +470,14 @@ fn main() {
     let mut consumer = ConsumerBuilder::default();
     consumer.register("acknowledge_followers", acknowledge_followers);
     consumer.register("provide_one_time_key", provide_one_time_key);
+    consumer.register("process_remote_note", process_remote_note);
+    consumer.register("process_join", process_join);
 
     consumer.register("test_job", |job| {
         debug!("{:#?}", job);
         Ok(())
     });
-                      
+
     let mut consumer = consumer
         .connect(Some("tcp://:password@localhost:7419"))
         .unwrap();

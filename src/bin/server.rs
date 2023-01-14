@@ -2,45 +2,36 @@
 extern crate rocket;
 
 use enigmatick::{
-    admin,
-    outbox,
-    inbox,
-    FaktoryConnection,
-    models::{
-        remote_activities::NewRemoteActivity,
-        profiles::{Profile, KeyStore, update_olm_external_identity_keys_by_username, update_olm_sessions_by_username},
-    },
     activity_pub::{
-        ApObject,
-        ApActor,
-        ApActivity,
-        retriever,
-        ApActivityType,
-        ApOrderedCollection,
-        FollowersPage,
-        LeadersPage,
-        ApBaseObjectSuper
+        retriever, ApActivity, ApActivityType, ApActor, ApBaseObjectSuper, ApCollection, ApObject,
+        ApOrderedCollection, FollowersPage, LeadersPage,
     },
-    webfinger::WebFinger,
+    admin,
+    api::processing_queue,
     db::{
-        Db,
-        get_profile_by_username,
-        create_remote_activity,
-        get_followers_by_profile_id,
-        get_leaders_by_profile_id
+        create_remote_activity, get_followers_by_profile_id, get_leaders_by_profile_id,
+        get_profile_by_username, Db,
     },
-    signing::{verify, VerifyParams}
+    inbox,
+    models::profiles::{
+        update_olm_external_identity_keys_by_username, update_olm_sessions_by_username, KeyStore,
+        Profile,
+    },
+    outbox,
+    signing::{verify, VerifyParams},
+    webfinger::WebFinger,
+    FaktoryConnection,
 };
 
 use faktory::Job;
 
 use rocket::{
-    Response,
-    http::RawStr,
-    request::{FromParam, FromRequest, Request, Outcome},
-    serde::json::{Json, Error},
-    http::{Status, Header},
     fairing::{Fairing, Info, Kind},
+    http::RawStr,
+    http::{Header, Status},
+    request::{FromParam, FromRequest, Outcome, Request},
+    serde::json::{Error, Json},
+    Response,
 };
 
 use serde::Deserialize;
@@ -54,7 +45,7 @@ pub enum SignatureError {
     InvalidRequestPath,
     InvalidRequestUsername,
     LocalUserNotFound,
-    SignatureInvalid
+    SignatureInvalid,
 }
 
 #[rocket::async_trait]
@@ -74,7 +65,6 @@ impl<'r> FromRequest<'r> for Signed {
             if let Some(username) = username_match.get(2) {
                 match get_profile_by_username(&conn, username.as_str().to_string()).await {
                     Some(profile) => {
-                        
                         let request_target = format!("{} {}", method.to_lowercase(), path);
 
                         let mut date = String::new();
@@ -102,28 +92,40 @@ impl<'r> FromRequest<'r> for Signed {
 
                         let signature_vec: Vec<_> = request.headers().get("signature").collect();
                         let signature = signature_vec[0].to_string();
-                        
+
                         match signature_vec.len() {
-                            0 => Outcome::Failure((Status::BadRequest, SignatureError::NonExistent)),
+                            0 => {
+                                Outcome::Failure((Status::BadRequest, SignatureError::NonExistent))
+                            }
                             1 => {
-                                if verify(conn,
-                                          VerifyParams { profile,
-                                                         signature,
-                                                         request_target,
-                                                         host,
-                                                         date,
-                                                         digest,
-                                                         content_type }).await {
+                                if verify(
+                                    conn,
+                                    VerifyParams {
+                                        profile,
+                                        signature,
+                                        request_target,
+                                        host,
+                                        date,
+                                        digest,
+                                        content_type,
+                                    },
+                                )
+                                .await
+                                {
                                     Outcome::Success(Signed(true))
                                 } else {
                                     Outcome::Success(Signed(false))
                                 }
-                            },
-                            _ => Outcome::Failure((Status::BadRequest,
-                                                   SignatureError::MultipleSignatures)),
+                            }
+                            _ => Outcome::Failure((
+                                Status::BadRequest,
+                                SignatureError::MultipleSignatures,
+                            )),
                         }
-                    },
-                    None => Outcome::Failure((Status::BadRequest, SignatureError::LocalUserNotFound)),
+                    }
+                    None => {
+                        Outcome::Failure((Status::BadRequest, SignatureError::LocalUserNotFound))
+                    }
                 }
             } else {
                 Outcome::Failure((Status::BadRequest, SignatureError::InvalidRequestUsername))
@@ -156,33 +158,38 @@ pub async fn profile(conn: Db, handle: Handle<'_>) -> Result<Json<ApActor>, Stat
     username.remove(0);
     match get_profile_by_username(&conn, username).await {
         Some(profile) => Ok(Json(ApActor::from(profile))),
-        None => Err(Status::NoContent)
+        None => Err(Status::NoContent),
     }
 }
 
 #[get("/user/<username>/test")]
-pub async fn test(conn: Db, faktory: FaktoryConnection, username: String)
-                  -> Result<Json<ApActor>, Status> {
+pub async fn test(
+    conn: Db,
+    faktory: FaktoryConnection,
+    username: String,
+) -> Result<Json<ApActor>, Status> {
     match faktory.producer.try_lock() {
         Ok(mut x) => {
-            if x.enqueue(Job::new("test_job", vec!["arg"]))
-                .is_err() {
-                    log::error!("failed to enqueue job");
-                }
-        },
-        Err(e) => log::debug!("failed to lock mutex: {}", e)
+            if x.enqueue(Job::new("test_job", vec!["arg"])).is_err() {
+                log::error!("failed to enqueue job");
+            }
+        }
+        Err(e) => log::debug!("failed to lock mutex: {}", e),
     }
-    
+
     match get_profile_by_username(&conn, username).await {
         Some(profile) => {
-            retriever::get_followers(&conn,
-                                     profile.clone(),
-                                     "https://ser.endipito.us/users/justin".to_string(),
-                                     Option::from(1)).await;
-            
+            retriever::get_followers(
+                &conn,
+                profile.clone(),
+                "https://ser.endipito.us/users/justin".to_string(),
+                Option::from(1),
+            )
+            .await;
+
             Ok(Json(ApActor::from(profile)))
-        },
-        None => Err(Status::NoContent)
+        }
+        None => Err(Status::NoContent),
     }
 }
 
@@ -192,8 +199,8 @@ pub async fn person(conn: Db, username: String) -> Result<Json<ApActor>, Status>
         Some(profile) => {
             debug!("profile\n{:#?}", profile);
             Ok(Json(ApActor::from(profile)))
-        },
-        None => Err(Status::NoContent)
+        }
+        None => Err(Status::NoContent),
     }
 }
 
@@ -206,7 +213,7 @@ pub async fn webfinger(conn: Db, resource: String) -> Result<Json<WebFinger>, St
 
         match get_profile_by_username(&conn, username.to_string()).await {
             Some(profile) => Ok(Json(WebFinger::from(profile))),
-            None => Err(Status::NoContent)
+            None => Err(Status::NoContent),
         }
     } else {
         Err(Status::NoContent)
@@ -214,15 +221,17 @@ pub async fn webfinger(conn: Db, resource: String) -> Result<Json<WebFinger>, St
 }
 
 #[get("/user/<username>/followers")]
-pub async fn get_followers(conn: Db, username: String) -> Result<Json<ApOrderedCollection>, Status> {
-
+pub async fn get_followers(
+    conn: Db,
+    username: String,
+) -> Result<Json<ApOrderedCollection>, Status> {
     if let Some(profile) = get_profile_by_username(&conn, username).await {
         let followers = get_followers_by_profile_id(&conn, profile.id).await;
 
         Ok(Json(ApOrderedCollection::from(FollowersPage {
             page: 0,
             profile,
-            followers
+            followers,
         })))
 
         //log::debug!("followers: {:#?}", followers);
@@ -233,14 +242,13 @@ pub async fn get_followers(conn: Db, username: String) -> Result<Json<ApOrderedC
 
 #[get("/user/<username>/following")]
 pub async fn get_leaders(conn: Db, username: String) -> Result<Json<ApOrderedCollection>, Status> {
-
     if let Some(profile) = get_profile_by_username(&conn, username).await {
         let leaders = get_leaders_by_profile_id(&conn, profile.id).await;
 
         Ok(Json(ApOrderedCollection::from(LeadersPage {
             page: 0,
             profile,
-            leaders
+            leaders,
         })))
 
         //log::debug!("followers: {:#?}", followers);
@@ -258,23 +266,57 @@ pub struct NewUser {
     pub keystore: String,
 }
 
-#[post("/api/user/create", format="json", data="<user>")]
-pub async fn create_user(conn: Db, user: Result<Json<NewUser>, Error<'_>>)
-                         -> Result<Json<Profile>, Status>
-{
+#[post("/api/user/create", format = "json", data = "<user>")]
+pub async fn create_user(
+    conn: Db,
+    user: Result<Json<NewUser>, Error<'_>>,
+) -> Result<Json<Profile>, Status> {
     debug!("raw\n{:#?}", user);
 
     if let Ok(user) = user {
-        let keystore_value: serde_json::Value = serde_json::from_str(&user.keystore.clone()).unwrap();
-        
-        if let Some(profile) =    
-            admin::create_user(&conn,
-                               user.username.clone(),
-                               user.display_name.clone(),
-                               user.password.clone(), 
-                               Some(user.client_public_key.clone()),
-                               Some(keystore_value)).await {
+        let keystore_value: serde_json::Value =
+            serde_json::from_str(&user.keystore.clone()).unwrap();
+
+        if let Some(profile) = admin::create_user(
+            &conn,
+            user.username.clone(),
+            user.display_name.clone(),
+            user.password.clone(),
+            Some(user.client_public_key.clone()),
+            Some(keystore_value),
+        )
+        .await
+        {
+            Ok(Json(profile))
+        } else {
+            Err(Status::NoContent)
+        }
+    } else {
+        Err(Status::NoContent)
+    }
+}
+
+#[post(
+    "/api/user/<username>/update_olm_sessions",
+    format = "json",
+    data = "<keystore>"
+)]
+pub async fn update_olm_sessions(
+    signed: Signed,
+    conn: Db,
+    username: String,
+    keystore: Result<Json<KeyStore>, Error<'_>>,
+) -> Result<Json<Profile>, Status> {
+    debug!("raw\n{:#?}", keystore);
+
+    if let Signed(true) = signed {
+        if let Ok(Json(keystore)) = keystore {
+            if let Some(profile) = update_olm_sessions_by_username(&conn, username, keystore).await
+            {
                 Ok(Json(profile))
+            } else {
+                Err(Status::NoContent)
+            }
         } else {
             Err(Status::NoContent)
         }
@@ -283,26 +325,18 @@ pub async fn create_user(conn: Db, user: Result<Json<NewUser>, Error<'_>>)
     }
 }
 
-#[post("/api/user/<username>/update_olm_sessions", format="json", data="<keystore>")]
-pub async fn update_olm_sessions(signed: Signed,
-                                   conn: Db,
-                                   username: String,
-                                   keystore: Result<Json<KeyStore>, Error<'_>>)
-                                   -> Result<Json<Profile>, Status>
-{
-    debug!("raw\n{:#?}", keystore);
-
+#[get("/api/user/<username>/processing_queue")]
+pub async fn get_processing_queue(
+    signed: Signed,
+    conn: Db,
+    username: String,
+) -> Result<Json<ApObject>, Status> {
     if let Signed(true) = signed {
-        if let Ok(Json(keystore)) = keystore {        
-            if let Some(profile) =
-                update_olm_sessions_by_username(
-                    &conn,
-                    username,
-                    keystore).await {
-                    Ok(Json(profile))
-                } else {
-                    Err(Status::NoContent)
-                }
+        if let Some(profile) = get_profile_by_username(&conn, username).await {
+            let l = processing_queue::retrieve(&conn, profile).await;
+
+            debug!("queue\n{:#?}", l);
+            Ok(Json(ApObject::Collection(ApCollection::from(l))))
         } else {
             Err(Status::NoContent)
         }
@@ -311,26 +345,28 @@ pub async fn update_olm_sessions(signed: Signed,
     }
 }
 
-#[post("/api/user/<username>/update_identity_cache", format="json", data="<keystore>")]
-pub async fn update_identity_cache(signed: Signed,
-                                   conn: Db,
-                                   username: String,
-                                   keystore: Result<Json<KeyStore>, Error<'_>>)
-                                   -> Result<Json<Profile>, Status>
-{
+#[post(
+    "/api/user/<username>/update_identity_cache",
+    format = "json",
+    data = "<keystore>"
+)]
+pub async fn update_identity_cache(
+    signed: Signed,
+    conn: Db,
+    username: String,
+    keystore: Result<Json<KeyStore>, Error<'_>>,
+) -> Result<Json<Profile>, Status> {
     debug!("raw\n{:#?}", keystore);
 
     if let Signed(true) = signed {
-        if let Ok(Json(keystore)) = keystore {        
+        if let Ok(Json(keystore)) = keystore {
             if let Some(profile) =
-                update_olm_external_identity_keys_by_username(
-                    &conn,
-                    username,
-                    keystore).await {
-                    Ok(Json(profile))
-                } else {
-                    Err(Status::NoContent)
-                }
+                update_olm_external_identity_keys_by_username(&conn, username, keystore).await
+            {
+                Ok(Json(profile))
+            } else {
+                Err(Status::NoContent)
+            }
         } else {
             Err(Status::NoContent)
         }
@@ -345,18 +381,18 @@ pub struct AuthenticationData {
     pub password: String,
 }
 
-#[post("/api/user/authenticate", format="json", data="<user>")]
-pub async fn authenticate_user(conn: Db, user: Result<Json<AuthenticationData>, Error<'_>>)
-                               -> Result<Json<Profile>, Status>
-{
+#[post("/api/user/authenticate", format = "json", data = "<user>")]
+pub async fn authenticate_user(
+    conn: Db,
+    user: Result<Json<AuthenticationData>, Error<'_>>,
+) -> Result<Json<Profile>, Status> {
     debug!("raw\n{:#?}", user);
 
     if let Ok(user) = user {
         if let Some(profile) =
-            admin::authenticate(&conn,
-                               user.username.clone(),
-                               user.password.clone()).await {
-                Ok(Json(profile))
+            admin::authenticate(&conn, user.username.clone(), user.password.clone()).await
+        {
+            Ok(Json(profile))
         } else {
             Err(Status::NoContent)
         }
@@ -365,52 +401,63 @@ pub async fn authenticate_user(conn: Db, user: Result<Json<AuthenticationData>, 
     }
 }
 
-#[post("/user/<username>/outbox", data="<object>")]
-pub async fn
-    outbox_post(
-        signed: Signed,
-        conn: Db,
-        username: String,
-        object: Result<Json<ApBaseObjectSuper>, Error<'_>>)
-    -> Result<Status, Status>
-{
+#[post("/user/<username>/outbox", data = "<object>")]
+pub async fn outbox_post(
+    //signed: Signed,
+    conn: Db,
+    username: String,
+    object: Result<Json<ApBaseObjectSuper>, Error<'_>>,
+) -> Result<Status, Status> {
     debug!("raw\n{:#?}", object);
 
-    if let Signed(true) = signed {
-        match get_profile_by_username(&conn, username).await {
-            Some(profile) => match object {
-                Ok(object) => match object {
-                    Json(ApBaseObjectSuper::Activity(activity)) => {
-                        match activity.kind {                        
-                            ApActivityType::Undo =>
-                                outbox::activity::undo(conn, activity, profile).await,
-                            ApActivityType::Follow =>
-                                outbox::activity::follow(conn, activity, profile).await,
-                            _ => Err(Status::NoContent)
+    //if let Signed(true) = signed {
+    match get_profile_by_username(&conn, username).await {
+        Some(profile) => match object {
+            Ok(object) => match object {
+                Json(ApBaseObjectSuper::Activity(activity)) => {
+                    if create_remote_activity(&conn, (activity.clone(), profile.id).into())
+                        .await
+                        .is_some()
+                    {
+                        match activity.kind {
+                            ApActivityType::Undo => {
+                                outbox::activity::undo(conn, activity, profile).await
+                            }
+                            ApActivityType::Follow => {
+                                outbox::activity::follow(conn, activity, profile).await
+                            }
+                            _ => Err(Status::NoContent),
                         }
-                    },
-                    Json(ApBaseObjectSuper::Object(ApObject::Note(note))) => 
-                        outbox::object::note(conn, note, profile).await,
-                    Json(ApBaseObjectSuper::Object(ApObject::Session(session))) => 
-                        outbox::object::session(conn, session, profile).await,
-                    _ => Err(Status::NoContent)
-                },
-                Err(_) => Err(Status::NoContent)
+                    } else {
+                        Err(Status::NoContent)
+                    }
+                }
+                Json(ApBaseObjectSuper::Object(ApObject::Note(note))) => {
+                    outbox::object::note(conn, note, profile).await
+                }
+                Json(ApBaseObjectSuper::Object(ApObject::Session(session))) => {
+                    outbox::object::session(conn, session, profile).await
+                }
+                _ => Err(Status::NoContent),
             },
-            None => Err(Status::NoContent)
-        }
-    } else {
-        Err(Status::NoContent)
+            Err(_) => Err(Status::NoContent),
+        },
+        None => Err(Status::NoContent),
     }
+    // } else {
+    //     Err(Status::NoContent)
+    // }
 }
 
 #[get("/user/<username>/inbox")]
-pub async fn inbox_get(signed: Signed, conn: Db, username: String) -> Result<Json<ApObject>, Status> {
-
+pub async fn inbox_get(
+    signed: Signed,
+    conn: Db,
+    username: String,
+) -> Result<Json<ApObject>, Status> {
     debug!("inbox get request received");
 
-    if let (Some(profile), Signed(true)) =
-        (get_profile_by_username(&conn, username).await, signed)
+    if let (Some(profile), Signed(true)) = (get_profile_by_username(&conn, username).await, signed)
     {
         let inbox = inbox::retrieve::all(conn, profile).await;
         debug!("inbox\n{:#?}", inbox);
@@ -420,50 +467,51 @@ pub async fn inbox_get(signed: Signed, conn: Db, username: String) -> Result<Jso
     }
 }
 
-#[post("/user/<username>/inbox", data="<activity>")]
-pub async fn
-    inbox_post(signed: Signed,
-               conn: Db,
-               faktory: FaktoryConnection,
-               username: String,
-               activity: Result<Json<ApActivity>, Error<'_>>)
-               -> Result<Status, Status> {
-    
+#[post("/user/<username>/inbox", data = "<activity>")]
+pub async fn inbox_post(
+    signed: Signed,
+    conn: Db,
+    faktory: FaktoryConnection,
+    username: String,
+    activity: Result<Json<ApActivity>, Error<'_>>,
+) -> Result<Status, Status> {
     debug!("inbox: {:#?}", activity);
 
-    // if let (Ok(activity), Some(profile)) =
-    //     (activity, get_profile_by_username(&conn, username).await)
-    if let (Ok(activity), Some(profile), Signed(true)) =
-        (activity, get_profile_by_username(&conn, username).await, signed)
-    {                          
+    if let (Ok(activity), Some(profile), Signed(true)) = (
+        activity,
+        get_profile_by_username(&conn, username).await,
+        signed,
+    ) {
         let activity = activity.0.clone();
-        
-        if retriever::get_actor(&conn,
-                                profile.clone(),
-                                activity.actor.clone()).await.is_some()
-        {    
-            if let Some(created_activity) =
-                create_remote_activity(
-                    &conn,
-                    NewRemoteActivity::from(
-                        (activity.clone(),
-                         profile.id))).await {
-                log::debug!("created_remote_activity\n{:#?}", created_activity);
-            } else {
-                log::debug!("create_remote_activity failed");
-            }
 
-            match activity.kind {
-                ApActivityType::Delete => inbox::activity::delete(conn, activity).await,
-                ApActivityType::Create => inbox::activity::create(conn, activity, profile).await,
-                ApActivityType::Follow =>
-                    inbox::activity::follow(conn, faktory, activity, profile).await,
-                ApActivityType::Undo => inbox::activity::undo(conn, activity).await,
-                ApActivityType::Accept => inbox::activity::accept(conn, activity).await,
-                ApActivityType::Invite =>
-                    inbox::activity::invite(conn, faktory, activity, profile).await,
-                ApActivityType::Join => inbox::activity::join(conn, activity, profile).await,
-                _ => Err(Status::NoContent)
+        if retriever::get_actor(&conn, profile.clone(), activity.actor.clone())
+            .await
+            .is_some()
+        {
+            if create_remote_activity(&conn, (activity.clone(), profile.id).into())
+                .await
+                .is_some()
+            {
+                match activity.kind {
+                    ApActivityType::Delete => inbox::activity::delete(conn, activity).await,
+                    ApActivityType::Create => {
+                        inbox::activity::create(conn, faktory, activity, profile).await
+                    }
+                    ApActivityType::Follow => {
+                        inbox::activity::follow(conn, faktory, activity, profile).await
+                    }
+                    ApActivityType::Undo => inbox::activity::undo(conn, activity).await,
+                    ApActivityType::Accept => inbox::activity::accept(conn, activity).await,
+                    ApActivityType::Invite => {
+                        inbox::activity::invite(conn, faktory, activity, profile).await
+                    }
+                    ApActivityType::Join => {
+                        inbox::activity::join(conn, faktory, activity, profile).await
+                    }
+                    _ => Err(Status::NoContent),
+                }
+            } else {
+                Err(Status::NoContent)
             }
         } else {
             Err(Status::NoContent)
@@ -508,25 +556,29 @@ impl Fairing for Cors {
 #[launch]
 fn rocket() -> _ {
     env_logger::init();
-    
+
     rocket::build()
         .attach(FaktoryConnection::fairing())
         .attach(Db::fairing())
         .attach(Cors)
-        .mount("/", routes![
-            person,
-            profile,
-            webfinger,
-            outbox_post,
-            inbox_post,
-            inbox_get,
-            get_followers,
-            get_leaders,
-            create_user,
-            authenticate_user,
-            update_identity_cache,
-            update_olm_sessions,
-            test,
-            all_options
-        ])
+        .mount(
+            "/",
+            routes![
+                person,
+                profile,
+                webfinger,
+                outbox_post,
+                inbox_post,
+                inbox_get,
+                get_followers,
+                get_leaders,
+                create_user,
+                authenticate_user,
+                update_identity_cache,
+                update_olm_sessions,
+                get_processing_queue,
+                test,
+                all_options
+            ],
+        )
 }

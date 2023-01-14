@@ -88,6 +88,12 @@ pub enum ApFlexible {
     Multiple(Vec<Value>),
 }
 
+impl From<String> for ApFlexible {
+    fn from(data: String) -> Self {
+        ApFlexible::Single(Value::from(data))
+    }
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 #[serde(untagged)]
 pub enum ApInstrument {

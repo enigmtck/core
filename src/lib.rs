@@ -12,17 +12,15 @@ use faktory::{Job, Producer};
 use std::net::TcpStream;
 use std::sync::{Arc, Mutex};
 
-use rocket::http::RawStr;
-use rocket::request::{FromParam, FromRequest, Request, Outcome};
-use rocket::serde::json::Json;
-use rocket::serde::json::Error;
-use rocket::http::{Status, Header};
+use rocket::request::{FromRequest, Request, Outcome};
+use rocket::http::Status;
 use rocket::fairing::{Fairing, Info, Kind, self};
-use rocket::{Rocket, Build, Response};
+use rocket::{Rocket, Build};
 
 pub mod activity_pub;
 pub mod admin;
 pub mod db;
+pub mod api;
 pub mod helper;
 pub mod inbox;
 pub mod models;
@@ -99,5 +97,16 @@ impl <'r> FromRequest<'r> for FaktoryConnection {
         } else {
             Outcome::Failure((Status::BadRequest, FaktoryConnectionError::Failed))
         }
+    }
+}
+
+pub fn assign_to_faktory(faktory: FaktoryConnection,
+                         job_name: String,
+                         job_args: Vec<String>) -> Result<(), Box<dyn std::error::Error>> {
+    match faktory.producer.try_lock() {
+        Ok(mut x) => {
+            x.enqueue(Job::new(job_name, job_args)).map_err(|e| e.into())
+        },
+        Err(e) => Err(Box::from(e.to_string()))
     }
 }

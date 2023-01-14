@@ -28,3 +28,7 @@ pub fn get_local_username_from_ap_id(ap_id: String) -> Option<String> {
         Option::None
     }
 }
+
+pub fn get_ap_id_from_username(username: String) -> String {
+    format!("https://{}/user/{}", *crate::SERVER_NAME, username)
+}
