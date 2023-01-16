@@ -56,6 +56,7 @@ pub struct KeyStore {
     pub olm_one_time_keys: Option<HashMap<String, Vec<u8>>>,
     pub olm_pickled_account: Option<String>,
     pub olm_external_identity_keys: Option<HashMap<String, String>>,
+    pub olm_external_one_time_keys: Option<HashMap<String, String>>,
     pub olm_sessions: Option<String>,
 }
 
@@ -73,46 +74,98 @@ impl ToSql<Jsonb, Pg> for KeyStore {
     }
 }
 
-pub async fn update_otk_by_username(conn: &Db, username: String, keystore: KeyStore) -> Option<Profile> {
-    use schema::profiles::dsl::{profiles, username as u, keystore as k};
+pub async fn update_otk_by_username(
+    conn: &Db,
+    username: String,
+    keystore: KeyStore,
+) -> Option<Profile> {
+    use schema::profiles::dsl::{keystore as k, profiles, username as u};
 
-    match conn.run(move |c| diesel::update(profiles.filter(u.eq(username)))
-                   .set(k.eq(jsonb_set(k,
-                                       vec![String::from("olm_one_time_keys")],
-                                       serde_json::to_value(&keystore.olm_one_time_keys).unwrap())))
-                   .get_result::<Profile>(c)).await {
+    match conn
+        .run(move |c| {
+            diesel::update(profiles.filter(u.eq(username)))
+                .set(k.eq(jsonb_set(
+                    k,
+                    vec![String::from("olm_one_time_keys")],
+                    serde_json::to_value(&keystore.olm_one_time_keys).unwrap(),
+                )))
+                .get_result::<Profile>(c)
+        })
+        .await
+    {
         Ok(x) => Some(x),
-        Err(_) => Option::None
+        Err(_) => Option::None,
     }
 }
 
-pub async fn update_olm_external_identity_keys_by_username(conn: &Db, username: String, keystore: KeyStore) -> Option<Profile> {
-    use schema::profiles::dsl::{profiles, username as u, keystore as k};
+pub async fn update_olm_external_identity_keys_by_username(
+    conn: &Db,
+    username: String,
+    keystore: KeyStore,
+) -> Option<Profile> {
+    use schema::profiles::dsl::{keystore as k, profiles, username as u};
 
-    match conn.run(move |c|
-                   diesel::update(profiles.filter(u.eq(username)))
-                   .set(k.eq(
-                       jsonb_set(k,
-                                 vec![String::from("olm_external_identity_keys")],
-                                 serde_json::to_value(
-                                     &keystore.olm_external_identity_keys
-                                 ).unwrap())
-                   )).get_result::<Profile>(c)).await {
+    match conn
+        .run(move |c| {
+            diesel::update(profiles.filter(u.eq(username)))
+                .set(k.eq(jsonb_set(
+                    k,
+                    vec![String::from("olm_external_identity_keys")],
+                    serde_json::to_value(&keystore.olm_external_identity_keys).unwrap(),
+                )))
+                .get_result::<Profile>(c)
+        })
+        .await
+    {
         Ok(x) => Some(x),
-        Err(_) => Option::None
+        Err(_) => Option::None,
     }
 }
 
-pub async fn update_olm_sessions_by_username(conn: &Db, username: String, keystore: KeyStore) -> Option<Profile> {
-    use schema::profiles::dsl::{profiles, username as u, keystore as k};
+pub async fn update_olm_external_one_time_keys_by_username(
+    conn: &Db,
+    username: String,
+    keystore: KeyStore,
+) -> Option<Profile> {
+    use schema::profiles::dsl::{keystore as k, profiles, username as u};
 
-    match conn.run(move |c|
-                   diesel::update(profiles.filter(u.eq(username)))
-                   .set(k.eq(jsonb_set(k,
-                                       vec![String::from("olm_sessions")],
-                                       serde_json::to_value(&keystore.olm_sessions).unwrap())))
-                   .get_result::<Profile>(c)).await {
+    match conn
+        .run(move |c| {
+            diesel::update(profiles.filter(u.eq(username)))
+                .set(k.eq(jsonb_set(
+                    k,
+                    vec![String::from("olm_external_one_time_keys")],
+                    serde_json::to_value(&keystore.olm_external_one_time_keys).unwrap(),
+                )))
+                .get_result::<Profile>(c)
+        })
+        .await
+    {
         Ok(x) => Some(x),
-        Err(_) => Option::None
+        Err(_) => Option::None,
+    }
+}
+
+pub async fn update_olm_sessions_by_username(
+    conn: &Db,
+    username: String,
+    keystore: KeyStore,
+) -> Option<Profile> {
+    use schema::profiles::dsl::{keystore as k, profiles, username as u};
+
+    match conn
+        .run(move |c| {
+            diesel::update(profiles.filter(u.eq(username)))
+                .set(k.eq(jsonb_set(
+                    k,
+                    vec![String::from("olm_sessions")],
+                    serde_json::to_value(&keystore.olm_sessions).unwrap(),
+                )))
+                .get_result::<Profile>(c)
+        })
+        .await
+    {
+        Ok(x) => Some(x),
+        Err(_) => Option::None,
     }
 }

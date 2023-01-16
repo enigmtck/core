@@ -97,8 +97,8 @@ impl From<String> for ApFlexible {
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 #[serde(untagged)]
 pub enum ApInstrument {
-    Single(Box<ApObject>),
     Multiple(Vec<ApObject>),
+    Single(Box<ApObject>),
     #[default]
     Unknown,
 }

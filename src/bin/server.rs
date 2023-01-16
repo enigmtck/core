@@ -30,7 +30,9 @@ use rocket::{
     http::RawStr,
     http::{Header, Status},
     request::{FromParam, FromRequest, Outcome, Request},
+    response::stream::{Event, EventStream},
     serde::json::{Error, Json},
+    tokio::time::{self, Duration},
     Response,
 };
 
@@ -159,6 +161,21 @@ pub async fn profile(conn: Db, handle: Handle<'_>) -> Result<Json<ApActor>, Stat
     match get_profile_by_username(&conn, username).await {
         Some(profile) => Ok(Json(ApActor::from(profile))),
         None => Err(Status::NoContent),
+    }
+}
+
+#[get("/events")]
+fn stream() -> EventStream![] {
+    EventStream! {
+        let mut interval = time::interval(Duration::from_secs(5));
+
+        let mut id = 1;
+
+        loop {
+            yield Event::data("hello there").event("message").id(id.to_string());
+            id += 1;
+            interval.tick().await;
+        }
     }
 }
 
@@ -392,6 +409,7 @@ pub async fn authenticate_user(
         if let Some(profile) =
             admin::authenticate(&conn, user.username.clone(), user.password.clone()).await
         {
+            debug!("sending profile\n{:#?}", profile);
             Ok(Json(profile))
         } else {
             Err(Status::NoContent)
@@ -578,6 +596,7 @@ fn rocket() -> _ {
                 update_olm_sessions,
                 get_processing_queue,
                 test,
+                stream,
                 all_options
             ],
         )

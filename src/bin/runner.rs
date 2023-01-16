@@ -5,7 +5,7 @@ use enigmatick::{
     activity_pub::{
         retriever,
         sender::{send_activity, send_follower_accept},
-        ApActivity, ApObjectType, ApSession, JoinData,
+        ApActivity, ApBasicContentType, ApInstrument, ApObject, ApObjectType, ApSession, JoinData,
     },
     db::jsonb_set,
     helper::get_local_username_from_ap_id,
@@ -29,7 +29,7 @@ use diesel::prelude::*;
 use diesel::r2d2::ConnectionManager;
 use faktory::{ConsumerBuilder, Job};
 use lazy_static::lazy_static;
-use std::io;
+use std::{collections::HashMap, io};
 use tokio::runtime::Runtime;
 
 type Pool = r2d2::Pool<ConnectionManager<PgConnection>>;
@@ -238,6 +238,58 @@ pub fn update_otk_by_username(username: String, keystore: KeyStore) -> Option<Pr
     }
 }
 
+pub fn update_external_one_time_keys_by_username(
+    username: String,
+    keystore: KeyStore,
+) -> Option<Profile> {
+    use enigmatick::schema::profiles::dsl::{keystore as k, profiles, username as u};
+
+    if let Ok(conn) = POOL.get() {
+        match diesel::update(profiles.filter(u.eq(username)))
+            .set(k.eq(jsonb_set(
+                k,
+                vec![String::from("olm_external_one_time_keys")],
+                serde_json::to_value(keystore.olm_external_one_time_keys).unwrap(),
+            )))
+            .get_result::<Profile>(&conn)
+        {
+            Ok(x) => Some(x),
+            Err(e) => {
+                log::error!("{:#?}", e);
+                Option::None
+            }
+        }
+    } else {
+        Option::None
+    }
+}
+
+pub fn update_external_identity_keys_by_username(
+    username: String,
+    keystore: KeyStore,
+) -> Option<Profile> {
+    use enigmatick::schema::profiles::dsl::{keystore as k, profiles, username as u};
+
+    if let Ok(conn) = POOL.get() {
+        match diesel::update(profiles.filter(u.eq(username)))
+            .set(k.eq(jsonb_set(
+                k,
+                vec![String::from("olm_external_identity_keys")],
+                serde_json::to_value(keystore.olm_external_identity_keys).unwrap(),
+            )))
+            .get_result::<Profile>(&conn)
+        {
+            Ok(x) => Some(x),
+            Err(e) => {
+                log::error!("{:#?}", e);
+                Option::None
+            }
+        }
+    } else {
+        Option::None
+    }
+}
+
 fn provide_one_time_key(job: Job) -> io::Result<()> {
     // look up remote_encrypted_session with ap_id from job.args()
 
@@ -390,7 +442,81 @@ fn process_join(job: Job) -> io::Result<()> {
         if let Some(session) =
             get_remote_encrypted_session_by_ap_id(ap_id.as_str().unwrap().to_string())
         {
-            create_processing_item(session.into());
+            // this is the username of the Enigmatick user who received the Invite
+            if let Some(username) = get_local_username_from_ap_id(session.ap_to.clone()) {
+                if let Some(profile) = get_profile_by_username(username.clone()) {
+                    if let Some(actor) = get_remote_actor_by_ap_id(session.attributed_to.clone()) {
+                        debug!("in actor: {:#?}", actor);
+                        let session: ApSession = session.into();
+
+                        debug!("session: {:#?}", session);
+
+                        let mut keystore = profile.keystore.clone();
+                        if let (Some(mut ext_otks), Some(mut ext_idks)) = (
+                            keystore.olm_external_one_time_keys,
+                            keystore.olm_external_identity_keys.clone(),
+                        ) {
+                            debug!("in ext_otks: {:#?}", (ext_otks.clone(), ext_idks.clone()));
+                            fn add_key(
+                                ap_id: String,
+                                obj: ApObject,
+                                mut ext_otks: HashMap<String, String>,
+                                mut ext_idks: HashMap<String, String>,
+                            ) -> (HashMap<String, String>, HashMap<String, String>)
+                            {
+                                debug!("in add_key: {:#?}", obj);
+                                debug!("in add_key: {:#?}", (ext_otks.clone(), ext_idks.clone()));
+
+                                if let ApObject::Basic(instrument) = obj {
+                                    match instrument.kind {
+                                        ApBasicContentType::SessionKey => {
+                                            ext_otks.insert(ap_id, instrument.content);
+                                        }
+                                        ApBasicContentType::IdentityKey => {
+                                            ext_idks.insert(ap_id, instrument.content);
+                                        }
+                                    }
+                                }
+
+                                (ext_otks, ext_idks)
+                            }
+
+                            match session.instrument {
+                                ApInstrument::Multiple(x) => {
+                                    debug!("x is: {:#?}", x);
+                                    for obj in x {
+                                        (ext_otks, ext_idks) = add_key(
+                                            actor.ap_id.clone(),
+                                            obj,
+                                            ext_otks.clone(),
+                                            ext_idks.clone(),
+                                        );
+                                    }
+                                }
+                                ApInstrument::Single(x) => {
+                                    debug!("wtf is: {:#?}", x);
+                                    (ext_otks, ext_idks) = add_key(
+                                        actor.ap_id.clone(),
+                                        *x,
+                                        ext_otks.clone(),
+                                        ext_idks.clone(),
+                                    );
+                                }
+                                _ => {}
+                            }
+
+                            keystore.olm_external_one_time_keys = Option::from(ext_otks);
+                            keystore.olm_external_identity_keys = Option::from(ext_idks);
+
+                            update_external_one_time_keys_by_username(
+                                username.clone(),
+                                keystore.clone(),
+                            );
+                            update_external_identity_keys_by_username(username, keystore);
+                        }
+                    }
+                }
+            }
         }
     }
 

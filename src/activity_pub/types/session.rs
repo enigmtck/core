@@ -94,13 +94,14 @@ impl From<EncryptedSession> for ApSession {
 
 impl From<RemoteEncryptedSession> for ApSession {
     fn from(session: RemoteEncryptedSession) -> ApSession {
+        let instrument: ApInstrument = serde_json::from_value(session.instrument).unwrap();
+
         ApSession {
             id: Option::from(session.ap_id),
             reference: session.reference,
             to: session.ap_to,
             attributed_to: session.attributed_to,
-            instrument: serde_json::from_value(session.instrument).unwrap(),
-
+            instrument,
             ..Default::default()
         }
     }
