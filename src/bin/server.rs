@@ -93,13 +93,15 @@ impl<'r> FromRequest<'r> for Signed {
                         let content_type = request.content_type().unwrap().to_string();
 
                         let signature_vec: Vec<_> = request.headers().get("signature").collect();
-                        let signature = signature_vec[0].to_string();
+                        //let signature = signature_vec[0].to_string();
 
                         match signature_vec.len() {
                             0 => {
                                 Outcome::Failure((Status::BadRequest, SignatureError::NonExistent))
                             }
                             1 => {
+                                let signature = signature_vec[0].to_string();
+
                                 if verify(
                                     conn,
                                     VerifyParams {
