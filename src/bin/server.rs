@@ -7,7 +7,7 @@ use enigmatick::{
         ApOrderedCollection, FollowersPage, LeadersPage,
     },
     admin,
-    api::processing_queue,
+    api::{instance::InstanceInformation, processing_queue},
     db::{
         create_remote_activity, get_followers_by_profile_id, get_leaders_by_profile_id,
         get_profile_by_username, Db,
@@ -274,6 +274,11 @@ pub async fn get_leaders(conn: Db, username: String) -> Result<Json<ApOrderedCol
     } else {
         Err(Status::NoContent)
     }
+}
+
+#[get("/api/v2/instance")]
+pub async fn instance_information() -> Result<Json<InstanceInformation>, Status> {
+    Ok(Json(InstanceInformation::default()))
 }
 
 #[derive(Deserialize, Debug, Clone)]
@@ -599,6 +604,7 @@ fn rocket() -> _ {
                 get_processing_queue,
                 test,
                 stream,
+                instance_information,
                 all_options
             ],
         )

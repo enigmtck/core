@@ -12,15 +12,15 @@ use faktory::{Job, Producer};
 use std::net::TcpStream;
 use std::sync::{Arc, Mutex};
 
-use rocket::request::{FromRequest, Request, Outcome};
+use rocket::fairing::{self, Fairing, Info, Kind};
 use rocket::http::Status;
-use rocket::fairing::{Fairing, Info, Kind, self};
-use rocket::{Rocket, Build};
+use rocket::request::{FromRequest, Outcome, Request};
+use rocket::{Build, Rocket};
 
 pub mod activity_pub;
 pub mod admin;
-pub mod db;
 pub mod api;
+pub mod db;
 pub mod helper;
 pub mod inbox;
 pub mod models;
@@ -46,6 +46,44 @@ lazy_static! {
         dotenv().ok();
         env::var("FAKTORY_URL").expect("FAKTORY_URL must be set")
     };
+    pub static ref REGISTRATION_ENABLED: bool = {
+        dotenv().ok();
+        env::var("REGISTRATION_ENABLED")
+            .expect("REGISTRATION_ENABLED must be set")
+            .parse()
+            .expect("REGISTRATION_ENABLED must be true or false")
+    };
+    pub static ref REGISTRATION_APPROVAL_REQUIRED: bool = {
+        dotenv().ok();
+        env::var("REGISTRATION_APPROVAL_REQUIRED")
+            .expect("REGISTRATION_APPROVAL_REQUIRED must be set")
+            .parse()
+            .expect("REGISTRATION_APPROVAL_REQUIRED must be true or false")
+    };
+    pub static ref REGISTRATION_MESSAGE: String = {
+        dotenv().ok();
+        env::var("REGISTRATION_MESSAGE").expect("REGISTRATION_MESSAGE must be set")
+    };
+    pub static ref INSTANCE_CONTACT: String = {
+        dotenv().ok();
+        env::var("INSTANCE_CONTACT").expect("INSTANCE_CONTACT must be set")
+    };
+    pub static ref INSTANCE_TITLE: String = {
+        dotenv().ok();
+        env::var("INSTANCE_TITLE").expect("INSTANCE_TITLE must be set")
+    };
+    pub static ref INSTANCE_VERSION: String = {
+        dotenv().ok();
+        env::var("INSTANCE_VERSION").expect("INSTANCE_VERSION must be set")
+    };
+    pub static ref INSTANCE_SOURCE_URL: String = {
+        dotenv().ok();
+        env::var("INSTANCE_SOURCE_URL").expect("INSTANCE_SOURCE_URL must be set")
+    };
+    pub static ref INSTANCE_DESCRIPTION: String = {
+        dotenv().ok();
+        env::var("INSTANCE_DESCRIPTION").expect("INSTANCE_DESCRIPTION must be set")
+    };
 }
 
 #[derive(Clone)]
@@ -66,29 +104,26 @@ impl Fairing for FaktoryConnectionFairing {
     fn info(&self) -> Info {
         Info {
             name: "Faktory Connection",
-            kind: Kind::Ignite
+            kind: Kind::Ignite,
         }
     }
 
     async fn on_ignite(&self, rocket: Rocket<Build>) -> fairing::Result {
         Ok(rocket.manage(FaktoryConnection {
-            producer: Arc::new(
-                Mutex::new(
-                    Producer::connect(
-                        Some("tcp://:password@localhost:7419")).unwrap()
-                )
-            )
+            producer: Arc::new(Mutex::new(
+                Producer::connect(Some("tcp://:password@localhost:7419")).unwrap(),
+            )),
         }))
     }
 }
 
 #[derive(Debug)]
 pub enum FaktoryConnectionError {
-    Failed
+    Failed,
 }
 
 #[rocket::async_trait]
-impl <'r> FromRequest<'r> for FaktoryConnection {
+impl<'r> FromRequest<'r> for FaktoryConnection {
     type Error = FaktoryConnectionError;
 
     async fn from_request(request: &'r Request<'_>) -> Outcome<Self, Self::Error> {
@@ -100,13 +135,15 @@ impl <'r> FromRequest<'r> for FaktoryConnection {
     }
 }
 
-pub fn assign_to_faktory(faktory: FaktoryConnection,
-                         job_name: String,
-                         job_args: Vec<String>) -> Result<(), Box<dyn std::error::Error>> {
+pub fn assign_to_faktory(
+    faktory: FaktoryConnection,
+    job_name: String,
+    job_args: Vec<String>,
+) -> Result<(), Box<dyn std::error::Error>> {
     match faktory.producer.try_lock() {
-        Ok(mut x) => {
-            x.enqueue(Job::new(job_name, job_args)).map_err(|e| e.into())
-        },
-        Err(e) => Err(Box::from(e.to_string()))
+        Ok(mut x) => x
+            .enqueue(Job::new(job_name, job_args))
+            .map_err(|e| e.into()),
+        Err(e) => Err(Box::from(e.to_string())),
     }
 }
