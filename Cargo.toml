@@ -25,6 +25,8 @@ hex = "0.4"
 httpdate = "1"
 regex = "1"
 faktory = "0.12"
+async-mutex = "1.4"
+crossbeam-channel = "0.5"
 r2d2 = "0.8"
 tokio = { version = "1.23", features = ["rt"] }
 orion = "0.17"

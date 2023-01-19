@@ -1,7 +1,7 @@
 use crate::models::profiles::Profile;
 use serde::{Deserialize, Serialize};
 
-#[derive(Serialize, Deserialize, Clone, Default)]
+#[derive(Serialize, Deserialize, Clone, Default, Debug)]
 pub struct WebFingerLink {
     pub rel: String,
     #[serde(rename = "type")]
@@ -13,7 +13,7 @@ pub struct WebFingerLink {
     pub template: Option<String>,
 }
 
-#[derive(Serialize, Deserialize, Clone, Default)]
+#[derive(Serialize, Deserialize, Clone, Default, Debug)]
 pub struct WebFinger {
     pub subject: String,
     pub aliases: Vec<String>,

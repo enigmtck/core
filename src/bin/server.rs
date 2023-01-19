@@ -3,7 +3,8 @@ extern crate rocket;
 
 use enigmatick::{
     activity_pub::{
-        retriever, ApActivity, ApActivityType, ApActor, ApBaseObjectSuper, ApCollection, ApObject,
+        retriever::{self, get_remote_webfinger},
+        ApActivity, ApActivityType, ApActor, ApBaseObjectSuper, ApCollection, ApObject,
         ApOrderedCollection, FollowersPage, LeadersPage,
     },
     admin,
@@ -12,133 +13,34 @@ use enigmatick::{
         create_remote_activity, get_followers_by_profile_id, get_leaders_by_profile_id,
         get_profile_by_username, Db,
     },
+    fairings::{events::EventChannels, faktory::FaktoryConnection, signatures::Signed},
     inbox,
-    models::profiles::{
-        update_olm_external_identity_keys_by_username, update_olm_sessions_by_username, KeyStore,
-        Profile,
+    models::{
+        profiles::{
+            update_olm_external_identity_keys_by_username, update_olm_sessions_by_username,
+            KeyStore, Profile,
+        },
+        remote_actors::RemoteActor,
     },
     outbox,
-    signing::{verify, VerifyParams},
     webfinger::WebFinger,
-    FaktoryConnection,
 };
 
 use faktory::Job;
 
 use rocket::{
-    fairing::{Fairing, Info, Kind},
+    data::{Data, ToByteUnit},
     http::RawStr,
-    http::{Header, Status},
-    request::{FromParam, FromRequest, Outcome, Request},
+    http::Status,
+    request::FromParam,
     response::stream::{Event, EventStream},
     serde::json::{Error, Json},
+    tokio::select,
     tokio::time::{self, Duration},
-    Response,
+    Request, Shutdown,
 };
 
 use serde::Deserialize;
-
-pub struct Signed(bool);
-
-#[derive(Debug)]
-pub enum SignatureError {
-    NonExistent,
-    MultipleSignatures,
-    InvalidRequestPath,
-    InvalidRequestUsername,
-    LocalUserNotFound,
-    SignatureInvalid,
-}
-
-#[rocket::async_trait]
-impl<'r> FromRequest<'r> for Signed {
-    type Error = SignatureError;
-
-    async fn from_request(request: &'r Request<'_>) -> Outcome<Self, Self::Error> {
-        let conn = request.guard::<Db>().await.unwrap();
-        let method = request.method().to_string();
-        let host = request.host().unwrap().to_string();
-        let path = request.uri().path().to_string();
-
-        log::debug!("request: {:#?}", request);
-
-        let username_re = regex::Regex::new(r"(?:/api)?(/user/)([a-zA-Z0-9_]+)(/.*)").unwrap();
-        if let Some(username_match) = username_re.captures(&path) {
-            if let Some(username) = username_match.get(2) {
-                match get_profile_by_username(&conn, username.as_str().to_string()).await {
-                    Some(profile) => {
-                        let request_target = format!("{} {}", method.to_lowercase(), path);
-
-                        let mut date = String::new();
-                        let date_vec: Vec<_> = request.headers().get("date").collect();
-                        if date_vec.len() == 1 {
-                            date = date_vec[0].to_string();
-                        } else {
-                            // browser fetch is a jerk and forbids the "date" header; browsers
-                            // aggressively strip it, so I use Enigmatick-Date as a backup
-                            let enigmatick_date_vec: Vec<_> =
-                                request.headers().get("enigmatick-date").collect();
-
-                            if enigmatick_date_vec.len() == 1 {
-                                date = enigmatick_date_vec[0].to_string();
-                            }
-                        }
-
-                        let mut digest = Option::<String>::None;
-                        let digest_vec: Vec<_> = request.headers().get("digest").collect();
-                        if digest_vec.len() == 1 {
-                            digest = Option::from(digest_vec[0].to_string());
-                        }
-
-                        let content_type = request.content_type().unwrap().to_string();
-
-                        let signature_vec: Vec<_> = request.headers().get("signature").collect();
-                        //let signature = signature_vec[0].to_string();
-
-                        match signature_vec.len() {
-                            0 => {
-                                Outcome::Failure((Status::BadRequest, SignatureError::NonExistent))
-                            }
-                            1 => {
-                                let signature = signature_vec[0].to_string();
-
-                                if verify(
-                                    conn,
-                                    VerifyParams {
-                                        profile,
-                                        signature,
-                                        request_target,
-                                        host,
-                                        date,
-                                        digest,
-                                        content_type,
-                                    },
-                                )
-                                .await
-                                {
-                                    Outcome::Success(Signed(true))
-                                } else {
-                                    Outcome::Success(Signed(false))
-                                }
-                            }
-                            _ => Outcome::Failure((
-                                Status::BadRequest,
-                                SignatureError::MultipleSignatures,
-                            )),
-                        }
-                    }
-                    None => {
-                        Outcome::Failure((Status::BadRequest, SignatureError::LocalUserNotFound))
-                    }
-                }
-            } else {
-                Outcome::Failure((Status::BadRequest, SignatureError::InvalidRequestUsername))
-            }
-        } else {
-            Outcome::Failure((Status::BadRequest, SignatureError::InvalidRequestPath))
-        }
-    }
-}
 
 pub struct Handle<'r> {
     name: &'r str,
@@ -156,6 +58,22 @@ impl<'r> FromParam<'r> for Handle<'r> {
     }
 }
 
+pub struct ApiVersion<'r> {
+    _version: &'r str,
+}
+
+impl<'r> FromParam<'r> for ApiVersion<'r> {
+    type Error = &'r RawStr;
+
+    fn from_param(param: &'r str) -> Result<Self, Self::Error> {
+        if param == "v1" || param == "v2" {
+            Ok(ApiVersion { _version: param })
+        } else {
+            Err(param.into())
+        }
+    }
+}
+
 #[get("/<handle>")]
 pub async fn profile(conn: Db, handle: Handle<'_>) -> Result<Json<ApActor>, Status> {
     let mut username = handle.name.to_string();
@@ -166,17 +84,41 @@ pub async fn profile(conn: Db, handle: Handle<'_>) -> Result<Json<ApActor>, Stat
     }
 }
 
-#[get("/events")]
-fn stream() -> EventStream![] {
+#[get("/api/user/<username>/events")]
+async fn stream(
+    mut shutdown: Shutdown,
+    mut events: EventChannels,
+    username: String,
+) -> EventStream![] {
     EventStream! {
-        let mut interval = time::interval(Duration::from_secs(5));
+        let rx = events.subscribe(username);
+        let mut interval = time::interval(Duration::from_secs(1));
 
-        let mut id = 1;
+        let mut i = 1;
+        let mut k = 0;
 
         loop {
-            yield Event::data("hello there").event("message").id(id.to_string());
-            id += 1;
-            interval.tick().await;
+            //debug!("looping");
+
+            select! {
+                _ = interval.tick() => {
+                    if let Ok(message) = rx.try_recv() {
+                        i += 1;
+                        yield Event::data(message).event("message").id(i.to_string());
+                    }
+                },
+                _ = &mut shutdown => {
+                    yield Event::data("goodbye").event("message");
+                    break;
+                }
+            };
+
+            if k >= 300 {
+                //debug!("breaking loop to force reconnection");
+                break;
+            } else {
+                k += 1;
+            }
         }
     }
 }
@@ -276,9 +218,81 @@ pub async fn get_leaders(conn: Db, username: String) -> Result<Json<ApOrderedCol
     }
 }
 
-#[get("/api/v2/instance")]
-pub async fn instance_information() -> Result<Json<InstanceInformation>, Status> {
+#[post("/api/user/<username>/avatar", data = "<media>")]
+pub async fn upload_avatar(
+    signed: Signed,
+    username: String,
+    media: Data<'_>,
+) -> Result<Status, Status> {
+    if let Signed(true) = signed {
+        let stream = media
+            .open(2.mebibytes())
+            .into_file("/srv/data/file.png")
+            .await;
+
+        Ok(Status::Accepted)
+    } else {
+        Err(Status::Forbidden)
+    }
+}
+
+#[get("/api/<_version>/instance")]
+pub async fn instance_information(
+    _version: ApiVersion<'_>,
+) -> Result<Json<InstanceInformation>, Status> {
     Ok(Json(InstanceInformation::default()))
+}
+
+#[derive(Deserialize, Debug, Clone)]
+pub struct ActorLookup {
+    webfinger: String,
+}
+
+#[post("/api/user/<username>/remote", format = "json", data = "<actor>")]
+pub async fn remote_actor_lookup(
+    //signed: Signed,
+    conn: Db,
+    username: String,
+    actor: Result<Json<ActorLookup>, Error<'_>>,
+) -> Result<Json<RemoteActor>, Status> {
+    debug!("raw\n{:#?}", actor);
+
+    //if let Signed(true) = signed {
+    if let Ok(actor) = actor {
+        if let Some(profile) = get_profile_by_username(&conn, username).await {
+            if let Some(webfinger) = get_remote_webfinger(actor.webfinger.clone()).await {
+                let mut ap_id = Option::<String>::None;
+                for link in webfinger.links {
+                    if let (Some(kind), Some(href)) = (link.kind, link.href) {
+                        if kind == "application/activity+json" {
+                            ap_id = Option::from(href);
+                        }
+                    }
+                }
+
+                if let Some(ap_id) = ap_id {
+                    // this should be converted to an ApActor
+                    Ok(Json(
+                        retriever::get_actor(&conn, profile, ap_id)
+                            .await
+                            .unwrap()
+                            .into(),
+                    ))
+                } else {
+                    Err(Status::NoContent)
+                }
+            } else {
+                Err(Status::NoContent)
+            }
+        } else {
+            Err(Status::NoContent)
+        }
+    } else {
+        Err(Status::NoContent)
+    }
+    // } else {
+    //     Err(Status::NoContent)
+    // }
 }
 
 #[derive(Deserialize, Debug, Clone)]
@@ -497,6 +511,7 @@ pub async fn inbox_post(
     signed: Signed,
     conn: Db,
     faktory: FaktoryConnection,
+    events: EventChannels,
     username: String,
     activity: Result<Json<ApActivity>, Error<'_>>,
 ) -> Result<Status, Status> {
@@ -520,7 +535,7 @@ pub async fn inbox_post(
                 match activity.kind {
                     ApActivityType::Delete => inbox::activity::delete(conn, activity).await,
                     ApActivityType::Create => {
-                        inbox::activity::create(conn, faktory, activity, profile).await
+                        inbox::activity::create(conn, faktory, events, activity, profile).await
                     }
                     ApActivityType::Follow => {
                         inbox::activity::follow(conn, faktory, activity, profile).await
@@ -547,45 +562,14 @@ pub async fn inbox_post(
     }
 }
 
-// TODO: Remove all of this CORS stuff for production; this is just to allow for testing on a single machine
-// using different ports for services (i.e., a production server would expose the HTTP endpoints through a
-// a common server name:port
-/// Catches all OPTION requests in order to get the CORS related Fairing triggered.
-#[options("/<_..>")]
-fn all_options() {
-    /* Intentionally left empty */
-}
-
-pub struct Cors;
-
-#[rocket::async_trait]
-impl Fairing for Cors {
-    fn info(&self) -> Info {
-        Info {
-            name: "Cross-Origin-Resource-Sharing Fairing",
-            kind: Kind::Response,
-        }
-    }
-
-    async fn on_response<'r>(&self, _request: &'r Request<'_>, response: &mut Response<'r>) {
-        response.set_header(Header::new("Access-Control-Allow-Origin", "*"));
-        response.set_header(Header::new(
-            "Access-Control-Allow-Methods",
-            "POST, PATCH, PUT, DELETE, HEAD, OPTIONS, GET",
-        ));
-        response.set_header(Header::new("Access-Control-Allow-Headers", "*"));
-        response.set_header(Header::new("Access-Control-Allow-Credentials", "true"));
-    }
-}
-
 #[launch]
 fn rocket() -> _ {
     env_logger::init();
 
     rocket::build()
         .attach(FaktoryConnection::fairing())
+        .attach(EventChannels::fairing())
         .attach(Db::fairing())
-        .attach(Cors)
         .mount(
             "/",
             routes![
@@ -605,7 +589,8 @@ fn rocket() -> _ {
                 test,
                 stream,
                 instance_information,
-                all_options
+                remote_actor_lookup,
+                upload_avatar,
             ],
         )
 }
