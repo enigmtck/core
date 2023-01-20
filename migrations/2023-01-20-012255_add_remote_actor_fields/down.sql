@@ -1,0 +1,11 @@
+ALTER TABLE remote_actors
+      DROP COLUMN featured,
+      DROP COLUMN featured_tags,
+      DROP COLUMN url,
+      DROP COLUMN manually_approves_followers,
+      DROP COLUMN published,
+      DROP COLUMN tag,
+      DROP COLUMN attachment,
+      DROP COLUMN endpoints,
+      DROP COLUMN icon,
+      DROP COLUMN image;

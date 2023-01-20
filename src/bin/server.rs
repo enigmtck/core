@@ -250,34 +250,37 @@ pub struct ActorLookup {
 
 #[post("/api/user/<username>/remote", format = "json", data = "<actor>")]
 pub async fn remote_actor_lookup(
-    //signed: Signed,
+    signed: Signed,
     conn: Db,
     username: String,
     actor: Result<Json<ActorLookup>, Error<'_>>,
-) -> Result<Json<RemoteActor>, Status> {
+) -> Result<Json<ApActor>, Status> {
     debug!("raw\n{:#?}", actor);
 
-    //if let Signed(true) = signed {
-    if let Ok(actor) = actor {
-        if let Some(profile) = get_profile_by_username(&conn, username).await {
-            if let Some(webfinger) = get_remote_webfinger(actor.webfinger.clone()).await {
-                let mut ap_id = Option::<String>::None;
-                for link in webfinger.links {
-                    if let (Some(kind), Some(href)) = (link.kind, link.href) {
-                        if kind == "application/activity+json" {
-                            ap_id = Option::from(href);
+    if let Signed(true) = signed {
+        if let Ok(actor) = actor {
+            if let Some(profile) = get_profile_by_username(&conn, username).await {
+                if let Some(webfinger) = get_remote_webfinger(actor.webfinger.clone()).await {
+                    let mut ap_id = Option::<String>::None;
+                    for link in webfinger.links {
+                        if let (Some(kind), Some(href)) = (link.kind, link.href) {
+                            if kind == "application/activity+json" {
+                                ap_id = Option::from(href);
+                            }
                         }
                     }
-                }
 
-                if let Some(ap_id) = ap_id {
-                    // this should be converted to an ApActor
-                    Ok(Json(
-                        retriever::get_actor(&conn, profile, ap_id)
-                            .await
-                            .unwrap()
-                            .into(),
-                    ))
+                    if let Some(ap_id) = ap_id {
+                        // this should be converted to an ApActor
+                        Ok(Json(
+                            retriever::get_actor(&conn, profile, ap_id)
+                                .await
+                                .unwrap()
+                                .into(),
+                        ))
+                    } else {
+                        Err(Status::NoContent)
+                    }
                 } else {
                     Err(Status::NoContent)
                 }
@@ -290,9 +293,6 @@ pub async fn remote_actor_lookup(
     } else {
         Err(Status::NoContent)
     }
-    // } else {
-    //     Err(Status::NoContent)
-    // }
 }
 
 #[derive(Deserialize, Debug, Clone)]

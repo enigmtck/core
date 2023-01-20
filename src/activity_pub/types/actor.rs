@@ -1,5 +1,7 @@
-use crate::activity_pub::{ApActorType, ApContext};
+use crate::activity_pub::{ApActorType, ApAttachment, ApContext, ApEndpoint, ApImage, ApTag};
+use crate::helper::handle_option;
 use crate::models::profiles::Profile;
+use crate::models::remote_actors::RemoteActor;
 use serde::{Deserialize, Serialize};
 use serde_with::serde_as;
 
@@ -31,6 +33,16 @@ pub struct ApActor {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub liked: Option<String>,
     pub public_key: ApPublicKey,
+    pub featured: Option<String>,
+    pub featured_tags: Option<String>,
+    pub url: Option<String>,
+    pub manually_approves_followers: Option<bool>,
+    pub published: Option<String>,
+    pub tag: Option<Vec<ApTag>>,
+    pub attachment: Option<Vec<ApAttachment>>,
+    pub endpoints: Option<ApEndpoint>,
+    pub icon: Option<ApImage>,
+    pub image: Option<ApImage>,
 }
 
 impl Default for ApActor {
@@ -50,6 +62,16 @@ impl Default for ApActor {
             following: String::new(),
             liked: Option::None,
             public_key: ApPublicKey::default(),
+            featured: Option::None,
+            featured_tags: Option::None,
+            url: Option::None,
+            manually_approves_followers: Option::None,
+            published: Option::None,
+            tag: Option::None,
+            attachment: Option::None,
+            endpoints: Option::None,
+            icon: Option::None,
+            image: Option::None,
         }
     }
 }
@@ -75,6 +97,37 @@ impl From<Profile> for ApActor {
                 public_key_pem: profile.public_key,
             },
             ..Default::default()
+        }
+    }
+}
+
+impl From<RemoteActor> for ApActor {
+    fn from(actor: RemoteActor) -> Self {
+        ApActor {
+            context: Option::from(ApContext::Plain(
+                "https://www.w3.org/ns/activitystreams".to_string(),
+            )),
+            kind: ApActorType::Person,
+            name: Option::from(actor.name),
+            summary: actor.summary,
+            id: Option::from(actor.ap_id),
+            preferred_username: actor.preferred_username.unwrap_or_default(),
+            inbox: actor.inbox,
+            outbox: actor.outbox,
+            followers: actor.followers,
+            following: actor.following,
+            liked: actor.liked,
+            public_key: serde_json::from_value(actor.public_key.into()).unwrap(),
+            featured: actor.featured,
+            featured_tags: actor.featured_tags,
+            url: actor.url,
+            manually_approves_followers: actor.manually_approves_followers,
+            published: actor.published,
+            tag: serde_json::from_value(actor.tag.into()).unwrap(),
+            attachment: serde_json::from_value(actor.attachment.into()).unwrap(),
+            endpoints: serde_json::from_value(actor.endpoints.into()).unwrap(),
+            icon: serde_json::from_value(actor.icon.into()).unwrap(),
+            image: serde_json::from_value(actor.image.into()).unwrap(),
         }
     }
 }

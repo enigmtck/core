@@ -1,5 +1,5 @@
-use crate::activity_pub::ApActor;
 use crate::schema::remote_actors;
+use crate::{activity_pub::ApActor, helper::handle_option};
 use chrono::{DateTime, Utc};
 use diesel::{AsChangeset, Identifiable, Insertable, Queryable};
 use serde::{Deserialize, Serialize};
@@ -18,7 +18,18 @@ pub struct NewRemoteActor {
     pub outbox: String,
     pub followers: String,
     pub following: String,
+    pub liked: Option<String>,
     pub public_key: Value,
+    pub featured: Option<String>,
+    pub featured_tags: Option<String>,
+    pub url: Option<String>,
+    pub manually_approves_followers: Option<bool>,
+    pub published: Option<String>,
+    pub tag: Option<Value>,
+    pub attachment: Option<Value>,
+    pub endpoints: Option<Value>,
+    pub icon: Option<Value>,
+    pub image: Option<Value>,
 }
 
 impl From<ApActor> for NewRemoteActor {
@@ -34,7 +45,18 @@ impl From<ApActor> for NewRemoteActor {
             outbox: actor.outbox,
             followers: actor.followers,
             following: actor.following,
+            liked: actor.liked,
             public_key: serde_json::to_value(&actor.public_key).unwrap(),
+            featured: actor.featured,
+            featured_tags: actor.featured_tags,
+            url: actor.url,
+            manually_approves_followers: actor.manually_approves_followers,
+            published: actor.published,
+            tag: handle_option(serde_json::to_value(&actor.tag).unwrap()),
+            attachment: handle_option(serde_json::to_value(&actor.attachment).unwrap()),
+            endpoints: handle_option(serde_json::to_value(&actor.endpoints).unwrap()),
+            icon: handle_option(serde_json::to_value(&actor.icon).unwrap()),
+            image: handle_option(serde_json::to_value(&actor.image).unwrap()),
         }
     }
 }
@@ -58,4 +80,14 @@ pub struct RemoteActor {
     pub following: String,
     pub liked: Option<String>,
     pub public_key: Option<Value>,
+    pub featured: Option<String>,
+    pub featured_tags: Option<String>,
+    pub url: Option<String>,
+    pub manually_approves_followers: Option<bool>,
+    pub published: Option<String>,
+    pub tag: Option<Value>,
+    pub attachment: Option<Value>,
+    pub endpoints: Option<Value>,
+    pub icon: Option<Value>,
+    pub image: Option<Value>,
 }

@@ -125,6 +125,16 @@ diesel::table! {
         following -> Varchar,
         liked -> Nullable<Varchar>,
         public_key -> Nullable<Jsonb>,
+        featured -> Nullable<Varchar>,
+        featured_tags -> Nullable<Varchar>,
+        url -> Nullable<Varchar>,
+        manually_approves_followers -> Nullable<Bool>,
+        published -> Nullable<Varchar>,
+        tag -> Nullable<Jsonb>,
+        attachment -> Nullable<Jsonb>,
+        endpoints -> Nullable<Jsonb>,
+        icon -> Nullable<Jsonb>,
+        image -> Nullable<Jsonb>,
     }
 }
 

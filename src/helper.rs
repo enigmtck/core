@@ -1,3 +1,5 @@
+use serde_json::Value;
+
 pub fn is_local(ap_id: String) -> bool {
     let pattern = format!(r#"\w+?://{}/(.+)"#, *crate::SERVER_NAME);
 
@@ -31,4 +33,12 @@ pub fn get_local_username_from_ap_id(ap_id: String) -> Option<String> {
 
 pub fn get_ap_id_from_username(username: String) -> String {
     format!("https://{}/user/{}", *crate::SERVER_NAME, username)
+}
+
+pub fn handle_option(v: Value) -> Option<Value> {
+    if v == Value::Null {
+        Option::None
+    } else {
+        Option::from(v)
+    }
 }

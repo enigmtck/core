@@ -70,15 +70,57 @@ impl ApObject {
 pub enum ApTagType {
     Mention,
     Hashtag,
+    Emoji,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct ApTag {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
     #[serde(rename = "type")]
     pub kind: ApTagType,
     pub name: String,
-    pub href: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub href: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub updated: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub icon: Option<ApImage>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub enum ApAttachmentType {
+    PropertyValue,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct ApAttachment {
+    #[serde(rename = "type")]
+    pub kind: ApAttachmentType,
+    pub name: String,
+    pub value: String,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct ApEndpoint {
+    pub shared_inbox: String,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub enum ApImageType {
+    Image,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct ApImage {
+    #[serde(rename = "type")]
+    pub kind: ApImageType,
+    pub media_type: String,
+    pub url: String,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
