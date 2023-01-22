@@ -5,6 +5,7 @@ use crate::models::followers::Follower;
 use crate::models::leaders::Leader;
 use crate::models::profiles::Profile;
 use crate::models::remote_actors::RemoteActor;
+use crate::schema::profiles::banner_filename;
 use serde::{Deserialize, Serialize};
 use serde_with::serde_as;
 
@@ -140,9 +141,20 @@ impl From<Profile> for ApActor {
             url: Option::from(format!("{}/@{}", server_url, profile.username)),
             icon: Option::from(ApImage {
                 kind: ApImageType::Image,
-                media_type: Option::from("image/png".to_string()),
+                media_type: Option::None,
                 url: format!("{}/{}", server_url, profile.avatar_filename),
             }),
+            image: {
+                if let Some(banner) = profile.banner_filename {
+                    Option::from(ApImage {
+                        kind: ApImageType::Image,
+                        media_type: Option::None,
+                        url: format!("{}/{}", server_url, banner),
+                    })
+                } else {
+                    Option::None
+                }
+            },
             ..Default::default()
         }
     }

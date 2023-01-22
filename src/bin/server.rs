@@ -11,7 +11,8 @@ use enigmatick::{
     api::{instance::InstanceInformation, processing_queue},
     db::{
         create_remote_activity, get_followers_by_profile_id, get_leaders_by_profile_id,
-        get_profile_by_username, update_avatar_by_username, update_summary_by_username, Db,
+        get_profile_by_username, update_avatar_by_username, update_banner_by_username,
+        update_summary_by_username, Db,
     },
     fairings::{
         events::{EventChannels, EventChannelsError},
@@ -245,6 +246,46 @@ pub async fn upload_avatar(
         {
             if file.is_complete() {
                 if update_avatar_by_username(&conn, username, filename)
+                    .await
+                    .is_some()
+                {
+                    Ok(Status::Accepted)
+                } else {
+                    Err(Status::NoContent)
+                }
+            } else {
+                Err(Status::NoContent)
+            }
+        } else {
+            Err(Status::NoContent)
+        }
+    } else {
+        Err(Status::Forbidden)
+    }
+}
+
+#[post("/api/user/<username>/banner?<extension>", data = "<media>")]
+pub async fn upload_banner(
+    signed: Signed,
+    conn: Db,
+    username: String,
+    extension: String,
+    media: Data<'_>,
+) -> Result<Status, Status> {
+    if let Signed(true) = signed {
+        let filename = format!(
+            "{}.{}",
+            Alphanumeric.sample_string(&mut rand::thread_rng(), 16),
+            extension
+        );
+
+        if let Ok(file) = media
+            .open(2.mebibytes())
+            .into_file(&format!("{}/{}", *enigmatick::MEDIA_DIR, filename))
+            .await
+        {
+            if file.is_complete() {
+                if update_banner_by_username(&conn, username, filename)
                     .await
                     .is_some()
                 {

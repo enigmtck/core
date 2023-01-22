@@ -89,6 +89,7 @@ diesel::table! {
         keystore -> Jsonb,
         client_public_key -> Nullable<Varchar>,
         avatar_filename -> Varchar,
+        banner_filename -> Nullable<Varchar>,
     }
 }
 
