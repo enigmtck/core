@@ -67,14 +67,18 @@ pub async fn create(
 pub async fn follow(
     conn: Db,
     faktory: FaktoryConnection,
+    events: EventChannels,
     activity: ApActivity,
     profile: Profile,
 ) -> Result<Status, Status> {
-    let mut f = NewFollower::from(activity);
+    let mut f = NewFollower::from(activity.clone());
     f.profile_id = profile.id;
 
     if let Some(created_follower) = create_follower(&conn, f).await {
         log::debug!("created_follower\n{:#?}", created_follower);
+
+        let mut events = events;
+        events.send(serde_json::to_string(&activity).unwrap());
 
         match assign_to_faktory(
             faktory,
@@ -90,12 +94,15 @@ pub async fn follow(
     }
 }
 
-pub async fn undo(conn: Db, activity: ApActivity) -> Result<Status, Status> {
-    if let ApObject::Identifier(x) = activity.object {
+pub async fn undo(conn: Db, events: EventChannels, activity: ApActivity) -> Result<Status, Status> {
+    if let ApObject::Identifier(x) = activity.clone().object {
         if let Some(x) = get_remote_activity_by_ap_id(&conn, x.id).await {
             if x.kind == ApActivityType::Follow.to_string()
                 && delete_follower_by_ap_id(&conn, x.ap_id).await
             {
+                let mut events = events;
+                events.send(serde_json::to_string(&activity).unwrap());
+
                 Ok(Status::Accepted)
             } else {
                 Err(Status::NoContent)
@@ -108,8 +115,12 @@ pub async fn undo(conn: Db, activity: ApActivity) -> Result<Status, Status> {
     }
 }
 
-pub async fn accept(conn: Db, activity: ApActivity) -> Result<Status, Status> {
-    if let ApObject::Identifier(x) = activity.object {
+pub async fn accept(
+    conn: Db,
+    events: EventChannels,
+    activity: ApActivity,
+) -> Result<Status, Status> {
+    if let ApObject::Identifier(x) = activity.clone().object {
         let ap_id_re = regex::Regex::new(r#"(\w+://)(.+?/)+(.+)"#).unwrap();
         if let Some(ap_id_match) = ap_id_re.captures(&x.id) {
             debug!("ap_id_match: {:#?}", ap_id_match);
@@ -117,11 +128,14 @@ pub async fn accept(conn: Db, activity: ApActivity) -> Result<Status, Status> {
             let matches = ap_id_match.len();
             let uuid = ap_id_match.get(matches - 1).unwrap().as_str();
 
-            if let Some(id) = activity.id {
+            if let Some(id) = activity.clone().id {
                 if update_leader_by_uuid(&conn, uuid.to_string(), id)
                     .await
                     .is_some()
                 {
+                    let mut events = events;
+                    events.send(serde_json::to_string(&activity).unwrap());
+
                     Ok(Status::Accepted)
                 } else {
                     Err(Status::NoContent)

@@ -1,5 +1,8 @@
-use crate::activity_pub::{ApActorType, ApAttachment, ApContext, ApEndpoint, ApImage, ApTag};
-use crate::helper::handle_option;
+use crate::activity_pub::{
+    ApActorType, ApAttachment, ApContext, ApEndpoint, ApImage, ApImageType, ApTag,
+};
+use crate::models::followers::Follower;
+use crate::models::leaders::Leader;
 use crate::models::profiles::Profile;
 use crate::models::remote_actors::RemoteActor;
 use serde::{Deserialize, Serialize};
@@ -13,6 +16,12 @@ pub struct ApPublicKey {
     pub public_key_pem: String,
 }
 
+#[derive(Serialize, Deserialize, Clone, Debug, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct ApCapabilities {
+    accepts_chat_messages: bool,
+}
+
 #[serde_as]
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
@@ -22,8 +31,11 @@ pub struct ApActor {
     pub context: Option<ApContext>,
     #[serde(rename = "type")]
     pub kind: ApActorType,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub summary: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub id: Option<String>,
     pub preferred_username: String,
     pub inbox: String,
@@ -33,16 +45,40 @@ pub struct ApActor {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub liked: Option<String>,
     pub public_key: ApPublicKey,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub featured: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub featured_tags: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub url: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub manually_approves_followers: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub published: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub tag: Option<Vec<ApTag>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub attachment: Option<Vec<ApAttachment>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub endpoints: Option<ApEndpoint>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub icon: Option<ApImage>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub image: Option<ApImage>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub also_known_as: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub discoverable: Option<bool>,
+
+    // perhaps SoapBox/Pleroma-specific
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub capabilities: Option<ApCapabilities>,
+
+    // These are ephemeral attributes to facilitate client operations
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ephemeral_following: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ephemeral_leader_ap_id: Option<String>,
 }
 
 impl Default for ApActor {
@@ -72,6 +108,11 @@ impl Default for ApActor {
             endpoints: Option::None,
             icon: Option::None,
             image: Option::None,
+            also_known_as: Option::None,
+            discoverable: Option::None,
+            capabilities: Option::None,
+            ephemeral_following: Option::None,
+            ephemeral_leader_ap_id: Option::None,
         }
     }
 }
@@ -96,6 +137,12 @@ impl From<Profile> for ApActor {
                 owner: format!("{}/user/{}", server_url, profile.username),
                 public_key_pem: profile.public_key,
             },
+            url: Option::from(format!("{}/@{}", server_url, profile.username)),
+            icon: Option::from(ApImage {
+                kind: ApImageType::Image,
+                media_type: Option::from("image/png".to_string()),
+                url: format!("{}/{}", server_url, profile.avatar_filename),
+            }),
             ..Default::default()
         }
     }
@@ -128,6 +175,37 @@ impl From<RemoteActor> for ApActor {
             endpoints: serde_json::from_value(actor.endpoints.into()).unwrap(),
             icon: serde_json::from_value(actor.icon.into()).unwrap(),
             image: serde_json::from_value(actor.image.into()).unwrap(),
+            also_known_as: serde_json::from_value(actor.also_known_as.into()).unwrap(),
+            discoverable: actor.discoverable,
+            capabilities: serde_json::from_value(actor.capabilities.into()).unwrap(),
+            ephemeral_following: Option::None,
+            ephemeral_leader_ap_id: Option::None,
         }
+    }
+}
+
+type RemoteActorAndLeader = (RemoteActor, Option<Leader>);
+
+impl From<RemoteActorAndLeader> for ApActor {
+    fn from(actor_and_leader: RemoteActorAndLeader) -> Self {
+        let mut actor: ApActor = actor_and_leader.0.into();
+
+        actor.ephemeral_following = {
+            if let Some(leader) = actor_and_leader.1.clone() {
+                leader.accepted
+            } else {
+                Option::None
+            }
+        };
+
+        actor.ephemeral_leader_ap_id = {
+            if let Some(leader) = actor_and_leader.1 {
+                format!("{}/leader/{}", *crate::SERVER_URL, leader.uuid).into()
+            } else {
+                Option::None
+            }
+        };
+
+        actor
     }
 }

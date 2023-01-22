@@ -1,15 +1,15 @@
 use std::collections::HashMap;
 
 use crate::activity_pub::{retriever, ApActor, ApPublicKey};
-use crate::db::{Db, get_profile_by_username};
+use crate::db::{get_profile_by_username, Db};
 use crate::models::profiles::Profile;
 use rsa::pkcs1v15::{SigningKey, VerifyingKey};
 use rsa::signature::{RandomizedSigner, Signature, Verifier};
 use rsa::{pkcs8::DecodePrivateKey, pkcs8::DecodePublicKey, RsaPrivateKey, RsaPublicKey};
-use sha2::{Sha256, Digest};
-use url::Url;
-use std::time::SystemTime;
+use sha2::{Digest, Sha256};
 use std::fmt::{self, Debug};
+use std::time::SystemTime;
+use url::Url;
 
 #[derive(Clone)]
 pub struct VerifyParams {
@@ -22,18 +22,19 @@ pub struct VerifyParams {
     pub content_type: String,
 }
 
-fn build_verify_string(params: VerifyParams) -> (String, String, String, Option<String>, bool, Option<String>) {
+fn build_verify_string(
+    params: VerifyParams,
+) -> (String, String, String, Option<String>, bool, Option<String>) {
     let mut signature_map = HashMap::<String, String>::new();
-    
+
     let parts_re = regex::Regex::new(r#"(\w+)="(.+?)""#).unwrap();
 
     for cap in parts_re.captures_iter(&params.signature) {
         //log::debug!("re: {:#?}", &cap);
         signature_map.insert(cap[1].to_string(), cap[2].to_string());
     }
-    
-    log::debug!("map: {:#?}", signature_map);
 
+    log::debug!("map: {:#?}", signature_map);
 
     let key_id = signature_map.get("keyId").unwrap();
     let key_id_parts = key_id.split('#').collect::<Vec<&str>>();
@@ -42,7 +43,7 @@ fn build_verify_string(params: VerifyParams) -> (String, String, String, Option<
 
     let local_pattern = format!(r#"(\w+://{}/user/(.+?))#(.+)"#, &*crate::SERVER_NAME);
     let local_re = regex::Regex::new(local_pattern.as_str()).unwrap();
-    
+
     let mut local = false;
     let mut username = Option::<String>::None;
     let mut key_selector = Option::<String>::None;
@@ -53,45 +54,50 @@ fn build_verify_string(params: VerifyParams) -> (String, String, String, Option<
         key_selector = Option::from(captures[3].to_string());
         log::debug!("key_re: {:#?}", captures);
     }
-                                              
+
     let mut verify_string = String::new();
 
     for part in signature_map.get("headers").unwrap().split(' ') {
         match part {
-            "(request-target)" => verify_string += &format!("(request-target): {}\n", params.request_target),
+            "(request-target)" => {
+                verify_string += &format!("(request-target): {}\n", params.request_target)
+            }
             "host" => verify_string += &format!("host: {}\n", params.host),
             "date" => verify_string += &format!("date: {}\n", params.date),
             "digest" => verify_string += &format!("digest: {}\n", params.digest.clone().unwrap()),
             "content-type" => verify_string += &format!("content-type: {}\n", params.content_type),
-            _ => ()
+            _ => (),
         }
     }
 
-    log::debug!("verify_string\n{}\nap_id: {:#?}\nkey_selector: {:#?}\nlocal: {}\nusername: {:#?}\n",
-                verify_string,
-                ap_id,
-                key_selector,
-                local,
-                username);
-    
+    log::debug!(
+        "verify_string\n{}\nap_id: {:#?}\nkey_selector: {:#?}\nlocal: {}\nusername: {:#?}\n",
+        verify_string,
+        ap_id,
+        key_selector,
+        local,
+        username
+    );
 
     // (verify, signature, ap_id)
-    (verify_string.trim_end().to_string(),
-     signature_map.get("signature").unwrap().to_string(),
-     ap_id,
-     key_selector,
-     local,
-     username)
+    (
+        verify_string.trim_end().to_string(),
+        signature_map.get("signature").unwrap().to_string(),
+        ap_id,
+        key_selector,
+        local,
+        username,
+    )
 }
 
 pub async fn verify(conn: Db, params: VerifyParams) -> bool {
-    
-    let (verify_string, signature_str, ap_id, key_selector, local, username) = build_verify_string(params.clone());
+    let (verify_string, signature_str, ap_id, key_selector, local, username) =
+        build_verify_string(params.clone());
 
     fn verify(public_key: RsaPublicKey, signature_str: String, verify_string: String) -> bool {
         let verifying_key: VerifyingKey<Sha256> = VerifyingKey::new_with_prefix(public_key);
         log::debug!("signature string: {}", signature_str);
-        
+
         let s = base64::decode(signature_str.as_bytes()).unwrap();
 
         let signature: rsa::pkcs1v15::Signature = rsa::pkcs1v15::Signature::from(s);
@@ -99,14 +105,14 @@ pub async fn verify(conn: Db, params: VerifyParams) -> bool {
             Ok(_) => {
                 log::debug!("signature verification successful");
                 true
-            },
+            }
             Err(_) => {
                 log::debug!("signature verification failed");
                 false
             }
         }
     }
-    
+
     if local && key_selector == Some("client-key".to_string()) {
         if let Some(username) = username {
             if let Some(profile) = get_profile_by_username(&conn, username).await {
@@ -126,7 +132,7 @@ pub async fn verify(conn: Db, params: VerifyParams) -> bool {
             false
         }
     } else if let Some(actor) = retriever::get_actor(&conn, params.profile, ap_id).await {
-        if let Some(public_key_value) = actor.public_key {
+        if let Some(public_key_value) = actor.0.public_key {
             if let Ok(public_key) = serde_json::from_value::<ApPublicKey>(public_key_value) {
                 log::debug!("remote public key\n{}\n", public_key.public_key_pem);
                 if let Ok(public_key) =
@@ -159,7 +165,7 @@ pub async fn verify(conn: Db, params: VerifyParams) -> bool {
 #[derive(Debug, Clone)]
 pub enum Method {
     Get,
-    Post
+    Post,
 }
 
 impl fmt::Display for Method {
@@ -201,8 +207,12 @@ pub fn sign(params: SignParams) -> SignResponse {
 
     let url = Url::parse(&params.url).unwrap();
     let host = url.host().unwrap().to_string();
-    let request_target = format!("{} {}", params.method.to_string().to_lowercase(), url.path());
-    
+    let request_target = format!(
+        "{} {}",
+        params.method.to_string().to_lowercase(),
+        url.path()
+    );
+
     let now = SystemTime::now();
     let date = httpdate::fmt_http_date(now);
 
@@ -211,18 +221,14 @@ pub fn sign(params: SignParams) -> SignResponse {
     let private_key = RsaPrivateKey::from_pkcs8_pem(&params.profile.private_key).unwrap();
     let signing_key = SigningKey::<Sha256>::new_with_prefix(private_key);
 
-
     if let Some(digest) = digest {
         let structured_data = format!(
             "(request-target): {}\nhost: {}\ndate: {}\ndigest: {}",
-            request_target,
-            host,
-            date,
-            digest
+            request_target, host, date, digest
         );
 
         log::debug!("\n{}", structured_data);
-            
+
         let mut rng = rand::thread_rng();
         let signature = signing_key.sign_with_rng(&mut rng, structured_data.as_bytes());
 
@@ -230,16 +236,15 @@ pub fn sign(params: SignParams) -> SignResponse {
             signature: format!(
                 "keyId=\"{}\",headers=\"(request-target) host date digest\",signature=\"{}\"",
                 actor.public_key.id,
-                base64::encode(signature.as_bytes())),
+                base64::encode(signature.as_bytes())
+            ),
             date,
-            digest: Option::from(digest)
-         }
+            digest: Option::from(digest),
+        }
     } else {
         let structured_data = format!(
             "(request-target): {}\nhost: {}\ndate: {}\n",
-            request_target,
-            host,
-            date
+            request_target, host, date
         );
 
         log::debug!("\n{}", structured_data);
@@ -251,9 +256,10 @@ pub fn sign(params: SignParams) -> SignResponse {
             signature: format!(
                 "keyId=\"{}\",headers=\"(request-target) host date\",signature=\"{}\"",
                 actor.public_key.id,
-                base64::encode(signature.as_bytes())),
+                base64::encode(signature.as_bytes())
+            ),
             date,
-            digest: Option::None
+            digest: Option::None,
         }
     }
 }

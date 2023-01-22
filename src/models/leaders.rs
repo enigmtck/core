@@ -1,6 +1,7 @@
 use crate::activity_pub::{ApActivity, ApObject};
 use crate::schema::leaders;
 use chrono::{DateTime, Utc};
+use diesel::prelude::*;
 use diesel::{AsChangeset, Identifiable, Insertable, Queryable};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -44,4 +45,25 @@ pub struct Leader {
     pub uuid: String,
     pub accept_ap_id: Option<String>,
     pub accepted: Option<bool>,
+}
+
+pub async fn get_leader_by_actor_ap_id_and_profile(
+    conn: &crate::db::Db,
+    ap_id: String,
+    profile_id: i32,
+) -> Option<Leader> {
+    use crate::schema::leaders::dsl::{leader_ap_id, leaders, profile_id as pid};
+
+    match conn
+        .run(move |c| {
+            leaders
+                .filter(leader_ap_id.eq(ap_id))
+                .filter(pid.eq(profile_id))
+                .first::<Leader>(c)
+        })
+        .await
+    {
+        Ok(x) => Option::from(x),
+        Err(_) => Option::None,
+    }
 }

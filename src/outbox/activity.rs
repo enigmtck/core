@@ -1,21 +1,21 @@
 use crate::{
-    activity_pub::{ApActivity, ApObject, ApIdentifier, sender},
+    activity_pub::{sender, ApActivity, ApIdentifier, ApObject},
     db::{
-        get_leader_by_profile_id_and_ap_id,
-        get_remote_actor_by_ap_id,
-        delete_leader,
-        create_leader,
-        Db
+        create_leader, delete_leader, get_leader_by_profile_id_and_ap_id,
+        get_remote_actor_by_ap_id, Db,
     },
-    models::{
-        profiles::Profile,
-        leaders::NewLeader,
-    },
+    fairings::events::EventChannels,
+    models::{leaders::NewLeader, profiles::Profile},
 };
 use log::debug;
 use rocket::http::Status;
 
-pub async fn undo(conn: Db, mut activity: ApActivity, profile: Profile) -> Result<Status, Status> {
+pub async fn undo(
+    conn: Db,
+    events: EventChannels,
+    mut activity: ApActivity,
+    profile: Profile,
+) -> Result<Status, Status> {
     activity.actor = format!("{}/user/{}", *crate::SERVER_URL, profile.username);
 
     if let ApObject::Plain(ap_id) = activity.object {
@@ -31,13 +31,17 @@ pub async fn undo(conn: Db, mut activity: ApActivity, profile: Profile) -> Resul
             debug!("updated activity\n{:#?}", activity);
 
             if let Some(actor) = get_remote_actor_by_ap_id(&conn, ap_id).await {
-                if sender::send_activity(activity, profile, actor.inbox)
+                if sender::send_activity(activity.clone(), profile, actor.inbox)
                     .await
                     .is_ok()
                 {
                     debug!("sent undo follow request successfully");
                     if delete_leader(&conn, leader.id).await.is_ok() {
                         debug!("leader record deleted successfully");
+
+                        let mut events = events;
+                        events.send(serde_json::to_string(&activity).unwrap());
+
                         Ok(Status::Accepted)
                     } else {
                         Err(Status::NoContent)
@@ -56,28 +60,34 @@ pub async fn undo(conn: Db, mut activity: ApActivity, profile: Profile) -> Resul
     }
 }
 
-pub async fn follow(conn: Db, mut activity: ApActivity, profile: Profile) -> Result<Status, Status> {
-    activity.actor = format!("{}/user/{}", *crate::SERVER_URL,
-                             profile.username);
-    
+pub async fn follow(
+    conn: Db,
+    events: EventChannels,
+    mut activity: ApActivity,
+    profile: Profile,
+) -> Result<Status, Status> {
+    activity.actor = format!("{}/user/{}", *crate::SERVER_URL, profile.username);
+
     let mut leader = NewLeader::from(activity.clone());
     leader.profile_id = profile.id;
 
     if let Some(leader) = create_leader(&conn, leader).await {
         debug!("leader created: {}", leader.uuid);
-        activity.id = Option::from(format!("{}/leader/{}",
-                                           *crate::SERVER_URL, 
-                                           leader.uuid));
-        
+        activity.id = Option::from(format!("{}/leader/{}", *crate::SERVER_URL, leader.uuid));
+
         debug!("updated activity\n{:#?}", activity);
 
         if let ApObject::Plain(object) = activity.clone().object {
-            if let Some(actor) = get_remote_actor_by_ap_id(&conn,
-                                                           object).await {
-                if sender::send_activity(activity,
-                                         profile,
-                                         actor.inbox).await.is_ok() {
+            if let Some(actor) = get_remote_actor_by_ap_id(&conn, object).await {
+                if sender::send_activity(activity.clone(), profile, actor.inbox)
+                    .await
+                    .is_ok()
+                {
                     debug!("sent follow request successfully");
+
+                    let mut events = events;
+                    events.send(serde_json::to_string(&activity).unwrap());
+
                     Ok(Status::Accepted)
                 } else {
                     Err(Status::NoContent)

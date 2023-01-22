@@ -3,6 +3,8 @@ use reqwest::StatusCode;
 
 use crate::activity_pub::{ApActor, ApObject};
 use crate::db::{create_remote_actor, get_remote_actor_by_ap_id, Db};
+use crate::models::leaders::get_leader_by_actor_ap_id_and_profile;
+use crate::models::leaders::Leader;
 use crate::models::profiles::Profile;
 use crate::models::remote_actors::{NewRemoteActor, RemoteActor};
 use crate::signing::{sign, Method, SignParams};
@@ -37,11 +39,19 @@ pub async fn get_remote_webfinger(acct: String) -> Option<WebFinger> {
     }
 }
 
-pub async fn get_actor(conn: &Db, profile: Profile, id: String) -> Option<RemoteActor> {
+pub async fn get_actor(
+    conn: &Db,
+    profile: Profile,
+    id: String,
+) -> Option<(RemoteActor, Option<Leader>)> {
     match get_remote_actor_by_ap_id(conn, id.clone()).await {
         Some(remote_actor) => {
             log::debug!("actor retrieved from storage");
-            Option::from(remote_actor)
+
+            Option::from((
+                remote_actor,
+                get_leader_by_actor_ap_id_and_profile(conn, id, profile.id).await,
+            ))
         }
         None => {
             log::debug!("performing remote lookup for actor");
@@ -72,7 +82,13 @@ pub async fn get_actor(conn: &Db, profile: Profile, id: String) -> Option<Remote
                 Ok(resp) => match resp.status() {
                     StatusCode::ACCEPTED | StatusCode::OK => {
                         let actor: ApActor = resp.json().await.unwrap();
-                        create_remote_actor(conn, NewRemoteActor::from(actor)).await
+                        if let Some(a) =
+                            create_remote_actor(conn, NewRemoteActor::from(actor)).await
+                        {
+                            Some((a, Option::None))
+                        } else {
+                            Option::None
+                        }
                     }
                     StatusCode::GONE => {
                         log::debug!("GONE: {:#?}", resp.status());
@@ -97,8 +113,8 @@ pub async fn get_followers(conn: &Db, profile: Profile, id: String, page: Option
         log::debug!("performing remote lookup for actor's followers");
 
         let page = match page {
-            Some(x) => format!("{}?page={}", actor.followers, x),
-            None => actor.followers.to_string(),
+            Some(x) => format!("{}?page={}", actor.0.followers, x),
+            None => actor.0.followers.to_string(),
         };
 
         let url = page.clone();

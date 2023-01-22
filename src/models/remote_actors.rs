@@ -30,6 +30,9 @@ pub struct NewRemoteActor {
     pub endpoints: Option<Value>,
     pub icon: Option<Value>,
     pub image: Option<Value>,
+    pub also_known_as: Option<Value>,
+    pub discoverable: Option<bool>,
+    pub capabilities: Option<Value>,
 }
 
 impl From<ApActor> for NewRemoteActor {
@@ -57,6 +60,9 @@ impl From<ApActor> for NewRemoteActor {
             endpoints: handle_option(serde_json::to_value(&actor.endpoints).unwrap()),
             icon: handle_option(serde_json::to_value(&actor.icon).unwrap()),
             image: handle_option(serde_json::to_value(&actor.image).unwrap()),
+            also_known_as: handle_option(serde_json::to_value(&actor.also_known_as).unwrap()),
+            discoverable: actor.discoverable,
+            capabilities: handle_option(serde_json::to_value(&actor.capabilities).unwrap()),
         }
     }
 }
@@ -90,4 +96,7 @@ pub struct RemoteActor {
     pub endpoints: Option<Value>,
     pub icon: Option<Value>,
     pub image: Option<Value>,
+    pub also_known_as: Option<Value>,
+    pub discoverable: Option<bool>,
+    pub capabilities: Option<Value>,
 }

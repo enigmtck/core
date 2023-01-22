@@ -45,6 +45,7 @@ pub struct Profile {
     pub password: Option<String>,
     pub keystore: KeyStore,
     pub client_public_key: Option<String>,
+    pub avatar_filename: String,
 }
 
 #[derive(FromSqlRow, AsExpression, serde::Serialize, serde::Deserialize, Debug, Default, Clone)]

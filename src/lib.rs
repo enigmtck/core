@@ -34,13 +34,13 @@ lazy_static! {
         dotenv().ok();
         env::var("SERVER_NAME").expect("SERVER_NAME must be set")
     };
+    pub static ref MEDIA_DIR: String = {
+        dotenv().ok();
+        env::var("MEDIA_DIR").expect("MEDIA_DIR must be set")
+    };
     pub static ref FAKTORY_URL: String = {
         dotenv().ok();
         env::var("FAKTORY_URL").expect("FAKTORY_URL must be set")
-    };
-    pub static ref RABBITMQ_URL: String = {
-        dotenv().ok();
-        env::var("RABBITMQ_URL").expect("RABBITMQ_URL must be set")
     };
     pub static ref REGISTRATION_ENABLED: bool = {
         dotenv().ok();

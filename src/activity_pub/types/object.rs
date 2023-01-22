@@ -119,7 +119,8 @@ pub enum ApImageType {
 pub struct ApImage {
     #[serde(rename = "type")]
     pub kind: ApImageType,
-    pub media_type: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub media_type: Option<String>,
     pub url: String,
 }
 

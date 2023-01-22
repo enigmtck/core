@@ -88,6 +88,7 @@ diesel::table! {
         password -> Nullable<Varchar>,
         keystore -> Jsonb,
         client_public_key -> Nullable<Varchar>,
+        avatar_filename -> Varchar,
     }
 }
 
@@ -135,6 +136,9 @@ diesel::table! {
         endpoints -> Nullable<Jsonb>,
         icon -> Nullable<Jsonb>,
         image -> Nullable<Jsonb>,
+        also_known_as -> Nullable<Jsonb>,
+        discoverable -> Nullable<Bool>,
+        capabilities -> Nullable<Jsonb>,
     }
 }
 

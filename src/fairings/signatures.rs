@@ -28,12 +28,14 @@ impl<'r> FromRequest<'r> for Signed {
         let conn = request.guard::<Db>().await.unwrap();
         let method = request.method().to_string();
         let host = request.host().unwrap().to_string();
-        let path = request.uri().path().to_string();
+        //let path = request.uri().path().to_string();
+        let path = request.uri().to_string();
+        let path = path.trim_end_matches('&');
 
         log::debug!("request: {:#?}", request);
 
         let username_re = regex::Regex::new(r"(?:/api)?(/user/)([a-zA-Z0-9_]+)(/.*)").unwrap();
-        if let Some(username_match) = username_re.captures(&path) {
+        if let Some(username_match) = username_re.captures(path) {
             if let Some(username) = username_match.get(2) {
                 match get_profile_by_username(&conn, username.as_str().to_string()).await {
                     Some(profile) => {

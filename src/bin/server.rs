@@ -11,9 +11,13 @@ use enigmatick::{
     api::{instance::InstanceInformation, processing_queue},
     db::{
         create_remote_activity, get_followers_by_profile_id, get_leaders_by_profile_id,
-        get_profile_by_username, Db,
+        get_profile_by_username, update_avatar_by_username, update_summary_by_username, Db,
     },
-    fairings::{events::EventChannels, faktory::FaktoryConnection, signatures::Signed},
+    fairings::{
+        events::{EventChannels, EventChannelsError},
+        faktory::FaktoryConnection,
+        signatures::Signed,
+    },
     inbox,
     models::{
         profiles::{
@@ -40,6 +44,7 @@ use rocket::{
     Request, Shutdown,
 };
 
+use rand::distributions::{Alphanumeric, DistString};
 use serde::Deserialize;
 
 pub struct Handle<'r> {
@@ -218,19 +223,41 @@ pub async fn get_leaders(conn: Db, username: String) -> Result<Json<ApOrderedCol
     }
 }
 
-#[post("/api/user/<username>/avatar", data = "<media>")]
+#[post("/api/user/<username>/avatar?<extension>", data = "<media>")]
 pub async fn upload_avatar(
     signed: Signed,
+    conn: Db,
     username: String,
+    extension: String,
     media: Data<'_>,
 ) -> Result<Status, Status> {
     if let Signed(true) = signed {
-        let stream = media
-            .open(2.mebibytes())
-            .into_file("/srv/data/file.png")
-            .await;
+        let filename = format!(
+            "{}.{}",
+            Alphanumeric.sample_string(&mut rand::thread_rng(), 16),
+            extension
+        );
 
-        Ok(Status::Accepted)
+        if let Ok(file) = media
+            .open(2.mebibytes())
+            .into_file(&format!("{}/{}", *enigmatick::MEDIA_DIR, filename))
+            .await
+        {
+            if file.is_complete() {
+                if update_avatar_by_username(&conn, username, filename)
+                    .await
+                    .is_some()
+                {
+                    Ok(Status::Accepted)
+                } else {
+                    Err(Status::NoContent)
+                }
+            } else {
+                Err(Status::NoContent)
+            }
+        } else {
+            Err(Status::NoContent)
+        }
     } else {
         Err(Status::Forbidden)
     }
@@ -414,6 +441,41 @@ pub async fn update_identity_cache(
 }
 
 #[derive(Deserialize, Debug, Clone)]
+pub struct SummaryUpdate {
+    content: String,
+}
+
+#[post(
+    "/api/user/<username>/update/summary",
+    format = "json",
+    data = "<summary>"
+)]
+pub async fn update_summary(
+    signed: Signed,
+    conn: Db,
+    username: String,
+    summary: Result<Json<SummaryUpdate>, Error<'_>>,
+) -> Result<Json<Profile>, Status> {
+    debug!("raw\n{:#?}", summary);
+
+    if let Signed(true) = signed {
+        if let Ok(Json(summary)) = summary {
+            if let Some(profile) =
+                update_summary_by_username(&conn, username, summary.content).await
+            {
+                Ok(Json(profile))
+            } else {
+                Err(Status::NoContent)
+            }
+        } else {
+            Err(Status::NoContent)
+        }
+    } else {
+        Err(Status::NoContent)
+    }
+}
+
+#[derive(Deserialize, Debug, Clone)]
 pub struct AuthenticationData {
     pub username: String,
     pub password: String,
@@ -442,50 +504,51 @@ pub async fn authenticate_user(
 
 #[post("/user/<username>/outbox", data = "<object>")]
 pub async fn outbox_post(
-    //signed: Signed,
+    signed: Signed,
     conn: Db,
+    events: EventChannels,
     username: String,
     object: Result<Json<ApBaseObjectSuper>, Error<'_>>,
 ) -> Result<Status, Status> {
     debug!("raw\n{:#?}", object);
 
-    //if let Signed(true) = signed {
-    match get_profile_by_username(&conn, username).await {
-        Some(profile) => match object {
-            Ok(object) => match object {
-                Json(ApBaseObjectSuper::Activity(activity)) => {
-                    if create_remote_activity(&conn, (activity.clone(), profile.id).into())
-                        .await
-                        .is_some()
-                    {
-                        match activity.kind {
-                            ApActivityType::Undo => {
-                                outbox::activity::undo(conn, activity, profile).await
+    if let Signed(true) = signed {
+        match get_profile_by_username(&conn, username).await {
+            Some(profile) => match object {
+                Ok(object) => match object {
+                    Json(ApBaseObjectSuper::Activity(activity)) => {
+                        if create_remote_activity(&conn, (activity.clone(), profile.id).into())
+                            .await
+                            .is_some()
+                        {
+                            match activity.kind {
+                                ApActivityType::Undo => {
+                                    outbox::activity::undo(conn, events, activity, profile).await
+                                }
+                                ApActivityType::Follow => {
+                                    outbox::activity::follow(conn, events, activity, profile).await
+                                }
+                                _ => Err(Status::NoContent),
                             }
-                            ApActivityType::Follow => {
-                                outbox::activity::follow(conn, activity, profile).await
-                            }
-                            _ => Err(Status::NoContent),
+                        } else {
+                            Err(Status::NoContent)
                         }
-                    } else {
-                        Err(Status::NoContent)
                     }
-                }
-                Json(ApBaseObjectSuper::Object(ApObject::Note(note))) => {
-                    outbox::object::note(conn, note, profile).await
-                }
-                Json(ApBaseObjectSuper::Object(ApObject::Session(session))) => {
-                    outbox::object::session(conn, session, profile).await
-                }
-                _ => Err(Status::NoContent),
+                    Json(ApBaseObjectSuper::Object(ApObject::Note(note))) => {
+                        outbox::object::note(conn, note, profile).await
+                    }
+                    Json(ApBaseObjectSuper::Object(ApObject::Session(session))) => {
+                        outbox::object::session(conn, session, profile).await
+                    }
+                    _ => Err(Status::NoContent),
+                },
+                Err(_) => Err(Status::NoContent),
             },
-            Err(_) => Err(Status::NoContent),
-        },
-        None => Err(Status::NoContent),
+            None => Err(Status::NoContent),
+        }
+    } else {
+        Err(Status::NoContent)
     }
-    // } else {
-    //     Err(Status::NoContent)
-    // }
 }
 
 #[get("/user/<username>/inbox")]
@@ -538,10 +601,10 @@ pub async fn inbox_post(
                         inbox::activity::create(conn, faktory, events, activity, profile).await
                     }
                     ApActivityType::Follow => {
-                        inbox::activity::follow(conn, faktory, activity, profile).await
+                        inbox::activity::follow(conn, faktory, events, activity, profile).await
                     }
-                    ApActivityType::Undo => inbox::activity::undo(conn, activity).await,
-                    ApActivityType::Accept => inbox::activity::accept(conn, activity).await,
+                    ApActivityType::Undo => inbox::activity::undo(conn, events, activity).await,
+                    ApActivityType::Accept => inbox::activity::accept(conn, events, activity).await,
                     ApActivityType::Invite => {
                         inbox::activity::invite(conn, faktory, activity, profile).await
                     }
@@ -590,6 +653,7 @@ fn rocket() -> _ {
                 stream,
                 instance_information,
                 remote_actor_lookup,
+                update_summary,
                 upload_avatar,
             ],
         )
