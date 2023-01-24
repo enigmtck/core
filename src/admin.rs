@@ -1,10 +1,10 @@
-use crate::db::{Db, create_profile, get_profile_by_username};
+use crate::db::{create_profile, get_profile_by_username, Db};
 use crate::models::profiles::{NewProfile, Profile};
 use orion::pwhash;
-use serde_json::Value;
 use rsa::{
     pkcs8::EncodePrivateKey, pkcs8::EncodePublicKey, pkcs8::LineEnding, RsaPrivateKey, RsaPublicKey,
 };
+use serde_json::Value;
 
 use uuid::Uuid;
 
@@ -25,15 +25,13 @@ fn get_key_pair() -> KeyPair {
     }
 }
 
-pub async fn authenticate(
-    conn: &Db,
-    username: String,
-    password: String) -> Option<Profile> {
-
+pub async fn authenticate(conn: &Db, username: String, password: String) -> Option<Profile> {
     if let Ok(password) = pwhash::Password::from_slice(password.as_bytes()) {
         if let Some(profile) = get_profile_by_username(conn, username).await {
             if let Some(encoded_password_hash) = profile.clone().password {
-                if let Ok(password_hash) = pwhash::PasswordHash::from_encoded(&encoded_password_hash) {
+                if let Ok(password_hash) =
+                    pwhash::PasswordHash::from_encoded(&encoded_password_hash)
+                {
                     if pwhash::hash_password_verify(&password_hash, &password).is_ok() {
                         Option::from(profile)
                     } else {
@@ -42,6 +40,29 @@ pub async fn authenticate(
                 } else {
                     Option::None
                 }
+            } else {
+                Option::None
+            }
+        } else {
+            Option::None
+        }
+    } else {
+        Option::None
+    }
+}
+
+pub async fn verify_and_generate_password(
+    conn: &Db,
+    username: String,
+    current_password: String,
+    new_password: String,
+) -> Option<String> {
+    if let Some(_profile) = authenticate(conn, username, current_password).await {
+        if let Ok(password) = pwhash::Password::from_slice(new_password.as_bytes()) {
+            // the example memory cost is 1<<16 (64MB); that taxes my system quite a bit,
+            // so I'm using 8MB - this should be increased as available power permits
+            if let Ok(hash) = pwhash::hash_password(&password, 3, 1 << 4) {
+                Option::from(hash.unprotected_as_encoded().to_string())
             } else {
                 Option::None
             }
@@ -66,7 +87,7 @@ pub async fn create_user(
     if let Ok(password) = pwhash::Password::from_slice(password.as_bytes()) {
         // the example memory cost is 1<<16 (64MB); that taxes my system quite a bit,
         // so I'm using 8MB - this should be increased as available power permits
-        if let Ok(hash) = pwhash::hash_password(&password, 3, 1<<4) {
+        if let Ok(hash) = pwhash::hash_password(&password, 3, 1 << 4) {
             let new_profile = NewProfile {
                 uuid: Uuid::new_v4().to_string(),
                 username,
@@ -83,7 +104,7 @@ pub async fn create_user(
                     .unwrap(),
                 password: Option::from(hash.unprotected_as_encoded().to_string()),
                 client_public_key,
-                keystore
+                keystore,
             };
 
             create_profile(conn, new_profile).await

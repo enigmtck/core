@@ -1,7 +1,7 @@
-use crate::schema::{timeline, timeline_cc, timeline_to};
 use crate::db::Db;
-use diesel::prelude::*;
+use crate::schema::{timeline, timeline_cc, timeline_to};
 use chrono::{DateTime, Utc};
+use diesel::prelude::*;
 use diesel::{AsChangeset, Identifiable, Insertable, Queryable};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -22,6 +22,13 @@ pub struct NewTimelineItem {
     pub in_reply_to: Option<String>,
     pub content: String,
     pub ap_public: bool,
+    pub summary: Option<String>,
+    pub ap_sensitive: Option<bool>,
+    pub atom_uri: Option<String>,
+    pub in_reply_to_atom_uri: Option<String>,
+    pub conversation: Option<String>,
+    pub content_map: Option<Value>,
+    pub attachment: Option<Value>,
 }
 
 type IdentifiedRemoteNote = (RemoteNote, i32);
@@ -52,6 +59,13 @@ impl From<IdentifiedRemoteNote> for NewTimelineItem {
             in_reply_to: note.0.in_reply_to,
             content: note.0.content,
             ap_public,
+            summary: note.0.summary,
+            ap_sensitive: note.0.ap_sensitive,
+            atom_uri: note.0.atom_uri,
+            in_reply_to_atom_uri: note.0.in_reply_to_atom_uri,
+            conversation: note.0.conversation,
+            content_map: note.0.content_map,
+            attachment: note.0.attachment,
         }
     }
 }
@@ -74,6 +88,13 @@ pub struct TimelineItem {
     pub in_reply_to: Option<String>,
     pub content: String,
     pub ap_public: bool,
+    pub summary: Option<String>,
+    pub ap_sensitive: Option<bool>,
+    pub atom_uri: Option<String>,
+    pub in_reply_to_atom_uri: Option<String>,
+    pub conversation: Option<String>,
+    pub content_map: Option<Value>,
+    pub attachment: Option<Value>,
 }
 
 #[derive(Serialize, Deserialize, Insertable, Default, Debug, Clone)]
@@ -134,25 +155,26 @@ impl From<IdentifiedTimelineItem> for NewTimelineItemTo {
     }
 }
 
-pub async fn get_timeline_items_by_ap_id(conn: &Db, ap_id: String)
-                                         -> Vec<(TimelineItem,
-                                                 Option<TimelineItemCc>,
-                                                 Option<TimelineItemTo>)> {
-    
-    match conn.run(move |c| {
-        let query = timeline::table
-            .left_join(timeline_cc::table.on(timeline_cc::timeline_id.eq(timeline::id)))
-            .left_join(timeline_to::table.on(timeline_to::timeline_id.eq(timeline::id)))
-            .filter(timeline::ap_public.eq(true))
-            .or_filter(timeline_cc::ap_id.eq(ap_id.clone()))
-            .or_filter(timeline_to::ap_id.eq(ap_id))
-            .order(timeline::created_at.desc())
-            .into_boxed();
-        
-        query.get_results::<(TimelineItem,
-                             Option<TimelineItemCc>,
-                             Option<TimelineItemTo>)>(c)}).await {
+pub async fn get_timeline_items_by_ap_id(
+    conn: &Db,
+    ap_id: String,
+) -> Vec<(TimelineItem, Option<TimelineItemCc>, Option<TimelineItemTo>)> {
+    match conn
+        .run(move |c| {
+            let query = timeline::table
+                .left_join(timeline_cc::table.on(timeline_cc::timeline_id.eq(timeline::id)))
+                .left_join(timeline_to::table.on(timeline_to::timeline_id.eq(timeline::id)))
+                .filter(timeline::ap_public.eq(true))
+                .or_filter(timeline_cc::ap_id.eq(ap_id.clone()))
+                .or_filter(timeline_to::ap_id.eq(ap_id))
+                .order(timeline::created_at.desc())
+                .into_boxed();
+
+            query.get_results::<(TimelineItem, Option<TimelineItemCc>, Option<TimelineItemTo>)>(c)
+        })
+        .await
+    {
         Ok(x) => x,
-        Err(_) => vec![]
+        Err(_) => vec![],
     }
 }

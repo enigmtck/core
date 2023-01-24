@@ -178,6 +178,12 @@ diesel::table! {
         replies -> Nullable<Jsonb>,
         in_reply_to -> Nullable<Varchar>,
         signature -> Nullable<Jsonb>,
+        summary -> Nullable<Varchar>,
+        ap_sensitive -> Nullable<Bool>,
+        atom_uri -> Nullable<Varchar>,
+        in_reply_to_atom_uri -> Nullable<Varchar>,
+        conversation -> Nullable<Varchar>,
+        content_map -> Nullable<Jsonb>,
     }
 }
 
@@ -197,6 +203,13 @@ diesel::table! {
         in_reply_to -> Nullable<Varchar>,
         content -> Varchar,
         ap_public -> Bool,
+        summary -> Nullable<Varchar>,
+        ap_sensitive -> Nullable<Bool>,
+        atom_uri -> Nullable<Varchar>,
+        in_reply_to_atom_uri -> Nullable<Varchar>,
+        conversation -> Nullable<Varchar>,
+        content_map -> Nullable<Jsonb>,
+        attachment -> Nullable<Jsonb>,
     }
 }
 

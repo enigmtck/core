@@ -92,6 +92,7 @@ pub struct ApTag {
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub enum ApAttachmentType {
     PropertyValue,
+    Document,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -100,7 +101,12 @@ pub struct ApAttachment {
     #[serde(rename = "type")]
     pub kind: ApAttachmentType,
     pub name: String,
-    pub value: String,
+    pub value: Option<String>,
+    pub media_type: Option<String>,
+    pub url: Option<String>,
+    pub blur_hash: Option<String>,
+    pub width: Option<i32>,
+    pub height: Option<i32>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]

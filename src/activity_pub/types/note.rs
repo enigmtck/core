@@ -1,8 +1,9 @@
 use crate::{
-    activity_pub::{ApActor, ApContext, ApFlexible, ApObjectType, ApTag},
+    activity_pub::{ApActor, ApAttachment, ApContext, ApFlexible, ApObjectType, ApTag},
     models::{notes::NewNote, remote_notes::RemoteNote, timeline::TimelineItem},
 };
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
@@ -24,8 +25,23 @@ pub struct ApNote {
     pub cc: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub replies: Option<ApFlexible>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub attachment: Option<Vec<ApAttachment>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub in_reply_to: Option<String>,
     pub content: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub summary: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sensitive: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub atom_uri: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub in_reply_to_atom_uri: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub conversation: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub content_map: Option<Value>,
 }
 
 impl ApNote {
@@ -60,8 +76,15 @@ impl Default for ApNote {
             published: Option::None,
             cc: Option::None,
             replies: Option::None,
+            attachment: Option::None,
             in_reply_to: Option::None,
             content: String::new(),
+            summary: Option::None,
+            sensitive: Option::None,
+            atom_uri: Option::None,
+            in_reply_to_atom_uri: Option::None,
+            conversation: Option::None,
+            content_map: Option::None,
         }
     }
 }
@@ -85,6 +108,13 @@ impl From<TimelineItem> for ApNote {
             replies: Option::None,
             in_reply_to: timeline.in_reply_to,
             content: timeline.content,
+            summary: timeline.summary,
+            sensitive: timeline.ap_sensitive,
+            atom_uri: timeline.atom_uri,
+            in_reply_to_atom_uri: timeline.in_reply_to_atom_uri,
+            conversation: timeline.conversation,
+            content_map: timeline.content_map,
+            attachment: serde_json::from_value(timeline.attachment.unwrap_or_default()).unwrap(),
             ..Default::default()
         }
     }

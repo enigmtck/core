@@ -21,6 +21,12 @@ pub struct NewRemoteNote {
     pub tag: Option<Value>,
     pub replies: Option<Value>,
     pub signature: Option<Value>,
+    pub summary: Option<String>,
+    pub ap_sensitive: Option<bool>,
+    pub atom_uri: Option<String>,
+    pub in_reply_to_atom_uri: Option<String>,
+    pub conversation: Option<String>,
+    pub content_map: Option<Value>,
 }
 
 type IdentifiedApNote = (ApNote, i32);
@@ -48,6 +54,12 @@ impl From<IdentifiedApNote> for NewRemoteNote {
             tag: Option::from(serde_json::to_value(&note.0.tag).unwrap()),
             content: note.0.content,
             profile_id: note.1,
+            summary: note.0.summary,
+            ap_sensitive: note.0.sensitive,
+            atom_uri: note.0.atom_uri,
+            in_reply_to_atom_uri: note.0.in_reply_to_atom_uri,
+            conversation: note.0.conversation,
+            content_map: note.0.content_map,
             ..Default::default()
         }
     }
@@ -74,4 +86,10 @@ pub struct RemoteNote {
     pub replies: Option<Value>,
     pub in_reply_to: Option<String>,
     pub signature: Option<Value>,
+    pub summary: Option<String>,
+    pub ap_sensitive: Option<bool>,
+    pub atom_uri: Option<String>,
+    pub in_reply_to_atom_uri: Option<String>,
+    pub conversation: Option<String>,
+    pub content_map: Option<Value>,
 }

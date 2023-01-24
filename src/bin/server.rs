@@ -7,12 +7,12 @@ use enigmatick::{
         ApActivity, ApActivityType, ApActor, ApBaseObjectSuper, ApCollection, ApObject,
         ApOrderedCollection, FollowersPage, LeadersPage,
     },
-    admin,
+    admin::{self, verify_and_generate_password},
     api::{instance::InstanceInformation, processing_queue},
     db::{
         create_remote_activity, get_followers_by_profile_id, get_leaders_by_profile_id,
         get_profile_by_username, update_avatar_by_username, update_banner_by_username,
-        update_summary_by_username, Db,
+        update_password_by_username, update_summary_by_username, Db,
     },
     fairings::{
         events::{EventChannels, EventChannelsError},
@@ -164,7 +164,7 @@ pub async fn test(
 pub async fn person(conn: Db, username: String) -> Result<Json<ApActor>, Status> {
     match get_profile_by_username(&conn, username).await {
         Some(profile) => {
-            debug!("profile\n{:#?}", profile);
+            //debug!("profile\n{:#?}", profile);
             Ok(Json(ApActor::from(profile)))
         }
         None => Err(Status::NoContent),
@@ -328,27 +328,40 @@ pub async fn remote_actor_lookup(
     if let Signed(true) = signed {
         if let Ok(actor) = actor {
             if let Some(profile) = get_profile_by_username(&conn, username).await {
-                if let Some(webfinger) = get_remote_webfinger(actor.webfinger.clone()).await {
-                    let mut ap_id = Option::<String>::None;
-                    for link in webfinger.links {
-                        if let (Some(kind), Some(href)) = (link.kind, link.href) {
-                            if kind == "application/activity+json" {
-                                ap_id = Option::from(href);
-                            }
-                        }
-                    }
+                let ap_id = {
+                    let webfinger_re = regex::Regex::new(r#"@(.+?)@(.+)"#).unwrap();
+                    let http_url_re = regex::Regex::new(r#"https://.+"#).unwrap();
 
-                    if let Some(ap_id) = ap_id {
-                        // this should be converted to an ApActor
-                        Ok(Json(
-                            retriever::get_actor(&conn, profile, ap_id)
-                                .await
-                                .unwrap()
-                                .into(),
-                        ))
+                    if webfinger_re.is_match(&actor.webfinger.clone()) {
+                        if let Some(webfinger) = get_remote_webfinger(actor.webfinger.clone()).await
+                        {
+                            let mut ap_id_int = Option::<String>::None;
+                            for link in webfinger.links {
+                                if let (Some(kind), Some(href)) = (link.kind, link.href) {
+                                    if kind == "application/activity+json" {
+                                        ap_id_int = Option::from(href);
+                                    }
+                                }
+                            }
+                            ap_id_int
+                        } else {
+                            Option::None
+                        }
+                    } else if http_url_re.is_match(&actor.webfinger.clone()) {
+                        Option::from(actor.webfinger.clone())
                     } else {
-                        Err(Status::NoContent)
+                        Option::None
                     }
+                };
+
+                if let Some(ap_id) = ap_id {
+                    // this should be converted to an ApActor
+                    Ok(Json(
+                        retriever::get_actor(&conn, profile, ap_id)
+                            .await
+                            .unwrap()
+                            .into(),
+                    ))
                 } else {
                     Err(Status::NoContent)
                 }
@@ -360,6 +373,47 @@ pub async fn remote_actor_lookup(
         }
     } else {
         Err(Status::NoContent)
+    }
+}
+
+#[derive(Deserialize, Debug, Clone)]
+pub struct UpdatePassword {
+    pub current: String,
+    pub updated: String,
+}
+
+#[post("/api/user/<username>/password", format = "json", data = "<password>")]
+pub async fn change_password(
+    signed: Signed,
+    conn: Db,
+    username: String,
+    password: Result<Json<UpdatePassword>, Error<'_>>,
+) -> Result<Json<Profile>, Status> {
+    debug!("raw\n{:#?}", password);
+
+    if let Signed(true) = signed {
+        if let Ok(password) = password {
+            if let Some(password) = verify_and_generate_password(
+                &conn,
+                username.clone(),
+                password.current.clone(),
+                password.updated.clone(),
+            )
+            .await
+            {
+                Ok(Json(
+                    update_password_by_username(&conn, username, password)
+                        .await
+                        .unwrap_or_default(),
+                ))
+            } else {
+                Err(Status::NoContent)
+            }
+        } else {
+            Err(Status::Forbidden)
+        }
+    } else {
+        Err(Status::BadRequest)
     }
 }
 
@@ -527,13 +581,13 @@ pub async fn authenticate_user(
     conn: Db,
     user: Result<Json<AuthenticationData>, Error<'_>>,
 ) -> Result<Json<Profile>, Status> {
-    debug!("raw\n{:#?}", user);
+    //debug!("raw\n{:#?}", user);
 
     if let Ok(user) = user {
         if let Some(profile) =
             admin::authenticate(&conn, user.username.clone(), user.password.clone()).await
         {
-            debug!("sending profile\n{:#?}", profile);
+            //debug!("sending profile\n{:#?}", profile);
             Ok(Json(profile))
         } else {
             Err(Status::NoContent)
@@ -696,6 +750,8 @@ fn rocket() -> _ {
                 remote_actor_lookup,
                 update_summary,
                 upload_avatar,
+                upload_banner,
+                change_password,
             ],
         )
 }

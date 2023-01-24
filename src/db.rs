@@ -41,6 +41,26 @@ pub async fn get_leader_by_profile_id_and_ap_id(
     }
 }
 
+pub async fn update_password_by_username(
+    conn: &Db,
+    username: String,
+    password: String,
+) -> Option<Profile> {
+    use schema::profiles::dsl::{password as p, profiles, username as u};
+
+    match conn
+        .run(move |c| {
+            diesel::update(profiles.filter(u.eq(username)))
+                .set(p.eq(password))
+                .get_result::<Profile>(c)
+        })
+        .await
+    {
+        Ok(x) => Some(x),
+        Err(_) => Option::None,
+    }
+}
+
 pub async fn update_avatar_by_username(
     conn: &Db,
     username: String,
