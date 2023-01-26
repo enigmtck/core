@@ -34,12 +34,12 @@ fn build_verify_string(
         signature_map.insert(cap[1].to_string(), cap[2].to_string());
     }
 
-    log::debug!("map: {:#?}", signature_map);
+    //log::debug!("map: {:#?}", signature_map);
 
     let key_id = signature_map.get("keyId").unwrap();
     let key_id_parts = key_id.split('#').collect::<Vec<&str>>();
     let ap_id = key_id_parts[0].to_string();
-    let key_selector = key_id_parts[1].to_string();
+    //let key_selector = key_id_parts[1].to_string();
 
     let local_pattern = format!(r#"(\w+://{}/user/(.+?))#(.+)"#, &*crate::SERVER_NAME);
     let local_re = regex::Regex::new(local_pattern.as_str()).unwrap();
@@ -52,7 +52,7 @@ fn build_verify_string(
         local = true;
         username = Option::from(captures[2].to_string());
         key_selector = Option::from(captures[3].to_string());
-        log::debug!("key_re: {:#?}", captures);
+        //log::debug!("key_re: {:#?}", captures);
     }
 
     let mut verify_string = String::new();
@@ -70,14 +70,14 @@ fn build_verify_string(
         }
     }
 
-    log::debug!(
-        "verify_string\n{}\nap_id: {:#?}\nkey_selector: {:#?}\nlocal: {}\nusername: {:#?}\n",
-        verify_string,
-        ap_id,
-        key_selector,
-        local,
-        username
-    );
+    // log::debug!(
+    //     "verify_string\n{}\nap_id: {:#?}\nkey_selector: {:#?}\nlocal: {}\nusername: {:#?}\n",
+    //     verify_string,
+    //     ap_id,
+    //     key_selector,
+    //     local,
+    //     username
+    // );
 
     // (verify, signature, ap_id)
     (
@@ -96,7 +96,7 @@ pub async fn verify(conn: Db, params: VerifyParams) -> bool {
 
     fn verify(public_key: RsaPublicKey, signature_str: String, verify_string: String) -> bool {
         let verifying_key: VerifyingKey<Sha256> = VerifyingKey::new_with_prefix(public_key);
-        log::debug!("signature string: {}", signature_str);
+        //log::debug!("signature string: {}", signature_str);
 
         let s = base64::decode(signature_str.as_bytes()).unwrap();
 
@@ -134,7 +134,7 @@ pub async fn verify(conn: Db, params: VerifyParams) -> bool {
     } else if let Some(actor) = retriever::get_actor(&conn, params.profile, ap_id).await {
         if let Some(public_key_value) = actor.0.public_key {
             if let Ok(public_key) = serde_json::from_value::<ApPublicKey>(public_key_value) {
-                log::debug!("remote public key\n{}\n", public_key.public_key_pem);
+                //log::debug!("remote public key\n{}\n", public_key.public_key_pem);
                 if let Ok(public_key) =
                     RsaPublicKey::from_public_key_pem(&public_key.public_key_pem)
                 {
@@ -227,7 +227,7 @@ pub fn sign(params: SignParams) -> SignResponse {
             request_target, host, date, digest
         );
 
-        log::debug!("\n{}", structured_data);
+        //log::debug!("\n{}", structured_data);
 
         let mut rng = rand::thread_rng();
         let signature = signing_key.sign_with_rng(&mut rng, structured_data.as_bytes());
@@ -247,7 +247,7 @@ pub fn sign(params: SignParams) -> SignResponse {
             request_target, host, date
         );
 
-        log::debug!("\n{}", structured_data);
+        //log::debug!("\n{}", structured_data);
 
         let mut rng = rand::thread_rng();
         let signature = signing_key.sign_with_rng(&mut rng, structured_data.as_bytes());

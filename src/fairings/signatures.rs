@@ -32,7 +32,7 @@ impl<'r> FromRequest<'r> for Signed {
         let path = request.uri().to_string();
         let path = path.trim_end_matches('&');
 
-        log::debug!("request: {:#?}", request);
+        //log::debug!("request: {:#?}", request);
 
         let username_re = regex::Regex::new(r"(?:/api)?(/user/)([a-zA-Z0-9_]+)(/.*)").unwrap();
         if let Some(username_match) = username_re.captures(path) {

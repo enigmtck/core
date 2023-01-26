@@ -123,7 +123,7 @@ pub async fn accept(
     if let ApObject::Identifier(x) = activity.clone().object {
         let ap_id_re = regex::Regex::new(r#"(\w+://)(.+?/)+(.+)"#).unwrap();
         if let Some(ap_id_match) = ap_id_re.captures(&x.id) {
-            debug!("ap_id_match: {:#?}", ap_id_match);
+            //debug!("ap_id_match: {:#?}", ap_id_match);
 
             let matches = ap_id_match.len();
             let uuid = ap_id_match.get(matches - 1).unwrap().as_str();

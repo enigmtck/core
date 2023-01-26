@@ -8,11 +8,14 @@ use rocket::request::{FromRequest, Outcome, Request};
 use rocket::{Build, Rocket};
 use std::collections::HashMap;
 
+type IdentifiedReceiver = (String, Receiver<String>);
+type IdentifiedSender = (String, Sender<String>);
+
 #[derive(Clone)]
 pub struct EventChannels {
     // there's no cleanup for these maps - probable something to keep an eye on
-    pub receiving_channels: Arc<Mutex<HashMap<String, Receiver<String>>>>,
-    pub sending_channels: Arc<Mutex<HashMap<String, Sender<String>>>>,
+    pub receiving_channels: Arc<Mutex<HashMap<String, IdentifiedReceiver>>>,
+    pub sending_channels: Arc<Mutex<HashMap<String, IdentifiedSender>>>,
 }
 
 impl EventChannels {
@@ -20,25 +23,39 @@ impl EventChannels {
         EventChannelsFairing
     }
 
-    pub fn subscribe(&mut self, username: String) -> Receiver<String> {
-        log::debug!("subscribe called");
-        let (tx, rx) = unbounded::<String>();
+    pub fn remove(&mut self, uuid: String) {
+        log::debug!("remove called");
 
         if let Some(mut x) = self.receiving_channels.try_lock() {
-            x.insert(username.clone(), rx.clone());
+            x.remove(&uuid);
         }
 
         if let Some(mut x) = self.sending_channels.try_lock() {
-            x.insert(username, tx);
+            x.remove(&uuid);
+        }
+    }
+
+    pub fn subscribe(&mut self, username: String) -> (String, Receiver<String>) {
+        log::debug!("subscribe called");
+
+        let uuid = uuid::Uuid::new_v4().to_string();
+        let (tx, rx) = unbounded::<String>();
+
+        if let Some(mut x) = self.receiving_channels.try_lock() {
+            x.insert(uuid.clone(), (username.clone(), rx.clone()));
         }
 
-        rx
+        if let Some(mut x) = self.sending_channels.try_lock() {
+            x.insert(uuid.clone(), (username, tx));
+        }
+
+        (uuid, rx)
     }
 
     pub fn send(&mut self, message: String) {
         log::debug!("send called");
         if let Some(x) = self.sending_channels.try_lock() {
-            for (username, tx) in (*x).clone() {
+            for (uuid, (username, tx)) in (*x).clone() {
                 log::debug!("trying to send {message}");
 
                 match tx.try_send(message.clone()) {

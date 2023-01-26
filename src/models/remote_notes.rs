@@ -1,6 +1,8 @@
 use crate::activity_pub::{ApFlexible, ApNote};
+use crate::db::Db;
 use crate::schema::remote_notes;
 use chrono::{DateTime, Utc};
+use diesel::prelude::*;
 use diesel::{AsChangeset, Identifiable, Insertable, Queryable};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -24,6 +26,7 @@ pub struct NewRemoteNote {
     pub summary: Option<String>,
     pub ap_sensitive: Option<bool>,
     pub atom_uri: Option<String>,
+    pub in_reply_to: Option<String>,
     pub in_reply_to_atom_uri: Option<String>,
     pub conversation: Option<String>,
     pub content_map: Option<Value>,
@@ -57,6 +60,7 @@ impl From<IdentifiedApNote> for NewRemoteNote {
             summary: note.0.summary,
             ap_sensitive: note.0.sensitive,
             atom_uri: note.0.atom_uri,
+            in_reply_to: note.0.in_reply_to,
             in_reply_to_atom_uri: note.0.in_reply_to_atom_uri,
             conversation: note.0.conversation,
             content_map: note.0.content_map,
@@ -92,4 +96,16 @@ pub struct RemoteNote {
     pub in_reply_to_atom_uri: Option<String>,
     pub conversation: Option<String>,
     pub content_map: Option<Value>,
+}
+
+pub async fn get_remote_note_by_ap_id(conn: &crate::db::Db, ap_id: String) -> Option<RemoteNote> {
+    use crate::schema::remote_notes::dsl::{ap_id as a, remote_notes};
+
+    match conn
+        .run(move |c| remote_notes.filter(a.eq(ap_id)).first::<RemoteNote>(c))
+        .await
+    {
+        Ok(x) => Option::from(x),
+        Err(_) => Option::None,
+    }
 }

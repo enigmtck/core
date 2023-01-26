@@ -2,13 +2,18 @@ use reqwest::Client;
 use reqwest::StatusCode;
 
 use crate::activity_pub::{ApActor, ApObject};
+use crate::db::create_remote_note;
 use crate::db::{create_remote_actor, get_remote_actor_by_ap_id, Db};
 use crate::models::leaders::get_leader_by_actor_ap_id_and_profile;
 use crate::models::leaders::Leader;
 use crate::models::profiles::Profile;
 use crate::models::remote_actors::{NewRemoteActor, RemoteActor};
+use crate::models::remote_notes::get_remote_note_by_ap_id;
+use crate::models::remote_notes::NewRemoteNote;
 use crate::signing::{sign, Method, SignParams};
 use crate::webfinger::WebFinger;
+
+use super::ApNote;
 
 pub async fn get_remote_webfinger(acct: String) -> Option<WebFinger> {
     let webfinger_re = regex::Regex::new(r#"@(.+?)@(.+)"#).unwrap();
@@ -36,6 +41,64 @@ pub async fn get_remote_webfinger(acct: String) -> Option<WebFinger> {
         Option::from(response)
     } else {
         Option::from(WebFinger::default())
+    }
+}
+
+pub async fn get_note(conn: &Db, profile: Profile, id: String) -> Option<ApNote> {
+    match get_remote_note_by_ap_id(conn, id.clone()).await {
+        Some(remote_note) => {
+            log::debug!("note retrieved from storage");
+
+            Some(remote_note.into())
+        }
+        None => {
+            log::debug!("performing remote lookup for note");
+
+            let url = id.clone();
+            let body = Option::None;
+            let method = Method::Get;
+
+            let signature = sign(SignParams {
+                profile: profile.clone(),
+                url,
+                body,
+                method,
+            });
+
+            let client = Client::new();
+            match client
+                .get(&id)
+                .header("Signature", &signature.signature)
+                .header("Date", signature.date)
+                .header(
+                    "Accept",
+                    "application/ld+json; profile=\"http://www.w3.org/ns/activitystreams\"",
+                )
+                .send()
+                .await
+            {
+                Ok(resp) => match resp.status() {
+                    StatusCode::ACCEPTED | StatusCode::OK => {
+                        let note: ApNote = resp.json().await.unwrap();
+                        create_remote_note(conn, NewRemoteNote::from((note, profile.id)))
+                            .await
+                            .map(|n| n.into())
+                    }
+                    StatusCode::GONE => {
+                        log::debug!("GONE: {:#?}", resp.status());
+                        Option::None
+                    }
+                    _ => {
+                        log::debug!("STATUS: {:#?}", resp.status());
+                        Option::None
+                    }
+                },
+                Err(e) => {
+                    log::debug!("{:#?}", e);
+                    Option::None
+                }
+            }
+        }
     }
 }
 

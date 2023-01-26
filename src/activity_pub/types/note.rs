@@ -2,6 +2,7 @@ use crate::{
     activity_pub::{ApActor, ApAttachment, ApContext, ApFlexible, ApObjectType, ApTag},
     models::{notes::NewNote, remote_notes::RemoteNote, timeline::TimelineItem},
 };
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -145,6 +146,7 @@ impl From<NewNote> for ApNote {
         ApNote {
             tag: serde_json::from_value(note.tag.into()).unwrap(),
             attributed_to: note.attributed_to,
+            published: Option::from(Utc::now().format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string()),
             id: Option::from(format!(
                 "https://{}/notes/{}",
                 *crate::SERVER_NAME,
@@ -153,6 +155,7 @@ impl From<NewNote> for ApNote {
             kind,
             to: serde_json::from_value(note.ap_to).unwrap(),
             content: note.content,
+            cc: serde_json::from_value(note.cc.into()).unwrap(),
             ..Default::default()
         }
     }

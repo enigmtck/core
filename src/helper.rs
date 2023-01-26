@@ -1,5 +1,9 @@
 use serde_json::Value;
 
+pub fn is_public(ap_id: String) -> bool {
+    *"https://www.w3.org/ns/activitystreams#Public" == ap_id
+}
+
 pub fn is_local(ap_id: String) -> bool {
     let pattern = format!(r#"\w+?://{}/(.+)"#, *crate::SERVER_NAME);
 

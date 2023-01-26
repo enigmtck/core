@@ -3,8 +3,8 @@ extern crate rocket;
 
 use enigmatick::{
     activity_pub::{
-        retriever::{self, get_remote_webfinger},
-        ApActivity, ApActivityType, ApActor, ApBaseObjectSuper, ApCollection, ApObject,
+        retriever::{self, get_note, get_remote_webfinger},
+        ApActivity, ApActivityType, ApActor, ApBaseObjectSuper, ApCollection, ApNote, ApObject,
         ApOrderedCollection, FollowersPage, LeadersPage,
     },
     admin::{self, verify_and_generate_password},
@@ -19,6 +19,7 @@ use enigmatick::{
         faktory::FaktoryConnection,
         signatures::Signed,
     },
+    helper::{get_local_username_from_ap_id, is_local},
     inbox,
     models::{
         profiles::{
@@ -97,7 +98,7 @@ async fn stream(
     username: String,
 ) -> EventStream![] {
     EventStream! {
-        let rx = events.subscribe(username);
+        let (uuid, rx) = events.subscribe(username);
         let mut interval = time::interval(Duration::from_secs(1));
 
         let mut i = 1;
@@ -126,6 +127,8 @@ async fn stream(
                 k += 1;
             }
         }
+
+        events.remove(uuid);
     }
 }
 
@@ -312,18 +315,47 @@ pub async fn instance_information(
 }
 
 #[derive(Deserialize, Debug, Clone)]
-pub struct ActorLookup {
-    webfinger: String,
+pub struct Lookup {
+    id: String,
 }
 
-#[post("/api/user/<username>/remote", format = "json", data = "<actor>")]
+#[post("/api/user/<username>/remote/note", format = "json", data = "<note>")]
+pub async fn remote_note_lookup(
+    signed: Signed,
+    conn: Db,
+    username: String,
+    note: Result<Json<Lookup>, Error<'_>>,
+) -> Result<Json<ApNote>, Status> {
+    //debug!("raw\n{:#?}", actor);
+
+    if let Signed(true) = signed {
+        if let Ok(note) = note {
+            if let Some(profile) = get_profile_by_username(&conn, username).await {
+                if let Some(note) = get_note(&conn, profile, note.id.clone()).await {
+                    debug!("here's the note\n{note:#?}");
+                    Ok(Json(note))
+                } else {
+                    Err(Status::NoContent)
+                }
+            } else {
+                Err(Status::NoContent)
+            }
+        } else {
+            Err(Status::NoContent)
+        }
+    } else {
+        Err(Status::NoContent)
+    }
+}
+
+#[post("/api/user/<username>/remote/actor", format = "json", data = "<actor>")]
 pub async fn remote_actor_lookup(
     signed: Signed,
     conn: Db,
     username: String,
-    actor: Result<Json<ActorLookup>, Error<'_>>,
+    actor: Result<Json<Lookup>, Error<'_>>,
 ) -> Result<Json<ApActor>, Status> {
-    debug!("raw\n{:#?}", actor);
+    //debug!("raw\n{:#?}", actor);
 
     if let Signed(true) = signed {
         if let Ok(actor) = actor {
@@ -332,9 +364,9 @@ pub async fn remote_actor_lookup(
                     let webfinger_re = regex::Regex::new(r#"@(.+?)@(.+)"#).unwrap();
                     let http_url_re = regex::Regex::new(r#"https://.+"#).unwrap();
 
-                    if webfinger_re.is_match(&actor.webfinger.clone()) {
-                        if let Some(webfinger) = get_remote_webfinger(actor.webfinger.clone()).await
-                        {
+                    if webfinger_re.is_match(&actor.id.clone()) {
+                        //log::debug!("matching to webfinger");
+                        if let Some(webfinger) = get_remote_webfinger(actor.id.clone()).await {
                             let mut ap_id_int = Option::<String>::None;
                             for link in webfinger.links {
                                 if let (Some(kind), Some(href)) = (link.kind, link.href) {
@@ -347,21 +379,35 @@ pub async fn remote_actor_lookup(
                         } else {
                             Option::None
                         }
-                    } else if http_url_re.is_match(&actor.webfinger.clone()) {
-                        Option::from(actor.webfinger.clone())
+                    } else if http_url_re.is_match(&actor.id.clone()) {
+                        //log::debug!("matching to https url");
+                        Option::from(actor.id.clone())
                     } else {
+                        //log::debug!("matched to none");
                         Option::None
                     }
                 };
 
                 if let Some(ap_id) = ap_id {
-                    // this should be converted to an ApActor
-                    Ok(Json(
-                        retriever::get_actor(&conn, profile, ap_id)
-                            .await
-                            .unwrap()
-                            .into(),
-                    ))
+                    if is_local(ap_id.clone()) {
+                        if let Some(username) = get_local_username_from_ap_id(ap_id.clone()) {
+                            Ok(Json(
+                                get_profile_by_username(&conn, username)
+                                    .await
+                                    .unwrap()
+                                    .into(),
+                            ))
+                        } else {
+                            Err(Status::NoContent)
+                        }
+                    } else {
+                        Ok(Json(
+                            retriever::get_actor(&conn, profile, ap_id)
+                                .await
+                                .unwrap()
+                                .into(),
+                        ))
+                    }
                 } else {
                     Err(Status::NoContent)
                 }
@@ -389,7 +435,7 @@ pub async fn change_password(
     username: String,
     password: Result<Json<UpdatePassword>, Error<'_>>,
 ) -> Result<Json<Profile>, Status> {
-    debug!("raw\n{:#?}", password);
+    //debug!("raw\n{:#?}", password);
 
     if let Signed(true) = signed {
         if let Ok(password) = password {
@@ -431,7 +477,7 @@ pub async fn create_user(
     conn: Db,
     user: Result<Json<NewUser>, Error<'_>>,
 ) -> Result<Json<Profile>, Status> {
-    debug!("raw\n{:#?}", user);
+    //debug!("raw\n{:#?}", user);
 
     if let Ok(user) = user {
         let keystore_value: serde_json::Value =
@@ -467,7 +513,7 @@ pub async fn update_olm_sessions(
     username: String,
     keystore: Result<Json<KeyStore>, Error<'_>>,
 ) -> Result<Json<Profile>, Status> {
-    debug!("raw\n{:#?}", keystore);
+    //debug!("raw\n{:#?}", keystore);
 
     if let Signed(true) = signed {
         if let Ok(Json(keystore)) = keystore {
@@ -495,7 +541,7 @@ pub async fn get_processing_queue(
         if let Some(profile) = get_profile_by_username(&conn, username).await {
             let l = processing_queue::retrieve(&conn, profile).await;
 
-            debug!("queue\n{:#?}", l);
+            //debug!("queue\n{:#?}", l);
             Ok(Json(ApObject::Collection(ApCollection::from(l))))
         } else {
             Err(Status::NoContent)
@@ -516,7 +562,7 @@ pub async fn update_identity_cache(
     username: String,
     keystore: Result<Json<KeyStore>, Error<'_>>,
 ) -> Result<Json<Profile>, Status> {
-    debug!("raw\n{:#?}", keystore);
+    //debug!("raw\n{:#?}", keystore);
 
     if let Signed(true) = signed {
         if let Ok(Json(keystore)) = keystore {
@@ -551,7 +597,7 @@ pub async fn update_summary(
     username: String,
     summary: Result<Json<SummaryUpdate>, Error<'_>>,
 ) -> Result<Json<Profile>, Status> {
-    debug!("raw\n{:#?}", summary);
+    //debug!("raw\n{:#?}", summary);
 
     if let Signed(true) = signed {
         if let Ok(Json(summary)) = summary {
@@ -605,7 +651,7 @@ pub async fn outbox_post(
     username: String,
     object: Result<Json<ApBaseObjectSuper>, Error<'_>>,
 ) -> Result<Status, Status> {
-    debug!("raw\n{:#?}", object);
+    //debug!("raw\n{:#?}", object);
 
     if let Signed(true) = signed {
         match get_profile_by_username(&conn, username).await {
@@ -652,12 +698,12 @@ pub async fn inbox_get(
     conn: Db,
     username: String,
 ) -> Result<Json<ApObject>, Status> {
-    debug!("inbox get request received");
+    //debug!("inbox get request received");
 
     if let (Some(profile), Signed(true)) = (get_profile_by_username(&conn, username).await, signed)
     {
         let inbox = inbox::retrieve::all(conn, profile).await;
-        debug!("inbox\n{:#?}", inbox);
+        //debug!("inbox\n{:#?}", inbox);
         Ok(Json(inbox))
     } else {
         Err(Status::NoContent)
@@ -673,7 +719,7 @@ pub async fn inbox_post(
     username: String,
     activity: Result<Json<ApActivity>, Error<'_>>,
 ) -> Result<Status, Status> {
-    debug!("inbox: {:#?}", activity);
+    //debug!("inbox: {:#?}", activity);
 
     if let (Ok(activity), Some(profile), Signed(true)) = (
         activity,
@@ -715,7 +761,7 @@ pub async fn inbox_post(
             Err(Status::NoContent)
         }
     } else {
-        log::debug!("request was unsigned or malformed in some way");
+        //log::debug!("request was unsigned or malformed in some way");
         Err(Status::NoContent)
     }
 }
@@ -748,6 +794,7 @@ fn rocket() -> _ {
                 stream,
                 instance_information,
                 remote_actor_lookup,
+                remote_note_lookup,
                 update_summary,
                 upload_avatar,
                 upload_banner,

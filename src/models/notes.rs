@@ -16,6 +16,7 @@ pub struct NewNote {
     pub attributed_to: String,
     pub in_reply_to: Option<String>,
     pub tag: Option<Value>,
+    pub cc: Option<Value>,
 }
 
 pub type IdentifiedApNote = (ApNote, i32);
@@ -31,6 +32,7 @@ impl From<IdentifiedApNote> for NewNote {
             tag: Option::from(serde_json::to_value(&note.0.tag).unwrap()),
             content: note.0.content,
             in_reply_to: note.0.in_reply_to,
+            cc: Option::None,
         }
     }
 }
