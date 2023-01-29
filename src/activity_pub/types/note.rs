@@ -1,6 +1,10 @@
 use crate::{
     activity_pub::{ApActor, ApAttachment, ApContext, ApFlexible, ApObjectType, ApTag},
-    models::{notes::NewNote, remote_notes::RemoteNote, timeline::TimelineItem},
+    models::{
+        notes::{NewNote, Note},
+        remote_notes::RemoteNote,
+        timeline::TimelineItem,
+    },
 };
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -19,7 +23,7 @@ pub struct ApNote {
     pub kind: ApObjectType,
     pub to: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub url: Option<ApFlexible>,
+    pub url: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub published: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -92,19 +96,11 @@ impl Default for ApNote {
 
 impl From<TimelineItem> for ApNote {
     fn from(timeline: TimelineItem) -> Self {
-        let url: Option<ApFlexible> = {
-            if let Some(url) = timeline.url {
-                Option::from(ApFlexible::from(url))
-            } else {
-                Option::None
-            }
-        };
-
         ApNote {
             tag: serde_json::from_value(timeline.tag.unwrap_or_default()).unwrap(),
             attributed_to: timeline.attributed_to,
             id: Some(timeline.ap_id),
-            url,
+            url: timeline.url,
             published: timeline.published,
             replies: Option::None,
             in_reply_to: timeline.in_reply_to,
@@ -156,6 +152,34 @@ impl From<NewNote> for ApNote {
             to: serde_json::from_value(note.ap_to).unwrap(),
             content: note.content,
             cc: serde_json::from_value(note.cc.into()).unwrap(),
+            in_reply_to: note.in_reply_to,
+            ..Default::default()
+        }
+    }
+}
+
+impl From<Note> for ApNote {
+    fn from(note: Note) -> Self {
+        let kind = match note.kind.as_str() {
+            "Note" => ApObjectType::Note,
+            "EncryptedNote" => ApObjectType::EncryptedNote,
+            _ => ApObjectType::default(),
+        };
+
+        ApNote {
+            tag: serde_json::from_value(note.tag.into()).unwrap(),
+            attributed_to: note.attributed_to,
+            published: Option::from(Utc::now().format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string()),
+            id: Option::from(format!(
+                "https://{}/notes/{}",
+                *crate::SERVER_NAME,
+                note.uuid
+            )),
+            kind,
+            to: serde_json::from_value(note.ap_to).unwrap(),
+            content: note.content,
+            cc: serde_json::from_value(note.cc.into()).unwrap(),
+            in_reply_to: note.in_reply_to,
             ..Default::default()
         }
     }
@@ -173,7 +197,7 @@ impl From<RemoteNote> for ApNote {
             id: Some(remote_note.ap_id),
             kind,
             published: remote_note.published,
-            url: Option::from(ApFlexible::Single(remote_note.url.into())),
+            url: remote_note.url,
             to: serde_json::from_value(remote_note.ap_to.into()).unwrap(),
             cc: serde_json::from_value(remote_note.cc.into()).unwrap(),
             tag: serde_json::from_value(remote_note.tag.into()).unwrap(),

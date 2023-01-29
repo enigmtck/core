@@ -63,7 +63,6 @@ diesel::table! {
         id -> Int4,
         created_at -> Timestamptz,
         updated_at -> Timestamptz,
-        profile_id -> Int4,
         ap_id -> Varchar,
         ap_to -> Jsonb,
         cc -> Nullable<Jsonb>,
@@ -71,6 +70,7 @@ diesel::table! {
         kind -> Varchar,
         ap_object -> Jsonb,
         processed -> Bool,
+        profile_id -> Int4,
     }
 }
 
@@ -164,7 +164,6 @@ diesel::table! {
         id -> Int4,
         created_at -> Timestamptz,
         updated_at -> Timestamptz,
-        profile_id -> Int4,
         kind -> Varchar,
         ap_id -> Varchar,
         published -> Nullable<Varchar>,
@@ -237,10 +236,8 @@ diesel::joinable!(encrypted_sessions -> profiles (profile_id));
 diesel::joinable!(followers -> profiles (profile_id));
 diesel::joinable!(leaders -> profiles (profile_id));
 diesel::joinable!(notes -> profiles (profile_id));
-diesel::joinable!(processing_queue -> profiles (profile_id));
 diesel::joinable!(remote_activities -> profiles (profile_id));
 diesel::joinable!(remote_encrypted_sessions -> profiles (profile_id));
-diesel::joinable!(remote_notes -> profiles (profile_id));
 diesel::joinable!(timeline -> remote_actors (remote_actor_id));
 diesel::joinable!(timeline_cc -> timeline (timeline_id));
 diesel::joinable!(timeline_to -> timeline (timeline_id));

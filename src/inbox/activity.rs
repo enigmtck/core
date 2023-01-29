@@ -60,7 +60,10 @@ pub async fn create(
                 Err(Status::NoContent)
             }
         }
-        _ => Err(Status::NoContent),
+        _ => {
+            log::debug!("doesn't look like a note\n{activity:#?}");
+            Err(Status::NoContent)
+        }
     }
 }
 

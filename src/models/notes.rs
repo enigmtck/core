@@ -1,6 +1,8 @@
 use crate::activity_pub::ApNote;
+use crate::db::Db;
 use crate::schema::notes;
 use chrono::{DateTime, Utc};
+use diesel::prelude::*;
 use diesel::{AsChangeset, Identifiable, Insertable, Queryable};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -53,4 +55,14 @@ pub struct Note {
     pub attributed_to: String,
     pub in_reply_to: Option<String>,
     pub content: String,
+}
+
+pub async fn get_note_by_uuid(conn: &Db, uuid: String) -> Option<Note> {
+    match conn
+        .run(move |c| notes::table.filter(notes::uuid.eq(uuid)).first::<Note>(c))
+        .await
+    {
+        Ok(x) => Option::from(x),
+        Err(_) => Option::None,
+    }
 }

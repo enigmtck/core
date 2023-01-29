@@ -24,12 +24,14 @@ pub struct NewProcessingItem {
     pub processed: bool,
 }
 
-impl From<RemoteNote> for NewProcessingItem {
-    fn from(note: RemoteNote) -> Self {
+type IdentifiedRemoteNote = (RemoteNote, i32);
+impl From<IdentifiedRemoteNote> for NewProcessingItem {
+    fn from(note: IdentifiedRemoteNote) -> Self {
+        let (note, profile_id) = (note.0, note.1);
         let ap_note: ApNote = note.clone().into();
 
         NewProcessingItem {
-            profile_id: note.profile_id,
+            profile_id,
             kind: note.clone().kind,
             ap_id: format!("{}#processing", note.ap_id),
             ap_to: note.clone().ap_to.unwrap(),
@@ -65,7 +67,6 @@ pub struct ProcessingItem {
     pub id: i32,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
-    pub profile_id: i32,
     pub ap_id: String,
     pub ap_to: Value,
     pub cc: Option<Value>,
@@ -73,6 +74,7 @@ pub struct ProcessingItem {
     pub kind: String,
     pub ap_object: Value,
     pub processed: bool,
+    pub profile_id: i32,
 }
 
 pub async fn create_processing_item(

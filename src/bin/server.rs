@@ -22,6 +22,7 @@ use enigmatick::{
     helper::{get_local_username_from_ap_id, is_local},
     inbox,
     models::{
+        notes::get_note_by_uuid,
         profiles::{
             update_olm_external_identity_keys_by_username, update_olm_sessions_by_username,
             KeyStore, Profile,
@@ -35,7 +36,7 @@ use enigmatick::{
 use faktory::Job;
 
 use rocket::{
-    data::{Data, ToByteUnit},
+    data::{Data, FromData, Outcome, ToByteUnit},
     http::RawStr,
     http::Status,
     request::FromParam,
@@ -48,6 +49,7 @@ use rocket::{
 
 use rand::distributions::{Alphanumeric, DistString};
 use serde::Deserialize;
+use serde_json::Value;
 
 pub struct Handle<'r> {
     name: &'r str,
@@ -332,7 +334,7 @@ pub async fn remote_note_lookup(
         if let Ok(note) = note {
             if let Some(profile) = get_profile_by_username(&conn, username).await {
                 if let Some(note) = get_note(&conn, profile, note.id.clone()).await {
-                    debug!("here's the note\n{note:#?}");
+                    //debug!("here's the note\n{note:#?}");
                     Ok(Json(note))
                 } else {
                     Err(Status::NoContent)
@@ -647,6 +649,7 @@ pub async fn authenticate_user(
 pub async fn outbox_post(
     signed: Signed,
     conn: Db,
+    faktory: FaktoryConnection,
     events: EventChannels,
     username: String,
     object: Result<Json<ApBaseObjectSuper>, Error<'_>>,
@@ -676,7 +679,7 @@ pub async fn outbox_post(
                         }
                     }
                     Json(ApBaseObjectSuper::Object(ApObject::Note(note))) => {
-                        outbox::object::note(conn, note, profile).await
+                        outbox::object::note(conn, faktory, events, note, profile).await
                     }
                     Json(ApBaseObjectSuper::Object(ApObject::Session(session))) => {
                         outbox::object::session(conn, session, profile).await
@@ -692,17 +695,28 @@ pub async fn outbox_post(
     }
 }
 
-#[get("/user/<username>/inbox")]
+#[get("/notes/<uuid>")]
+pub async fn note_get(conn: Db, uuid: String) -> Result<Json<ApNote>, Status> {
+    if let Some(x) = get_note_by_uuid(&conn, uuid).await {
+        Ok(Json(x.into()))
+    } else {
+        Err(Status::NoContent)
+    }
+}
+
+#[get("/user/<username>/inbox?<offset>&<limit>")]
 pub async fn inbox_get(
     signed: Signed,
     conn: Db,
     username: String,
+    offset: u16,
+    limit: u8,
 ) -> Result<Json<ApObject>, Status> {
     //debug!("inbox get request received");
 
     if let (Some(profile), Signed(true)) = (get_profile_by_username(&conn, username).await, signed)
     {
-        let inbox = inbox::retrieve::all(conn, profile).await;
+        let inbox = inbox::retrieve::timeline(&conn, profile, limit.into(), offset.into()).await;
         //debug!("inbox\n{:#?}", inbox);
         Ok(Json(inbox))
     } else {
@@ -717,9 +731,11 @@ pub async fn inbox_post(
     faktory: FaktoryConnection,
     events: EventChannels,
     username: String,
+    //activity: String,
     activity: Result<Json<ApActivity>, Error<'_>>,
 ) -> Result<Status, Status> {
-    //debug!("inbox: {:#?}", activity);
+    // debug!("inbox: {:#?}", activity);
+    // Err(Status::NoContent)
 
     if let (Ok(activity), Some(profile), Signed(true)) = (
         activity,
@@ -752,7 +768,10 @@ pub async fn inbox_post(
                     ApActivityType::Join => {
                         inbox::activity::join(conn, faktory, activity, profile).await
                     }
-                    _ => Err(Status::NoContent),
+                    _ => {
+                        debug!("unknown activity: {activity:#?}");
+                        Err(Status::NoContent)
+                    }
                 }
             } else {
                 Err(Status::NoContent)
@@ -799,6 +818,7 @@ fn rocket() -> _ {
                 upload_avatar,
                 upload_banner,
                 change_password,
+                note_get
             ],
         )
 }

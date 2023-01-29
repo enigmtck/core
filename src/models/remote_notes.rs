@@ -10,7 +10,6 @@ use serde_json::Value;
 #[derive(Serialize, Deserialize, Insertable, Default, Debug)]
 #[table_name = "remote_notes"]
 pub struct NewRemoteNote {
-    pub profile_id: i32,
     pub kind: String,
     pub ap_id: String,
     pub published: Option<String>,
@@ -35,18 +34,13 @@ pub struct NewRemoteNote {
 type IdentifiedApNote = (ApNote, i32);
 impl From<IdentifiedApNote> for NewRemoteNote {
     fn from(note: IdentifiedApNote) -> NewRemoteNote {
-        let url = match note.clone().0.url {
-            Some(ApFlexible::Single(x)) => Option::from(x.as_str().unwrap().to_string()),
-            _ => Option::None,
-        };
-
         let published = match note.clone().0.published {
             Some(x) => Option::from(x),
             _ => Option::None,
         };
 
         NewRemoteNote {
-            url,
+            url: note.0.clone().url,
             published,
             kind: note.0.clone().kind.to_string(),
             ap_id: note.0.clone().id.unwrap(),
@@ -56,7 +50,6 @@ impl From<IdentifiedApNote> for NewRemoteNote {
             replies: Option::from(serde_json::to_value(&note.0.replies).unwrap()),
             tag: Option::from(serde_json::to_value(&note.0.tag).unwrap()),
             content: note.0.content,
-            profile_id: note.1,
             summary: note.0.summary,
             ap_sensitive: note.0.sensitive,
             atom_uri: note.0.atom_uri,
@@ -64,6 +57,7 @@ impl From<IdentifiedApNote> for NewRemoteNote {
             in_reply_to_atom_uri: note.0.in_reply_to_atom_uri,
             conversation: note.0.conversation,
             content_map: note.0.content_map,
+            attachment: Option::from(serde_json::to_value(&note.0.attachment).unwrap()),
             ..Default::default()
         }
     }
@@ -76,7 +70,6 @@ pub struct RemoteNote {
     pub id: i32,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
-    pub profile_id: i32,
     pub kind: String,
     pub ap_id: String,
     pub published: Option<String>,

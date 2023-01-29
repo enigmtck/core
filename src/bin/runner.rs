@@ -5,17 +5,20 @@ use enigmatick::{
     activity_pub::{
         retriever,
         sender::{send_activity, send_follower_accept},
-        ApActivity, ApBasicContentType, ApInstrument, ApObject, ApObjectType, ApSession, JoinData,
+        ApActivity, ApActor, ApBasicContentType, ApInstrument, ApNote, ApObject, ApObjectType,
+        ApSession, JoinData,
     },
     db::jsonb_set,
-    helper::get_local_username_from_ap_id,
+    helper::{get_local_username_from_ap_id, is_local, is_public},
     models::{
         encrypted_sessions::{EncryptedSession, NewEncryptedSession},
         followers::Follower,
+        leaders::Leader,
+        notes::Note,
         processing_queue::{NewProcessingItem, ProcessingItem},
         profiles::{KeyStore, Profile},
         remote_activities::{NewRemoteActivity, RemoteActivity},
-        remote_actors::RemoteActor,
+        remote_actors::{NewRemoteActor, RemoteActor},
         remote_encrypted_sessions::RemoteEncryptedSession,
         remote_notes::RemoteNote,
         timeline::{
@@ -23,13 +26,19 @@ use enigmatick::{
             TimelineItemTo,
         },
     },
+    signing::{Method, SignParams},
 };
 
 use diesel::prelude::*;
 use diesel::r2d2::ConnectionManager;
 use faktory::{ConsumerBuilder, Job};
 use lazy_static::lazy_static;
-use std::{collections::HashMap, io};
+use reqwest::{Client, StatusCode};
+use serde_json::Value;
+use std::{
+    collections::{HashMap, HashSet},
+    io,
+};
 use tokio::runtime::Runtime;
 
 type Pool = r2d2::Pool<ConnectionManager<PgConnection>>;
@@ -196,6 +205,114 @@ pub fn get_profile_by_username(username: String) -> Option<Profile> {
     }
 }
 
+pub fn get_leader_by_actor_ap_id_and_profile(ap_id: String, profile_id: i32) -> Option<Leader> {
+    use enigmatick::schema::leaders::dsl::{leader_ap_id, leaders, profile_id as pid};
+
+    if let Ok(conn) = POOL.get() {
+        match leaders
+            .filter(leader_ap_id.eq(ap_id))
+            .filter(pid.eq(profile_id))
+            .first::<Leader>(&conn)
+        {
+            Ok(x) => Option::from(x),
+            Err(_) => Option::None,
+        }
+    } else {
+        Option::None
+    }
+}
+
+pub fn create_remote_actor(actor: NewRemoteActor) -> Option<RemoteActor> {
+    use enigmatick::schema::remote_actors;
+
+    if let Ok(conn) = POOL.get() {
+        match diesel::insert_into(remote_actors::table)
+            .values(&actor)
+            .get_result::<RemoteActor>(&conn)
+        {
+            Ok(x) => Some(x),
+            Err(e) => {
+                log::debug!("database failure: {:#?}", e);
+                Option::None
+            }
+        }
+    } else {
+        Option::None
+    }
+}
+
+pub async fn get_actor(profile: Profile, id: String) -> Option<(RemoteActor, Option<Leader>)> {
+    match get_remote_actor_by_ap_id(id.clone()) {
+        Some(remote_actor) => {
+            log::debug!("actor retrieved from storage");
+
+            Option::from((
+                remote_actor,
+                get_leader_by_actor_ap_id_and_profile(id, profile.id),
+            ))
+        }
+        None => {
+            log::debug!("performing remote lookup for actor");
+
+            let url = id.clone();
+            let body = Option::None;
+            let method = Method::Get;
+
+            let signature = enigmatick::signing::sign(SignParams {
+                profile,
+                url,
+                body,
+                method,
+            });
+
+            let client = Client::new();
+            match client
+                .get(&id)
+                .header("Signature", &signature.signature)
+                .header("Date", signature.date)
+                .header(
+                    "Accept",
+                    "application/ld+json; profile=\"http://www.w3.org/ns/activitystreams\"",
+                )
+                .send()
+                .await
+            {
+                Ok(resp) => match resp.status() {
+                    StatusCode::ACCEPTED | StatusCode::OK => {
+                        let actor: ApActor = resp.json().await.unwrap();
+                        create_remote_actor(NewRemoteActor::from(actor)).map(|a| (a, Option::None))
+                    }
+                    StatusCode::GONE => {
+                        log::debug!("GONE: {:#?}", resp.status());
+                        Option::None
+                    }
+                    _ => {
+                        log::debug!("STATUS: {:#?}", resp.status());
+                        Option::None
+                    }
+                },
+                Err(e) => {
+                    log::debug!("{:#?}", e);
+                    Option::None
+                }
+            }
+        }
+    }
+}
+
+pub fn get_profile(id: i32) -> Option<Profile> {
+    use enigmatick::schema::profiles::dsl::profiles;
+
+    if let Ok(conn) = POOL.get() {
+        match profiles.find(id).first::<Profile>(&conn) {
+            Ok(x) => Option::from(x),
+            Err(_) => Option::None,
+        }
+    } else {
+        Option::None
+    }
+}
+
 pub fn get_remote_actor_by_ap_id(apid: String) -> Option<RemoteActor> {
     use enigmatick::schema::remote_actors::dsl::{ap_id, remote_actors};
 
@@ -213,6 +330,60 @@ pub fn get_remote_actor_by_ap_id(apid: String) -> Option<RemoteActor> {
     } else {
         Option::None
     }
+}
+
+pub fn get_followers_by_profile_id(profile_id: i32) -> Vec<Follower> {
+    use enigmatick::schema::followers::dsl::{created_at, followers, profile_id as pid};
+
+    if let Ok(conn) = POOL.get() {
+        match followers
+            .filter(pid.eq(profile_id))
+            .order_by(created_at.desc())
+            .get_results::<Follower>(&conn)
+        {
+            Ok(x) => x,
+            Err(_) => vec![],
+        }
+    } else {
+        vec![]
+    }
+}
+
+pub fn get_leader_by_followers_endpoint(
+    endpoint: String,
+) -> Vec<(RemoteActor, Leader, Option<Profile>)> {
+    use enigmatick::schema::leaders::dsl::{leader_ap_id, leaders, profile_id};
+    use enigmatick::schema::profiles::dsl::{id as pid, profiles};
+    use enigmatick::schema::remote_actors::dsl::{ap_id as ra_apid, followers, remote_actors};
+
+    if let Ok(conn) = POOL.get() {
+        match remote_actors
+            .inner_join(leaders.on(leader_ap_id.eq(ra_apid)))
+            .left_join(profiles.on(profile_id.eq(pid)))
+            .filter(followers.eq(endpoint))
+            .get_results::<(RemoteActor, Leader, Option<Profile>)>(&conn)
+        {
+            Ok(x) => x,
+            Err(e) => {
+                log::error!("{:#?}", e);
+                vec![]
+            }
+        }
+    } else {
+        vec![]
+    }
+}
+
+fn get_follower_inboxes(profile: Profile) -> HashSet<String> {
+    let mut inboxes: HashSet<String> = HashSet::new();
+
+    for follower in get_followers_by_profile_id(profile.id) {
+        if let Some(actor) = get_remote_actor_by_ap_id(follower.actor) {
+            inboxes.insert(actor.inbox);
+        }
+    }
+
+    inboxes
 }
 
 pub fn update_otk_by_username(username: String, keystore: KeyStore) -> Option<Profile> {
@@ -278,6 +449,25 @@ pub fn update_external_identity_keys_by_username(
                 serde_json::to_value(keystore.olm_external_identity_keys).unwrap(),
             )))
             .get_result::<Profile>(&conn)
+        {
+            Ok(x) => Some(x),
+            Err(e) => {
+                log::error!("{:#?}", e);
+                Option::None
+            }
+        }
+    } else {
+        Option::None
+    }
+}
+
+pub fn update_note_cc(note: Note) -> Option<Note> {
+    use enigmatick::schema::notes::dsl::{cc, notes};
+
+    if let Ok(conn) = POOL.get() {
+        match diesel::update(notes.find(note.id))
+            .set(cc.eq(note.cc))
+            .get_result::<Note>(&conn)
         {
             Ok(x) => Some(x),
             Err(e) => {
@@ -523,6 +713,24 @@ fn process_join(job: Job) -> io::Result<()> {
     Ok(())
 }
 
+fn add_to_timeline(ap_to: Option<Value>, cc: Option<Value>, timeline_item: TimelineItem) {
+    if let Some(ap_to) = ap_to {
+        let to_vec: Vec<String> = serde_json::from_value(ap_to).unwrap();
+
+        for to in to_vec {
+            create_timeline_item_to((timeline_item.clone(), to).into());
+        }
+    }
+
+    if let Some(cc) = cc {
+        let cc_vec: Vec<String> = serde_json::from_value(cc).unwrap();
+
+        for cc in cc_vec {
+            create_timeline_item_cc((timeline_item.clone(), cc).into());
+        }
+    };
+}
+
 fn process_remote_note(job: Job) -> io::Result<()> {
     use enigmatick::schema::remote_notes::dsl::{ap_id as rn_id, remote_notes};
 
@@ -548,39 +756,142 @@ fn process_remote_note(job: Job) -> io::Result<()> {
                                 if let Some(timeline_item) =
                                     create_timeline_item((remote_note.clone(), actor.id).into())
                                 {
-                                    if let Some(ap_to) = remote_note.clone().ap_to {
-                                        let to_vec: Vec<String> =
-                                            serde_json::from_value(ap_to).unwrap();
-
-                                        for to in to_vec {
-                                            create_timeline_item_to(
-                                                (timeline_item.clone(), to).into(),
-                                            );
-                                        }
-                                    }
-
-                                    if let Some(cc) = remote_note.clone().cc {
-                                        let cc_vec: Vec<String> =
-                                            serde_json::from_value(cc).unwrap();
-
-                                        for cc in cc_vec {
-                                            create_timeline_item_cc(
-                                                (timeline_item.clone(), cc).into(),
-                                            );
-                                        }
-                                    };
+                                    add_to_timeline(
+                                        remote_note.clone().ap_to,
+                                        remote_note.clone().cc,
+                                        timeline_item,
+                                    );
                                 }
                             }
-                        } else if remote_note.kind == "EncryptedNote" {
-                            debug!("adding to processing queue");
-                            create_processing_item(remote_note.into());
                         }
+                        // else if remote_note.kind == "EncryptedNote" {
+                        //     // need to resolve ap_to to a profile_id for the command below
+                        //     debug!("adding to processing queue");
+                        //     create_processing_item((remote_note, profile_id).into());
+                        // }
                     }
                     Err(e) => error!("error: {:#?}", e),
                 }
             }
         }
         Err(e) => error!("error: {:#?}", e),
+    }
+
+    Ok(())
+}
+
+fn process_outbound_note(job: Job) -> io::Result<()> {
+    use enigmatick::schema::notes::dsl::{notes, uuid as u};
+
+    debug!("running process_remote_note job");
+
+    let uuids = job.args();
+
+    let rt = Runtime::new().unwrap();
+    let handle = rt.handle();
+
+    match POOL.get() {
+        Ok(conn) => {
+            for uuid in uuids {
+                let uuid = uuid.as_str().unwrap().to_string();
+                debug!("looking for uuid: {}", uuid);
+
+                match notes.filter(u.eq(uuid)).first::<Note>(&conn) {
+                    Ok(mut note) => {
+                        let mut inboxes: HashSet<String> = HashSet::new();
+
+                        if let Some(profile) = get_profile(note.profile_id) {
+                            let profile = profile.clone();
+
+                            let recipients: Vec<String> =
+                                serde_json::from_value(note.clone().ap_to).unwrap();
+
+                            for recipient in recipients {
+                                if is_public(recipient.clone()) {
+                                    inboxes.extend(get_follower_inboxes(profile.clone()));
+                                    if let Some(cc) = note.clone().cc {
+                                        let mut cc: Vec<String> =
+                                            serde_json::from_value(cc).unwrap();
+                                        cc.push(ApActor::from(profile.clone()).followers);
+                                        note.cc = Option::from(serde_json::to_value(cc).unwrap());
+                                    } else {
+                                        note.cc = Option::from(
+                                            serde_json::to_value(vec![
+                                                ApActor::from(profile.clone()).followers,
+                                            ])
+                                            .unwrap(),
+                                        );
+                                    }
+
+                                    update_note_cc(note.clone());
+                                // } else if is_local(recipient.clone()) {
+                                //     if let Some(username) =
+                                //         get_local_username_from_ap_id(recipient.to_string())
+                                //     {
+                                //         if let Some(profile) = get_profile_by_username(username) {
+                                //             inboxes.insert(ApActor::from(profile).inbox);
+                                //         }
+                                //     }
+                                } else if let Some(receiver) = handle.block_on(async {
+                                    get_actor(profile.clone(), recipient.clone()).await
+                                }) {
+                                    inboxes.insert(receiver.0.inbox);
+                                }
+                            }
+
+                            if let Some(actor) =
+                                get_remote_actor_by_ap_id(note.clone().attributed_to)
+                            {
+                                if let Some(timeline_item) = create_timeline_item(
+                                    (ApNote::from(note.clone()), actor.id).into(),
+                                ) {
+                                    add_to_timeline(
+                                        Option::from(note.clone().ap_to),
+                                        note.clone().cc,
+                                        timeline_item,
+                                    );
+                                }
+                            }
+
+                            let create = ApActivity::from(ApNote::from(note.clone()));
+
+                            for url in inboxes {
+                                let body = Option::from(serde_json::to_string(&create).unwrap());
+                                let method = Method::Post;
+
+                                let signature = enigmatick::signing::sign(SignParams {
+                                    profile: profile.clone(),
+                                    url: url.clone(),
+                                    body: body.clone(),
+                                    method,
+                                });
+
+                                let client = Client::new()
+                                    .post(&url)
+                                    .header("Date", signature.date)
+                                    .header("Digest", signature.digest.unwrap())
+                                    .header("Signature", &signature.signature)
+                                    .header(
+                                        "Content-Type",
+                                        "application/ld+json; profile=\"http://www.w3.org/ns/activitystreams\"",
+                                    )
+                                    .body(body.unwrap());
+
+                                handle.block_on(async {
+                                    if let Ok(resp) = client.send().await {
+                                        if let Ok(text) = resp.text().await {
+                                            debug!("send successful to: {}\n{}", url, text);
+                                        }
+                                    }
+                                })
+                            }
+                        }
+                    }
+                    Err(e) => error!("error: {e:#?}"),
+                }
+            }
+        }
+        Err(e) => error!("error: {e:#?}"),
     }
 
     Ok(())
@@ -598,6 +909,7 @@ fn main() {
     consumer.register("provide_one_time_key", provide_one_time_key);
     consumer.register("process_remote_note", process_remote_note);
     consumer.register("process_join", process_join);
+    consumer.register("process_outbound_note", process_outbound_note);
 
     consumer.register("test_job", |job| {
         debug!("{:#?}", job);

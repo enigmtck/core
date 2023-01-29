@@ -78,12 +78,17 @@ pub async fn get_note(conn: &Db, profile: Profile, id: String) -> Option<ApNote>
                 .await
             {
                 Ok(resp) => match resp.status() {
-                    StatusCode::ACCEPTED | StatusCode::OK => {
-                        let note: ApNote = resp.json().await.unwrap();
-                        create_remote_note(conn, NewRemoteNote::from((note, profile.id)))
-                            .await
-                            .map(|n| n.into())
-                    }
+                    StatusCode::ACCEPTED | StatusCode::OK => match resp.json().await {
+                        Ok(note) => {
+                            create_remote_note(conn, NewRemoteNote::from((note, profile.id)))
+                                .await
+                                .map(|n| n.into())
+                        }
+                        Err(e) => {
+                            log::error!("remote note decode error: {e:#?}");
+                            Option::None
+                        }
+                    },
                     StatusCode::GONE => {
                         log::debug!("GONE: {:#?}", resp.status());
                         Option::None
@@ -145,13 +150,9 @@ pub async fn get_actor(
                 Ok(resp) => match resp.status() {
                     StatusCode::ACCEPTED | StatusCode::OK => {
                         let actor: ApActor = resp.json().await.unwrap();
-                        if let Some(a) =
-                            create_remote_actor(conn, NewRemoteActor::from(actor)).await
-                        {
-                            Some((a, Option::None))
-                        } else {
-                            Option::None
-                        }
+                        create_remote_actor(conn, NewRemoteActor::from(actor))
+                            .await
+                            .map(|a| (a, Option::None))
                     }
                     StatusCode::GONE => {
                         log::debug!("GONE: {:#?}", resp.status());

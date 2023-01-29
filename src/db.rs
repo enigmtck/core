@@ -276,21 +276,21 @@ pub async fn get_follower_by_uuid(conn: &Db, uuid: String) -> Option<Follower> {
     }
 }
 
-pub async fn get_remote_notes_by_profile_id(conn: &Db, id: i32) -> Vec<RemoteNote> {
-    use self::schema::remote_notes::dsl::{profile_id, remote_notes};
+// pub async fn get_remote_notes_by_profile_id(conn: &Db, id: i32) -> Vec<RemoteNote> {
+//     use self::schema::remote_notes::dsl::{profile_id, remote_notes};
 
-    match conn
-        .run(move |c| {
-            remote_notes
-                .filter(profile_id.eq(id))
-                .get_results::<RemoteNote>(c)
-        })
-        .await
-    {
-        Ok(x) => x,
-        Err(_) => vec![],
-    }
-}
+//     match conn
+//         .run(move |c| {
+//             remote_notes
+//                 .filter(profile_id.eq(id))
+//                 .get_results::<RemoteNote>(c)
+//         })
+//         .await
+//     {
+//         Ok(x) => x,
+//         Err(_) => vec![],
+//     }
+// }
 
 pub async fn create_note(conn: &Db, note: NewNote) -> Option<Note> {
     use schema::notes;

@@ -17,13 +17,17 @@ pub struct ApSignature {
     signature_value: Option<String>,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, Default)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(untagged)]
 pub enum ApContext {
     Plain(String),
     Complex(Vec<Value>),
-    #[default]
-    Unknown,
+}
+
+impl Default for ApContext {
+    fn default() -> Self {
+        ApContext::Plain("https://www.w3.org/ns/activitystreams".to_string())
+    }
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -93,6 +97,7 @@ pub struct ApTag {
 pub enum ApAttachmentType {
     PropertyValue,
     Document,
+    IdentityProof,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -100,11 +105,11 @@ pub enum ApAttachmentType {
 pub struct ApAttachment {
     #[serde(rename = "type")]
     pub kind: ApAttachmentType,
-    pub name: String,
+    pub name: Option<String>,
     pub value: Option<String>,
     pub media_type: Option<String>,
     pub url: Option<String>,
-    pub blur_hash: Option<String>,
+    pub blurhash: Option<String>,
     pub width: Option<i32>,
     pub height: Option<i32>,
 }
