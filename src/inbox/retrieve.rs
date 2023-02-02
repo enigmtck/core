@@ -1,18 +1,11 @@
 use crate::{
     activity_pub::{ApCollection, ApNote, ApObject},
     db::Db,
-    helper::get_ap_id_from_username,
-    models::{profiles::Profile, timeline::get_timeline_items_by_ap_id_paged},
+    models::timeline::{get_public_timeline_items, get_timeline_items_by_conversation},
 };
 
-pub async fn timeline(conn: &Db, profile: Profile, limit: i64, offset: i64) -> ApObject {
-    let timeline = get_timeline_items_by_ap_id_paged(
-        conn,
-        get_ap_id_from_username(profile.username),
-        limit,
-        offset,
-    )
-    .await;
+pub async fn timeline(conn: &Db, limit: i64, offset: i64) -> ApObject {
+    let timeline = get_public_timeline_items(conn, limit, offset).await;
 
     ApObject::Collection(ApCollection::from(
         timeline
@@ -22,10 +15,13 @@ pub async fn timeline(conn: &Db, profile: Profile, limit: i64, offset: i64) -> A
     ))
 }
 
-// pub async fn all(conn: Db, profile: Profile) -> ApObject {
-//     let mut consolidated: Vec<ApObject> = vec![];
+pub async fn conversation(conn: &Db, conversation: String, limit: i64, offset: i64) -> ApObject {
+    let conversation = get_timeline_items_by_conversation(conn, conversation, limit, offset).await;
 
-//     consolidated.extend(timeline(&conn, profile.clone()).await);
-
-//     ApObject::Collection(ApCollection::from(consolidated))
-// }
+    ApObject::Collection(ApCollection::from(
+        conversation
+            .iter()
+            .map(|x| ApObject::Note(ApNote::from(x.clone())))
+            .collect::<Vec<ApObject>>(),
+    ))
+}

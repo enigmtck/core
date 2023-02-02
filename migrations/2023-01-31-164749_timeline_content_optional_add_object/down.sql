@@ -1,0 +1,2 @@
+ALTER TABLE timeline ALTER COLUMN content SET NOT NULL;
+ALTER TABLE timeline DROP COLUMN ap_object;

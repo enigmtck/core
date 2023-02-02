@@ -16,7 +16,7 @@ pub struct WebFingerLink {
 #[derive(Serialize, Deserialize, Clone, Default, Debug)]
 pub struct WebFinger {
     pub subject: String,
-    pub aliases: Vec<String>,
+    pub aliases: Option<Vec<String>>,
     pub links: Vec<WebFingerLink>,
 }
 
@@ -27,10 +27,10 @@ impl From<Profile> for WebFinger {
 
         WebFinger {
             subject: format!("acct:{}@{}", profile.username, server_name),
-            aliases: vec![
+            aliases: Option::from(vec![
                 format!("{}/@{}", server_url, profile.username),
                 format!("{}/users/{}", server_url, profile.username),
-            ],
+            ]),
             links: vec![
                 WebFingerLink {
                     rel: "http://webfinger.net/rel/profile-page".to_string(),

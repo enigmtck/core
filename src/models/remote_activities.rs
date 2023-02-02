@@ -8,7 +8,6 @@ use serde_json::Value;
 #[derive(Serialize, Deserialize, Insertable, Default, Debug)]
 #[table_name = "remote_activities"]
 pub struct NewRemoteActivity {
-    pub profile_id: i32,
     pub context: Option<Value>,
     pub kind: String,
     pub ap_id: String,
@@ -23,11 +22,9 @@ type IdentifiedActivity = (ApActivity, i32);
 
 impl From<IdentifiedActivity> for NewRemoteActivity {
     fn from(activity: IdentifiedActivity) -> NewRemoteActivity {
-        let profile_id = activity.1;
         let activity = activity.0;
 
         NewRemoteActivity {
-            profile_id,
             context: Option::from(serde_json::to_value(&activity.context).unwrap()),
             kind: activity.kind.to_string(),
             ap_id: activity.id.unwrap_or_default(),
@@ -47,7 +44,6 @@ pub struct RemoteActivity {
     pub id: i32,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
-    pub profile_id: i32,
     pub context: Option<Value>,
     pub kind: String,
     pub ap_id: String,

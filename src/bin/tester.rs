@@ -78,11 +78,34 @@ pub fn get_leader_by_followers_endpoint(
     }
 }
 
+pub fn get_leader_by_endpoint(endpoint: String) -> Option<(RemoteActor, Leader)> {
+    use enigmatick::schema::leaders::dsl::{leader_ap_id, leaders};
+    use enigmatick::schema::remote_actors::dsl::{ap_id as ra_apid, followers, remote_actors};
+
+    if let Ok(conn) = POOL.get() {
+        match remote_actors
+            .inner_join(leaders.on(leader_ap_id.eq(ra_apid)))
+            .filter(followers.eq(endpoint))
+            .first::<(RemoteActor, Leader)>(&conn)
+        {
+            Ok(x) => Option::from(x),
+            Err(e) => {
+                log::error!("{:#?}", e);
+                Option::None
+            }
+        }
+    } else {
+        Option::None
+    }
+}
+
 fn main() {
     env_logger::init();
 
-    let res =
-        get_leader_by_followers_endpoint("https://me.dm/users/anildash/followers".to_string());
+    // let res =
+    //     get_leader_by_followers_endpoint("https://me.dm/users/anildash/followers".to_string());
+
+    let res = get_leader_by_endpoint("https://me.dm/users/anildash/followers".to_string());
 
     println!("{}", &format!("{res:#?}"));
 }

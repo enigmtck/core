@@ -30,6 +30,7 @@ crossbeam-channel = "0.5"
 r2d2 = "0.8"
 tokio = { version = "1.23", features = ["rt"] }
 orion = "0.17"
+urlencoding = "2.1"
 
 rocket = { version = "0.5.0-rc.2", features = ["json"] }
 diesel = { version = "1.4.8", features = ["postgres", "chrono", "r2d2", "serde_json"] }

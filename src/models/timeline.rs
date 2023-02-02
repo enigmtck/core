@@ -1,4 +1,4 @@
-use crate::activity_pub::ApNote;
+use crate::activity_pub::{ApActivity, ApNote};
 use crate::db::Db;
 use crate::schema::{timeline, timeline_cc, timeline_to};
 use chrono::{DateTime, Utc};
@@ -14,14 +14,13 @@ use super::remote_notes::RemoteNote;
 pub struct NewTimelineItem {
     pub tag: Option<Value>,
     pub attributed_to: String,
-    pub remote_actor_id: i32,
     pub ap_id: String,
     pub kind: String,
     pub url: Option<String>,
     pub published: Option<String>,
     pub replies: Option<Value>,
     pub in_reply_to: Option<String>,
-    pub content: String,
+    pub content: Option<String>,
     pub ap_public: bool,
     pub summary: Option<String>,
     pub ap_sensitive: Option<bool>,
@@ -30,14 +29,14 @@ pub struct NewTimelineItem {
     pub conversation: Option<String>,
     pub content_map: Option<Value>,
     pub attachment: Option<Value>,
+    pub ap_object: Option<Value>,
+    pub announce: Option<String>,
 }
 
-type IdentifiedRemoteNote = (RemoteNote, i32);
-
-impl From<IdentifiedRemoteNote> for NewTimelineItem {
-    fn from(note: IdentifiedRemoteNote) -> Self {
+impl From<RemoteNote> for NewTimelineItem {
+    fn from(note: RemoteNote) -> Self {
         let ap_public = {
-            if let Some(ap_to) = note.0.ap_to {
+            if let Some(ap_to) = note.ap_to {
                 if let Ok(ap_to) = serde_json::from_value::<Vec<String>>(ap_to) {
                     ap_to.contains(&"https://www.w3.org/ns/activitystreams#Public".to_string())
                 } else {
@@ -49,34 +48,66 @@ impl From<IdentifiedRemoteNote> for NewTimelineItem {
         };
 
         NewTimelineItem {
-            tag: note.0.tag,
-            attributed_to: note.0.attributed_to,
-            remote_actor_id: note.1,
-            ap_id: note.0.ap_id,
-            kind: note.0.kind,
-            url: note.0.url,
-            published: note.0.published,
-            replies: note.0.replies,
-            in_reply_to: note.0.in_reply_to,
-            content: note.0.content,
+            tag: note.tag,
+            attributed_to: note.attributed_to,
+            ap_id: note.ap_id,
+            kind: note.kind,
+            url: note.url,
+            published: note.published,
+            replies: note.replies,
+            in_reply_to: note.in_reply_to,
+            content: Option::from(note.content),
             ap_public,
-            summary: note.0.summary,
-            ap_sensitive: note.0.ap_sensitive,
-            atom_uri: note.0.atom_uri,
-            in_reply_to_atom_uri: note.0.in_reply_to_atom_uri,
-            conversation: note.0.conversation,
-            content_map: note.0.content_map,
-            attachment: note.0.attachment,
+            summary: note.summary,
+            ap_sensitive: note.ap_sensitive,
+            atom_uri: note.atom_uri,
+            in_reply_to_atom_uri: note.in_reply_to_atom_uri,
+            conversation: note.conversation,
+            content_map: note.content_map,
+            attachment: note.attachment,
+            ap_object: Option::None,
+            announce: Option::None,
         }
     }
 }
 
-type IdentifiedApNote = (ApNote, i32);
+impl From<ApNote> for NewTimelineItem {
+    fn from(note: ApNote) -> Self {
+        let ap_public = {
+            note.to
+                .contains(&"https://www.w3.org/ns/activitystreams#Public".to_string())
+        };
 
-impl From<IdentifiedApNote> for NewTimelineItem {
-    fn from(inote: IdentifiedApNote) -> Self {
-        let note = inote.0;
-        let remote_actor_id = inote.1;
+        NewTimelineItem {
+            tag: Option::from(serde_json::to_value(&note.tag).unwrap_or_default()),
+            attributed_to: note.attributed_to,
+            ap_id: note.id.unwrap(),
+            kind: note.kind.to_string(),
+            url: note.url,
+            published: note.published,
+            replies: Option::from(serde_json::to_value(&note.replies).unwrap_or_default()),
+            in_reply_to: note.in_reply_to,
+            content: Option::from(note.content),
+            ap_public,
+            summary: note.summary,
+            ap_sensitive: note.sensitive,
+            atom_uri: note.atom_uri,
+            in_reply_to_atom_uri: note.in_reply_to_atom_uri,
+            conversation: note.conversation,
+            content_map: note.content_map,
+            attachment: Option::from(serde_json::to_value(&note.attachment).unwrap_or_default()),
+            ap_object: Option::None,
+            announce: Option::None,
+        }
+    }
+}
+
+type Announce = (ApActivity, ApNote);
+
+impl From<Announce> for NewTimelineItem {
+    fn from(announce: Announce) -> Self {
+        let activity = announce.0;
+        let note = announce.1;
 
         let ap_public = {
             note.to
@@ -86,14 +117,13 @@ impl From<IdentifiedApNote> for NewTimelineItem {
         NewTimelineItem {
             tag: Option::from(serde_json::to_value(&note.tag).unwrap_or_default()),
             attributed_to: note.attributed_to,
-            remote_actor_id,
             ap_id: note.id.unwrap(),
             kind: note.kind.to_string(),
             url: note.url,
-            published: note.published,
+            published: activity.published,
             replies: Option::from(serde_json::to_value(&note.replies).unwrap_or_default()),
             in_reply_to: note.in_reply_to,
-            content: note.content,
+            content: Option::from(note.content),
             ap_public,
             summary: note.summary,
             ap_sensitive: note.sensitive,
@@ -102,7 +132,8 @@ impl From<IdentifiedApNote> for NewTimelineItem {
             conversation: note.conversation,
             content_map: note.content_map,
             attachment: Option::from(serde_json::to_value(&note.attachment).unwrap_or_default()),
-            ..Default::default()
+            ap_object: Option::None,
+            announce: Option::from(activity.actor),
         }
     }
 }
@@ -116,14 +147,13 @@ pub struct TimelineItem {
     pub updated_at: DateTime<Utc>,
     pub tag: Option<Value>,
     pub attributed_to: String,
-    pub remote_actor_id: i32,
     pub ap_id: String,
     pub kind: String,
     pub url: Option<String>,
     pub published: Option<String>,
     pub replies: Option<Value>,
     pub in_reply_to: Option<String>,
-    pub content: String,
+    pub content: Option<String>,
     pub ap_public: bool,
     pub summary: Option<String>,
     pub ap_sensitive: Option<bool>,
@@ -132,6 +162,8 @@ pub struct TimelineItem {
     pub conversation: Option<String>,
     pub content_map: Option<Value>,
     pub attachment: Option<Value>,
+    pub ap_object: Option<Value>,
+    pub announce: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Insertable, Default, Debug, Clone)]
@@ -192,17 +224,36 @@ impl From<IdentifiedTimelineItem> for NewTimelineItemTo {
     }
 }
 
-pub async fn get_timeline_items_by_ap_id_paged(
+pub async fn get_public_timeline_items(conn: &Db, limit: i64, offset: i64) -> Vec<TimelineItem> {
+    match conn
+        .run(move |c| {
+            let query = timeline::table
+                .filter(timeline::ap_public.eq(true))
+                .order(timeline::created_at.desc())
+                .limit(limit)
+                .offset(offset)
+                .into_boxed();
+
+            query.get_results::<TimelineItem>(c)
+        })
+        .await
+    {
+        Ok(x) => x,
+        Err(_) => vec![],
+    }
+}
+
+pub async fn get_timeline_items_by_conversation(
     conn: &Db,
-    ap_id: String,
+    conversation: String,
     limit: i64,
     offset: i64,
 ) -> Vec<TimelineItem> {
     match conn
         .run(move |c| {
             let query = timeline::table
-                .filter(timeline::ap_public.eq(true))
-                .order(timeline::created_at.desc())
+                .filter(timeline::conversation.eq(conversation))
+                .order(timeline::created_at.asc())
                 .limit(limit)
                 .offset(offset)
                 .into_boxed();

@@ -1,7 +1,7 @@
 use crate::{
     activity_pub::{sender, ApActivity, ApIdentifier, ApObject},
     db::{
-        create_leader, delete_leader, get_leader_by_profile_id_and_ap_id,
+        create_leader, create_remote_activity, delete_leader, get_leader_by_profile_id_and_ap_id,
         get_remote_actor_by_ap_id, Db,
     },
     fairings::events::EventChannels,
@@ -75,20 +75,27 @@ pub async fn follow(
         debug!("leader created: {}", leader.uuid);
         activity.id = Option::from(format!("{}/leader/{}", *crate::SERVER_URL, leader.uuid));
 
-        debug!("updated activity\n{:#?}", activity);
+        if create_remote_activity(&conn, (activity.clone(), profile.id).into())
+            .await
+            .is_some()
+        {
+            debug!("updated activity\n{:#?}", activity);
 
-        if let ApObject::Plain(object) = activity.clone().object {
-            if let Some(actor) = get_remote_actor_by_ap_id(&conn, object).await {
-                if sender::send_activity(activity.clone(), profile, actor.inbox)
-                    .await
-                    .is_ok()
-                {
-                    debug!("sent follow request successfully");
+            if let ApObject::Plain(object) = activity.clone().object {
+                if let Some(actor) = get_remote_actor_by_ap_id(&conn, object).await {
+                    if sender::send_activity(activity.clone(), profile, actor.inbox)
+                        .await
+                        .is_ok()
+                    {
+                        debug!("sent follow request successfully");
 
-                    let mut events = events;
-                    events.send(serde_json::to_string(&activity).unwrap());
+                        let mut events = events;
+                        events.send(serde_json::to_string(&activity).unwrap());
 
-                    Ok(Status::Accepted)
+                        Ok(Status::Accepted)
+                    } else {
+                        Err(Status::NoContent)
+                    }
                 } else {
                     Err(Status::NoContent)
                 }

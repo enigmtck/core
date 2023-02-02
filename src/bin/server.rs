@@ -48,7 +48,7 @@ use rocket::{
 };
 
 use rand::distributions::{Alphanumeric, DistString};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 pub struct Handle<'r> {
@@ -101,10 +101,20 @@ async fn stream(
 ) -> EventStream![] {
     EventStream! {
         let (uuid, rx) = events.subscribe(username);
-        let mut interval = time::interval(Duration::from_secs(1));
-
         let mut i = 1;
         let mut k = 0;
+
+        #[derive(Serialize)]
+        struct StreamConnect {
+            uuid: String
+        }
+
+        let message = serde_json::to_string(&StreamConnect { uuid: uuid.clone() }).unwrap();
+
+        yield Event::data(message).event("message").id(i.to_string());
+        i += 1;
+
+        let mut interval = time::interval(Duration::from_secs(1));
 
         loop {
             //debug!("looping");
@@ -316,6 +326,34 @@ pub async fn instance_information(
     Ok(Json(InstanceInformation::default()))
 }
 
+#[derive(Deserialize, Serialize, Debug, Clone)]
+pub struct StreamAuthorization {
+    uuid: String,
+}
+
+#[post(
+    "/api/user/<username>/events/authorize",
+    format = "application/activity+json",
+    data = "<authorization>"
+)]
+pub async fn authorize_stream(
+    signed: Signed,
+    mut events: EventChannels,
+    username: String,
+    authorization: Result<Json<StreamAuthorization>, Error<'_>>,
+) -> Result<Json<StreamAuthorization>, Status> {
+    if let Signed(true) = signed {
+        if let Ok(authorization) = authorization {
+            events.authorize(authorization.uuid.clone(), username);
+            Ok(authorization)
+        } else {
+            Err(Status::Forbidden)
+        }
+    } else {
+        Err(Status::Forbidden)
+    }
+}
+
 #[derive(Deserialize, Debug, Clone)]
 pub struct Lookup {
     id: String,
@@ -372,7 +410,7 @@ pub async fn remote_actor_lookup(
                             let mut ap_id_int = Option::<String>::None;
                             for link in webfinger.links {
                                 if let (Some(kind), Some(href)) = (link.kind, link.href) {
-                                    if kind == "application/activity+json" {
+                                    if kind == "application/activity+json" || kind == "application/ld+json; profile=\"https://www.w3.org/ns/activitystreams\"" {
                                         ap_id_int = Option::from(href);
                                     }
                                 }
@@ -402,13 +440,10 @@ pub async fn remote_actor_lookup(
                         } else {
                             Err(Status::NoContent)
                         }
+                    } else if let Some(actor) = retriever::get_actor(&conn, profile, ap_id).await {
+                        Ok(Json(actor.into()))
                     } else {
-                        Ok(Json(
-                            retriever::get_actor(&conn, profile, ap_id)
-                                .await
-                                .unwrap()
-                                .into(),
-                        ))
+                        Err(Status::NoContent)
                     }
                 } else {
                     Err(Status::NoContent)
@@ -645,6 +680,37 @@ pub async fn authenticate_user(
     }
 }
 
+#[get("/api/user/<username>/conversation?<conversation>&<offset>&<limit>")]
+pub async fn conversation_get(
+    signed: Signed,
+    conn: Db,
+    username: String,
+    offset: u16,
+    limit: u8,
+    conversation: String,
+) -> Result<Json<ApObject>, Status> {
+    //debug!("inbox get request received");
+
+    if let (Some(profile), Signed(true)) = (get_profile_by_username(&conn, username).await, signed)
+    {
+        if let Ok(conversation) = urlencoding::decode(&conversation.clone()) {
+            let inbox = inbox::retrieve::conversation(
+                &conn,
+                conversation.to_string(),
+                limit.into(),
+                offset.into(),
+            )
+            .await;
+            //debug!("inbox\n{:#?}", inbox);
+            Ok(Json(inbox))
+        } else {
+            Err(Status::NoContent)
+        }
+    } else {
+        Err(Status::NoContent)
+    }
+}
+
 #[post("/user/<username>/outbox", data = "<object>")]
 pub async fn outbox_post(
     signed: Signed,
@@ -654,30 +720,21 @@ pub async fn outbox_post(
     username: String,
     object: Result<Json<ApBaseObjectSuper>, Error<'_>>,
 ) -> Result<Status, Status> {
-    //debug!("raw\n{:#?}", object);
+    debug!("raw\n{:#?}", object);
 
     if let Signed(true) = signed {
         match get_profile_by_username(&conn, username).await {
             Some(profile) => match object {
                 Ok(object) => match object {
-                    Json(ApBaseObjectSuper::Activity(activity)) => {
-                        if create_remote_activity(&conn, (activity.clone(), profile.id).into())
-                            .await
-                            .is_some()
-                        {
-                            match activity.kind {
-                                ApActivityType::Undo => {
-                                    outbox::activity::undo(conn, events, activity, profile).await
-                                }
-                                ApActivityType::Follow => {
-                                    outbox::activity::follow(conn, events, activity, profile).await
-                                }
-                                _ => Err(Status::NoContent),
-                            }
-                        } else {
-                            Err(Status::NoContent)
+                    Json(ApBaseObjectSuper::Activity(activity)) => match activity.kind {
+                        ApActivityType::Undo => {
+                            outbox::activity::undo(conn, events, activity, profile).await
                         }
-                    }
+                        ApActivityType::Follow => {
+                            outbox::activity::follow(conn, events, activity, profile).await
+                        }
+                        _ => Err(Status::NoContent),
+                    },
                     Json(ApBaseObjectSuper::Object(ApObject::Note(note))) => {
                         outbox::object::note(conn, faktory, events, note, profile).await
                     }
@@ -716,7 +773,7 @@ pub async fn inbox_get(
 
     if let (Some(profile), Signed(true)) = (get_profile_by_username(&conn, username).await, signed)
     {
-        let inbox = inbox::retrieve::timeline(&conn, profile, limit.into(), offset.into()).await;
+        let inbox = inbox::retrieve::timeline(&conn, limit.into(), offset.into()).await;
         //debug!("inbox\n{:#?}", inbox);
         Ok(Json(inbox))
     } else {
@@ -731,18 +788,20 @@ pub async fn inbox_post(
     faktory: FaktoryConnection,
     events: EventChannels,
     username: String,
-    //activity: String,
-    activity: Result<Json<ApActivity>, Error<'_>>,
+    activity: String,
+    //activity: Result<Json<ApActivity>, Error<'_>>,
 ) -> Result<Status, Status> {
-    // debug!("inbox: {:#?}", activity);
+    //debug!("inbox: {:#?}", activity);
     // Err(Status::NoContent)
 
-    if let (Ok(activity), Some(profile), Signed(true)) = (
-        activity,
-        get_profile_by_username(&conn, username).await,
-        signed,
-    ) {
-        let activity = activity.0.clone();
+    let v: Value = serde_json::from_str(&activity).unwrap();
+    debug!("inbox\n{v:#?}");
+
+    let activity: ApActivity = serde_json::from_str(&activity).unwrap();
+
+    if let (Some(profile), Signed(true)) = (get_profile_by_username(&conn, username).await, signed)
+    {
+        let activity = activity.clone();
 
         if retriever::get_actor(&conn, profile.clone(), activity.actor.clone())
             .await
@@ -768,8 +827,11 @@ pub async fn inbox_post(
                     ApActivityType::Join => {
                         inbox::activity::join(conn, faktory, activity, profile).await
                     }
+                    ApActivityType::Announce => {
+                        inbox::activity::announce(conn, faktory, events, activity).await
+                    }
                     _ => {
-                        debug!("unknown activity: {activity:#?}");
+                        debug!("unknown activity\n{activity:#?}");
                         Err(Status::NoContent)
                     }
                 }
@@ -818,7 +880,9 @@ fn rocket() -> _ {
                 upload_avatar,
                 upload_banner,
                 change_password,
-                note_get
+                note_get,
+                conversation_get,
+                authorize_stream,
             ],
         )
 }

@@ -318,13 +318,15 @@ pub async fn create_remote_activity(
         .run(move |c| {
             diesel::insert_into(remote_activities::table)
                 .values(&remote_activity)
+                .on_conflict(remote_activities::ap_id)
+                .do_nothing()
                 .get_result::<RemoteActivity>(c)
         })
         .await
     {
         Ok(x) => Some(x),
         Err(e) => {
-            log::debug!("database failure: {:#?}", e);
+            log::debug!("failed to create remote_activity (probably a duplicate): {e:#?}");
             Option::None
         }
     }
@@ -337,15 +339,14 @@ pub async fn create_remote_note(conn: &Db, remote_note: NewRemoteNote) -> Option
         .run(move |c| {
             diesel::insert_into(remote_notes::table)
                 .values(&remote_note)
+                .on_conflict(remote_notes::ap_id)
+                .do_nothing()
                 .get_result::<RemoteNote>(c)
         })
         .await
     {
         Ok(x) => Some(x),
-        Err(e) => {
-            log::debug!("database failure: {:#?}", e);
-            Option::None
-        }
+        Err(_) => Option::None,
     }
 }
 

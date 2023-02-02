@@ -98,6 +98,7 @@ pub enum ApAttachmentType {
     PropertyValue,
     Document,
     IdentityProof,
+    Link,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -112,6 +113,20 @@ pub struct ApAttachment {
     pub blurhash: Option<String>,
     pub width: Option<i32>,
     pub height: Option<i32>,
+    pub signature_algorithm: Option<String>,
+    pub signature_value: Option<String>,
+    pub href: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct ApProof {
+    #[serde(rename = "type")]
+    pub kind: Option<String>,
+    pub created: Option<String>,
+    pub proof_purpose: Option<String>,
+    pub proof_value: Option<String>,
+    pub verification_method: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -235,6 +250,33 @@ impl fmt::Display for ApActivityType {
     }
 }
 
+impl From<String> for ApActivityType {
+    fn from(data: String) -> Self {
+        data.as_str().into()
+    }
+}
+
+impl From<&str> for ApActivityType {
+    fn from(data: &str) -> Self {
+        match data {
+            "Create" => ApActivityType::Create,
+            "Update" => ApActivityType::Update,
+            "Delete" => ApActivityType::Delete,
+            "Follow" => ApActivityType::Follow,
+            "Accept" => ApActivityType::Accept,
+            "Reject" => ApActivityType::Reject,
+            "Add" => ApActivityType::Add,
+            "Remove" => ApActivityType::Remove,
+            "Like" => ApActivityType::Like,
+            "Announce" => ApActivityType::Announce,
+            "Undo" => ApActivityType::Undo,
+            "Invite" => ApActivityType::Invite,
+            "Join" => ApActivityType::Join,
+            _ => ApActivityType::Unknown,
+        }
+    }
+}
+
 #[derive(Serialize, PartialEq, Eq, Deserialize, Clone, Debug, Default)]
 pub enum ApActorType {
     Application,
@@ -258,110 +300,4 @@ pub enum ApBaseObjectSuper {
     Activity(ApActivity),
     Actor(ApActor),
     Object(ApObject),
-    //    Base(ApBaseObject),
 }
-
-// #[derive(Serialize, Deserialize, Clone, Debug)]
-// #[serde(rename_all = "camelCase")]
-// pub struct ApBaseObject {
-//     #[serde(rename = "@context")]
-//     #[serde(skip_serializing_if = "Option::is_none")]
-//     pub context: Option<ApContext>,
-//     #[serde(skip_serializing_if = "Option::is_none")]
-//     pub to: Option<Vec<String>>,
-//     #[serde(skip_serializing_if = "Option::is_none")]
-//     pub cc: Option<Vec<String>>,
-//     #[serde(skip_serializing_if = "Option::is_none")]
-//     pub bcc: Option<Vec<String>>,
-//     #[serde(skip_serializing_if = "Option::is_none")]
-//     pub tag: Option<Vec<ApTag>>,
-//     #[serde(skip_serializing_if = "Option::is_none")]
-//     pub attachment: Option<ApFlexible>,
-//     #[serde(skip_serializing_if = "Option::is_none")]
-//     pub attributed_to: Option<ApFlexible>,
-//     #[serde(skip_serializing_if = "Option::is_none")]
-//     pub audience: Option<ApFlexible>,
-//     #[serde(skip_serializing_if = "Option::is_none")]
-//     pub content: Option<String>,
-//     #[serde(skip_serializing_if = "Option::is_none")]
-//     pub name: Option<String>,
-//     #[serde(skip_serializing_if = "Option::is_none")]
-//     pub end_time: Option<String>,
-//     #[serde(skip_serializing_if = "Option::is_none")]
-//     pub generator: Option<ApFlexible>,
-//     #[serde(skip_serializing_if = "Option::is_none")]
-//     pub icon: Option<ApFlexible>,
-//     #[serde(skip_serializing_if = "Option::is_none")]
-//     pub in_reply_to: Option<ApFlexible>,
-//     #[serde(skip_serializing_if = "Option::is_none")]
-//     pub location: Option<ApFlexible>,
-//     #[serde(skip_serializing_if = "Option::is_none")]
-//     pub preview: Option<ApFlexible>,
-//     #[serde(skip_serializing_if = "Option::is_none")]
-//     pub published: Option<String>,
-//     #[serde(skip_serializing_if = "Option::is_none")]
-//     pub replies: Option<ApFlexible>,
-//     #[serde(skip_serializing_if = "Option::is_none")]
-//     pub start_time: Option<String>,
-//     #[serde(skip_serializing_if = "Option::is_none")]
-//     pub summary: Option<String>,
-//     #[serde(skip_serializing_if = "Option::is_none")]
-//     pub updated: Option<String>,
-//     #[serde(skip_serializing_if = "Option::is_none")]
-//     pub url: Option<ApFlexible>,
-//     #[serde(skip_serializing_if = "Option::is_none")]
-//     pub bto: Option<Vec<String>>,
-//     #[serde(skip_serializing_if = "Option::is_none")]
-//     pub media_type: Option<String>,
-//     #[serde(skip_serializing_if = "Option::is_none")]
-//     pub duration: Option<String>,
-//     #[serde(skip_serializing_if = "Option::is_none")]
-//     #[serde(rename = "type")]
-//     pub kind: Option<ApBaseObjectType>,
-//     #[serde(skip_serializing_if = "Option::is_none")]
-//     pub id: Option<String>,
-
-//     // Non-standard attributes
-//     #[serde(skip_serializing_if = "Option::is_none")]
-//     pub reference: Option<String>,
-//     #[serde(skip_serializing)]
-//     pub uuid: Option<String>,
-// }
-
-// impl Default for ApBaseObject {
-//     fn default() -> ApBaseObject {
-//         ApBaseObject {
-//             context: Option::from(ApContext::Plain(
-//                 "https://www.w3.org/ns/activitystreams".to_string(),
-//             )),
-//             to: Option::None,
-//             cc: Option::None,
-//             bcc: Option::None,
-//             tag: Option::None,
-//             attachment: Option::None,
-//             attributed_to: Option::None,
-//             audience: Option::None,
-//             content: Option::None,
-//             name: Option::None,
-//             end_time: Option::None,
-//             generator: Option::None,
-//             icon: Option::None,
-//             in_reply_to: Option::None,
-//             location: Option::None,
-//             preview: Option::None,
-//             published: Option::None,
-//             replies: Option::None,
-//             start_time: Option::None,
-//             summary: Option::None,
-//             updated: Option::None,
-//             url: Option::None,
-//             bto: Option::None,
-//             media_type: Option::None,
-//             duration: Option::None,
-//             kind: Option::None,
-//             id: Option::None,
-//             reference: Option::None,
-//             uuid: Option::None,
-//         }
-//     }
-// }

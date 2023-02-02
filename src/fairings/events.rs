@@ -8,8 +8,41 @@ use rocket::request::{FromRequest, Outcome, Request};
 use rocket::{Build, Rocket};
 use std::collections::HashMap;
 
-type IdentifiedReceiver = (String, Receiver<String>);
-type IdentifiedSender = (String, Sender<String>);
+#[derive(Clone)]
+pub struct IdentifiedReceiver {
+    username: String,
+    receiver: Receiver<String>,
+}
+
+type ReceiverTuple = (String, Receiver<String>);
+
+impl From<ReceiverTuple> for IdentifiedReceiver {
+    fn from(t: ReceiverTuple) -> Self {
+        IdentifiedReceiver {
+            username: t.0,
+            receiver: t.1,
+        }
+    }
+}
+
+#[derive(Clone)]
+pub struct IdentifiedSender {
+    username: String,
+    sender: Sender<String>,
+    authorized: bool,
+}
+
+type SenderTuple = (String, Sender<String>);
+
+impl From<SenderTuple> for IdentifiedSender {
+    fn from(t: SenderTuple) -> Self {
+        IdentifiedSender {
+            username: t.0,
+            sender: t.1,
+            authorized: false,
+        }
+    }
+}
 
 #[derive(Clone)]
 pub struct EventChannels {
@@ -21,6 +54,21 @@ pub struct EventChannels {
 impl EventChannels {
     pub fn fairing() -> impl Fairing {
         EventChannelsFairing
+    }
+
+    pub fn authorize(&mut self, uuid: String, username: String) {
+        log::debug!("authorize called");
+
+        if let Some(mut x) = self.sending_channels.try_lock() {
+            if let Some(r) = x.get(&uuid) {
+                if r.username == username {
+                    let mut r = r.clone();
+                    r.authorized = true;
+                    x.insert(uuid.clone(), r);
+                    log::debug!("sender for {username} authorized");
+                }
+            }
+        }
     }
 
     pub fn remove(&mut self, uuid: String) {
@@ -42,11 +90,11 @@ impl EventChannels {
         let (tx, rx) = unbounded::<String>();
 
         if let Some(mut x) = self.receiving_channels.try_lock() {
-            x.insert(uuid.clone(), (username.clone(), rx.clone()));
+            x.insert(uuid.clone(), (username.clone(), rx.clone()).into());
         }
 
         if let Some(mut x) = self.sending_channels.try_lock() {
-            x.insert(uuid.clone(), (username, tx));
+            x.insert(uuid.clone(), (username, tx).into());
         }
 
         (uuid, rx)
@@ -55,13 +103,17 @@ impl EventChannels {
     pub fn send(&mut self, message: String) {
         log::debug!("send called");
         if let Some(x) = self.sending_channels.try_lock() {
-            for (uuid, (username, tx)) in (*x).clone() {
-                log::debug!("trying to send {message}");
+            for (uuid, identified_sender) in (*x).clone() {
+                if identified_sender.authorized {
+                    log::debug!("trying to send {message}");
 
-                match tx.try_send(message.clone()) {
-                    Ok(x) => log::debug!("sent"),
-                    Err(e) => log::error!("send failed: {e:#?}"),
-                };
+                    match identified_sender.sender.try_send(message.clone()) {
+                        Ok(x) => log::debug!("sent"),
+                        Err(e) => log::error!("send failed: {e:#?}"),
+                    };
+                } else {
+                    log::debug!("event channel not yet authorized");
+                }
             }
         }
     }

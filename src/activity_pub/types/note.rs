@@ -47,6 +47,10 @@ pub struct ApNote {
     pub conversation: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub content_map: Option<Value>,
+
+    // These are ephemeral attributes to facilitate client operations
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ephemeral_announce: Option<String>,
 }
 
 impl ApNote {
@@ -90,6 +94,7 @@ impl Default for ApNote {
             in_reply_to_atom_uri: Option::None,
             conversation: Option::None,
             content_map: Option::None,
+            ephemeral_announce: Option::None,
         }
     }
 }
@@ -104,7 +109,7 @@ impl From<TimelineItem> for ApNote {
             published: timeline.published,
             replies: Option::None,
             in_reply_to: timeline.in_reply_to,
-            content: timeline.content,
+            content: timeline.content.unwrap_or_default(),
             summary: timeline.summary,
             sensitive: timeline.ap_sensitive,
             atom_uri: timeline.atom_uri,
@@ -112,6 +117,7 @@ impl From<TimelineItem> for ApNote {
             conversation: timeline.conversation,
             content_map: timeline.content_map,
             attachment: serde_json::from_value(timeline.attachment.unwrap_or_default()).unwrap(),
+            ephemeral_announce: timeline.announce,
             ..Default::default()
         }
     }

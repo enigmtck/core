@@ -135,20 +135,23 @@ pub async fn get_actor(
                 method,
             });
 
-            let client = Client::new();
-            match client
+            let client = Client::builder();
+            let client = client.user_agent("Enigmatick/0.1").build().unwrap();
+            let inter = client
                 .get(&id)
                 .header("Signature", &signature.signature)
                 .header("Date", signature.date)
                 .header(
                     "Accept",
-                    "application/ld+json; profile=\"http://www.w3.org/ns/activitystreams\"",
-                )
-                .send()
-                .await
-            {
+                    "application/ld+json; profile=\"https://www.w3.org/ns/activitystreams\"",
+                );
+
+            //log::debug!("inter: {inter:#?}");
+
+            match inter.send().await {
                 Ok(resp) => match resp.status() {
                     StatusCode::ACCEPTED | StatusCode::OK => {
+                        //log::debug!("resp: {resp:#?}");
                         let actor: ApActor = resp.json().await.unwrap();
                         create_remote_actor(conn, NewRemoteActor::from(actor))
                             .await

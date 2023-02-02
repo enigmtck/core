@@ -98,7 +98,6 @@ diesel::table! {
         id -> Int4,
         created_at -> Timestamptz,
         updated_at -> Timestamptz,
-        profile_id -> Int4,
         context -> Nullable<Jsonb>,
         kind -> Varchar,
         ap_id -> Varchar,
@@ -140,6 +139,24 @@ diesel::table! {
         also_known_as -> Nullable<Jsonb>,
         discoverable -> Nullable<Bool>,
         capabilities -> Nullable<Jsonb>,
+    }
+}
+
+diesel::table! {
+    remote_announces (id) {
+        id -> Int4,
+        created_at -> Timestamptz,
+        updated_at -> Timestamptz,
+        context -> Nullable<Varchar>,
+        kind -> Varchar,
+        ap_id -> Varchar,
+        actor -> Varchar,
+        ap_to -> Nullable<Jsonb>,
+        cc -> Nullable<Jsonb>,
+        published -> Varchar,
+        ap_object -> Jsonb,
+        timeline_id -> Nullable<Int4>,
+        revoked -> Bool,
     }
 }
 
@@ -193,14 +210,13 @@ diesel::table! {
         updated_at -> Timestamptz,
         tag -> Nullable<Jsonb>,
         attributed_to -> Varchar,
-        remote_actor_id -> Int4,
         ap_id -> Varchar,
         kind -> Varchar,
         url -> Nullable<Varchar>,
         published -> Nullable<Varchar>,
         replies -> Nullable<Jsonb>,
         in_reply_to -> Nullable<Varchar>,
-        content -> Varchar,
+        content -> Nullable<Varchar>,
         ap_public -> Bool,
         summary -> Nullable<Varchar>,
         ap_sensitive -> Nullable<Bool>,
@@ -209,6 +225,8 @@ diesel::table! {
         conversation -> Nullable<Varchar>,
         content_map -> Nullable<Jsonb>,
         attachment -> Nullable<Jsonb>,
+        ap_object -> Nullable<Jsonb>,
+        announce -> Nullable<Varchar>,
     }
 }
 
@@ -236,9 +254,8 @@ diesel::joinable!(encrypted_sessions -> profiles (profile_id));
 diesel::joinable!(followers -> profiles (profile_id));
 diesel::joinable!(leaders -> profiles (profile_id));
 diesel::joinable!(notes -> profiles (profile_id));
-diesel::joinable!(remote_activities -> profiles (profile_id));
+diesel::joinable!(remote_announces -> timeline (timeline_id));
 diesel::joinable!(remote_encrypted_sessions -> profiles (profile_id));
-diesel::joinable!(timeline -> remote_actors (remote_actor_id));
 diesel::joinable!(timeline_cc -> timeline (timeline_id));
 diesel::joinable!(timeline_to -> timeline (timeline_id));
 
@@ -251,6 +268,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     profiles,
     remote_activities,
     remote_actors,
+    remote_announces,
     remote_encrypted_sessions,
     remote_notes,
     timeline,

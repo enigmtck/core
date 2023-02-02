@@ -14,6 +14,7 @@ use crate::{
     models::{
         followers::NewFollower,
         profiles::{update_olm_external_identity_keys_by_username, Profile},
+        remote_announces::{create_remote_announce, NewRemoteAnnounce},
         remote_notes::NewRemoteNote,
     },
 };
@@ -42,7 +43,7 @@ pub async fn create(
             let n = NewRemoteNote::from((x.clone(), profile.id));
 
             if let Some(created_note) = create_remote_note(&conn, n).await {
-                log::debug!("created_remote_note\n{:#?}", created_note);
+                //log::debug!("created_remote_note\n{:#?}", created_note);
 
                 let mut events = events;
                 events.send(serde_json::to_string(&x).unwrap());
@@ -56,7 +57,7 @@ pub async fn create(
                     Err(_) => Err(Status::NoContent),
                 }
             } else {
-                log::debug!("create_remote_note failed");
+                //log::debug!("create_remote_note failed (probably a duplicate)");
                 Err(Status::NoContent)
             }
         }
@@ -64,6 +65,32 @@ pub async fn create(
             log::debug!("doesn't look like a note\n{activity:#?}");
             Err(Status::NoContent)
         }
+    }
+}
+
+pub async fn announce(
+    conn: Db,
+    faktory: FaktoryConnection,
+    events: EventChannels,
+    activity: ApActivity,
+) -> Result<Status, Status> {
+    let n = NewRemoteAnnounce::from(activity.clone());
+
+    if let Some(created_announce) = create_remote_announce(&conn, n).await {
+        let mut events = events;
+        events.send(serde_json::to_string(&activity).unwrap());
+
+        match assign_to_faktory(
+            faktory,
+            String::from("process_announce"),
+            vec![created_announce.ap_id],
+        ) {
+            Ok(_) => Ok(Status::Accepted),
+            Err(_) => Err(Status::NoContent),
+        }
+    } else {
+        log::debug!("create_remote_announce failed");
+        Err(Status::NoContent)
     }
 }
 
@@ -78,7 +105,7 @@ pub async fn follow(
     f.profile_id = profile.id;
 
     if let Some(created_follower) = create_follower(&conn, f).await {
-        log::debug!("created_follower\n{:#?}", created_follower);
+        //log::debug!("created_follower\n{:#?}", created_follower);
 
         let mut events = events;
         events.send(serde_json::to_string(&activity).unwrap());
@@ -123,9 +150,17 @@ pub async fn accept(
     events: EventChannels,
     activity: ApActivity,
 ) -> Result<Status, Status> {
-    if let ApObject::Identifier(x) = activity.clone().object {
+    //debug!("activity: {activity:#?}");
+
+    let identifier = match activity.clone().object {
+        ApObject::Identifier(x) => Option::from(x.id),
+        ApObject::Plain(x) => Option::from(x),
+        _ => Option::None,
+    };
+
+    if let Some(x) = identifier {
         let ap_id_re = regex::Regex::new(r#"(\w+://)(.+?/)+(.+)"#).unwrap();
-        if let Some(ap_id_match) = ap_id_re.captures(&x.id) {
+        if let Some(ap_id_match) = ap_id_re.captures(&x) {
             //debug!("ap_id_match: {:#?}", ap_id_match);
 
             let matches = ap_id_match.len();

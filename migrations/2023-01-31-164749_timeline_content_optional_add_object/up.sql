@@ -1,0 +1,2 @@
+ALTER TABLE timeline ALTER COLUMN content DROP NOT NULL;
+ALTER TABLE timeline ADD COLUMN ap_object JSONB;

@@ -3,13 +3,12 @@ extern crate log;
 
 use enigmatick::{
     activity_pub::{
-        retriever,
         sender::{send_activity, send_follower_accept},
-        ApActivity, ApActor, ApBasicContentType, ApInstrument, ApNote, ApObject, ApObjectType,
-        ApSession, JoinData,
+        ApActivity, ApActor, ApBasicContentType, ApInstrument, ApNote, ApObject, ApSession,
+        JoinData,
     },
     db::jsonb_set,
-    helper::{get_local_username_from_ap_id, is_local, is_public},
+    helper::{get_local_username_from_ap_id, is_public},
     models::{
         encrypted_sessions::{EncryptedSession, NewEncryptedSession},
         followers::Follower,
@@ -19,6 +18,7 @@ use enigmatick::{
         profiles::{KeyStore, Profile},
         remote_activities::{NewRemoteActivity, RemoteActivity},
         remote_actors::{NewRemoteActor, RemoteActor},
+        remote_announces::RemoteAnnounce,
         remote_encrypted_sessions::RemoteEncryptedSession,
         remote_notes::RemoteNote,
         timeline::{
@@ -300,6 +300,22 @@ pub async fn get_actor(profile: Profile, id: String) -> Option<(RemoteActor, Opt
     }
 }
 
+pub fn get_remote_announce_by_ap_id(ap_id: String) -> Option<RemoteAnnounce> {
+    use enigmatick::schema::remote_announces::dsl::{ap_id as a, remote_announces};
+
+    if let Ok(conn) = POOL.get() {
+        match remote_announces
+            .filter(a.eq(ap_id))
+            .first::<RemoteAnnounce>(&conn)
+        {
+            Ok(x) => Option::from(x),
+            Err(e) => Option::None,
+        }
+    } else {
+        Option::None
+    }
+}
+
 pub fn get_profile(id: i32) -> Option<Profile> {
     use enigmatick::schema::profiles::dsl::profiles;
 
@@ -349,7 +365,7 @@ pub fn get_followers_by_profile_id(profile_id: i32) -> Vec<Follower> {
     }
 }
 
-pub fn get_leader_by_followers_endpoint(
+pub fn get_follower_profiles_by_endpoint(
     endpoint: String,
 ) -> Vec<(RemoteActor, Leader, Option<Profile>)> {
     use enigmatick::schema::leaders::dsl::{leader_ap_id, leaders, profile_id};
@@ -365,12 +381,29 @@ pub fn get_leader_by_followers_endpoint(
         {
             Ok(x) => x,
             Err(e) => {
-                log::error!("{:#?}", e);
                 vec![]
             }
         }
     } else {
         vec![]
+    }
+}
+
+pub fn get_leader_by_endpoint(endpoint: String) -> Option<(RemoteActor, Leader)> {
+    use enigmatick::schema::leaders::dsl::{leader_ap_id, leaders};
+    use enigmatick::schema::remote_actors::dsl::{ap_id as ra_apid, followers, remote_actors};
+
+    if let Ok(conn) = POOL.get() {
+        match remote_actors
+            .inner_join(leaders.on(leader_ap_id.eq(ra_apid)))
+            .filter(followers.eq(endpoint))
+            .first::<(RemoteActor, Leader)>(&conn)
+        {
+            Ok(x) => Option::from(x),
+            Err(e) => Option::None,
+        }
+    } else {
+        Option::None
     }
 }
 
@@ -477,6 +510,47 @@ pub fn update_note_cc(note: Note) -> Option<Note> {
         }
     } else {
         Option::None
+    }
+}
+
+async fn lookup_remote_note(id: String) -> Option<ApNote> {
+    log::debug!("performing remote lookup for note");
+
+    let url = id.clone();
+    let method = Method::Get;
+
+    let client = Client::new();
+    match client
+        .get(&id)
+        .header(
+            "Accept",
+            "application/ld+json; profile=\"http://www.w3.org/ns/activitystreams\"",
+        )
+        .send()
+        .await
+    {
+        Ok(resp) => match resp.status() {
+            StatusCode::ACCEPTED | StatusCode::OK => match resp.json().await {
+                Ok(ApObject::Note(note)) => Option::from(note),
+                Err(e) => {
+                    log::error!("remote note decode error: {e:#?}");
+                    Option::None
+                }
+                _ => Option::None,
+            },
+            StatusCode::GONE => {
+                log::debug!("GONE: {:#?}", resp.status());
+                Option::None
+            }
+            _ => {
+                log::debug!("STATUS: {:#?}", resp.status());
+                Option::None
+            }
+        },
+        Err(e) => {
+            log::debug!("{:#?}", e);
+            Option::None
+        }
     }
 }
 
@@ -718,7 +792,19 @@ fn add_to_timeline(ap_to: Option<Value>, cc: Option<Value>, timeline_item: Timel
         let to_vec: Vec<String> = serde_json::from_value(ap_to).unwrap();
 
         for to in to_vec {
-            create_timeline_item_to((timeline_item.clone(), to).into());
+            create_timeline_item_to((timeline_item.clone(), to.clone()).into());
+
+            if get_leader_by_endpoint(to.clone()).is_some() {
+                for follower in get_follower_profiles_by_endpoint(to) {
+                    if let Some(follower) = follower.2 {
+                        log::debug!("adding to for {}", follower.username);
+
+                        let follower =
+                            format!("{}/user/{}", &*enigmatick::SERVER_URL, follower.username);
+                        create_timeline_item_to((timeline_item.clone(), follower).into());
+                    }
+                }
+            }
         }
     }
 
@@ -726,9 +812,67 @@ fn add_to_timeline(ap_to: Option<Value>, cc: Option<Value>, timeline_item: Timel
         let cc_vec: Vec<String> = serde_json::from_value(cc).unwrap();
 
         for cc in cc_vec {
-            create_timeline_item_cc((timeline_item.clone(), cc).into());
+            create_timeline_item_cc((timeline_item.clone(), cc.clone()).into());
+
+            if get_leader_by_endpoint(cc.clone()).is_some() {
+                for follower in get_follower_profiles_by_endpoint(cc) {
+                    if let Some(follower) = follower.2 {
+                        log::debug!("adding cc for {}", follower.username);
+
+                        let follower =
+                            format!("{}/user/{}", &*enigmatick::SERVER_URL, follower.username);
+                        create_timeline_item_cc((timeline_item.clone(), follower).into());
+                    }
+                }
+            }
         }
     };
+}
+
+fn process_announce(job: Job) -> io::Result<()> {
+    debug!("running process_announce job");
+
+    let ap_ids = job.args();
+
+    let rt = Runtime::new().unwrap();
+    let handle = rt.handle();
+
+    for ap_id in ap_ids {
+        let ap_id = ap_id.as_str().unwrap().to_string();
+        debug!("looking for ap_id: {}", ap_id);
+
+        let announce = get_remote_announce_by_ap_id(ap_id);
+
+        if let Some(announce) = announce {
+            let activity: ApActivity = announce.clone().into();
+
+            if activity.kind == "Announce".into() {
+                if let ApObject::Plain(note_id) = activity.clone().object {
+                    handle.block_on(async {
+                        let note = lookup_remote_note(note_id).await;
+
+                        if let Some(remote_note) = note {
+                            if let Some(timeline_item) =
+                                create_timeline_item((activity, remote_note.clone()).into())
+                            {
+                                add_to_timeline(
+                                    Option::from(
+                                        serde_json::to_value(remote_note.clone().to).unwrap(),
+                                    ),
+                                    Option::from(
+                                        serde_json::to_value(remote_note.cc.unwrap()).unwrap(),
+                                    ),
+                                    timeline_item,
+                                );
+                            }
+                        }
+                    });
+                }
+            }
+        }
+    }
+
+    Ok(())
 }
 
 fn process_remote_note(job: Job) -> io::Result<()> {
@@ -750,18 +894,14 @@ fn process_remote_note(job: Job) -> io::Result<()> {
                 {
                     Ok(remote_note) => {
                         if remote_note.kind == "Note" {
-                            if let Some(actor) =
-                                get_remote_actor_by_ap_id(remote_note.clone().attributed_to)
+                            if let Some(timeline_item) =
+                                create_timeline_item(remote_note.clone().into())
                             {
-                                if let Some(timeline_item) =
-                                    create_timeline_item((remote_note.clone(), actor.id).into())
-                                {
-                                    add_to_timeline(
-                                        remote_note.clone().ap_to,
-                                        remote_note.clone().cc,
-                                        timeline_item,
-                                    );
-                                }
+                                add_to_timeline(
+                                    remote_note.clone().ap_to,
+                                    remote_note.clone().cc,
+                                    timeline_item,
+                                );
                             }
                         }
                         // else if remote_note.kind == "EncryptedNote" {
@@ -842,9 +982,9 @@ fn process_outbound_note(job: Job) -> io::Result<()> {
                             if let Some(actor) =
                                 get_remote_actor_by_ap_id(note.clone().attributed_to)
                             {
-                                if let Some(timeline_item) = create_timeline_item(
-                                    (ApNote::from(note.clone()), actor.id).into(),
-                                ) {
+                                if let Some(timeline_item) =
+                                    create_timeline_item(ApNote::from(note.clone()).into())
+                                {
                                     add_to_timeline(
                                         Option::from(note.clone().ap_to),
                                         note.clone().cc,
@@ -910,6 +1050,7 @@ fn main() {
     consumer.register("process_remote_note", process_remote_note);
     consumer.register("process_join", process_join);
     consumer.register("process_outbound_note", process_outbound_note);
+    consumer.register("process_announce", process_announce);
 
     consumer.register("test_job", |job| {
         debug!("{:#?}", job);
