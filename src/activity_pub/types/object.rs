@@ -192,7 +192,7 @@ impl fmt::Display for ApBaseObjectType {
     }
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, Default)]
+#[derive(Serialize, Deserialize, Clone, Debug, Default, Eq, PartialEq)]
 pub enum ApObjectType {
     Article,
     Document,
@@ -204,6 +204,7 @@ pub enum ApObjectType {
     IdentityKey,
     SessionKey,
     EncryptedNote,
+    Question,
     #[default]
     Unknown,
 }

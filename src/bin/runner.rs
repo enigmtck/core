@@ -8,7 +8,7 @@ use enigmatick::{
         JoinData,
     },
     db::jsonb_set,
-    helper::{get_local_username_from_ap_id, is_public},
+    helper::{get_local_username_from_ap_id, is_local, is_public},
     models::{
         encrypted_sessions::{EncryptedSession, NewEncryptedSession},
         followers::Follower,
@@ -159,6 +159,26 @@ pub fn create_encrypted_session(
             .get_result::<EncryptedSession>(&conn)
         {
             Ok(x) => Some(x),
+            Err(e) => {
+                log::error!("{:#?}", e);
+                Option::None
+            }
+        }
+    } else {
+        Option::None
+    }
+}
+
+pub fn get_encrypted_session_by_uuid(uuid: String) -> Option<EncryptedSession> {
+    use enigmatick::schema::encrypted_sessions::dsl::{encrypted_sessions, uuid as u};
+
+    log::debug!("looking for encrypted_session_by_uuid: {:#?}", uuid);
+    if let Ok(conn) = POOL.get() {
+        match encrypted_sessions
+            .filter(u.eq(uuid))
+            .first::<EncryptedSession>(&conn)
+        {
+            Ok(x) => Option::from(x),
             Err(e) => {
                 log::error!("{:#?}", e);
                 Option::None
@@ -554,6 +574,52 @@ async fn lookup_remote_note(id: String) -> Option<ApNote> {
     }
 }
 
+fn send_kexinit(job: Job) -> io::Result<()> {
+    let rt = Runtime::new().unwrap();
+    let handle = rt.handle();
+
+    for uuid in job.args() {
+        let uuid = uuid.as_str().unwrap().to_string();
+
+        if let Some(encrypted_session) = get_encrypted_session_by_uuid(uuid) {
+            if let Some(sender) = get_profile(encrypted_session.profile_id) {
+                let mut session: ApSession = encrypted_session.clone().into();
+                session.id = Option::from(format!(
+                    "{}/encrypted-sessions/{}",
+                    *enigmatick::SERVER_URL,
+                    encrypted_session.uuid
+                ));
+
+                let mut inbox = Option::<String>::None;
+
+                if is_local(session.to.clone()) {
+                    if let Some(username) = get_local_username_from_ap_id(session.to.clone()) {
+                        if let Some(profile) = get_profile_by_username(username) {
+                            inbox = Option::from(ApActor::from(profile).inbox);
+                        }
+                    }
+                } else if let Some(actor) = get_remote_actor_by_ap_id(session.to.clone()) {
+                    inbox = Option::from(actor.inbox);
+                }
+
+                if let Some(inbox) = inbox {
+                    let activity = ApActivity::from(session);
+                    handle.block_on(async {
+                        match send_activity(activity, sender, inbox.clone()).await {
+                            Ok(_) => {
+                                info!("join sent: {:#?}", inbox);
+                            }
+                            Err(e) => error!("error: {:#?}", e),
+                        }
+                    });
+                }
+            }
+        }
+    }
+
+    Ok(())
+}
+
 fn provide_one_time_key(job: Job) -> io::Result<()> {
     // look up remote_encrypted_session with ap_id from job.args()
 
@@ -809,19 +875,19 @@ fn add_to_timeline(ap_to: Option<Value>, cc: Option<Value>, timeline_item: Timel
     }
 
     if let Some(cc) = cc {
-        let cc_vec: Vec<String> = serde_json::from_value(cc).unwrap();
+        if let Ok(cc_vec) = serde_json::from_value::<Vec<String>>(cc.clone()) {
+            for cc in cc_vec {
+                create_timeline_item_cc((timeline_item.clone(), cc.clone()).into());
 
-        for cc in cc_vec {
-            create_timeline_item_cc((timeline_item.clone(), cc.clone()).into());
+                if get_leader_by_endpoint(cc.clone()).is_some() {
+                    for follower in get_follower_profiles_by_endpoint(cc) {
+                        if let Some(follower) = follower.2 {
+                            log::debug!("adding cc for {}", follower.username);
 
-            if get_leader_by_endpoint(cc.clone()).is_some() {
-                for follower in get_follower_profiles_by_endpoint(cc) {
-                    if let Some(follower) = follower.2 {
-                        log::debug!("adding cc for {}", follower.username);
-
-                        let follower =
-                            format!("{}/user/{}", &*enigmatick::SERVER_URL, follower.username);
-                        create_timeline_item_cc((timeline_item.clone(), follower).into());
+                            let follower =
+                                format!("{}/user/{}", &*enigmatick::SERVER_URL, follower.username);
+                            create_timeline_item_cc((timeline_item.clone(), follower).into());
+                        }
                     }
                 }
             }
@@ -903,12 +969,11 @@ fn process_remote_note(job: Job) -> io::Result<()> {
                                     timeline_item,
                                 );
                             }
+                        } else if remote_note.kind == "EncryptedNote" {
+                            // need to resolve ap_to to a profile_id for the command below
+                            debug!("adding to processing queue");
+                            //create_processing_item((remote_note, profile_id).into());
                         }
-                        // else if remote_note.kind == "EncryptedNote" {
-                        //     // need to resolve ap_to to a profile_id for the command below
-                        //     debug!("adding to processing queue");
-                        //     create_processing_item((remote_note, profile_id).into());
-                        // }
                     }
                     Err(e) => error!("error: {:#?}", e),
                 }
@@ -923,7 +988,7 @@ fn process_remote_note(job: Job) -> io::Result<()> {
 fn process_outbound_note(job: Job) -> io::Result<()> {
     use enigmatick::schema::notes::dsl::{notes, uuid as u};
 
-    debug!("running process_remote_note job");
+    debug!("running process_outbound_note job");
 
     let uuids = job.args();
 
@@ -940,42 +1005,50 @@ fn process_outbound_note(job: Job) -> io::Result<()> {
                     Ok(mut note) => {
                         let mut inboxes: HashSet<String> = HashSet::new();
 
-                        if let Some(profile) = get_profile(note.profile_id) {
-                            let profile = profile.clone();
+                        // this is the profile where the note was posted to the outbox
+                        if let Some(sender) = get_profile(note.profile_id) {
+                            let sender = sender.clone();
 
-                            let recipients: Vec<String> =
-                                serde_json::from_value(note.clone().ap_to).unwrap();
+                            if let Ok(recipients) =
+                                serde_json::from_value::<Vec<String>>(note.clone().ap_to)
+                            {
+                                for recipient in recipients {
+                                    // check if this is the special Public recipient
+                                    if is_public(recipient.clone()) {
+                                        // if it is, get all the inboxes for this sender's followers
+                                        inboxes.extend(get_follower_inboxes(sender.clone()));
 
-                            for recipient in recipients {
-                                if is_public(recipient.clone()) {
-                                    inboxes.extend(get_follower_inboxes(profile.clone()));
-                                    if let Some(cc) = note.clone().cc {
-                                        let mut cc: Vec<String> =
-                                            serde_json::from_value(cc).unwrap();
-                                        cc.push(ApActor::from(profile.clone()).followers);
-                                        note.cc = Option::from(serde_json::to_value(cc).unwrap());
-                                    } else {
-                                        note.cc = Option::from(
-                                            serde_json::to_value(vec![
-                                                ApActor::from(profile.clone()).followers,
-                                            ])
-                                            .unwrap(),
-                                        );
+                                        // add the special followers address for the sending profile to the
+                                        // note's cc field
+                                        if let Some(cc) = note.clone().cc {
+                                            let mut cc: Vec<String> =
+                                                serde_json::from_value(cc).unwrap();
+                                            cc.push(ApActor::from(sender.clone()).followers);
+                                            note.cc =
+                                                Option::from(serde_json::to_value(cc).unwrap());
+                                        } else {
+                                            note.cc = Option::from(
+                                                serde_json::to_value(vec![
+                                                    ApActor::from(sender.clone()).followers,
+                                                ])
+                                                .unwrap(),
+                                            );
+                                        }
+
+                                        update_note_cc(note.clone());
+                                    // } else if is_local(recipient.clone()) {
+                                    //     if let Some(username) =
+                                    //         get_local_username_from_ap_id(recipient.to_string())
+                                    //     {
+                                    //         if let Some(profile) = get_profile_by_username(username) {
+                                    //             inboxes.insert(ApActor::from(profile).inbox);
+                                    //         }
+                                    //     }
+                                    } else if let Some(receiver) = handle.block_on(async {
+                                        get_actor(sender.clone(), recipient.clone()).await
+                                    }) {
+                                        inboxes.insert(receiver.0.inbox);
                                     }
-
-                                    update_note_cc(note.clone());
-                                // } else if is_local(recipient.clone()) {
-                                //     if let Some(username) =
-                                //         get_local_username_from_ap_id(recipient.to_string())
-                                //     {
-                                //         if let Some(profile) = get_profile_by_username(username) {
-                                //             inboxes.insert(ApActor::from(profile).inbox);
-                                //         }
-                                //     }
-                                } else if let Some(receiver) = handle.block_on(async {
-                                    get_actor(profile.clone(), recipient.clone()).await
-                                }) {
-                                    inboxes.insert(receiver.0.inbox);
                                 }
                             }
 
@@ -1000,7 +1073,7 @@ fn process_outbound_note(job: Job) -> io::Result<()> {
                                 let method = Method::Post;
 
                                 let signature = enigmatick::signing::sign(SignParams {
-                                    profile: profile.clone(),
+                                    profile: sender.clone(),
                                     url: url.clone(),
                                     body: body.clone(),
                                     method,
@@ -1051,6 +1124,7 @@ fn main() {
     consumer.register("process_join", process_join);
     consumer.register("process_outbound_note", process_outbound_note);
     consumer.register("process_announce", process_announce);
+    consumer.register("send_kexinit", send_kexinit);
 
     consumer.register("test_job", |job| {
         debug!("{:#?}", job);

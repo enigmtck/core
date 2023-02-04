@@ -55,6 +55,7 @@ diesel::table! {
         attributed_to -> Varchar,
         in_reply_to -> Nullable<Varchar>,
         content -> Varchar,
+        conversation -> Nullable<Varchar>,
     }
 }
 

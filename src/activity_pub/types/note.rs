@@ -1,5 +1,6 @@
 use crate::{
     activity_pub::{ApActor, ApAttachment, ApContext, ApFlexible, ApObjectType, ApTag},
+    helper::handle_option,
     models::{
         notes::{NewNote, Note},
         remote_notes::RemoteNote,
@@ -102,7 +103,10 @@ impl Default for ApNote {
 impl From<TimelineItem> for ApNote {
     fn from(timeline: TimelineItem) -> Self {
         ApNote {
-            tag: serde_json::from_value(timeline.tag.unwrap_or_default()).unwrap(),
+            tag: match serde_json::from_value(timeline.tag.unwrap_or_default()) {
+                Ok(x) => x,
+                Err(_) => Option::None,
+            },
             attributed_to: timeline.attributed_to,
             id: Some(timeline.ap_id),
             url: timeline.url,
@@ -116,7 +120,10 @@ impl From<TimelineItem> for ApNote {
             in_reply_to_atom_uri: timeline.in_reply_to_atom_uri,
             conversation: timeline.conversation,
             content_map: timeline.content_map,
-            attachment: serde_json::from_value(timeline.attachment.unwrap_or_default()).unwrap(),
+            attachment: match serde_json::from_value(timeline.attachment.unwrap_or_default()) {
+                Ok(x) => x,
+                Err(_) => Option::None,
+            },
             ephemeral_announce: timeline.announce,
             ..Default::default()
         }
@@ -146,7 +153,10 @@ impl From<NewNote> for ApNote {
         };
 
         ApNote {
-            tag: serde_json::from_value(note.tag.into()).unwrap(),
+            tag: match serde_json::from_value(note.tag.into()) {
+                Ok(x) => x,
+                Err(_) => Option::None,
+            },
             attributed_to: note.attributed_to,
             published: Option::from(Utc::now().format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string()),
             id: Option::from(format!(
@@ -155,10 +165,17 @@ impl From<NewNote> for ApNote {
                 note.uuid
             )),
             kind,
-            to: serde_json::from_value(note.ap_to).unwrap(),
+            to: match serde_json::from_value(note.ap_to) {
+                Ok(x) => x,
+                Err(_) => vec![],
+            },
             content: note.content,
-            cc: serde_json::from_value(note.cc.into()).unwrap(),
+            cc: match serde_json::from_value(note.cc.into()) {
+                Ok(x) => x,
+                Err(_) => Option::None,
+            },
             in_reply_to: note.in_reply_to,
+            conversation: note.conversation,
             ..Default::default()
         }
     }
@@ -173,7 +190,10 @@ impl From<Note> for ApNote {
         };
 
         ApNote {
-            tag: serde_json::from_value(note.tag.into()).unwrap(),
+            tag: match serde_json::from_value(note.tag.into()) {
+                Ok(x) => x,
+                Err(_) => Option::None,
+            },
             attributed_to: note.attributed_to,
             published: Option::from(Utc::now().format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string()),
             id: Option::from(format!(
@@ -182,10 +202,17 @@ impl From<Note> for ApNote {
                 note.uuid
             )),
             kind,
-            to: serde_json::from_value(note.ap_to).unwrap(),
+            to: match serde_json::from_value(note.ap_to) {
+                Ok(x) => x,
+                Err(_) => vec![],
+            },
             content: note.content,
-            cc: serde_json::from_value(note.cc.into()).unwrap(),
+            cc: match serde_json::from_value(note.cc.into()) {
+                Ok(x) => x,
+                Err(_) => Option::None,
+            },
             in_reply_to: note.in_reply_to,
+            conversation: note.conversation,
             ..Default::default()
         }
     }
@@ -204,13 +231,30 @@ impl From<RemoteNote> for ApNote {
             kind,
             published: remote_note.published,
             url: remote_note.url,
-            to: serde_json::from_value(remote_note.ap_to.into()).unwrap(),
-            cc: serde_json::from_value(remote_note.cc.into()).unwrap(),
-            tag: serde_json::from_value(remote_note.tag.into()).unwrap(),
+            to: match serde_json::from_value(remote_note.ap_to.into()) {
+                Ok(x) => x,
+                Err(_) => vec![],
+            },
+            cc: match serde_json::from_value(remote_note.cc.into()) {
+                Ok(x) => x,
+                Err(_) => Option::None,
+            },
+            tag: match serde_json::from_value(remote_note.tag.into()) {
+                Ok(x) => x,
+                Err(_) => Option::None,
+            },
             attributed_to: remote_note.attributed_to,
             content: remote_note.content,
-            replies: serde_json::from_value(remote_note.replies.into()).unwrap(),
+            replies: match serde_json::from_value(remote_note.replies.into()) {
+                Ok(x) => x,
+                Err(_) => Option::None,
+            },
             in_reply_to: remote_note.in_reply_to,
+            attachment: match serde_json::from_value(remote_note.attachment.unwrap_or_default()) {
+                Ok(x) => x,
+                Err(_) => Option::None,
+            },
+            conversation: remote_note.conversation,
             ..Default::default()
         }
     }

@@ -1,6 +1,6 @@
 use crate::{
     activity_pub::{
-        ApActivity, ApActivityType, ApBasicContentType, ApInstrument, ApObject, ApSession,
+        ApActivity, ApActivityType, ApBasicContentType, ApInstrument, ApNote, ApObject, ApSession,
     },
     db::{
         create_follower, create_remote_encrypted_session, create_remote_note,
@@ -45,8 +45,9 @@ pub async fn create(
             if let Some(created_note) = create_remote_note(&conn, n).await {
                 //log::debug!("created_remote_note\n{:#?}", created_note);
 
+                let note: ApNote = created_note.clone().into();
                 let mut events = events;
-                events.send(serde_json::to_string(&x).unwrap());
+                events.send(serde_json::to_string(&note).unwrap());
 
                 match assign_to_faktory(
                     faktory,

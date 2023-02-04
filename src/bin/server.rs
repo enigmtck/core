@@ -5,7 +5,7 @@ use enigmatick::{
     activity_pub::{
         retriever::{self, get_note, get_remote_webfinger},
         ApActivity, ApActivityType, ApActor, ApBaseObjectSuper, ApCollection, ApNote, ApObject,
-        ApOrderedCollection, FollowersPage, LeadersPage,
+        ApObjectType, ApOrderedCollection, FollowersPage, LeadersPage,
     },
     admin::{self, verify_and_generate_password},
     api::{instance::InstanceInformation, processing_queue},
@@ -736,10 +736,20 @@ pub async fn outbox_post(
                         _ => Err(Status::NoContent),
                     },
                     Json(ApBaseObjectSuper::Object(ApObject::Note(note))) => {
-                        outbox::object::note(conn, faktory, events, note, profile).await
+                        // EncryptedNotes need to be handled differently, but use the ApNote struct
+                        match note.kind {
+                            ApObjectType::Note => {
+                                outbox::object::note(conn, faktory, events, note, profile).await
+                            }
+                            ApObjectType::EncryptedNote => {
+                                outbox::object::encrypted_note(conn, faktory, events, note, profile)
+                                    .await
+                            }
+                            _ => Err(Status::NoContent),
+                        }
                     }
                     Json(ApBaseObjectSuper::Object(ApObject::Session(session))) => {
-                        outbox::object::session(conn, session, profile).await
+                        outbox::object::session(conn, faktory, session, profile).await
                     }
                     _ => Err(Status::NoContent),
                 },
