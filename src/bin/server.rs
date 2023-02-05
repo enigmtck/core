@@ -14,11 +14,7 @@ use enigmatick::{
         get_profile_by_username, update_avatar_by_username, update_banner_by_username,
         update_password_by_username, update_summary_by_username, Db,
     },
-    fairings::{
-        events::{EventChannels, EventChannelsError},
-        faktory::FaktoryConnection,
-        signatures::Signed,
-    },
+    fairings::{events::EventChannels, faktory::FaktoryConnection, signatures::Signed},
     helper::{get_local_username_from_ap_id, is_local},
     inbox,
     models::{
@@ -27,16 +23,16 @@ use enigmatick::{
             update_olm_external_identity_keys_by_username, update_olm_sessions_by_username,
             KeyStore, Profile,
         },
-        remote_actors::RemoteActor,
     },
     outbox,
+    signing::VerificationType,
     webfinger::WebFinger,
 };
 
 use faktory::Job;
 
 use rocket::{
-    data::{Data, FromData, Outcome, ToByteUnit},
+    data::{Data, ToByteUnit},
     http::RawStr,
     http::Status,
     request::FromParam,
@@ -44,7 +40,7 @@ use rocket::{
     serde::json::{Error, Json},
     tokio::select,
     tokio::time::{self, Duration},
-    Request, Shutdown,
+    Shutdown,
 };
 
 use rand::distributions::{Alphanumeric, DistString};
@@ -247,7 +243,7 @@ pub async fn upload_avatar(
     extension: String,
     media: Data<'_>,
 ) -> Result<Status, Status> {
-    if let Signed(true) = signed {
+    if let Signed(true, VerificationType::Local) = signed {
         let filename = format!(
             "{}.{}",
             Alphanumeric.sample_string(&mut rand::thread_rng(), 16),
@@ -287,7 +283,7 @@ pub async fn upload_banner(
     extension: String,
     media: Data<'_>,
 ) -> Result<Status, Status> {
-    if let Signed(true) = signed {
+    if let Signed(true, VerificationType::Local) = signed {
         let filename = format!(
             "{}.{}",
             Alphanumeric.sample_string(&mut rand::thread_rng(), 16),
@@ -342,7 +338,7 @@ pub async fn authorize_stream(
     username: String,
     authorization: Result<Json<StreamAuthorization>, Error<'_>>,
 ) -> Result<Json<StreamAuthorization>, Status> {
-    if let Signed(true) = signed {
+    if let Signed(true, VerificationType::Local) = signed {
         if let Ok(authorization) = authorization {
             events.authorize(authorization.uuid.clone(), username);
             Ok(authorization)
@@ -368,7 +364,7 @@ pub async fn remote_note_lookup(
 ) -> Result<Json<ApNote>, Status> {
     //debug!("raw\n{:#?}", actor);
 
-    if let Signed(true) = signed {
+    if let Signed(true, VerificationType::Local) = signed {
         if let Ok(note) = note {
             if let Some(profile) = get_profile_by_username(&conn, username).await {
                 if let Some(note) = get_note(&conn, profile, note.id.clone()).await {
@@ -397,16 +393,48 @@ pub async fn remote_actor_lookup(
 ) -> Result<Json<ApActor>, Status> {
     //debug!("raw\n{:#?}", actor);
 
-    if let Signed(true) = signed {
+    if let Signed(true, VerificationType::Local) = signed {
         if let Ok(actor) = actor {
             if let Some(profile) = get_profile_by_username(&conn, username).await {
                 let ap_id = {
                     let webfinger_re = regex::Regex::new(r#"@(.+?)@(.+)"#).unwrap();
-                    let http_url_re = regex::Regex::new(r#"https://.+"#).unwrap();
+                    let http_url_re =
+                        regex::Regex::new(r#"https://(.+?)/@([a-zA-Z0-9_]+)"#).unwrap();
+                    let http_id_re = regex::Regex::new(r#"https://.+"#).unwrap();
 
-                    if webfinger_re.is_match(&actor.id.clone()) {
+                    let webfinger = {
+                        if http_url_re.is_match(&actor.id.clone()) {
+                            let id = &actor.id.clone();
+                            let captures = http_url_re.captures(id);
+                            if let Some(captures) = captures {
+                                if captures.len() == 3 {
+                                    if let (Some(_whole), Some(server), Some(user)) =
+                                        (captures.get(0), captures.get(1), captures.get(2))
+                                    {
+                                        Option::from(format!(
+                                            "@{}@{}",
+                                            user.as_str(),
+                                            server.as_str()
+                                        ))
+                                    } else {
+                                        Option::None
+                                    }
+                                } else {
+                                    Option::None
+                                }
+                            } else {
+                                Option::None
+                            }
+                        } else if webfinger_re.is_match(&actor.id.clone()) {
+                            Option::from(actor.id.clone())
+                        } else {
+                            Option::None
+                        }
+                    };
+
+                    if let Some(webfinger) = webfinger {
                         //log::debug!("matching to webfinger");
-                        if let Some(webfinger) = get_remote_webfinger(actor.id.clone()).await {
+                        if let Some(webfinger) = get_remote_webfinger(webfinger).await {
                             let mut ap_id_int = Option::<String>::None;
                             for link in webfinger.links {
                                 if let (Some(kind), Some(href)) = (link.kind, link.href) {
@@ -419,8 +447,8 @@ pub async fn remote_actor_lookup(
                         } else {
                             Option::None
                         }
-                    } else if http_url_re.is_match(&actor.id.clone()) {
-                        //log::debug!("matching to https url");
+                    } else if http_id_re.is_match(&actor.id.clone()) {
+                        log::debug!("matching to https id");
                         Option::from(actor.id.clone())
                     } else {
                         //log::debug!("matched to none");
@@ -474,7 +502,7 @@ pub async fn change_password(
 ) -> Result<Json<Profile>, Status> {
     //debug!("raw\n{:#?}", password);
 
-    if let Signed(true) = signed {
+    if let Signed(true, VerificationType::Local) = signed {
         if let Ok(password) = password {
             if let Some(password) = verify_and_generate_password(
                 &conn,
@@ -552,7 +580,7 @@ pub async fn update_olm_sessions(
 ) -> Result<Json<Profile>, Status> {
     //debug!("raw\n{:#?}", keystore);
 
-    if let Signed(true) = signed {
+    if let Signed(true, VerificationType::Local) = signed {
         if let Ok(Json(keystore)) = keystore {
             if let Some(profile) = update_olm_sessions_by_username(&conn, username, keystore).await
             {
@@ -574,7 +602,7 @@ pub async fn get_processing_queue(
     conn: Db,
     username: String,
 ) -> Result<Json<ApObject>, Status> {
-    if let Signed(true) = signed {
+    if let Signed(true, VerificationType::Local) = signed {
         if let Some(profile) = get_profile_by_username(&conn, username).await {
             let l = processing_queue::retrieve(&conn, profile).await;
 
@@ -601,7 +629,7 @@ pub async fn update_identity_cache(
 ) -> Result<Json<Profile>, Status> {
     //debug!("raw\n{:#?}", keystore);
 
-    if let Signed(true) = signed {
+    if let Signed(true, VerificationType::Local) = signed {
         if let Ok(Json(keystore)) = keystore {
             if let Some(profile) =
                 update_olm_external_identity_keys_by_username(&conn, username, keystore).await
@@ -636,7 +664,7 @@ pub async fn update_summary(
 ) -> Result<Json<Profile>, Status> {
     //debug!("raw\n{:#?}", summary);
 
-    if let Signed(true) = signed {
+    if let Signed(true, VerificationType::Local) = signed {
         if let Ok(Json(summary)) = summary {
             if let Some(profile) =
                 update_summary_by_username(&conn, username, summary.content).await
@@ -691,7 +719,8 @@ pub async fn conversation_get(
 ) -> Result<Json<ApObject>, Status> {
     //debug!("inbox get request received");
 
-    if let (Some(profile), Signed(true)) = (get_profile_by_username(&conn, username).await, signed)
+    if let (Some(profile), Signed(true, VerificationType::Local)) =
+        (get_profile_by_username(&conn, username).await, signed)
     {
         if let Ok(conversation) = urlencoding::decode(&conversation.clone()) {
             let inbox = inbox::retrieve::conversation(
@@ -722,7 +751,7 @@ pub async fn outbox_post(
 ) -> Result<Status, Status> {
     debug!("raw\n{:#?}", object);
 
-    if let Signed(true) = signed {
+    if let Signed(true, VerificationType::Local) = signed {
         match get_profile_by_username(&conn, username).await {
             Some(profile) => match object {
                 Ok(object) => match object {
@@ -781,7 +810,8 @@ pub async fn inbox_get(
 ) -> Result<Json<ApObject>, Status> {
     //debug!("inbox get request received");
 
-    if let (Some(profile), Signed(true)) = (get_profile_by_username(&conn, username).await, signed)
+    if let (Some(profile), Signed(true, VerificationType::Local)) =
+        (get_profile_by_username(&conn, username).await, signed)
     {
         let inbox = inbox::retrieve::timeline(&conn, limit.into(), offset.into()).await;
         //debug!("inbox\n{:#?}", inbox);
@@ -809,7 +839,8 @@ pub async fn inbox_post(
 
     let activity: ApActivity = serde_json::from_str(&activity).unwrap();
 
-    if let (Some(profile), Signed(true)) = (get_profile_by_username(&conn, username).await, signed)
+    if let (Some(profile), Signed(true, _)) =
+        (get_profile_by_username(&conn, username).await, signed)
     {
         let activity = activity.clone();
 

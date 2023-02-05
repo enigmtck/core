@@ -357,11 +357,14 @@ pub async fn create_remote_actor(conn: &Db, actor: NewRemoteActor) -> Option<Rem
         .run(move |c| {
             diesel::insert_into(remote_actors::table)
                 .values(&actor)
+                .on_conflict(remote_actors::ap_id)
+                .do_nothing()
                 .get_result::<RemoteActor>(c)
+                .optional()
         })
         .await
     {
-        Ok(x) => Some(x),
+        Ok(x) => x,
         Err(e) => {
             log::debug!("database failure: {:#?}", e);
             Option::None

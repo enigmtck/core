@@ -1,6 +1,7 @@
 use crate::schema::remote_actors;
 use crate::{activity_pub::ApActor, helper::handle_option};
 use chrono::{DateTime, Utc};
+use diesel::prelude::*;
 use diesel::{AsChangeset, Identifiable, Insertable, Queryable};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -99,4 +100,16 @@ pub struct RemoteActor {
     pub also_known_as: Option<Value>,
     pub discoverable: Option<bool>,
     pub capabilities: Option<Value>,
+}
+
+pub async fn get_remote_actor_by_url(conn: &crate::db::Db, url: String) -> Option<RemoteActor> {
+    use crate::schema::remote_actors::dsl::{remote_actors, url as u};
+
+    match conn
+        .run(move |c| remote_actors.filter(u.eq(url)).first::<RemoteActor>(c))
+        .await
+    {
+        Ok(x) => Option::from(x),
+        Err(_) => Option::None,
+    }
 }

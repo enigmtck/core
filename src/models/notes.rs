@@ -37,7 +37,17 @@ impl From<IdentifiedApNote> for NewNote {
             content: note.0.content,
             in_reply_to: note.0.in_reply_to,
             cc: handle_option(serde_json::to_value(&note.0.cc).unwrap()),
-            conversation: note.0.conversation,
+            conversation: {
+                if note.0.conversation.is_none() {
+                    Option::from(format!(
+                        "{}/conversation/{}",
+                        *crate::SERVER_URL,
+                        uuid::Uuid::new_v4()
+                    ))
+                } else {
+                    note.0.conversation
+                }
+            },
         }
     }
 }

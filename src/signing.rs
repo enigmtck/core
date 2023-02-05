@@ -90,7 +90,12 @@ fn build_verify_string(
     )
 }
 
-pub async fn verify(conn: Db, params: VerifyParams) -> bool {
+pub enum VerificationType {
+    Remote,
+    Local,
+}
+
+pub async fn verify(conn: Db, params: VerifyParams) -> (bool, VerificationType) {
     let (verify_string, signature_str, ap_id, key_selector, local, username) =
         build_verify_string(params.clone());
 
@@ -118,18 +123,21 @@ pub async fn verify(conn: Db, params: VerifyParams) -> bool {
             if let Some(profile) = get_profile_by_username(&conn, username).await {
                 if let Some(public_key) = profile.client_public_key {
                     if let Ok(public_key) = RsaPublicKey::from_public_key_pem(&public_key) {
-                        verify(public_key, signature_str, verify_string)
+                        (
+                            verify(public_key, signature_str, verify_string),
+                            VerificationType::Local,
+                        )
                     } else {
-                        false
+                        (false, VerificationType::Local)
                     }
                 } else {
-                    false
+                    (false, VerificationType::Local)
                 }
             } else {
-                false
+                (false, VerificationType::Local)
             }
         } else {
-            false
+            (false, VerificationType::Local)
         }
     } else if let Some(actor) = retriever::get_actor(&conn, params.profile, ap_id).await {
         if let Some(public_key_value) = actor.0.public_key {
@@ -138,18 +146,21 @@ pub async fn verify(conn: Db, params: VerifyParams) -> bool {
                 if let Ok(public_key) =
                     RsaPublicKey::from_public_key_pem(&public_key.public_key_pem)
                 {
-                    verify(public_key, signature_str, verify_string)
+                    (
+                        verify(public_key, signature_str, verify_string),
+                        VerificationType::Remote,
+                    )
                 } else {
-                    false
+                    (false, VerificationType::Remote)
                 }
             } else {
-                false
+                (false, VerificationType::Remote)
             }
         } else {
-            false
+            (false, VerificationType::Remote)
         }
     } else {
-        false
+        (false, VerificationType::Remote)
     }
 }
 

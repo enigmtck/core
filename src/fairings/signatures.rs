@@ -1,6 +1,6 @@
 use crate::{
     db::{get_profile_by_username, Db},
-    signing::{verify, VerifyParams},
+    signing::{verify, VerificationType, VerifyParams},
 };
 
 use rocket::{
@@ -8,7 +8,7 @@ use rocket::{
     request::{FromRequest, Outcome, Request},
 };
 
-pub struct Signed(pub bool);
+pub struct Signed(pub bool, pub VerificationType);
 
 #[derive(Debug)]
 pub enum SignatureError {
@@ -74,7 +74,7 @@ impl<'r> FromRequest<'r> for Signed {
                             1 => {
                                 let signature = signature_vec[0].to_string();
 
-                                if verify(
+                                let (x, t) = verify(
                                     conn,
                                     VerifyParams {
                                         profile,
@@ -86,12 +86,9 @@ impl<'r> FromRequest<'r> for Signed {
                                         content_type,
                                     },
                                 )
-                                .await
-                                {
-                                    Outcome::Success(Signed(true))
-                                } else {
-                                    Outcome::Success(Signed(false))
-                                }
+                                .await;
+
+                                Outcome::Success(Signed(x, t))
                             }
                             _ => Outcome::Failure((
                                 Status::BadRequest,
