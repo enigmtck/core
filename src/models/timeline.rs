@@ -94,7 +94,7 @@ impl From<ApNote> for NewTimelineItem {
             atom_uri: note.atom_uri,
             in_reply_to_atom_uri: note.in_reply_to_atom_uri,
             conversation: note.conversation,
-            content_map: note.content_map,
+            content_map: Option::from(serde_json::to_value(&note.content_map).unwrap_or_default()),
             attachment: Option::from(serde_json::to_value(&note.attachment).unwrap_or_default()),
             ap_object: Option::None,
             announce: Option::None,
@@ -130,8 +130,12 @@ impl From<Announce> for NewTimelineItem {
             atom_uri: note.atom_uri,
             in_reply_to_atom_uri: note.in_reply_to_atom_uri,
             conversation: note.conversation,
-            content_map: note.content_map,
-            attachment: Option::from(serde_json::to_value(&note.attachment).unwrap_or_default()),
+            content_map: Option::from(
+                serde_json::to_value(note.content_map.unwrap_or_default()).unwrap_or_default(),
+            ),
+            attachment: Option::from(
+                serde_json::to_value(note.attachment.unwrap_or_default()).unwrap_or_default(),
+            ),
             ap_object: Option::None,
             announce: Option::from(activity.actor),
         }

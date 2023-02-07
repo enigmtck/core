@@ -251,6 +251,17 @@ diesel::table! {
     }
 }
 
+diesel::table! {
+    vault (id) {
+        id -> Int4,
+        created_at -> Timestamptz,
+        updated_at -> Timestamptz,
+        uuid -> Varchar,
+        profile_id -> Int4,
+        encrypted_data -> Varchar,
+    }
+}
+
 diesel::joinable!(encrypted_sessions -> profiles (profile_id));
 diesel::joinable!(followers -> profiles (profile_id));
 diesel::joinable!(leaders -> profiles (profile_id));
@@ -259,6 +270,7 @@ diesel::joinable!(remote_announces -> timeline (timeline_id));
 diesel::joinable!(remote_encrypted_sessions -> profiles (profile_id));
 diesel::joinable!(timeline_cc -> timeline (timeline_id));
 diesel::joinable!(timeline_to -> timeline (timeline_id));
+diesel::joinable!(vault -> profiles (profile_id));
 
 diesel::allow_tables_to_appear_in_same_query!(
     encrypted_sessions,
@@ -275,4 +287,5 @@ diesel::allow_tables_to_appear_in_same_query!(
     timeline,
     timeline_cc,
     timeline_to,
+    vault,
 );

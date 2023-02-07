@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use crate::{
     activity_pub::{ApActor, ApAttachment, ApContext, ApFlexible, ApObjectType, ApTag},
     helper::handle_option,
@@ -47,7 +49,7 @@ pub struct ApNote {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub conversation: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub content_map: Option<Value>,
+    pub content_map: Option<HashMap<String, String>>,
 
     // These are ephemeral attributes to facilitate client operations
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -119,7 +121,10 @@ impl From<TimelineItem> for ApNote {
             atom_uri: timeline.atom_uri,
             in_reply_to_atom_uri: timeline.in_reply_to_atom_uri,
             conversation: timeline.conversation,
-            content_map: timeline.content_map,
+            content_map: match serde_json::from_value(timeline.content_map.unwrap_or_default()) {
+                Ok(x) => x,
+                Err(_) => Option::None,
+            },
             attachment: match serde_json::from_value(timeline.attachment.unwrap_or_default()) {
                 Ok(x) => x,
                 Err(_) => Option::None,

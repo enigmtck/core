@@ -124,6 +124,29 @@ pub async fn update_olm_external_identity_keys_by_username(
     }
 }
 
+pub async fn clear_olm_external_identity_keys_by_username(
+    conn: &Db,
+    username: String,
+) -> Option<Profile> {
+    use schema::profiles::dsl::{keystore as k, profiles, username as u};
+
+    match conn
+        .run(move |c| {
+            diesel::update(profiles.filter(u.eq(username)))
+                .set(k.eq(jsonb_set(
+                    k,
+                    vec![String::from("olm_external_identity_keys")],
+                    serde_json::from_str::<Value>("{}").unwrap(),
+                )))
+                .get_result::<Profile>(c)
+        })
+        .await
+    {
+        Ok(x) => Some(x),
+        Err(_) => Option::None,
+    }
+}
+
 pub async fn update_olm_external_one_time_keys_by_username(
     conn: &Db,
     username: String,
@@ -138,6 +161,29 @@ pub async fn update_olm_external_one_time_keys_by_username(
                     k,
                     vec![String::from("olm_external_one_time_keys")],
                     serde_json::to_value(&keystore.olm_external_one_time_keys).unwrap(),
+                )))
+                .get_result::<Profile>(c)
+        })
+        .await
+    {
+        Ok(x) => Some(x),
+        Err(_) => Option::None,
+    }
+}
+
+pub async fn clear_olm_external_one_time_keys_by_username(
+    conn: &Db,
+    username: String,
+) -> Option<Profile> {
+    use schema::profiles::dsl::{keystore as k, profiles, username as u};
+
+    match conn
+        .run(move |c| {
+            diesel::update(profiles.filter(u.eq(username)))
+                .set(k.eq(jsonb_set(
+                    k,
+                    vec![String::from("olm_external_one_time_keys")],
+                    serde_json::from_str::<Value>("{}").unwrap(),
                 )))
                 .get_result::<Profile>(c)
         })

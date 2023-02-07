@@ -209,6 +209,28 @@ pub fn get_remote_encrypted_session_by_ap_id(apid: String) -> Option<RemoteEncry
     }
 }
 
+pub fn get_profile_by_ap_id(ap_id: String) -> Option<Profile> {
+    let server_url = (*enigmatick::SERVER_URL).clone();
+
+    let id_re = regex::Regex::new(&format!(r#"{server_url}/user/([a-zA-Z0-9_]+)"#)).unwrap();
+
+    if let Some(captures) = id_re.captures(&ap_id) {
+        log::debug!("captures\n{captures:#?}");
+
+        if captures.len() == 2 {
+            if let Some(username) = captures.get(1) {
+                get_profile_by_username(username.as_str().to_string())
+            } else {
+                Option::None
+            }
+        } else {
+            Option::None
+        }
+    } else {
+        Option::None
+    }
+}
+
 pub fn get_profile_by_username(username: String) -> Option<Profile> {
     use enigmatick::schema::profiles::dsl::{profiles, username as u};
 
@@ -972,7 +994,23 @@ fn process_remote_note(job: Job) -> io::Result<()> {
                         } else if remote_note.kind == "EncryptedNote" {
                             // need to resolve ap_to to a profile_id for the command below
                             debug!("adding to processing queue");
-                            //create_processing_item((remote_note, profile_id).into());
+
+                            if let Some(ap_to) = remote_note.clone().ap_to {
+                                let to_vec: Vec<String> = {
+                                    match serde_json::from_value(ap_to) {
+                                        Ok(x) => x,
+                                        Err(e) => vec![],
+                                    }
+                                };
+
+                                for ap_id in to_vec {
+                                    if let Some(profile) = get_profile_by_ap_id(ap_id) {
+                                        create_processing_item(
+                                            (remote_note.clone(), profile.id).into(),
+                                        );
+                                    }
+                                }
+                            }
                         }
                     }
                     Err(e) => error!("error: {:#?}", e),

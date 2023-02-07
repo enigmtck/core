@@ -20,9 +20,12 @@ use enigmatick::{
     models::{
         notes::get_note_by_uuid,
         profiles::{
+            clear_olm_external_identity_keys_by_username,
+            clear_olm_external_one_time_keys_by_username,
             update_olm_external_identity_keys_by_username, update_olm_sessions_by_username,
             KeyStore, Profile,
         },
+        vault::{create_vault_item, get_vault_items_by_profile_id, VaultItem},
     },
     outbox,
     signing::VerificationType,
@@ -145,30 +148,35 @@ pub async fn test(
     conn: Db,
     faktory: FaktoryConnection,
     username: String,
-) -> Result<Json<ApActor>, Status> {
-    match faktory.producer.try_lock() {
-        Ok(mut x) => {
-            if x.enqueue(Job::new("test_job", vec!["arg"])).is_err() {
-                log::error!("failed to enqueue job");
-            }
-        }
-        Err(e) => log::debug!("failed to lock mutex: {}", e),
-    }
+) -> Result<Status, Status> {
+    // match faktory.producer.try_lock() {
+    //     Ok(mut x) => {
+    //         if x.enqueue(Job::new("test_job", vec!["arg"])).is_err() {
+    //             log::error!("failed to enqueue job");
+    //         }
+    //     }
+    //     Err(e) => log::debug!("failed to lock mutex: {}", e),
+    // }
 
-    match get_profile_by_username(&conn, username).await {
-        Some(profile) => {
-            retriever::get_followers(
-                &conn,
-                profile.clone(),
-                "https://ser.endipito.us/users/justin".to_string(),
-                Option::from(1),
-            )
-            .await;
+    // match get_profile_by_username(&conn, username).await {
+    //     Some(profile) => {
+    //         retriever::get_followers(
+    //             &conn,
+    //             profile.clone(),
+    //             "https://ser.endipito.us/users/justin".to_string(),
+    //             Option::from(1),
+    //         )
+    //         .await;
 
-            Ok(Json(ApActor::from(profile)))
-        }
-        None => Err(Status::NoContent),
-    }
+    //         Ok(Json(ApActor::from(profile)))
+    //     }
+    //     None => Err(Status::NoContent),
+    // }
+
+    clear_olm_external_identity_keys_by_username(&conn, username.clone()).await;
+    clear_olm_external_one_time_keys_by_username(&conn, username).await;
+
+    Ok(Status::Accepted)
 }
 
 #[get("/user/<username>")]
@@ -230,6 +238,94 @@ pub async fn get_leaders(conn: Db, username: String) -> Result<Json<ApOrderedCol
         })))
 
         //log::debug!("followers: {:#?}", followers);
+    } else {
+        Err(Status::NoContent)
+    }
+}
+
+#[derive(Deserialize, Debug, Clone)]
+pub struct VaultStorageRequest {
+    pub data: String,
+}
+
+#[derive(Deserialize, Serialize, Debug, Clone)]
+pub struct VaultStorageResponse {
+    pub uuid: Option<String>,
+}
+
+impl From<Option<VaultItem>> for VaultStorageResponse {
+    fn from(item: Option<VaultItem>) -> Self {
+        VaultStorageResponse {
+            uuid: {
+                if let Some(item) = item {
+                    Option::from(item.uuid)
+                } else {
+                    Option::None
+                }
+            },
+        }
+    }
+}
+
+#[post("/api/user/<username>/vault", data = "<data>")]
+pub async fn store_vault_item(
+    signed: Signed,
+    conn: Db,
+    username: String,
+    data: Json<VaultStorageRequest>,
+) -> Result<Json<VaultStorageResponse>, Status> {
+    if let Signed(true, VerificationType::Local) = signed {
+        if let Some(profile) = get_profile_by_username(&conn, username).await {
+            Ok(Json(
+                create_vault_item(&conn, ((*data).clone().data, profile.id).into())
+                    .await
+                    .into(),
+            ))
+        } else {
+            Err(Status::NoContent)
+        }
+    } else {
+        Err(Status::NoContent)
+    }
+}
+
+#[derive(Deserialize, Serialize, Debug, Clone)]
+pub struct VaultRetrievalItem {
+    pub created_at: String,
+    pub updated_at: String,
+    pub uuid: String,
+    pub data: String,
+}
+
+impl From<VaultItem> for VaultRetrievalItem {
+    fn from(item: VaultItem) -> Self {
+        VaultRetrievalItem {
+            created_at: item.created_at.to_rfc2822(),
+            updated_at: item.updated_at.to_rfc2822(),
+            uuid: item.uuid,
+            data: item.encrypted_data,
+        }
+    }
+}
+
+#[get("/api/user/<username>/vault?<offset>&<limit>")]
+pub async fn vault_get(
+    signed: Signed,
+    conn: Db,
+    username: String,
+    offset: u16,
+    limit: u8,
+) -> Result<Json<Vec<VaultRetrievalItem>>, Status> {
+    if let (Some(profile), Signed(true, VerificationType::Local)) =
+        (get_profile_by_username(&conn, username).await, signed)
+    {
+        let items: Vec<VaultRetrievalItem> =
+            get_vault_items_by_profile_id(&conn, profile.id, limit.into(), offset.into())
+                .await
+                .iter()
+                .map(|x| (*x).clone().into())
+                .collect();
+        Ok(Json(items))
     } else {
         Err(Status::NoContent)
     }

@@ -108,7 +108,7 @@ impl EventChannels {
                     log::debug!("trying to send {message}");
 
                     match identified_sender.sender.try_send(message.clone()) {
-                        Ok(x) => log::debug!("sent"),
+                        Ok(_) => log::debug!("sent: {uuid:#?} {:#?}", identified_sender.username),
                         Err(e) => log::error!("send failed: {e:#?}"),
                     };
                 } else {

@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use crate::activity_pub::{ApFlexible, ApNote};
 use crate::db::Db;
 use crate::schema::remote_notes;
@@ -39,6 +41,17 @@ impl From<IdentifiedApNote> for NewRemoteNote {
             _ => Option::None,
         };
 
+        let clean_content_map = {
+            let mut content_map = HashMap::<String, String>::new();
+            if let Some(map) = (note.0).clone().content_map {
+                for (key, value) in map {
+                    content_map.insert(key, ammonia::clean(&value));
+                }
+            }
+
+            content_map
+        };
+
         NewRemoteNote {
             url: note.0.clone().url,
             published,
@@ -49,14 +62,20 @@ impl From<IdentifiedApNote> for NewRemoteNote {
             cc: Option::from(serde_json::to_value(&note.0.cc).unwrap()),
             replies: Option::from(serde_json::to_value(&note.0.replies).unwrap()),
             tag: Option::from(serde_json::to_value(&note.0.tag).unwrap()),
-            content: note.0.content,
-            summary: note.0.summary,
+            content: ammonia::clean(&note.0.content),
+            summary: {
+                if let Some(summary) = note.0.summary {
+                    Option::from(ammonia::clean(&summary))
+                } else {
+                    Option::None
+                }
+            },
             ap_sensitive: note.0.sensitive,
             atom_uri: note.0.atom_uri,
             in_reply_to: note.0.in_reply_to,
             in_reply_to_atom_uri: note.0.in_reply_to_atom_uri,
             conversation: note.0.conversation,
-            content_map: note.0.content_map,
+            content_map: Option::from(serde_json::to_value(clean_content_map).unwrap()),
             attachment: Option::from(serde_json::to_value(&note.0.attachment).unwrap()),
             ..Default::default()
         }

@@ -10,3 +10,4 @@ pub mod remote_announces;
 pub mod remote_encrypted_sessions;
 pub mod remote_notes;
 pub mod timeline;
+pub mod vault;
