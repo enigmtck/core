@@ -11,7 +11,7 @@ use std::fmt::{self, Debug};
 use std::time::SystemTime;
 use url::Url;
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct VerifyParams {
     pub profile: Profile,
     pub signature: String,
@@ -20,21 +20,21 @@ pub struct VerifyParams {
     pub date: String,
     pub digest: Option<String>,
     pub content_type: String,
+    pub user_agent: Option<String>,
 }
 
 fn build_verify_string(
     params: VerifyParams,
 ) -> (String, String, String, Option<String>, bool, Option<String>) {
+    log::debug!("VERIFY\n{params:#?}");
+
     let mut signature_map = HashMap::<String, String>::new();
 
     let parts_re = regex::Regex::new(r#"(\w+)="(.+?)""#).unwrap();
 
     for cap in parts_re.captures_iter(&params.signature) {
-        //log::debug!("re: {:#?}", &cap);
         signature_map.insert(cap[1].to_string(), cap[2].to_string());
     }
-
-    //log::debug!("map: {:#?}", signature_map);
 
     let key_id = signature_map.get("keyId").unwrap();
     let key_id_parts = key_id.split('#').collect::<Vec<&str>>();
@@ -52,7 +52,6 @@ fn build_verify_string(
         local = true;
         username = Option::from(captures[2].to_string());
         key_selector = Option::from(captures[3].to_string());
-        //log::debug!("key_re: {:#?}", captures);
     }
 
     let mut verify_string = String::new();
@@ -64,22 +63,20 @@ fn build_verify_string(
             }
             "host" => verify_string += &format!("host: {}\n", params.host),
             "date" => verify_string += &format!("date: {}\n", params.date),
-            "digest" => verify_string += &format!("digest: {}\n", params.digest.clone().unwrap()),
+            "digest" => {
+                verify_string += &format!("digest: {}\n", params.digest.clone().unwrap_or_default())
+            }
             "content-type" => verify_string += &format!("content-type: {}\n", params.content_type),
+            "user-agent" => {
+                verify_string += &format!(
+                    "user-agent: {}\n",
+                    params.user_agent.clone().unwrap_or_default()
+                )
+            }
             _ => (),
         }
     }
 
-    // log::debug!(
-    //     "verify_string\n{}\nap_id: {:#?}\nkey_selector: {:#?}\nlocal: {}\nusername: {:#?}\n",
-    //     verify_string,
-    //     ap_id,
-    //     key_selector,
-    //     local,
-    //     username
-    // );
-
-    // (verify, signature, ap_id)
     (
         verify_string.trim_end().to_string(),
         signature_map.get("signature").unwrap().to_string(),
@@ -96,23 +93,26 @@ pub enum VerificationType {
 }
 
 pub async fn verify(conn: Db, params: VerifyParams) -> (bool, VerificationType) {
+    log::debug!("VERIFY\n{params:#?}");
+
     let (verify_string, signature_str, ap_id, key_selector, local, username) =
         build_verify_string(params.clone());
 
     fn verify(public_key: RsaPublicKey, signature_str: String, verify_string: String) -> bool {
+        log::debug!("SIGNATURE\n{signature_str:#?}");
+
         let verifying_key: VerifyingKey<Sha256> = VerifyingKey::new_with_prefix(public_key);
-        //log::debug!("signature string: {}", signature_str);
 
         let s = base64::decode(signature_str.as_bytes()).unwrap();
 
         let signature: rsa::pkcs1v15::Signature = rsa::pkcs1v15::Signature::from(s);
         match verifying_key.verify(verify_string.as_bytes(), &signature) {
             Ok(_) => {
-                log::debug!("signature verification successful");
+                log::debug!("SIGNATURE VERIFICATION SUCCESSFUL");
                 true
             }
             Err(_) => {
-                log::debug!("signature verification failed");
+                log::warn!("SIGNATURE VERIFICATION FAILED");
                 false
             }
         }
@@ -142,7 +142,6 @@ pub async fn verify(conn: Db, params: VerifyParams) -> (bool, VerificationType) 
     } else if let Some(actor) = retriever::get_actor(&conn, params.profile, ap_id).await {
         if let Some(public_key_value) = actor.0.public_key {
             if let Ok(public_key) = serde_json::from_value::<ApPublicKey>(public_key_value) {
-                //log::debug!("remote public key\n{}\n", public_key.public_key_pem);
                 if let Ok(public_key) =
                     RsaPublicKey::from_public_key_pem(&public_key.public_key_pem)
                 {
@@ -185,7 +184,7 @@ impl fmt::Display for Method {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct SignParams {
     pub profile: Profile,
     pub url: String,
@@ -200,6 +199,8 @@ pub struct SignResponse {
 }
 
 pub fn sign(params: SignParams) -> SignResponse {
+    log::debug!("SIGN\n{params:#?}");
+
     // (request-target): post /users/justin/inbox
     // host: ser.endipito.us
     // date: Tue, 20 Dec 2022 22:02:48 GMT
@@ -210,7 +211,7 @@ pub fn sign(params: SignParams) -> SignResponse {
             let mut hasher = Sha256::new();
             hasher.update(body.as_bytes());
             let hashed = base64::encode(hasher.finalize());
-            Option::from(format!("sha-256={}", hashed))
+            Option::from(format!("SHA-256={}", hashed))
         } else {
             Option::None
         }
@@ -238,14 +239,12 @@ pub fn sign(params: SignParams) -> SignResponse {
             request_target, host, date, digest
         );
 
-        //log::debug!("\n{}", structured_data);
-
         let mut rng = rand::thread_rng();
         let signature = signing_key.sign_with_rng(&mut rng, structured_data.as_bytes());
 
         SignResponse {
             signature: format!(
-                "keyId=\"{}\",headers=\"(request-target) host date digest\",signature=\"{}\"",
+                "keyId=\"{}\",algorithm=\"rsa-sha256\",headers=\"(request-target) host date digest\",signature=\"{}\"",
                 actor.public_key.id,
                 base64::encode(signature.as_bytes())
             ),
@@ -258,14 +257,12 @@ pub fn sign(params: SignParams) -> SignResponse {
             request_target, host, date
         );
 
-        //log::debug!("\n{}", structured_data);
-
         let mut rng = rand::thread_rng();
         let signature = signing_key.sign_with_rng(&mut rng, structured_data.as_bytes());
 
         SignResponse {
             signature: format!(
-                "keyId=\"{}\",headers=\"(request-target) host date\",signature=\"{}\"",
+                "keyId=\"{}\",algorithm=\"rsa-sha256\",headers=\"(request-target) host date\",signature=\"{}\"",
                 actor.public_key.id,
                 base64::encode(signature.as_bytes())
             ),

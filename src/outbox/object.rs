@@ -1,20 +1,13 @@
-use std::collections::HashSet;
-
 use crate::{
-    activity_pub::{retriever, sender, ApActivity, ApActor, ApNote, ApSession},
-    db::{
-        create_encrypted_session, create_note, get_followers_by_profile_id,
-        get_profile_by_username, get_remote_actor_by_ap_id, Db,
-    },
+    activity_pub::{ApNote, ApSession},
+    db::{create_encrypted_session, create_note, Db},
     fairings::{
         events::EventChannels,
         faktory::{assign_to_faktory, FaktoryConnection},
     },
-    helper::{get_local_username_from_ap_id, is_local, is_public},
     models::{encrypted_sessions::NewEncryptedSession, notes::NewNote, profiles::Profile},
     //    signing::{sign, Method, SignParams},
 };
-use log::debug;
 //use reqwest::Client;
 use rocket::http::Status;
 

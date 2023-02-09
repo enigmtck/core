@@ -39,7 +39,10 @@ use rocket::{
     http::RawStr,
     http::Status,
     request::FromParam,
-    response::stream::{Event, EventStream},
+    response::{
+        stream::{Event, EventStream},
+        Redirect,
+    },
     serde::json::{Error, Json},
     tokio::select,
     tokio::time::{self, Duration},
@@ -50,21 +53,56 @@ use rand::distributions::{Alphanumeric, DistString};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-pub struct Handle<'r> {
-    name: &'r str,
-}
+// // This handle functionality is unused because it is currently managed by Svelte directly
 
-impl<'r> FromParam<'r> for Handle<'r> {
-    type Error = &'r RawStr;
+// #[derive(Debug)]
+// pub struct Handle<'r> {
+//     name: &'r str,
+//     local: bool,
+// }
 
-    fn from_param(param: &'r str) -> Result<Self, Self::Error> {
-        if param.starts_with('@') {
-            Ok(Handle { name: param })
-        } else {
-            Err(param.into())
-        }
-    }
-}
+// impl<'r> FromParam<'r> for Handle<'r> {
+//     type Error = &'r RawStr;
+
+//     fn from_param(param: &'r str) -> Result<Self, Self::Error> {
+//         log::debug!("EVALUATING PARAM: {param}");
+
+//         let remote_re =
+//             regex::Regex::new(r#"^@([a-zA-Z0-9_]+)@((?:[a-zA-Z0-9\-_]+\.)+[a-zA-Z0-9\-_]+)$"#)
+//                 .unwrap();
+//         let local_re = regex::Regex::new(r#"^@([a-zA-Z0-9_]+)$"#).unwrap();
+
+//         if remote_re.is_match(param) {
+//             Ok(Handle {
+//                 name: param,
+//                 local: false,
+//             })
+//         } else if local_re.is_match(param) {
+//             Ok(Handle {
+//                 name: param,
+//                 local: true,
+//             })
+//         } else {
+//             Err(param.into())
+//         }
+//     }
+// }
+
+// #[get("/<handle>")]
+// pub async fn profile(conn: Db, handle: Handle<'_>) -> Result<Json<ApActor>, Status> {
+//     let mut username = handle.name.to_string();
+
+//     if handle.local {
+//         username.remove(0);
+//         match get_profile_by_username(&conn, username).await {
+//             Some(profile) => Ok(Json(ApActor::from(profile))),
+//             None => Err(Status::NoContent),
+//         }
+//     } else {
+//         log::debug!("REMOTE LOOKUP\n{handle:#?}");
+//         Err(Status::NoContent)
+//     }
+// }
 
 pub struct ApiVersion<'r> {
     _version: &'r str,
@@ -79,16 +117,6 @@ impl<'r> FromParam<'r> for ApiVersion<'r> {
         } else {
             Err(param.into())
         }
-    }
-}
-
-#[get("/<handle>")]
-pub async fn profile(conn: Db, handle: Handle<'_>) -> Result<Json<ApActor>, Status> {
-    let mut username = handle.name.to_string();
-    username.remove(0);
-    match get_profile_by_username(&conn, username).await {
-        Some(profile) => Ok(Json(ApActor::from(profile))),
-        None => Err(Status::NoContent),
     }
 }
 
@@ -116,8 +144,6 @@ async fn stream(
         let mut interval = time::interval(Duration::from_secs(1));
 
         loop {
-            //debug!("looping");
-
             select! {
                 _ = interval.tick() => {
                     if let Ok(message) = rx.try_recv() {
@@ -132,7 +158,6 @@ async fn stream(
             };
 
             if k >= 300 {
-                //debug!("breaking loop to force reconnection");
                 break;
             } else {
                 k += 1;
@@ -179,13 +204,16 @@ pub async fn test(
     Ok(Status::Accepted)
 }
 
-#[get("/user/<username>")]
+#[get("/user/<username>", format = "text/html", rank = 1)]
+pub async fn person_redirect(username: String) -> Redirect {
+    log::debug!("REDIRECTING {username}");
+    Redirect::to(format!("/@{username}"))
+}
+
+#[get("/user/<username>", rank = 2)]
 pub async fn person(conn: Db, username: String) -> Result<Json<ApActor>, Status> {
     match get_profile_by_username(&conn, username).await {
-        Some(profile) => {
-            //debug!("profile\n{:#?}", profile);
-            Ok(Json(ApActor::from(profile)))
-        }
+        Some(profile) => Ok(Json(ApActor::from(profile))),
         None => Err(Status::NoContent),
     }
 }
@@ -219,8 +247,6 @@ pub async fn get_followers(
             profile,
             followers,
         })))
-
-        //log::debug!("followers: {:#?}", followers);
     } else {
         Err(Status::NoContent)
     }
@@ -236,8 +262,6 @@ pub async fn get_leaders(conn: Db, username: String) -> Result<Json<ApOrderedCol
             profile,
             leaders,
         })))
-
-        //log::debug!("followers: {:#?}", followers);
     } else {
         Err(Status::NoContent)
     }
@@ -458,13 +482,10 @@ pub async fn remote_note_lookup(
     username: String,
     note: Result<Json<Lookup>, Error<'_>>,
 ) -> Result<Json<ApNote>, Status> {
-    //debug!("raw\n{:#?}", actor);
-
     if let Signed(true, VerificationType::Local) = signed {
         if let Ok(note) = note {
             if let Some(profile) = get_profile_by_username(&conn, username).await {
                 if let Some(note) = get_note(&conn, profile, note.id.clone()).await {
-                    //debug!("here's the note\n{note:#?}");
                     Ok(Json(note))
                 } else {
                     Err(Status::NoContent)
@@ -487,8 +508,6 @@ pub async fn remote_actor_lookup(
     username: String,
     actor: Result<Json<Lookup>, Error<'_>>,
 ) -> Result<Json<ApActor>, Status> {
-    //debug!("raw\n{:#?}", actor);
-
     if let Signed(true, VerificationType::Local) = signed {
         if let Ok(actor) = actor {
             if let Some(profile) = get_profile_by_username(&conn, username).await {
@@ -529,7 +548,6 @@ pub async fn remote_actor_lookup(
                     };
 
                     if let Some(webfinger) = webfinger {
-                        //log::debug!("matching to webfinger");
                         if let Some(webfinger) = get_remote_webfinger(webfinger).await {
                             let mut ap_id_int = Option::<String>::None;
                             for link in webfinger.links {
@@ -544,10 +562,8 @@ pub async fn remote_actor_lookup(
                             Option::None
                         }
                     } else if http_id_re.is_match(&actor.id.clone()) {
-                        log::debug!("matching to https id");
                         Option::from(actor.id.clone())
                     } else {
-                        //log::debug!("matched to none");
                         Option::None
                     }
                 };
@@ -596,8 +612,6 @@ pub async fn change_password(
     username: String,
     password: Result<Json<UpdatePassword>, Error<'_>>,
 ) -> Result<Json<Profile>, Status> {
-    //debug!("raw\n{:#?}", password);
-
     if let Signed(true, VerificationType::Local) = signed {
         if let Ok(password) = password {
             if let Some(password) = verify_and_generate_password(
@@ -638,9 +652,9 @@ pub async fn create_user(
     conn: Db,
     user: Result<Json<NewUser>, Error<'_>>,
 ) -> Result<Json<Profile>, Status> {
-    //debug!("raw\n{:#?}", user);
-
     if let Ok(user) = user {
+        log::debug!("CREATING USER\n{user:#?}");
+
         let keystore_value: serde_json::Value =
             serde_json::from_str(&user.keystore.clone()).unwrap();
 
@@ -674,7 +688,7 @@ pub async fn update_olm_sessions(
     username: String,
     keystore: Result<Json<KeyStore>, Error<'_>>,
 ) -> Result<Json<Profile>, Status> {
-    //debug!("raw\n{:#?}", keystore);
+    log::debug!("UPDATING KEYSTORE\n{keystore:#?}");
 
     if let Signed(true, VerificationType::Local) = signed {
         if let Ok(Json(keystore)) = keystore {
@@ -702,7 +716,6 @@ pub async fn get_processing_queue(
         if let Some(profile) = get_profile_by_username(&conn, username).await {
             let l = processing_queue::retrieve(&conn, profile).await;
 
-            //debug!("queue\n{:#?}", l);
             Ok(Json(ApObject::Collection(ApCollection::from(l))))
         } else {
             Err(Status::NoContent)
@@ -723,7 +736,7 @@ pub async fn update_identity_cache(
     username: String,
     keystore: Result<Json<KeyStore>, Error<'_>>,
 ) -> Result<Json<Profile>, Status> {
-    //debug!("raw\n{:#?}", keystore);
+    debug!("UPDATING IDENTITY CACHE\n{keystore:#?}");
 
     if let Signed(true, VerificationType::Local) = signed {
         if let Ok(Json(keystore)) = keystore {
@@ -758,7 +771,7 @@ pub async fn update_summary(
     username: String,
     summary: Result<Json<SummaryUpdate>, Error<'_>>,
 ) -> Result<Json<Profile>, Status> {
-    //debug!("raw\n{:#?}", summary);
+    log::debug!("UPDATING SUMMARY\n{summary:#?}");
 
     if let Signed(true, VerificationType::Local) = signed {
         if let Ok(Json(summary)) = summary {
@@ -788,13 +801,12 @@ pub async fn authenticate_user(
     conn: Db,
     user: Result<Json<AuthenticationData>, Error<'_>>,
 ) -> Result<Json<Profile>, Status> {
-    //debug!("raw\n{:#?}", user);
+    log::debug!("AUTHENTICATING\n{user:#?}");
 
     if let Ok(user) = user {
         if let Some(profile) =
             admin::authenticate(&conn, user.username.clone(), user.password.clone()).await
         {
-            //debug!("sending profile\n{:#?}", profile);
             Ok(Json(profile))
         } else {
             Err(Status::NoContent)
@@ -813,8 +825,6 @@ pub async fn conversation_get(
     limit: u8,
     conversation: String,
 ) -> Result<Json<ApObject>, Status> {
-    //debug!("inbox get request received");
-
     if let (Some(profile), Signed(true, VerificationType::Local)) =
         (get_profile_by_username(&conn, username).await, signed)
     {
@@ -826,7 +836,6 @@ pub async fn conversation_get(
                 offset.into(),
             )
             .await;
-            //debug!("inbox\n{:#?}", inbox);
             Ok(Json(inbox))
         } else {
             Err(Status::NoContent)
@@ -834,6 +843,15 @@ pub async fn conversation_get(
     } else {
         Err(Status::NoContent)
     }
+}
+
+#[get("/conversation/<uuid>")]
+pub async fn conversation_get_local(conn: Db, uuid: String) -> Result<Json<ApObject>, Status> {
+    let conversation = format!("{}/conversation/{}", *enigmatick::SERVER_URL, uuid);
+
+    Ok(Json(
+        inbox::retrieve::conversation(&conn, conversation.to_string(), 40, 0).await,
+    ))
 }
 
 #[post("/user/<username>/outbox", data = "<object>")]
@@ -845,7 +863,7 @@ pub async fn outbox_post(
     username: String,
     object: Result<Json<ApBaseObjectSuper>, Error<'_>>,
 ) -> Result<Status, Status> {
-    debug!("raw\n{:#?}", object);
+    log::debug!("POSTING TO OUTBOX\n{object:#?}");
 
     if let Signed(true, VerificationType::Local) = signed {
         match get_profile_by_username(&conn, username).await {
@@ -904,13 +922,10 @@ pub async fn inbox_get(
     offset: u16,
     limit: u8,
 ) -> Result<Json<ApObject>, Status> {
-    //debug!("inbox get request received");
-
     if let (Some(profile), Signed(true, VerificationType::Local)) =
         (get_profile_by_username(&conn, username).await, signed)
     {
         let inbox = inbox::retrieve::timeline(&conn, limit.into(), offset.into()).await;
-        //debug!("inbox\n{:#?}", inbox);
         Ok(Json(inbox))
     } else {
         Err(Status::NoContent)
@@ -925,13 +940,9 @@ pub async fn inbox_post(
     events: EventChannels,
     username: String,
     activity: String,
-    //activity: Result<Json<ApActivity>, Error<'_>>,
 ) -> Result<Status, Status> {
-    //debug!("inbox: {:#?}", activity);
-    // Err(Status::NoContent)
-
     let v: Value = serde_json::from_str(&activity).unwrap();
-    debug!("inbox\n{v:#?}");
+    log::debug!("POSTING TO INBOX\n{v:#?}");
 
     let activity: ApActivity = serde_json::from_str(&activity).unwrap();
 
@@ -951,7 +962,7 @@ pub async fn inbox_post(
                 match activity.kind {
                     ApActivityType::Delete => inbox::activity::delete(conn, activity).await,
                     ApActivityType::Create => {
-                        inbox::activity::create(conn, faktory, events, activity, profile).await
+                        inbox::activity::create(conn, faktory, events, activity).await
                     }
                     ApActivityType::Follow => {
                         inbox::activity::follow(conn, faktory, events, activity, profile).await
@@ -967,19 +978,24 @@ pub async fn inbox_post(
                     ApActivityType::Announce => {
                         inbox::activity::announce(conn, faktory, events, activity).await
                     }
+                    ApActivityType::Update => {
+                        inbox::activity::update(conn, faktory, activity).await
+                    }
                     _ => {
-                        debug!("unknown activity\n{activity:#?}");
+                        log::warn!("UNIMPLEMENTED ACTIVITY\n{activity:#?}");
                         Err(Status::NoContent)
                     }
                 }
             } else {
+                log::debug!("FAILED TO CREATE REMOTE ACTIVITY");
                 Err(Status::NoContent)
             }
         } else {
+            log::debug!("FAILED TO RETRIEVE ACTOR");
             Err(Status::NoContent)
         }
     } else {
-        //log::debug!("request was unsigned or malformed in some way");
+        log::debug!("REQUEST WAS UNSIGNED OR MALFORMED");
         Err(Status::NoContent)
     }
 }
@@ -995,8 +1011,9 @@ fn rocket() -> _ {
         .mount(
             "/",
             routes![
+                person_redirect,
                 person,
-                profile,
+                //profile,
                 webfinger,
                 outbox_post,
                 inbox_post,
@@ -1019,6 +1036,7 @@ fn rocket() -> _ {
                 change_password,
                 note_get,
                 conversation_get,
+                conversation_get_local,
                 authorize_stream,
             ],
         )

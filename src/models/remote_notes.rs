@@ -9,7 +9,7 @@ use diesel::{AsChangeset, Identifiable, Insertable, Queryable};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-#[derive(Serialize, Deserialize, Insertable, Default, Debug)]
+#[derive(Serialize, Deserialize, Insertable, Default, Debug, AsChangeset)]
 #[table_name = "remote_notes"]
 pub struct NewRemoteNote {
     pub kind: String,
@@ -33,17 +33,16 @@ pub struct NewRemoteNote {
     pub content_map: Option<Value>,
 }
 
-type IdentifiedApNote = (ApNote, i32);
-impl From<IdentifiedApNote> for NewRemoteNote {
-    fn from(note: IdentifiedApNote) -> NewRemoteNote {
-        let published = match note.clone().0.published {
+impl From<ApNote> for NewRemoteNote {
+    fn from(note: ApNote) -> NewRemoteNote {
+        let published = match note.clone().published {
             Some(x) => Option::from(x),
             _ => Option::None,
         };
 
         let clean_content_map = {
             let mut content_map = HashMap::<String, String>::new();
-            if let Some(map) = (note.0).clone().content_map {
+            if let Some(map) = (note).clone().content_map {
                 for (key, value) in map {
                     content_map.insert(key, ammonia::clean(&value));
                 }
@@ -53,30 +52,30 @@ impl From<IdentifiedApNote> for NewRemoteNote {
         };
 
         NewRemoteNote {
-            url: note.0.clone().url,
+            url: note.clone().url,
             published,
-            kind: note.0.clone().kind.to_string(),
-            ap_id: note.0.clone().id.unwrap(),
-            attributed_to: Some(note.0.attributed_to),
-            ap_to: Option::from(serde_json::to_value(&note.0.to).unwrap()),
-            cc: Option::from(serde_json::to_value(&note.0.cc).unwrap()),
-            replies: Option::from(serde_json::to_value(&note.0.replies).unwrap()),
-            tag: Option::from(serde_json::to_value(&note.0.tag).unwrap()),
-            content: ammonia::clean(&note.0.content),
+            kind: note.clone().kind.to_string(),
+            ap_id: note.clone().id.unwrap(),
+            attributed_to: Some(note.attributed_to),
+            ap_to: Option::from(serde_json::to_value(&note.to).unwrap()),
+            cc: Option::from(serde_json::to_value(&note.cc).unwrap()),
+            replies: Option::from(serde_json::to_value(&note.replies).unwrap()),
+            tag: Option::from(serde_json::to_value(&note.tag).unwrap()),
+            content: ammonia::clean(&note.content),
             summary: {
-                if let Some(summary) = note.0.summary {
+                if let Some(summary) = note.summary {
                     Option::from(ammonia::clean(&summary))
                 } else {
                     Option::None
                 }
             },
-            ap_sensitive: note.0.sensitive,
-            atom_uri: note.0.atom_uri,
-            in_reply_to: note.0.in_reply_to,
-            in_reply_to_atom_uri: note.0.in_reply_to_atom_uri,
-            conversation: note.0.conversation,
+            ap_sensitive: note.sensitive,
+            atom_uri: note.atom_uri,
+            in_reply_to: note.in_reply_to,
+            in_reply_to_atom_uri: note.in_reply_to_atom_uri,
+            conversation: note.conversation,
             content_map: Option::from(serde_json::to_value(clean_content_map).unwrap()),
-            attachment: Option::from(serde_json::to_value(&note.0.attachment).unwrap()),
+            attachment: Option::from(serde_json::to_value(&note.attachment).unwrap()),
             ..Default::default()
         }
     }
@@ -119,5 +118,38 @@ pub async fn get_remote_note_by_ap_id(conn: &crate::db::Db, ap_id: String) -> Op
     {
         Ok(x) => Option::from(x),
         Err(_) => Option::None,
+    }
+}
+
+pub async fn delete_remote_note_by_ap_id(conn: &Db, ap_id: String) -> Result<(), ()> {
+    use crate::schema::remote_notes::dsl::{ap_id as a, remote_notes};
+
+    match conn
+        .run(move |c| diesel::delete(remote_notes.filter(a.eq(ap_id))).execute(c))
+        .await
+    {
+        Ok(_) => Ok(()),
+        Err(_) => Err(()),
+    }
+}
+
+pub async fn create_or_update_remote_note(conn: &Db, note: NewRemoteNote) -> Option<RemoteNote> {
+    match conn
+        .run(move |c| {
+            diesel::insert_into(remote_notes::table)
+                .values(&note)
+                .on_conflict(remote_notes::ap_id)
+                .do_update()
+                .set(&note)
+                .get_result::<RemoteNote>(c)
+                .optional()
+        })
+        .await
+    {
+        Ok(x) => x,
+        Err(e) => {
+            log::error!("DATABASE UPDATE FAILURE: {e:#?}");
+            Option::None
+        }
     }
 }

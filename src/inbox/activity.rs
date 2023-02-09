@@ -4,8 +4,7 @@ use crate::{
     },
     db::{
         create_follower, create_remote_encrypted_session, create_remote_note,
-        delete_follower_by_ap_id, delete_remote_actor_by_ap_id, get_remote_activity_by_ap_id,
-        update_leader_by_uuid, Db,
+        delete_follower_by_ap_id, get_remote_activity_by_ap_id, update_leader_by_uuid, Db,
     },
     fairings::{
         events::EventChannels,
@@ -14,21 +13,73 @@ use crate::{
     models::{
         followers::NewFollower,
         profiles::{update_olm_external_identity_keys_by_username, Profile},
+        remote_actors::{create_or_update_remote_actor, delete_remote_actor_by_ap_id},
         remote_announces::{create_remote_announce, NewRemoteAnnounce},
-        remote_notes::NewRemoteNote,
+        remote_notes::{create_or_update_remote_note, delete_remote_note_by_ap_id, NewRemoteNote},
+        timeline::delete_timeline_item_by_ap_id,
     },
 };
 use log::debug;
 use rocket::http::Status;
 
 pub async fn delete(conn: Db, activity: ApActivity) -> Result<Status, Status> {
-    if let ApObject::Plain(ap_id) = activity.object {
-        if ap_id == activity.actor && delete_remote_actor_by_ap_id(&conn, ap_id).await.is_ok() {
-            debug!("remote actor record deleted");
+    async fn delete_actor(conn: Db, ap_id: String) -> Result<Status, Status> {
+        if delete_remote_actor_by_ap_id(&conn, ap_id).await.is_ok() {
+            debug!("REMOTE ACTOR RECORD DELETED");
+            Ok(Status::Accepted)
+        } else {
+            Err(Status::NoContent)
         }
     }
 
-    Ok(Status::Accepted)
+    async fn delete_note(conn: &Db, ap_id: String) -> Result<Status, Status> {
+        if delete_remote_note_by_ap_id(conn, ap_id).await.is_ok() {
+            debug!("REMOTE NOTE RECORD DELETED");
+            Ok(Status::Accepted)
+        } else {
+            Err(Status::NoContent)
+        }
+    }
+
+    async fn delete_timeline(conn: &Db, ap_id: String) -> Result<Status, Status> {
+        if delete_timeline_item_by_ap_id(conn, ap_id).await.is_ok() {
+            debug!("TIMELINE RECORD DELETED");
+            Ok(Status::Accepted)
+        } else {
+            Err(Status::NoContent)
+        }
+    }
+
+    match activity.object {
+        ApObject::Plain(ap_id) => {
+            if ap_id == activity.actor {
+                delete_actor(conn, ap_id).await
+            } else {
+                debug!("DOESN'T MATCH ACTOR; ASSUMING NOTE");
+                if delete_note(&conn, ap_id.clone()).await.is_ok() {
+                    delete_timeline(&conn, ap_id).await
+                } else {
+                    Err(Status::NoContent)
+                }
+            }
+        }
+        ApObject::Identifier(obj) => {
+            if obj.id == activity.actor {
+                delete_actor(conn, obj.id).await
+            } else {
+                debug!("DOESN'T MATCH ACTOR; ASSUMING NOTE");
+                if delete_note(&conn, obj.clone().id).await.is_ok() {
+                    delete_timeline(&conn, obj.id).await
+                } else {
+                    Err(Status::NoContent)
+                }
+            }
+        }
+        _ => {
+            debug!("delete didn't match anything");
+            Err(Status::NoContent)
+        }
+    }
 }
 
 pub async fn create(
@@ -36,11 +87,10 @@ pub async fn create(
     faktory: FaktoryConnection,
     events: EventChannels,
     activity: ApActivity,
-    profile: Profile,
 ) -> Result<Status, Status> {
     match activity.object {
         ApObject::Note(x) => {
-            let n = NewRemoteNote::from((x.clone(), profile.id));
+            let n = NewRemoteNote::from(x.clone());
 
             if let Some(created_note) = create_remote_note(&conn, n).await {
                 //log::debug!("created_remote_note\n{:#?}", created_note);
@@ -281,5 +331,56 @@ pub async fn join(
         }
     } else {
         Err(Status::NoContent)
+    }
+}
+
+pub async fn update(
+    conn: Db,
+    faktory: FaktoryConnection,
+    activity: ApActivity,
+) -> Result<Status, Status> {
+    match activity.object {
+        ApObject::Actor(actor) => {
+            log::debug!("UPDATING ACTOR: {}", actor.clone().id.unwrap_or_default());
+
+            if actor.clone().id.unwrap_or_default() == activity.actor
+                && create_or_update_remote_actor(&conn, actor.into())
+                    .await
+                    .is_some()
+            {
+                Ok(Status::Accepted)
+            } else {
+                Err(Status::NoContent)
+            }
+        }
+        ApObject::Note(note) => {
+            if let Some(id) = note.clone().id {
+                log::debug!("UPDATING NOTE: {}", id);
+
+                if note.clone().attributed_to == activity.actor
+                    && create_or_update_remote_note(&conn, note.into())
+                        .await
+                        .is_some()
+                {
+                    match assign_to_faktory(
+                        faktory,
+                        String::from("update_timeline_record"),
+                        vec![id],
+                    ) {
+                        Ok(_) => Ok(Status::Accepted),
+                        Err(_) => Err(Status::NoContent),
+                    }
+                } else {
+                    Err(Status::NoContent)
+                }
+            } else {
+                log::warn!("MISSING NOTE ID: {note:#?}");
+                Err(Status::NoContent)
+            }
+        }
+        _ => {
+            log::debug!("UNIMPLEMENTED UPDATE TYPE");
+            Err(Status::NoContent)
+        }
     }
 }

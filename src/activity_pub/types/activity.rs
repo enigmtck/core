@@ -1,25 +1,12 @@
 use crate::{
     activity_pub::{ApActivityType, ApContext, ApInstrument, ApNote, ApObject, ApSession},
-    models::{notes::NewNote, remote_activities::RemoteActivity, remote_announces::RemoteAnnounce},
+    models::{remote_activities::RemoteActivity, remote_announces::RemoteAnnounce},
 };
 use serde::{Deserialize, Serialize};
 use serde_with::serde_as;
 use std::fmt::Debug;
-use uuid::Uuid;
 
-use rocket::{
-    data::{Data, FromData, Outcome, ToByteUnit},
-    http::RawStr,
-    http::Status,
-    request::FromParam,
-    response::stream::{Event, EventStream},
-    serde::json::{Error, Json},
-    tokio::select,
-    tokio::time::{self, Duration},
-    Request, Shutdown,
-};
-
-use super::object::ApProof;
+use super::object::{ApProof, ApSignature};
 
 #[serde_as]
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -41,6 +28,8 @@ pub struct ApActivity {
     pub published: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub proof: Option<ApProof>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub signature: Option<ApSignature>,
     pub object: ApObject,
 }
 
@@ -57,6 +46,7 @@ impl Default for ApActivity {
             cc: Option::None,
             published: Option::None,
             proof: Option::None,
+            signature: Option::None,
             object: ApObject::default(),
         }
     }
@@ -114,6 +104,7 @@ impl From<RemoteActivity> for ApActivity {
             ),
             published: activity.published,
             proof: Option::None,
+            signature: Option::None,
             object: serde_json::from_value(activity.ap_object.unwrap()).unwrap(),
         }
     }
@@ -134,6 +125,7 @@ impl From<RemoteAnnounce> for ApActivity {
             ),
             published: Some(activity.published),
             proof: Option::None,
+            signature: Option::None,
             object: serde_json::from_value(activity.ap_object).unwrap(),
         }
     }

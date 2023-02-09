@@ -25,14 +25,13 @@ impl<'r> FromRequest<'r> for Signed {
     type Error = SignatureError;
 
     async fn from_request(request: &'r Request<'_>) -> Outcome<Self, Self::Error> {
+        log::debug!("REQUEST\n{request:#?}");
+
         let conn = request.guard::<Db>().await.unwrap();
         let method = request.method().to_string();
         let host = request.host().unwrap().to_string();
-        //let path = request.uri().path().to_string();
         let path = request.uri().to_string();
         let path = path.trim_end_matches('&');
-
-        //log::debug!("request: {:#?}", request);
 
         let username_re = regex::Regex::new(r"(?:/api)?(/user/)([a-zA-Z0-9_]+)(/.*)").unwrap();
         if let Some(username_match) = username_re.captures(path) {
@@ -62,6 +61,12 @@ impl<'r> FromRequest<'r> for Signed {
                             digest = Option::from(digest_vec[0].to_string());
                         }
 
+                        let mut user_agent = Option::<String>::None;
+                        let user_agent_vec: Vec<_> = request.headers().get("user-agent").collect();
+                        if user_agent_vec.len() == 1 {
+                            user_agent = Option::from(user_agent_vec[0].to_string());
+                        }
+
                         let content_type = request.content_type().unwrap().to_string();
 
                         let signature_vec: Vec<_> = request.headers().get("signature").collect();
@@ -84,6 +89,7 @@ impl<'r> FromRequest<'r> for Signed {
                                         date,
                                         digest,
                                         content_type,
+                                        user_agent,
                                     },
                                 )
                                 .await;

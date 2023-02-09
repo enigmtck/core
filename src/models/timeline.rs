@@ -9,7 +9,7 @@ use serde_json::Value;
 
 use super::remote_notes::RemoteNote;
 
-#[derive(Serialize, Deserialize, Insertable, Default, Debug, Clone)]
+#[derive(Serialize, Deserialize, Insertable, Default, Debug, Clone, AsChangeset)]
 #[table_name = "timeline"]
 pub struct NewTimelineItem {
     pub tag: Option<Value>,
@@ -268,5 +268,17 @@ pub async fn get_timeline_items_by_conversation(
     {
         Ok(x) => x,
         Err(_) => vec![],
+    }
+}
+
+pub async fn delete_timeline_item_by_ap_id(conn: &Db, ap_id: String) -> Result<(), ()> {
+    use crate::schema::timeline::dsl::{ap_id as a, timeline};
+
+    match conn
+        .run(move |c| diesel::delete(timeline.filter(a.eq(ap_id))).execute(c))
+        .await
+    {
+        Ok(_) => Ok(()),
+        Err(_) => Err(()),
     }
 }

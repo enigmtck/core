@@ -3,11 +3,12 @@ use reqwest::StatusCode;
 
 use crate::activity_pub::{ApActor, ApObject};
 use crate::db::create_remote_note;
-use crate::db::{create_remote_actor, get_remote_actor_by_ap_id, Db};
+use crate::db::Db;
 use crate::models::leaders::get_leader_by_actor_ap_id_and_profile;
 use crate::models::leaders::Leader;
 use crate::models::profiles::Profile;
-use crate::models::remote_actors::{NewRemoteActor, RemoteActor};
+use crate::models::remote_actors::get_remote_actor_by_ap_id;
+use crate::models::remote_actors::{create_or_update_remote_actor, NewRemoteActor, RemoteActor};
 use crate::models::remote_notes::get_remote_note_by_ap_id;
 use crate::models::remote_notes::NewRemoteNote;
 use crate::signing::{sign, Method, SignParams};
@@ -31,7 +32,7 @@ pub async fn get_remote_webfinger(acct: String) -> Option<WebFinger> {
     let username = username.unwrap_or_default();
     let server = server.unwrap_or_default();
 
-    let url = format!("https://{server}/.well-known/webfinger?resource=acct:{username}@{server}");
+    let url = format!("https://{server}/.well-known/webfinger/?resource=acct:{username}@{server}");
 
     let client = Client::new();
 
@@ -78,28 +79,36 @@ pub async fn get_note(conn: &Db, profile: Profile, id: String) -> Option<ApNote>
                 .await
             {
                 Ok(resp) => match resp.status() {
-                    StatusCode::ACCEPTED | StatusCode::OK => match resp.json().await {
-                        Ok(note) => {
-                            create_remote_note(conn, NewRemoteNote::from((note, profile.id)))
-                                .await
-                                .map(|n| n.into())
+                    StatusCode::ACCEPTED | StatusCode::OK => match resp.text().await {
+                        Ok(n) => {
+                            let note = match serde_json::from_str::<ApNote>(&n) {
+                                Ok(note) => Option::from(note),
+                                Err(_) => {
+                                    log::error!("FAILED TO DECODE REMOTE NOTE: {n:#?}");
+                                    Option::None
+                                }
+                            };
+
+                            if let Some(note) = note {
+                                create_remote_note(conn, NewRemoteNote::from(note.clone())).await;
+                                note.into()
+                            } else {
+                                log::error!("FAILED TO CREATE REMOTE NOTE: {n:#?}");
+                                Option::None
+                            }
                         }
                         Err(e) => {
-                            log::error!("remote note decode error: {e:#?}");
+                            log::error!("FAILED TO UNPACK REMOTE NOTE: {e:#?}");
                             Option::None
                         }
                     },
-                    StatusCode::GONE => {
-                        log::debug!("GONE: {:#?}", resp.status());
-                        Option::None
-                    }
                     _ => {
-                        log::debug!("STATUS: {:#?}", resp.status());
+                        log::debug!("REMOTE NOTE STATUS: {:#?}", resp.status());
                         Option::None
                     }
                 },
                 Err(e) => {
-                    log::debug!("{:#?}", e);
+                    log::error!("FAILED TO RETRIEVE REMOTE NOTE: {e:#?}");
                     Option::None
                 }
             }
@@ -153,7 +162,7 @@ pub async fn get_actor(
                     StatusCode::ACCEPTED | StatusCode::OK => {
                         //log::debug!("resp: {resp:#?}");
                         let actor: ApActor = resp.json().await.unwrap();
-                        create_remote_actor(conn, NewRemoteActor::from(actor))
+                        create_or_update_remote_actor(conn, NewRemoteActor::from(actor))
                             .await
                             .map(|a| (a, Option::None))
                     }

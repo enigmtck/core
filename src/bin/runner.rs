@@ -129,6 +129,24 @@ pub fn create_timeline_item_cc(timeline_item_cc: NewTimelineItemCc) -> Option<Ti
     }
 }
 
+pub fn update_timeline_items(timeline_item: NewTimelineItem) -> Vec<TimelineItem> {
+    use enigmatick::schema::timeline::dsl::{ap_id, content, timeline};
+
+    if let Ok(conn) = POOL.get() {
+        match diesel::update(timeline.filter(ap_id.eq(timeline_item.ap_id)))
+            .set(content.eq(timeline_item.content))
+            .get_results::<TimelineItem>(&conn)
+        {
+            Ok(x) => x,
+            Err(e) => {
+                vec![]
+            }
+        }
+    } else {
+        vec![]
+    }
+}
+
 pub fn create_timeline_item(timeline_item: NewTimelineItem) -> Option<TimelineItem> {
     use enigmatick::schema::timeline;
 
@@ -1148,6 +1166,38 @@ fn process_outbound_note(job: Job) -> io::Result<()> {
     Ok(())
 }
 
+fn update_timeline_record(job: Job) -> io::Result<()> {
+    use enigmatick::schema::remote_notes::dsl::{ap_id as rn_id, remote_notes};
+
+    debug!("running update_timeline_record job");
+
+    let ap_ids = job.args();
+
+    match POOL.get() {
+        Ok(conn) => {
+            for ap_id in ap_ids {
+                let ap_id = ap_id.as_str().unwrap().to_string();
+                debug!("looking for ap_id: {}", ap_id);
+
+                match remote_notes
+                    .filter(rn_id.eq(ap_id))
+                    .first::<RemoteNote>(&conn)
+                {
+                    Ok(remote_note) => {
+                        if remote_note.kind == "Note" {
+                            update_timeline_items(remote_note.clone().into());
+                        }
+                    }
+                    Err(e) => error!("error: {:#?}", e),
+                }
+            }
+        }
+        Err(e) => error!("error: {:#?}", e),
+    }
+
+    Ok(())
+}
+
 fn main() {
     env_logger::init();
 
@@ -1163,6 +1213,7 @@ fn main() {
     consumer.register("process_outbound_note", process_outbound_note);
     consumer.register("process_announce", process_announce);
     consumer.register("send_kexinit", send_kexinit);
+    consumer.register("update_timeline_record", update_timeline_record);
 
     consumer.register("test_job", |job| {
         debug!("{:#?}", job);

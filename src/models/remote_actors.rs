@@ -1,3 +1,5 @@
+use crate::activity_pub::ApContext;
+use crate::db::Db;
 use crate::schema::remote_actors;
 use crate::{activity_pub::ApActor, helper::handle_option};
 use chrono::{DateTime, Utc};
@@ -6,7 +8,7 @@ use diesel::{AsChangeset, Identifiable, Insertable, Queryable};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-#[derive(Serialize, Deserialize, Insertable)]
+#[derive(Serialize, Deserialize, Insertable, AsChangeset)]
 #[table_name = "remote_actors"]
 pub struct NewRemoteActor {
     pub context: Value,
@@ -39,12 +41,18 @@ pub struct NewRemoteActor {
 impl From<ApActor> for NewRemoteActor {
     fn from(actor: ApActor) -> NewRemoteActor {
         NewRemoteActor {
-            context: serde_json::to_value(actor.context.unwrap()).unwrap(),
+            context: {
+                if let Some(context) = actor.context {
+                    serde_json::to_value(context).unwrap()
+                } else {
+                    serde_json::to_value(ApContext::default()).unwrap()
+                }
+            },
             kind: actor.kind.to_string(),
             ap_id: actor.id.unwrap(),
             name: actor.name.unwrap(),
             preferred_username: actor.preferred_username,
-            summary: actor.summary.unwrap(),
+            summary: actor.summary.unwrap_or_default(),
             inbox: actor.inbox,
             outbox: actor.outbox,
             followers: actor.followers,
@@ -102,11 +110,59 @@ pub struct RemoteActor {
     pub capabilities: Option<Value>,
 }
 
-pub async fn get_remote_actor_by_url(conn: &crate::db::Db, url: String) -> Option<RemoteActor> {
+pub async fn get_remote_actor_by_url(conn: &Db, url: String) -> Option<RemoteActor> {
     use crate::schema::remote_actors::dsl::{remote_actors, url as u};
 
     match conn
         .run(move |c| remote_actors.filter(u.eq(url)).first::<RemoteActor>(c))
+        .await
+    {
+        Ok(x) => Option::from(x),
+        Err(_) => Option::None,
+    }
+}
+
+pub async fn create_or_update_remote_actor(
+    conn: &Db,
+    actor: NewRemoteActor,
+) -> Option<RemoteActor> {
+    match conn
+        .run(move |c| {
+            diesel::insert_into(remote_actors::table)
+                .values(&actor)
+                .on_conflict(remote_actors::ap_id)
+                .do_update()
+                .set(&actor)
+                .get_result::<RemoteActor>(c)
+                .optional()
+        })
+        .await
+    {
+        Ok(x) => x,
+        Err(e) => {
+            log::debug!("database failure: {:#?}", e);
+            Option::None
+        }
+    }
+}
+
+pub async fn delete_remote_actor_by_ap_id(conn: &Db, remote_actor_ap_id: String) -> Result<(), ()> {
+    use crate::schema::remote_actors::dsl::{ap_id, remote_actors};
+
+    match conn
+        .run(move |c| diesel::delete(remote_actors.filter(ap_id.eq(remote_actor_ap_id))).execute(c))
+        .await
+    {
+        Ok(_) => Ok(()),
+        Err(_) => Err(()),
+    }
+}
+
+pub async fn get_remote_actor_by_ap_id(conn: &Db, apid: String) -> Option<RemoteActor> {
+    use crate::schema::remote_actors::dsl::{ap_id, remote_actors};
+
+    match conn
+        .run(move |c| remote_actors.filter(ap_id.eq(apid)).first::<RemoteActor>(c))
         .await
     {
         Ok(x) => Option::from(x),

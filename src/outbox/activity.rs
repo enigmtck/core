@@ -2,13 +2,53 @@ use crate::{
     activity_pub::{sender, ApActivity, ApIdentifier, ApObject},
     db::{
         create_leader, create_remote_activity, delete_leader, get_leader_by_profile_id_and_ap_id,
-        get_remote_actor_by_ap_id, Db,
+        Db,
     },
     fairings::events::EventChannels,
-    models::{leaders::NewLeader, profiles::Profile},
+    models::{leaders::NewLeader, profiles::Profile, remote_actors::get_remote_actor_by_ap_id},
 };
 use log::debug;
 use rocket::http::Status;
+
+pub async fn undo_follow(
+    conn: Db,
+    events: EventChannels,
+    mut activity: ApActivity,
+    profile: Profile,
+    ap_id: String,
+) -> bool {
+    if let Some(leader) = get_leader_by_profile_id_and_ap_id(&conn, profile.id, ap_id.clone()).await
+    {
+        debug!("LEADER RETRIEVED: {leader:#?}");
+        let locator = format!("{}/leader/{}", *crate::SERVER_URL, leader.uuid);
+        activity.object = ApObject::Identifier(ApIdentifier { id: locator });
+
+        if let Some(actor) = get_remote_actor_by_ap_id(&conn, ap_id).await {
+            if sender::send_activity(activity.clone(), profile, actor.inbox)
+                .await
+                .is_ok()
+            {
+                debug!("UNDO FOLLOW REQUEST SENT");
+                if delete_leader(&conn, leader.id).await.is_ok() {
+                    debug!("LEADER RECORD DELETED");
+
+                    let mut events = events;
+                    events.send(serde_json::to_string(&activity).unwrap());
+
+                    true
+                } else {
+                    false
+                }
+            } else {
+                false
+            }
+        } else {
+            false
+        }
+    } else {
+        false
+    }
+}
 
 pub async fn undo(
     conn: Db,
@@ -18,41 +58,12 @@ pub async fn undo(
 ) -> Result<Status, Status> {
     activity.actor = format!("{}/user/{}", *crate::SERVER_URL, profile.username);
 
-    if let ApObject::Plain(ap_id) = activity.object {
-        if let Some(leader) =
-            get_leader_by_profile_id_and_ap_id(&conn, profile.id, ap_id.clone()).await
-        {
-            // taking the leader ap_id and converting it to the leader uuid locator seems
-            // like cheating here. but I'm doing it anyway.
-            debug!("leader retrieved: {}", leader.uuid);
-            let locator = format!("{}/leader/{}", *crate::SERVER_URL, leader.uuid);
-
-            activity.object = ApObject::Identifier(ApIdentifier { id: locator });
-            debug!("updated activity\n{:#?}", activity);
-
-            if let Some(actor) = get_remote_actor_by_ap_id(&conn, ap_id).await {
-                if sender::send_activity(activity.clone(), profile, actor.inbox)
-                    .await
-                    .is_ok()
-                {
-                    debug!("sent undo follow request successfully");
-                    if delete_leader(&conn, leader.id).await.is_ok() {
-                        debug!("leader record deleted successfully");
-
-                        let mut events = events;
-                        events.send(serde_json::to_string(&activity).unwrap());
-
-                        Ok(Status::Accepted)
-                    } else {
-                        Err(Status::NoContent)
-                    }
-                } else {
-                    Err(Status::NoContent)
-                }
-            } else {
-                Err(Status::NoContent)
-            }
+    if let ApObject::Plain(ap_id) = activity.clone().object {
+        if undo_follow(conn, events, activity.clone(), profile, ap_id).await {
+            Ok(Status::Accepted)
         } else {
+            log::warn!("UNDO ACTION MAY BE UNIMPLEMENTED");
+            log::debug!("ACTIVITY\n{activity:#?}");
             Err(Status::NoContent)
         }
     } else {

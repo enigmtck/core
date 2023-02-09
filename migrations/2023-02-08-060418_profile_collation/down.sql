@@ -1,0 +1,3 @@
+ALTER TABLE profiles ALTER COLUMN username SET DATA TYPE VARCHAR;
+DROP COLLATION case_insensitive;
+
