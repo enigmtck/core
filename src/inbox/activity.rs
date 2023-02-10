@@ -4,7 +4,7 @@ use crate::{
     },
     db::{
         create_follower, create_remote_encrypted_session, create_remote_note,
-        delete_follower_by_ap_id, get_remote_activity_by_ap_id, update_leader_by_uuid, Db,
+        delete_follower_by_ap_id, update_leader_by_uuid, Db,
     },
     fairings::{
         events::EventChannels,
@@ -12,7 +12,8 @@ use crate::{
     },
     models::{
         followers::NewFollower,
-        profiles::{update_olm_external_identity_keys_by_username, Profile},
+        profiles::{get_profile_by_ap_id, update_olm_external_identity_keys_by_username, Profile},
+        remote_activities::get_remote_activity_by_ap_id,
         remote_actors::{create_or_update_remote_actor, delete_remote_actor_by_ap_id},
         remote_announces::{create_remote_announce, NewRemoteAnnounce},
         remote_notes::{create_or_update_remote_note, delete_remote_note_by_ap_id, NewRemoteNote},
@@ -150,27 +151,38 @@ pub async fn follow(
     faktory: FaktoryConnection,
     events: EventChannels,
     activity: ApActivity,
-    profile: Profile,
 ) -> Result<Status, Status> {
-    let mut f = NewFollower::from(activity.clone());
-    f.profile_id = profile.id;
+    if let Some(to) = activity.clone().to {
+        if to.len() == 1 {
+            if let Some(profile) = get_profile_by_ap_id(&conn, to[0].clone()).await {
+                let mut f = NewFollower::from(activity.clone());
+                f.profile_id = profile.id;
 
-    if let Some(created_follower) = create_follower(&conn, f).await {
-        //log::debug!("created_follower\n{:#?}", created_follower);
+                if let Some(created_follower) = create_follower(&conn, f).await {
+                    //log::debug!("created_follower\n{:#?}", created_follower);
 
-        let mut events = events;
-        events.send(serde_json::to_string(&activity).unwrap());
+                    let mut events = events;
+                    events.send(serde_json::to_string(&activity).unwrap());
 
-        match assign_to_faktory(
-            faktory,
-            String::from("acknowledge_followers"),
-            vec![created_follower.uuid],
-        ) {
-            Ok(_) => Ok(Status::Accepted),
-            Err(_) => Err(Status::NoContent),
+                    match assign_to_faktory(
+                        faktory,
+                        String::from("acknowledge_followers"),
+                        vec![created_follower.uuid],
+                    ) {
+                        Ok(_) => Ok(Status::Accepted),
+                        Err(_) => Err(Status::NoContent),
+                    }
+                } else {
+                    log::debug!("create_follower failed");
+                    Err(Status::NoContent)
+                }
+            } else {
+                Err(Status::NoContent)
+            }
+        } else {
+            Err(Status::NoContent)
         }
     } else {
-        log::debug!("create_follower failed");
         Err(Status::NoContent)
     }
 }
@@ -275,20 +287,32 @@ pub async fn invite(
     conn: Db,
     faktory: FaktoryConnection,
     activity: ApActivity,
-    profile: Profile,
 ) -> Result<Status, Status> {
-    save_identity_key(&conn, activity.clone(), profile.clone()).await;
+    if let Some(to) = activity.clone().to {
+        if to.len() == 1 {
+            if let Some(profile) = get_profile_by_ap_id(&conn, to[0].clone()).await {
+                save_identity_key(&conn, activity.clone(), profile.clone()).await;
 
-    if let Some(session) =
-        create_remote_encrypted_session(&conn, (activity.clone(), profile.id).into()).await
-    {
-        match assign_to_faktory(
-            faktory,
-            String::from("provide_one_time_key"),
-            vec![session.ap_id],
-        ) {
-            Ok(_) => Ok(Status::Accepted),
-            Err(_) => Err(Status::NoContent),
+                if let Some(session) =
+                    create_remote_encrypted_session(&conn, (activity.clone(), profile.id).into())
+                        .await
+                {
+                    match assign_to_faktory(
+                        faktory,
+                        String::from("provide_one_time_key"),
+                        vec![session.ap_id],
+                    ) {
+                        Ok(_) => Ok(Status::Accepted),
+                        Err(_) => Err(Status::NoContent),
+                    }
+                } else {
+                    Err(Status::NoContent)
+                }
+            } else {
+                Err(Status::NoContent)
+            }
+        } else {
+            Err(Status::NoContent)
         }
     } else {
         Err(Status::NoContent)
@@ -299,33 +323,50 @@ pub async fn join(
     conn: Db,
     faktory: FaktoryConnection,
     activity: ApActivity,
-    profile: Profile,
 ) -> Result<Status, Status> {
-    if create_remote_encrypted_session(&conn, (activity.clone(), profile.id).into())
-        .await
-        .is_some()
-    {
-        if let ApObject::Session(session) = activity.object {
-            if let Some(ap_id) = session.id {
-                match assign_to_faktory(faktory, String::from("process_join"), vec![ap_id]) {
-                    Ok(_) => Ok(Status::Accepted),
-                    Err(_) => Err(Status::NoContent),
+    if let Some(to) = activity.clone().to {
+        if to.len() == 1 {
+            if let Some(profile) = get_profile_by_ap_id(&conn, to[0].clone()).await {
+                if create_remote_encrypted_session(&conn, (activity.clone(), profile.id).into())
+                    .await
+                    .is_some()
+                {
+                    if let ApObject::Session(session) = activity.object {
+                        if let Some(ap_id) = session.id {
+                            match assign_to_faktory(
+                                faktory,
+                                String::from("process_join"),
+                                vec![ap_id],
+                            ) {
+                                Ok(_) => Ok(Status::Accepted),
+                                Err(_) => Err(Status::NoContent),
+                            }
+                        } else {
+                            log::error!(
+                                "no id found on ApSession (remote_encrypted_session) object"
+                            );
+                            Err(Status::NoContent)
+                        }
+                        // // this is the inbox; we shouldn't be creating the encrypted_session here;
+                        // // that's an outbox activity to generate the UUID that will be used by remote
+                        // // servers for locally-created assets.
+                        // if create_encrypted_session(
+                        //     &conn,
+                        //     (session, profile.id).into()
+                        // ).await.is_some() {
+                        //     Ok(Status::Accepted)
+                        // } else {
+                        //     Err(Status::NoContent)
+                        // }
+                    } else {
+                        Err(Status::NoContent)
+                    }
+                } else {
+                    Err(Status::NoContent)
                 }
             } else {
-                log::error!("no id found on ApSession (remote_encrypted_session) object");
                 Err(Status::NoContent)
             }
-            // // this is the inbox; we shouldn't be creating the encrypted_session here;
-            // // that's an outbox activity to generate the UUID that will be used by remote
-            // // servers for locally-created assets.
-            // if create_encrypted_session(
-            //     &conn,
-            //     (session, profile.id).into()
-            // ).await.is_some() {
-            //     Ok(Status::Accepted)
-            // } else {
-            //     Err(Status::NoContent)
-            // }
         } else {
             Err(Status::NoContent)
         }

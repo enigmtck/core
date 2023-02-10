@@ -6,6 +6,7 @@ use crate::db::create_remote_note;
 use crate::db::Db;
 use crate::models::leaders::get_leader_by_actor_ap_id_and_profile;
 use crate::models::leaders::Leader;
+use crate::models::profiles::get_profile_by_username;
 use crate::models::profiles::Profile;
 use crate::models::remote_actors::get_remote_actor_by_ap_id;
 use crate::models::remote_actors::{create_or_update_remote_actor, NewRemoteActor, RemoteActor};
@@ -116,40 +117,38 @@ pub async fn get_note(conn: &Db, profile: Profile, id: String) -> Option<ApNote>
     }
 }
 
-pub async fn get_actor(
-    conn: &Db,
-    profile: Profile,
-    id: String,
-) -> Option<(RemoteActor, Option<Leader>)> {
+pub async fn get_actor(conn: &Db, id: String) -> Option<RemoteActor> {
+    //if let Some(profile) = get_profile_by_username(conn, username).await {
     match get_remote_actor_by_ap_id(conn, id.clone()).await {
         Some(remote_actor) => {
             log::debug!("actor retrieved from storage");
 
-            Option::from((
-                remote_actor,
-                get_leader_by_actor_ap_id_and_profile(conn, id, profile.id).await,
-            ))
+            // Option::from((
+            //     remote_actor,
+            //     get_leader_by_actor_ap_id_and_profile(conn, id, profile.id).await,
+            // ))
+            Option::from(remote_actor)
         }
         None => {
             log::debug!("performing remote lookup for actor");
 
-            let url = id.clone();
-            let body = Option::None;
-            let method = Method::Get;
+            // let url = id.clone();
+            // let body = Option::None;
+            // let method = Method::Get;
 
-            let signature = sign(SignParams {
-                profile,
-                url,
-                body,
-                method,
-            });
+            // let signature = sign(SignParams {
+            //     profile,
+            //     url,
+            //     body,
+            //     method,
+            // });
 
             let client = Client::builder();
             let client = client.user_agent("Enigmatick/0.1").build().unwrap();
             let inter = client
                 .get(&id)
-                .header("Signature", &signature.signature)
-                .header("Date", signature.date)
+                //    .header("Signature", &signature.signature)
+                //    .header("Date", signature.date)
                 .header(
                     "Accept",
                     "application/ld+json; profile=\"https://www.w3.org/ns/activitystreams\"",
@@ -162,9 +161,7 @@ pub async fn get_actor(
                     StatusCode::ACCEPTED | StatusCode::OK => {
                         //log::debug!("resp: {resp:#?}");
                         let actor: ApActor = resp.json().await.unwrap();
-                        create_or_update_remote_actor(conn, NewRemoteActor::from(actor))
-                            .await
-                            .map(|a| (a, Option::None))
+                        create_or_update_remote_actor(conn, NewRemoteActor::from(actor)).await
                     }
                     StatusCode::GONE => {
                         log::debug!("GONE: {:#?}", resp.status());
@@ -182,15 +179,18 @@ pub async fn get_actor(
             }
         }
     }
+    // } else {
+    //     Option::None
+    // }
 }
 
 pub async fn get_followers(conn: &Db, profile: Profile, id: String, page: Option<usize>) {
-    if let Some(actor) = get_actor(conn, profile.clone(), id.clone()).await {
+    if let Some(actor) = get_actor(conn, id.clone()).await {
         log::debug!("performing remote lookup for actor's followers");
 
         let page = match page {
-            Some(x) => format!("{}?page={}", actor.0.followers, x),
-            None => actor.0.followers.to_string(),
+            Some(x) => format!("{}?page={}", actor.followers, x),
+            None => actor.followers.to_string(),
         };
 
         let url = page.clone();

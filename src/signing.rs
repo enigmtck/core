@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 
 use crate::activity_pub::{retriever, ApActor, ApPublicKey};
-use crate::db::{get_profile_by_username, Db};
-use crate::models::profiles::Profile;
+use crate::db::Db;
+use crate::models::profiles::{get_profile_by_username, Profile};
 use rsa::pkcs1v15::{SigningKey, VerifyingKey};
 use rsa::signature::{RandomizedSigner, Signature, Verifier};
 use rsa::{pkcs8::DecodePrivateKey, pkcs8::DecodePublicKey, RsaPrivateKey, RsaPublicKey};
@@ -26,7 +26,7 @@ pub struct VerifyParams {
 fn build_verify_string(
     params: VerifyParams,
 ) -> (String, String, String, Option<String>, bool, Option<String>) {
-    log::debug!("VERIFY\n{params:#?}");
+    log::debug!("VERIFY SIGNATURE\n{:#?}", params.signature);
 
     let mut signature_map = HashMap::<String, String>::new();
 
@@ -93,14 +93,10 @@ pub enum VerificationType {
 }
 
 pub async fn verify(conn: Db, params: VerifyParams) -> (bool, VerificationType) {
-    log::debug!("VERIFY\n{params:#?}");
-
     let (verify_string, signature_str, ap_id, key_selector, local, username) =
         build_verify_string(params.clone());
 
     fn verify(public_key: RsaPublicKey, signature_str: String, verify_string: String) -> bool {
-        log::debug!("SIGNATURE\n{signature_str:#?}");
-
         let verifying_key: VerifyingKey<Sha256> = VerifyingKey::new_with_prefix(public_key);
 
         let s = base64::decode(signature_str.as_bytes()).unwrap();
@@ -112,6 +108,8 @@ pub async fn verify(conn: Db, params: VerifyParams) -> (bool, VerificationType) 
                 true
             }
             Err(_) => {
+                log::debug!("SIGNATURE STRING\n{signature_str:#?}");
+                log::debug!("VERIFY STRING\n{verify_string:#?}");
                 log::warn!("SIGNATURE VERIFICATION FAILED");
                 false
             }
@@ -139,8 +137,8 @@ pub async fn verify(conn: Db, params: VerifyParams) -> (bool, VerificationType) 
         } else {
             (false, VerificationType::Local)
         }
-    } else if let Some(actor) = retriever::get_actor(&conn, params.profile, ap_id).await {
-        if let Some(public_key_value) = actor.0.public_key {
+    } else if let Some(actor) = retriever::get_actor(&conn, ap_id).await {
+        if let Some(public_key_value) = actor.public_key {
             if let Ok(public_key) = serde_json::from_value::<ApPublicKey>(public_key_value) {
                 if let Ok(public_key) =
                     RsaPublicKey::from_public_key_pem(&public_key.public_key_pem)
@@ -199,8 +197,6 @@ pub struct SignResponse {
 }
 
 pub fn sign(params: SignParams) -> SignResponse {
-    log::debug!("SIGN\n{params:#?}");
-
     // (request-target): post /users/justin/inbox
     // host: ser.endipito.us
     // date: Tue, 20 Dec 2022 22:02:48 GMT
@@ -227,6 +223,8 @@ pub fn sign(params: SignParams) -> SignResponse {
 
     let now = SystemTime::now();
     let date = httpdate::fmt_http_date(now);
+
+    log::debug!("SIGN {url}, {host}, {request_target}, {date}");
 
     let actor = ApActor::from(params.profile.clone());
 

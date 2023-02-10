@@ -1,5 +1,6 @@
 use crate::{
-    db::{get_profile_by_username, Db},
+    db::Db,
+    models::profiles::get_profile_by_username,
     signing::{verify, VerificationType, VerifyParams},
 };
 

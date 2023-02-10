@@ -308,30 +308,6 @@ pub async fn create_note(conn: &Db, note: NewNote) -> Option<Note> {
     }
 }
 
-pub async fn create_remote_activity(
-    conn: &Db,
-    remote_activity: NewRemoteActivity,
-) -> Option<RemoteActivity> {
-    use schema::remote_activities;
-
-    match conn
-        .run(move |c| {
-            diesel::insert_into(remote_activities::table)
-                .values(&remote_activity)
-                .on_conflict(remote_activities::ap_id)
-                .do_nothing()
-                .get_result::<RemoteActivity>(c)
-        })
-        .await
-    {
-        Ok(x) => Some(x),
-        Err(e) => {
-            log::debug!("failed to create remote_activity (probably a duplicate): {e:#?}");
-            Option::None
-        }
-    }
-}
-
 pub async fn create_remote_note(conn: &Db, remote_note: NewRemoteNote) -> Option<RemoteNote> {
     use schema::remote_notes;
 
@@ -349,66 +325,6 @@ pub async fn create_remote_note(conn: &Db, remote_note: NewRemoteNote) -> Option
         Err(_) => Option::None,
     }
 }
-
-pub async fn create_profile(conn: &Db, profile: NewProfile) -> Option<Profile> {
-    use schema::profiles;
-
-    match conn
-        .run(move |c| {
-            diesel::insert_into(profiles::table)
-                .values(&profile)
-                .get_result::<Profile>(c)
-        })
-        .await
-    {
-        Ok(x) => Some(x),
-        Err(e) => {
-            log::debug!("database failure: {:#?}", e);
-            Option::None
-        }
-    }
-}
-
-pub async fn get_profile(conn: &Db, id: i32) -> Option<Profile> {
-    use self::schema::profiles::dsl::profiles;
-
-    match conn
-        .run(move |c| profiles.find(id).first::<Profile>(c))
-        .await
-    {
-        Ok(x) => Option::from(x),
-        Err(_) => Option::None,
-    }
-}
-
-pub async fn get_profile_by_username(conn: &Db, username: String) -> Option<Profile> {
-    use self::schema::profiles::dsl::{profiles, username as uname};
-
-    match conn
-        .run(move |c| profiles.filter(uname.eq(username)).first::<Profile>(c))
-        .await
-    {
-        Ok(x) => Option::from(x),
-        Err(_) => Option::None,
-    }
-}
-
-pub async fn get_remote_activity_by_ap_id(conn: &Db, ap_id: String) -> Option<RemoteActivity> {
-    use self::schema::remote_activities::dsl::{ap_id as aid, remote_activities};
-
-    match conn
-        .run(move |c| {
-            remote_activities
-                .filter(aid.eq(ap_id))
-                .first::<RemoteActivity>(c)
-        })
-        .await
-    {
-        Ok(x) => Option::from(x),
-        Err(_) => Option::None,
-    }
-}
-
 pub async fn delete_follower_by_ap_id(conn: &Db, ap_id: String) -> bool {
     use self::schema::followers::dsl::{ap_id as aid, followers};
 

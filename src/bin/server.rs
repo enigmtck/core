@@ -10,9 +10,8 @@ use enigmatick::{
     admin::{self, verify_and_generate_password},
     api::{instance::InstanceInformation, processing_queue},
     db::{
-        create_remote_activity, get_followers_by_profile_id, get_leaders_by_profile_id,
-        get_profile_by_username, update_avatar_by_username, update_banner_by_username,
-        update_password_by_username, update_summary_by_username, Db,
+        get_followers_by_profile_id, get_leaders_by_profile_id, update_avatar_by_username,
+        update_banner_by_username, update_password_by_username, update_summary_by_username, Db,
     },
     fairings::{events::EventChannels, faktory::FaktoryConnection, signatures::Signed},
     helper::{get_local_username_from_ap_id, is_local},
@@ -21,18 +20,17 @@ use enigmatick::{
         notes::get_note_by_uuid,
         profiles::{
             clear_olm_external_identity_keys_by_username,
-            clear_olm_external_one_time_keys_by_username,
+            clear_olm_external_one_time_keys_by_username, get_profile_by_username,
             update_olm_external_identity_keys_by_username, update_olm_sessions_by_username,
             KeyStore, Profile,
         },
+        remote_activities::create_remote_activity,
         vault::{create_vault_item, get_vault_items_by_profile_id, VaultItem},
     },
     outbox,
     signing::VerificationType,
     webfinger::WebFinger,
 };
-
-use faktory::Job;
 
 use rocket::{
     data::{Data, ToByteUnit},
@@ -218,8 +216,40 @@ pub async fn person(conn: Db, username: String) -> Result<Json<ApActor>, Status>
     }
 }
 
-#[get("/.well-known/webfinger?<resource>")]
-pub async fn webfinger(conn: Db, resource: String) -> Result<Json<WebFinger>, Status> {
+#[get("/.well-known/host-meta", format = "application/xrd+xml")]
+pub async fn host_meta() -> Result<String, Status> {
+    Ok(r#"<?xml version="1.0" encoding="UTF-8"?><XRD xmlns="http://docs.oasis-open.org/ns/xri/xrd-1.0"><Link rel="lrdd" template="https://enigmatick.jdt.dev/.well-known/webfinger?resource={uri}" type="application/json" /></XRD>"#.to_string())
+}
+
+#[get(
+    "/.well-known/webfinger?<resource>",
+    format = "application/xrd+xml",
+    rank = 1
+)]
+pub async fn webfinger_xml(conn: Db, resource: String) -> Result<String, Status> {
+    if resource.starts_with("acct:") {
+        let parts = resource.split(':').collect::<Vec<&str>>();
+        let handle = parts[1].split('@').collect::<Vec<&str>>();
+        let username = handle[0];
+
+        let server_url = (*enigmatick::SERVER_URL).clone();
+
+        match get_profile_by_username(&conn, username.to_string()).await {
+            // Some(profile) => Ok(format!(
+            //     r#"<?xml version="1.0" encoding="UTF-8"?><XRD xmlns="http://docs.oasis-open.org/ns/xri/xrd-1.0"><Subject>{resource}</Subject><Alias>{server_url}/user/{username}</Alias><Link href="{server_url}/@{username}" rel="http://webfinger.net/rel/profile-page" type="text/html" /><Link href="https://{server_url}/user/{username}" rel="self" type="application/activity+json" /><Link href="{server_url}/user/{username}" rel="self" type="application/ld+json; profile=&quot;https://www.w3.org/ns/activitystreams&quot;" /><Link rel="http://ostatus.org/schema/1.0/subscribe" template="{server_url}/ostatus_subscribe?acct={{uri}}" /></XRD>"#
+            // )),
+            Some(profile) => Ok(format!(
+                r#"<?xml version="1.0" encoding="UTF-8"?><XRD xmlns="http://docs.oasis-open.org/ns/xri/xrd-1.0"><Subject>{resource}</Subject><Alias>{server_url}/user/{username}</Alias><Link href="{server_url}/@{username}" rel="http://webfinger.net/rel/profile-page" type="text/html" /><Link href="{server_url}/user/{username}" rel="self" type="application/activity+json" /><Link href="{server_url}/user/{username}" rel="self" type="application/ld+json; profile=&quot;https://www.w3.org/ns/activitystreams&quot;" /></XRD>"#
+            )),
+            None => Err(Status::NoContent),
+        }
+    } else {
+        Err(Status::NoContent)
+    }
+}
+
+#[get("/.well-known/webfinger?<resource>", rank = 2)]
+pub async fn webfinger_json(conn: Db, resource: String) -> Result<Json<WebFinger>, Status> {
     if resource.starts_with("acct:") {
         let parts = resource.split(':').collect::<Vec<&str>>();
         let handle = parts[1].split('@').collect::<Vec<&str>>();
@@ -510,7 +540,7 @@ pub async fn remote_actor_lookup(
 ) -> Result<Json<ApActor>, Status> {
     if let Signed(true, VerificationType::Local) = signed {
         if let Ok(actor) = actor {
-            if let Some(profile) = get_profile_by_username(&conn, username).await {
+            if let Some(profile) = get_profile_by_username(&conn, username.clone()).await {
                 let ap_id = {
                     let webfinger_re = regex::Regex::new(r#"@(.+?)@(.+)"#).unwrap();
                     let http_url_re =
@@ -580,7 +610,7 @@ pub async fn remote_actor_lookup(
                         } else {
                             Err(Status::NoContent)
                         }
-                    } else if let Some(actor) = retriever::get_actor(&conn, profile, ap_id).await {
+                    } else if let Some(actor) = retriever::get_actor(&conn, ap_id).await {
                         Ok(Json(actor.into()))
                     } else {
                         Err(Status::NoContent)
@@ -854,6 +884,24 @@ pub async fn conversation_get_local(conn: Db, uuid: String) -> Result<Json<ApObj
     ))
 }
 
+#[get("/user/<username>/liked")]
+pub async fn liked_get(conn: Db, username: String) -> Result<Json<ApOrderedCollection>, Status> {
+    if let Some(profile) = get_profile_by_username(&conn, username).await {
+        Ok(Json(ApOrderedCollection::default()))
+    } else {
+        Err(Status::NoContent)
+    }
+}
+
+#[get("/user/<username>/outbox")]
+pub async fn outbox_get(conn: Db, username: String) -> Result<Json<ApOrderedCollection>, Status> {
+    if let Some(profile) = get_profile_by_username(&conn, username).await {
+        Ok(Json(ApOrderedCollection::default()))
+    } else {
+        Err(Status::NoContent)
+    }
+}
+
 #[post("/user/<username>/outbox", data = "<object>")]
 pub async fn outbox_post(
     signed: Signed,
@@ -932,13 +980,24 @@ pub async fn inbox_get(
     }
 }
 
-#[post("/user/<username>/inbox", data = "<activity>")]
+#[post("/user/<_username>/inbox", data = "<activity>")]
 pub async fn inbox_post(
     signed: Signed,
     conn: Db,
     faktory: FaktoryConnection,
     events: EventChannels,
-    username: String,
+    _username: String,
+    activity: String,
+) -> Result<Status, Status> {
+    shared_inbox_post(conn, faktory, events, activity).await
+}
+
+#[post("/inbox", data = "<activity>")]
+pub async fn shared_inbox_post(
+    //    signed: Signed,
+    conn: Db,
+    faktory: FaktoryConnection,
+    events: EventChannels,
     activity: String,
 ) -> Result<Status, Status> {
     let v: Value = serde_json::from_str(&activity).unwrap();
@@ -946,63 +1005,56 @@ pub async fn inbox_post(
 
     let activity: ApActivity = serde_json::from_str(&activity).unwrap();
 
-    if let (Some(profile), Signed(true, _)) =
-        (get_profile_by_username(&conn, username).await, signed)
-    {
-        let activity = activity.clone();
+    //  if let Signed(true, _) = signed {
+    let activity = activity.clone();
 
-        if retriever::get_actor(&conn, profile.clone(), activity.actor.clone())
+    if retriever::get_actor(&conn, activity.actor.clone())
+        .await
+        .is_some()
+    {
+        if create_remote_activity(&conn, activity.clone().into())
             .await
             .is_some()
         {
-            if create_remote_activity(&conn, (activity.clone(), profile.id).into())
-                .await
-                .is_some()
-            {
-                match activity.kind {
-                    ApActivityType::Delete => inbox::activity::delete(conn, activity).await,
-                    ApActivityType::Create => {
-                        inbox::activity::create(conn, faktory, events, activity).await
-                    }
-                    ApActivityType::Follow => {
-                        inbox::activity::follow(conn, faktory, events, activity, profile).await
-                    }
-                    ApActivityType::Undo => inbox::activity::undo(conn, events, activity).await,
-                    ApActivityType::Accept => inbox::activity::accept(conn, events, activity).await,
-                    ApActivityType::Invite => {
-                        inbox::activity::invite(conn, faktory, activity, profile).await
-                    }
-                    ApActivityType::Join => {
-                        inbox::activity::join(conn, faktory, activity, profile).await
-                    }
-                    ApActivityType::Announce => {
-                        inbox::activity::announce(conn, faktory, events, activity).await
-                    }
-                    ApActivityType::Update => {
-                        inbox::activity::update(conn, faktory, activity).await
-                    }
-                    _ => {
-                        log::warn!("UNIMPLEMENTED ACTIVITY\n{activity:#?}");
-                        Err(Status::NoContent)
-                    }
+            match activity.kind {
+                ApActivityType::Delete => inbox::activity::delete(conn, activity).await,
+                ApActivityType::Create => {
+                    inbox::activity::create(conn, faktory, events, activity).await
                 }
-            } else {
-                log::debug!("FAILED TO CREATE REMOTE ACTIVITY");
-                Err(Status::NoContent)
+                ApActivityType::Follow => {
+                    inbox::activity::follow(conn, faktory, events, activity).await
+                }
+                ApActivityType::Undo => inbox::activity::undo(conn, events, activity).await,
+                ApActivityType::Accept => inbox::activity::accept(conn, events, activity).await,
+                ApActivityType::Invite => inbox::activity::invite(conn, faktory, activity).await,
+                ApActivityType::Join => inbox::activity::join(conn, faktory, activity).await,
+                ApActivityType::Announce => {
+                    inbox::activity::announce(conn, faktory, events, activity).await
+                }
+                ApActivityType::Update => inbox::activity::update(conn, faktory, activity).await,
+                _ => {
+                    log::warn!("UNIMPLEMENTED ACTIVITY\n{activity:#?}");
+                    Err(Status::NoContent)
+                }
             }
         } else {
-            log::debug!("FAILED TO RETRIEVE ACTOR");
+            log::debug!("FAILED TO CREATE REMOTE ACTIVITY");
             Err(Status::NoContent)
         }
     } else {
-        log::debug!("REQUEST WAS UNSIGNED OR MALFORMED");
+        log::debug!("FAILED TO RETRIEVE ACTOR");
         Err(Status::NoContent)
     }
+    // } else {
+    //     log::debug!("REQUEST WAS UNSIGNED OR MALFORMED");
+    //     Err(Status::NoContent)
+    // }
 }
 
 #[launch]
 fn rocket() -> _ {
-    env_logger::init();
+    //env_logger::init();
+    log4rs::init_file("log4rs.yml", Default::default()).unwrap();
 
     rocket::build()
         .attach(FaktoryConnection::fairing())
@@ -1014,10 +1066,14 @@ fn rocket() -> _ {
                 person_redirect,
                 person,
                 //profile,
-                webfinger,
+                webfinger_json,
+                webfinger_xml,
                 outbox_post,
+                outbox_get,
                 inbox_post,
+                shared_inbox_post,
                 inbox_get,
+                liked_get,
                 get_followers,
                 get_leaders,
                 create_user,
@@ -1038,6 +1094,7 @@ fn rocket() -> _ {
                 conversation_get,
                 conversation_get_local,
                 authorize_stream,
+                host_meta
             ],
         )
 }

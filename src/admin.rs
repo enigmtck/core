@@ -1,5 +1,5 @@
-use crate::db::{create_profile, get_profile_by_username, Db};
-use crate::models::profiles::{NewProfile, Profile};
+use crate::db::Db;
+use crate::models::profiles::{create_profile, get_profile_by_username, NewProfile, Profile};
 use orion::pwhash;
 use rsa::{
     pkcs8::EncodePrivateKey, pkcs8::EncodePublicKey, pkcs8::LineEnding, RsaPrivateKey, RsaPublicKey,

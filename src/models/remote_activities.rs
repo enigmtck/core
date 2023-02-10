@@ -1,6 +1,8 @@
 use crate::activity_pub::ApActivity;
+use crate::db::Db;
 use crate::schema::remote_activities;
 use chrono::{DateTime, Utc};
+use diesel::prelude::*;
 use diesel::{AsChangeset, Identifiable, Insertable, Queryable};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -18,12 +20,8 @@ pub struct NewRemoteActivity {
     pub ap_object: Option<Value>,
 }
 
-type IdentifiedActivity = (ApActivity, i32);
-
-impl From<IdentifiedActivity> for NewRemoteActivity {
-    fn from(activity: IdentifiedActivity) -> NewRemoteActivity {
-        let activity = activity.0;
-
+impl From<ApActivity> for NewRemoteActivity {
+    fn from(activity: ApActivity) -> NewRemoteActivity {
         NewRemoteActivity {
             context: Option::from(serde_json::to_value(&activity.context).unwrap()),
             kind: activity.kind.to_string(),
@@ -52,4 +50,40 @@ pub struct RemoteActivity {
     pub actor: String,
     pub published: Option<String>,
     pub ap_object: Option<Value>,
+}
+
+pub async fn create_remote_activity(
+    conn: &Db,
+    remote_activity: NewRemoteActivity,
+) -> Option<RemoteActivity> {
+    match conn
+        .run(move |c| {
+            diesel::insert_into(remote_activities::table)
+                .values(&remote_activity)
+                .on_conflict(remote_activities::ap_id)
+                .do_nothing()
+                .get_result::<RemoteActivity>(c)
+        })
+        .await
+    {
+        Ok(x) => Some(x),
+        Err(e) => {
+            log::debug!("failed to create remote_activity (probably a duplicate): {e:#?}");
+            Option::None
+        }
+    }
+}
+
+pub async fn get_remote_activity_by_ap_id(conn: &Db, ap_id: String) -> Option<RemoteActivity> {
+    match conn
+        .run(move |c| {
+            remote_activities::table
+                .filter(remote_activities::ap_id.eq(ap_id))
+                .first::<RemoteActivity>(c)
+        })
+        .await
+    {
+        Ok(x) => Option::from(x),
+        Err(_) => Option::None,
+    }
 }

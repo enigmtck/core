@@ -1,11 +1,11 @@
 use crate::{
     activity_pub::{sender, ApActivity, ApIdentifier, ApObject},
-    db::{
-        create_leader, create_remote_activity, delete_leader, get_leader_by_profile_id_and_ap_id,
-        Db,
-    },
+    db::{create_leader, delete_leader, get_leader_by_profile_id_and_ap_id, Db},
     fairings::events::EventChannels,
-    models::{leaders::NewLeader, profiles::Profile, remote_actors::get_remote_actor_by_ap_id},
+    models::{
+        leaders::NewLeader, profiles::Profile, remote_activities::create_remote_activity,
+        remote_actors::get_remote_actor_by_ap_id,
+    },
 };
 use log::debug;
 use rocket::http::Status;
@@ -86,7 +86,7 @@ pub async fn follow(
         debug!("leader created: {}", leader.uuid);
         activity.id = Option::from(format!("{}/leader/{}", *crate::SERVER_URL, leader.uuid));
 
-        if create_remote_activity(&conn, (activity.clone(), profile.id).into())
+        if create_remote_activity(&conn, activity.clone().into())
             .await
             .is_some()
         {

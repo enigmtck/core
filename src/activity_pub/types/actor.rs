@@ -1,11 +1,9 @@
 use crate::activity_pub::{
     ApActorType, ApAttachment, ApContext, ApEndpoint, ApImage, ApImageType, ApTag,
 };
-use crate::models::followers::Follower;
 use crate::models::leaders::Leader;
 use crate::models::profiles::Profile;
 use crate::models::remote_actors::RemoteActor;
-use crate::schema::profiles::banner_filename;
 use serde::{Deserialize, Serialize};
 use serde_with::serde_as;
 
@@ -155,6 +153,16 @@ impl From<Profile> for ApActor {
                     Option::None
                 }
             },
+            discoverable: Option::from(true),
+            capabilities: Option::from(ApCapabilities {
+                accepts_chat_messages: false,
+            }),
+            attachment: Option::from(vec![]),
+            also_known_as: Option::from(vec![]),
+            tag: Option::from(vec![]),
+            endpoints: Option::from(ApEndpoint {
+                shared_inbox: format!("{server_url}/inbox"),
+            }),
             ..Default::default()
         }
     }

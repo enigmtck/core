@@ -1,4 +1,5 @@
 use crate::db::{jsonb_set, Db};
+use crate::helper::get_local_username_from_ap_id;
 use crate::schema::{self, profiles};
 use chrono::{DateTime, Utc};
 use diesel::deserialize::FromSql;
@@ -215,5 +216,54 @@ pub async fn update_olm_sessions_by_username(
     {
         Ok(x) => Some(x),
         Err(_) => Option::None,
+    }
+}
+
+pub async fn create_profile(conn: &Db, profile: NewProfile) -> Option<Profile> {
+    match conn
+        .run(move |c| {
+            diesel::insert_into(profiles::table)
+                .values(&profile)
+                .get_result::<Profile>(c)
+        })
+        .await
+    {
+        Ok(x) => Some(x),
+        Err(e) => {
+            log::debug!("database failure: {:#?}", e);
+            Option::None
+        }
+    }
+}
+
+pub async fn get_profile(conn: &Db, id: i32) -> Option<Profile> {
+    match conn
+        .run(move |c| profiles::table.find(id).first::<Profile>(c))
+        .await
+    {
+        Ok(x) => Option::from(x),
+        Err(_) => Option::None,
+    }
+}
+
+pub async fn get_profile_by_username(conn: &Db, username: String) -> Option<Profile> {
+    match conn
+        .run(move |c| {
+            profiles::table
+                .filter(profiles::username.eq(username))
+                .first::<Profile>(c)
+        })
+        .await
+    {
+        Ok(x) => Option::from(x),
+        Err(_) => Option::None,
+    }
+}
+
+pub async fn get_profile_by_ap_id(conn: &Db, ap_id: String) -> Option<Profile> {
+    if let Some(username) = get_local_username_from_ap_id(ap_id) {
+        get_profile_by_username(conn, username).await
+    } else {
+        Option::None
     }
 }
