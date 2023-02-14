@@ -48,6 +48,11 @@ pub struct Profile {
     pub client_public_key: Option<String>,
     pub avatar_filename: String,
     pub banner_filename: Option<String>,
+    pub salt: Option<String>,
+    pub client_private_key: Option<String>,
+    pub olm_pickled_account: Option<String>,
+    pub olm_pickled_account_hash: Option<String>,
+    pub olm_identity_key: Option<String>,
 }
 
 #[derive(FromSqlRow, AsExpression, serde::Serialize, serde::Deserialize, Debug, Default, Clone)]
@@ -265,5 +270,32 @@ pub async fn get_profile_by_ap_id(conn: &Db, ap_id: String) -> Option<Profile> {
         get_profile_by_username(conn, username).await
     } else {
         Option::None
+    }
+}
+
+pub async fn update_olm_account_by_username(
+    conn: &Db,
+    username: String,
+    account: String,
+    account_hash: String,
+) -> Option<Profile> {
+    use schema::profiles::dsl::{
+        olm_pickled_account, olm_pickled_account_hash, profiles, username as u,
+    };
+
+    match conn
+        .run(move |c| {
+            diesel::update(profiles.filter(u.eq(username)))
+                .set((
+                    olm_pickled_account.eq(account),
+                    olm_pickled_account_hash.eq(account_hash),
+                ))
+                .get_result::<Profile>(c)
+                .optional()
+        })
+        .await
+    {
+        Ok(x) => x,
+        Err(_) => Option::None,
     }
 }

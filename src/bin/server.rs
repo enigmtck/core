@@ -1,6 +1,8 @@
 #[macro_use]
 extern crate rocket;
 
+use std::collections::HashMap;
+
 use enigmatick::{
     activity_pub::{
         retriever::{self, get_note, get_remote_webfinger},
@@ -18,11 +20,12 @@ use enigmatick::{
     inbox,
     models::{
         notes::get_note_by_uuid,
+        olm_one_time_keys::create_olm_one_time_key,
         profiles::{
             clear_olm_external_identity_keys_by_username,
             clear_olm_external_one_time_keys_by_username, get_profile_by_username,
-            update_olm_external_identity_keys_by_username, update_olm_sessions_by_username,
-            KeyStore, Profile,
+            update_olm_account_by_username, update_olm_external_identity_keys_by_username,
+            update_olm_sessions_by_username, KeyStore, Profile,
         },
         remote_activities::create_remote_activity,
         vault::{create_vault_item, get_vault_items_by_profile_id, VaultItem},
@@ -610,7 +613,9 @@ pub async fn remote_actor_lookup(
                         } else {
                             Err(Status::NoContent)
                         }
-                    } else if let Some(actor) = retriever::get_actor(&conn, ap_id).await {
+                    } else if let Some(actor) =
+                        retriever::get_actor(&conn, ap_id, Some(profile)).await
+                    {
                         Ok(Json(actor.into()))
                     } else {
                         Err(Status::NoContent)
@@ -774,6 +779,59 @@ pub async fn update_identity_cache(
                 update_olm_external_identity_keys_by_username(&conn, username, keystore).await
             {
                 Ok(Json(profile))
+            } else {
+                Err(Status::NoContent)
+            }
+        } else {
+            Err(Status::NoContent)
+        }
+    } else {
+        Err(Status::NoContent)
+    }
+}
+
+#[derive(Serialize, Deserialize, Default, Clone, Debug)]
+pub struct OtkUpdateParams {
+    pub keys: HashMap<String, String>,
+    pub account: String,
+    pub mutation_of: String,
+    pub account_hash: String,
+}
+
+#[post("/api/user/<username>/otk", format = "json", data = "<params>")]
+pub async fn add_one_time_keys(
+    signed: Signed,
+    conn: Db,
+    username: String,
+    params: Result<Json<OtkUpdateParams>, Error<'_>>,
+) -> Result<Status, Status> {
+    debug!("ADDING ONE-TIME-KEYS\n{params:#?}");
+
+    if let Signed(true, VerificationType::Local) = signed {
+        if let Some(profile) = get_profile_by_username(&conn, username.clone()).await {
+            if let Ok(Json(params)) = params {
+                if profile.olm_pickled_account_hash == params.mutation_of.into() {
+                    if update_olm_account_by_username(
+                        &conn,
+                        username,
+                        params.account,
+                        params.account_hash,
+                    )
+                    .await
+                    .is_some()
+                    {
+                        for (key, otk) in params.keys {
+                            create_olm_one_time_key(&conn, (profile.id, key, otk).into()).await;
+                        }
+
+                        Ok(Status::Accepted)
+                    } else {
+                        Err(Status::NoContent)
+                    }
+                } else {
+                    error!("UNEXPECTED MUTATION");
+                    Err(Status::NoContent)
+                }
             } else {
                 Err(Status::NoContent)
             }
@@ -989,12 +1047,12 @@ pub async fn inbox_post(
     _username: String,
     activity: String,
 ) -> Result<Status, Status> {
-    shared_inbox_post(conn, faktory, events, activity).await
+    shared_inbox_post(signed, conn, faktory, events, activity).await
 }
 
 #[post("/inbox", data = "<activity>")]
 pub async fn shared_inbox_post(
-    //    signed: Signed,
+    signed: Signed,
     conn: Db,
     faktory: FaktoryConnection,
     events: EventChannels,
@@ -1005,50 +1063,54 @@ pub async fn shared_inbox_post(
 
     let activity: ApActivity = serde_json::from_str(&activity).unwrap();
 
-    //  if let Signed(true, _) = signed {
-    let activity = activity.clone();
+    if let Signed(true, _) = signed {
+        let activity = activity.clone();
 
-    if retriever::get_actor(&conn, activity.actor.clone())
-        .await
-        .is_some()
-    {
-        if create_remote_activity(&conn, activity.clone().into())
+        if retriever::get_actor(&conn, activity.actor.clone(), Option::None)
             .await
             .is_some()
         {
-            match activity.kind {
-                ApActivityType::Delete => inbox::activity::delete(conn, activity).await,
-                ApActivityType::Create => {
-                    inbox::activity::create(conn, faktory, events, activity).await
+            if create_remote_activity(&conn, activity.clone().into())
+                .await
+                .is_some()
+            {
+                match activity.kind {
+                    ApActivityType::Delete => inbox::activity::delete(conn, activity).await,
+                    ApActivityType::Create => {
+                        inbox::activity::create(conn, faktory, events, activity).await
+                    }
+                    ApActivityType::Follow => {
+                        inbox::activity::follow(conn, faktory, events, activity).await
+                    }
+                    ApActivityType::Undo => inbox::activity::undo(conn, events, activity).await,
+                    ApActivityType::Accept => inbox::activity::accept(conn, events, activity).await,
+                    ApActivityType::Invite => {
+                        inbox::activity::invite(conn, faktory, activity).await
+                    }
+                    ApActivityType::Join => inbox::activity::join(conn, faktory, activity).await,
+                    ApActivityType::Announce => {
+                        inbox::activity::announce(conn, faktory, events, activity).await
+                    }
+                    ApActivityType::Update => {
+                        inbox::activity::update(conn, faktory, activity).await
+                    }
+                    _ => {
+                        log::warn!("UNIMPLEMENTED ACTIVITY\n{activity:#?}");
+                        Err(Status::NoContent)
+                    }
                 }
-                ApActivityType::Follow => {
-                    inbox::activity::follow(conn, faktory, events, activity).await
-                }
-                ApActivityType::Undo => inbox::activity::undo(conn, events, activity).await,
-                ApActivityType::Accept => inbox::activity::accept(conn, events, activity).await,
-                ApActivityType::Invite => inbox::activity::invite(conn, faktory, activity).await,
-                ApActivityType::Join => inbox::activity::join(conn, faktory, activity).await,
-                ApActivityType::Announce => {
-                    inbox::activity::announce(conn, faktory, events, activity).await
-                }
-                ApActivityType::Update => inbox::activity::update(conn, faktory, activity).await,
-                _ => {
-                    log::warn!("UNIMPLEMENTED ACTIVITY\n{activity:#?}");
-                    Err(Status::NoContent)
-                }
+            } else {
+                log::debug!("FAILED TO CREATE REMOTE ACTIVITY");
+                Err(Status::NoContent)
             }
         } else {
-            log::debug!("FAILED TO CREATE REMOTE ACTIVITY");
+            log::debug!("FAILED TO RETRIEVE ACTOR");
             Err(Status::NoContent)
         }
     } else {
-        log::debug!("FAILED TO RETRIEVE ACTOR");
+        log::debug!("REQUEST WAS UNSIGNED OR MALFORMED");
         Err(Status::NoContent)
     }
-    // } else {
-    //     log::debug!("REQUEST WAS UNSIGNED OR MALFORMED");
-    //     Err(Status::NoContent)
-    // }
 }
 
 #[launch]
@@ -1080,6 +1142,7 @@ fn rocket() -> _ {
                 authenticate_user,
                 update_identity_cache,
                 update_olm_sessions,
+                add_one_time_keys,
                 get_processing_queue,
                 test,
                 stream,

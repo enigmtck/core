@@ -117,17 +117,23 @@ pub async fn get_note(conn: &Db, profile: Profile, id: String) -> Option<ApNote>
     }
 }
 
-pub async fn get_actor(conn: &Db, id: String) -> Option<RemoteActor> {
-    //if let Some(profile) = get_profile_by_username(conn, username).await {
+pub async fn get_actor(
+    conn: &Db,
+    id: String,
+    profile: Option<Profile>,
+) -> Option<(RemoteActor, Option<Leader>)> {
     match get_remote_actor_by_ap_id(conn, id.clone()).await {
         Some(remote_actor) => {
             log::debug!("actor retrieved from storage");
 
-            // Option::from((
-            //     remote_actor,
-            //     get_leader_by_actor_ap_id_and_profile(conn, id, profile.id).await,
-            // ))
-            Option::from(remote_actor)
+            if let Some(profile) = profile {
+                Option::from((
+                    remote_actor,
+                    get_leader_by_actor_ap_id_and_profile(conn, id, profile.id).await,
+                ))
+            } else {
+                Option::from((remote_actor, Option::None))
+            }
         }
         None => {
             log::debug!("performing remote lookup for actor");
@@ -161,7 +167,13 @@ pub async fn get_actor(conn: &Db, id: String) -> Option<RemoteActor> {
                     StatusCode::ACCEPTED | StatusCode::OK => {
                         //log::debug!("resp: {resp:#?}");
                         let actor: ApActor = resp.json().await.unwrap();
-                        create_or_update_remote_actor(conn, NewRemoteActor::from(actor)).await
+                        if let Some(remote) =
+                            create_or_update_remote_actor(conn, NewRemoteActor::from(actor)).await
+                        {
+                            Option::from((remote, Option::None))
+                        } else {
+                            Option::None
+                        }
                     }
                     StatusCode::GONE => {
                         log::debug!("GONE: {:#?}", resp.status());
@@ -179,18 +191,15 @@ pub async fn get_actor(conn: &Db, id: String) -> Option<RemoteActor> {
             }
         }
     }
-    // } else {
-    //     Option::None
-    // }
 }
 
 pub async fn get_followers(conn: &Db, profile: Profile, id: String, page: Option<usize>) {
-    if let Some(actor) = get_actor(conn, id.clone()).await {
+    if let Some(actor) = get_actor(conn, id.clone(), Some(profile.clone())).await {
         log::debug!("performing remote lookup for actor's followers");
 
         let page = match page {
-            Some(x) => format!("{}?page={}", actor.followers, x),
-            None => actor.followers.to_string(),
+            Some(x) => format!("{}?page={}", actor.0.followers, x),
+            None => actor.0.followers.to_string(),
         };
 
         let url = page.clone();

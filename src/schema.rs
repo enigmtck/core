@@ -60,6 +60,32 @@ diesel::table! {
 }
 
 diesel::table! {
+    olm_one_time_keys (id) {
+        id -> Int4,
+        created_at -> Timestamptz,
+        updated_at -> Timestamptz,
+        uuid -> Varchar,
+        profile_id -> Int4,
+        olm_id -> Int4,
+        key_data -> Varchar,
+        distributed -> Bool,
+    }
+}
+
+diesel::table! {
+    olm_sessions (id) {
+        id -> Int4,
+        created_at -> Timestamptz,
+        updated_at -> Timestamptz,
+        uuid -> Varchar,
+        profile_id -> Int4,
+        remote_id -> Varchar,
+        session_data -> Varchar,
+        session_hash -> Varchar,
+    }
+}
+
+diesel::table! {
     processing_queue (id) {
         id -> Int4,
         created_at -> Timestamptz,
@@ -91,6 +117,11 @@ diesel::table! {
         client_public_key -> Nullable<Varchar>,
         avatar_filename -> Varchar,
         banner_filename -> Nullable<Varchar>,
+        salt -> Nullable<Varchar>,
+        client_private_key -> Nullable<Varchar>,
+        olm_pickled_account -> Nullable<Varchar>,
+        olm_pickled_account_hash -> Nullable<Varchar>,
+        olm_identity_key -> Nullable<Varchar>,
     }
 }
 
@@ -205,6 +236,31 @@ diesel::table! {
 }
 
 diesel::table! {
+    remote_olm_identity_keys (id) {
+        id -> Int4,
+        created_at -> Timestamptz,
+        updated_at -> Timestamptz,
+        attributed_to -> Varchar,
+        ap_id -> Varchar,
+        key_data -> Varchar,
+    }
+}
+
+diesel::table! {
+    remote_olm_one_time_keys (id) {
+        id -> Int4,
+        created_at -> Timestamptz,
+        updated_at -> Timestamptz,
+        attributed_to -> Varchar,
+        ap_id -> Varchar,
+        ap_to -> Varchar,
+        olm_id -> Int4,
+        key_data -> Varchar,
+        consumed -> Bool,
+    }
+}
+
+diesel::table! {
     timeline (id) {
         id -> Int4,
         created_at -> Timestamptz,
@@ -266,6 +322,8 @@ diesel::joinable!(encrypted_sessions -> profiles (profile_id));
 diesel::joinable!(followers -> profiles (profile_id));
 diesel::joinable!(leaders -> profiles (profile_id));
 diesel::joinable!(notes -> profiles (profile_id));
+diesel::joinable!(olm_one_time_keys -> profiles (profile_id));
+diesel::joinable!(olm_sessions -> profiles (profile_id));
 diesel::joinable!(remote_announces -> timeline (timeline_id));
 diesel::joinable!(remote_encrypted_sessions -> profiles (profile_id));
 diesel::joinable!(timeline_cc -> timeline (timeline_id));
@@ -277,6 +335,8 @@ diesel::allow_tables_to_appear_in_same_query!(
     followers,
     leaders,
     notes,
+    olm_one_time_keys,
+    olm_sessions,
     processing_queue,
     profiles,
     remote_activities,
@@ -284,6 +344,8 @@ diesel::allow_tables_to_appear_in_same_query!(
     remote_announces,
     remote_encrypted_sessions,
     remote_notes,
+    remote_olm_identity_keys,
+    remote_olm_one_time_keys,
     timeline,
     timeline_cc,
     timeline_to,

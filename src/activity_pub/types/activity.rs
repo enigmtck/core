@@ -29,6 +29,8 @@ pub struct ApActivity {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub proof: Option<ApProof>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub instrument: Option<ApInstrument>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub signature: Option<ApSignature>,
     pub object: ApObject,
 }
@@ -46,6 +48,7 @@ impl Default for ApActivity {
             cc: Option::None,
             published: Option::None,
             proof: Option::None,
+            instrument: Option::None,
             signature: Option::None,
             object: ApObject::default(),
         }
@@ -104,6 +107,7 @@ impl From<RemoteActivity> for ApActivity {
             ),
             published: activity.published,
             proof: Option::None,
+            instrument: Option::None,
             signature: Option::None,
             object: serde_json::from_value(activity.ap_object.unwrap()).unwrap(),
         }
@@ -125,6 +129,7 @@ impl From<RemoteAnnounce> for ApActivity {
             ),
             published: Some(activity.published),
             proof: Option::None,
+            instrument: Option::None,
             signature: Option::None,
             object: serde_json::from_value(activity.ap_object).unwrap(),
         }

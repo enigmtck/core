@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{hash_map, HashMap};
 
 use crate::activity_pub::{ApFlexible, ApNote};
 use crate::db::Db;
@@ -6,6 +6,7 @@ use crate::schema::remote_notes;
 use chrono::{DateTime, Utc};
 use diesel::prelude::*;
 use diesel::{AsChangeset, Identifiable, Insertable, Queryable};
+use maplit::{hashmap, hashset};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -35,6 +36,20 @@ pub struct NewRemoteNote {
 
 impl From<ApNote> for NewRemoteNote {
     fn from(note: ApNote) -> NewRemoteNote {
+        let mut ammonia = ammonia::Builder::default();
+
+        ammonia
+            .add_tag_attributes("span", &["class"])
+            .add_tag_attributes("a", &["class"])
+            .tag_attribute_values(hashmap![
+                "span" => hashmap![
+                    "class" => hashset!["h-card"],
+                ],
+                "a" => hashmap![
+                    "class" => hashset!["u-url mention"],
+                ],
+            ]);
+
         let published = match note.clone().published {
             Some(x) => Option::from(x),
             _ => Option::None,
@@ -44,7 +59,7 @@ impl From<ApNote> for NewRemoteNote {
             let mut content_map = HashMap::<String, String>::new();
             if let Some(map) = (note).clone().content_map {
                 for (key, value) in map {
-                    content_map.insert(key, ammonia::clean(&value));
+                    content_map.insert(key, ammonia.clean(&value).to_string());
                 }
             }
 
@@ -61,10 +76,10 @@ impl From<ApNote> for NewRemoteNote {
             cc: Option::from(serde_json::to_value(&note.cc).unwrap()),
             replies: Option::from(serde_json::to_value(&note.replies).unwrap()),
             tag: Option::from(serde_json::to_value(&note.tag).unwrap()),
-            content: ammonia::clean(&note.content),
+            content: ammonia.clean(&note.content).to_string(),
             summary: {
                 if let Some(summary) = note.summary {
-                    Option::from(ammonia::clean(&summary))
+                    Option::from(ammonia.clean(&summary).to_string())
                 } else {
                     Option::None
                 }

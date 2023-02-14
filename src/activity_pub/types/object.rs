@@ -205,6 +205,7 @@ pub enum ApObjectType {
     SessionKey,
     EncryptedNote,
     Question,
+    Service,
     #[default]
     Unknown,
 }

@@ -13,7 +13,6 @@ use url::Url;
 
 #[derive(Clone, Debug)]
 pub struct VerifyParams {
-    pub profile: Profile,
     pub signature: String,
     pub request_target: String,
     pub host: String,
@@ -137,8 +136,8 @@ pub async fn verify(conn: Db, params: VerifyParams) -> (bool, VerificationType) 
         } else {
             (false, VerificationType::Local)
         }
-    } else if let Some(actor) = retriever::get_actor(&conn, ap_id).await {
-        if let Some(public_key_value) = actor.public_key {
+    } else if let Some(actor) = retriever::get_actor(&conn, ap_id, Option::None).await {
+        if let Some(public_key_value) = actor.0.public_key {
             if let Ok(public_key) = serde_json::from_value::<ApPublicKey>(public_key_value) {
                 if let Ok(public_key) =
                     RsaPublicKey::from_public_key_pem(&public_key.public_key_pem)
