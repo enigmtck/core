@@ -19,8 +19,10 @@ pub struct NewNote {
     pub attributed_to: String,
     pub in_reply_to: Option<String>,
     pub tag: Option<Value>,
+    pub attachment: Option<Value>,
     pub cc: Option<Value>,
     pub conversation: Option<String>,
+    pub instrument: Option<Value>,
 }
 
 pub type IdentifiedApNote = (ApNote, i32);
@@ -34,6 +36,8 @@ impl From<IdentifiedApNote> for NewNote {
             ap_to: serde_json::to_value(&note.0.to).unwrap(),
             attributed_to: note.0.attributed_to,
             tag: handle_option(serde_json::to_value(&note.0.tag).unwrap()),
+            attachment: handle_option(serde_json::to_value(&note.0.attachment).unwrap()),
+            instrument: handle_option(serde_json::to_value(&note.0.instrument).unwrap()),
             content: note.0.content,
             in_reply_to: note.0.in_reply_to,
             cc: handle_option(serde_json::to_value(&note.0.cc).unwrap()),
@@ -69,6 +73,8 @@ pub struct Note {
     pub in_reply_to: Option<String>,
     pub content: String,
     pub conversation: Option<String>,
+    pub attachment: Option<Value>,
+    pub instrument: Option<Value>,
 }
 
 pub async fn get_note_by_uuid(conn: &Db, uuid: String) -> Option<Note> {

@@ -1,9 +1,8 @@
 use crate::{
-    activity_pub::{
-        ApBasicContent, ApBasicContentType, ApContext, ApInstrument, ApObject, ApObjectType,
-    },
+    activity_pub::ApContext,
     models::{
-        encrypted_sessions::EncryptedSession, remote_encrypted_sessions::RemoteEncryptedSession,
+        encrypted_sessions::EncryptedSession, olm_sessions::OlmSession,
+        remote_encrypted_sessions::RemoteEncryptedSession,
     },
 };
 use serde::{Deserialize, Serialize};
@@ -16,32 +15,73 @@ pub struct ApSession {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub context: Option<ApContext>,
     #[serde(rename = "type")]
-    pub kind: ApObjectType,
+    pub kind: ApSessionType,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub id: Option<String>,
     pub to: String,
     pub attributed_to: String,
-    pub instrument: ApInstrument,
+    pub instrument: ApInstruments,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub reference: Option<String>,
+    pub uuid: Option<String>,
 }
 
 impl Default for ApSession {
     fn default() -> ApSession {
+        let uuid = Uuid::new_v4();
         ApSession {
-            context: Option::from(ApContext::Plain(
-                "https://www.w3.org/ns/activitystreams".to_string(),
-            )),
-            kind: ApObjectType::EncryptedSession,
-            id: Option::from(format!(
-                "https://{}/encrypted-sessions/{}",
-                *crate::SERVER_NAME,
-                Uuid::new_v4()
-            )),
+            context: Option::from(ApContext::default()),
+            kind: ApSessionType::default(),
+            id: Option::from(format!("https://{}/session/{}", *crate::SERVER_NAME, uuid)),
             to: String::new(),
             attributed_to: String::new(),
-            instrument: ApInstrument::default(),
+            instrument: ApInstruments::default(),
             reference: Option::None,
+            uuid: Some(uuid.to_string()),
         }
     }
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, Default)]
+pub enum ApSessionType {
+    #[default]
+    EncryptedSession,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, Default)]
+pub enum ApInstrumentType {
+    #[default]
+    IdentityKey,
+    SessionKey,
+    OlmSession,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, Default)]
+pub struct ApInstrument {
+    #[serde(rename = "type")]
+    pub kind: ApInstrumentType,
+    pub content: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub hash: Option<String>,
+}
+
+impl From<OlmSession> for ApInstrument {
+    fn from(session: OlmSession) -> Self {
+        ApInstrument {
+            kind: ApInstrumentType::OlmSession,
+            content: session.session_data,
+            hash: Some(session.session_hash),
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, Default)]
+#[serde(untagged)]
+pub enum ApInstruments {
+    Multiple(Vec<ApInstrument>),
+    Single(ApInstrument),
+    #[default]
+    Unknown,
 }
 
 #[derive(Deserialize, Clone, Debug)]
@@ -59,15 +99,17 @@ impl From<JoinData> for ApSession {
             reference: Option::from(keys.reference),
             to: keys.to,
             attributed_to: keys.attributed_to,
-            instrument: ApInstrument::Multiple(vec![
-                ApObject::Basic(ApBasicContent {
-                    kind: ApBasicContentType::IdentityKey,
+            instrument: ApInstruments::Multiple(vec![
+                ApInstrument {
+                    kind: ApInstrumentType::IdentityKey,
                     content: keys.identity_key,
-                }),
-                ApObject::Basic(ApBasicContent {
-                    kind: ApBasicContentType::SessionKey,
+                    ..Default::default()
+                },
+                ApInstrument {
+                    kind: ApInstrumentType::SessionKey,
                     content: keys.one_time_key,
-                }),
+                    ..Default::default()
+                },
             ]),
             ..Default::default()
         }
@@ -78,7 +120,7 @@ impl From<EncryptedSession> for ApSession {
     fn from(session: EncryptedSession) -> ApSession {
         ApSession {
             id: Option::from(format!(
-                "https://{}/encrypted-sessions/{}",
+                "https://{}/session/{}",
                 *crate::SERVER_NAME,
                 session.uuid
             )),
@@ -86,15 +128,40 @@ impl From<EncryptedSession> for ApSession {
             to: session.ap_to,
             attributed_to: session.attributed_to,
             instrument: serde_json::from_value(session.instrument).unwrap(),
+            uuid: Some(session.uuid),
 
             ..Default::default()
         }
     }
 }
 
+type JoinedOlmSession = (OlmSession, ApSession);
+
+impl From<JoinedOlmSession> for ApSession {
+    fn from((olm_session, ap_session): JoinedOlmSession) -> Self {
+        let mut session = ap_session;
+
+        match session.instrument {
+            ApInstruments::Multiple(instruments) => {
+                let mut instruments = instruments;
+                instruments.push(olm_session.into());
+                session.instrument = ApInstruments::Multiple(instruments);
+            }
+            ApInstruments::Single(instrument) => {
+                let mut instruments: Vec<ApInstrument> = vec![instrument];
+                instruments.push(olm_session.into());
+                session.instrument = ApInstruments::Multiple(instruments);
+            }
+            _ => (),
+        }
+
+        session
+    }
+}
+
 impl From<RemoteEncryptedSession> for ApSession {
     fn from(session: RemoteEncryptedSession) -> ApSession {
-        let instrument: ApInstrument = serde_json::from_value(session.instrument).unwrap();
+        let instrument: ApInstruments = serde_json::from_value(session.instrument).unwrap();
 
         ApSession {
             id: Option::from(session.ap_id),

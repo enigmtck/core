@@ -111,3 +111,26 @@ pub async fn get_unprocessed_items_by_profile_id(conn: &Db, id: i32) -> Vec<Proc
         Err(_) => vec![],
     }
 }
+
+pub async fn resolve_processed_item_by_ap_id_and_profile_id(
+    conn: &Db,
+    profile_id: i32,
+    ap_id: String,
+) -> Option<ProcessingItem> {
+    match conn
+        .run(move |c| {
+            diesel::update(
+                processing_queue::table
+                    .filter(processing_queue::ap_id.eq(ap_id))
+                    .filter(processing_queue::profile_id.eq(profile_id)),
+            )
+            .set(processing_queue::processed.eq(true))
+            .get_result::<ProcessingItem>(c)
+            .optional()
+        })
+        .await
+    {
+        Ok(x) => x,
+        Err(_) => Option::None,
+    }
+}

@@ -1,6 +1,7 @@
 use crate::{
     activity_pub::{
-        ApActivity, ApActivityType, ApBasicContentType, ApInstrument, ApNote, ApObject, ApSession,
+        ApActivity, ApActivityType, ApBasicContentType, ApInstrument, ApInstruments, ApNote,
+        ApObject, ApSession,
     },
     db::{
         create_follower, create_remote_encrypted_session, create_remote_note,
@@ -12,7 +13,7 @@ use crate::{
     },
     models::{
         followers::NewFollower,
-        profiles::{get_profile_by_ap_id, update_olm_external_identity_keys_by_username, Profile},
+        profiles::{get_profile_by_ap_id, Profile},
         remote_activities::get_remote_activity_by_ap_id,
         remote_actors::{create_or_update_remote_actor, delete_remote_actor_by_ap_id},
         remote_announces::{create_remote_announce, NewRemoteAnnounce},
@@ -94,7 +95,8 @@ pub async fn create(
             let n = NewRemoteNote::from(x.clone());
 
             if let Some(created_note) = create_remote_note(&conn, n).await {
-                //log::debug!("created_remote_note\n{:#?}", created_note);
+                log::debug!("CREATED REMOTE NOTE\n{:#?}", created_note);
+                log::debug!("...FROM\n{:#?}", x.clone());
 
                 let note: ApNote = created_note.clone().into();
                 let mut events = events;
@@ -252,47 +254,16 @@ pub async fn accept(
     }
 }
 
-pub async fn save_identity_key(conn: &Db, activity: ApActivity, profile: Profile) {
-    async fn extract(conn: &Db, instrument: ApObject, profile: Profile, session: ApSession) {
-        if let ApObject::Basic(basic) = instrument {
-            if basic.kind == ApBasicContentType::IdentityKey {
-                let mut keystore = profile.keystore.clone();
-                if let Some(mut keys) = keystore.olm_external_identity_keys {
-                    keys.insert(session.attributed_to, basic.content);
-                    keystore.olm_external_identity_keys = Some(keys);
-                    update_olm_external_identity_keys_by_username(conn, profile.username, keystore)
-                        .await;
-                }
-            }
-        }
-    }
-
-    // make sure we have the IdentityKey for the sender recorded in the local user's Profile
-    if let ApObject::Session(session) = activity.object {
-        match session.clone().instrument {
-            ApInstrument::Single(instrument) => {
-                extract(conn, *instrument, profile, session).await;
-            }
-            ApInstrument::Multiple(instruments) => {
-                for instrument in instruments {
-                    extract(conn, instrument, profile.clone(), session.clone()).await;
-                }
-            }
-            _ => (),
-        }
-    }
-}
-
 pub async fn invite(
     conn: Db,
     faktory: FaktoryConnection,
     activity: ApActivity,
 ) -> Result<Status, Status> {
+    log::debug!("PROCESSING INVITE\n{activity:#?}");
+
     if let Some(to) = activity.clone().to {
         if to.len() == 1 {
             if let Some(profile) = get_profile_by_ap_id(&conn, to[0].clone()).await {
-                save_identity_key(&conn, activity.clone(), profile.clone()).await;
-
                 if let Some(session) =
                     create_remote_encrypted_session(&conn, (activity.clone(), profile.id).into())
                         .await
@@ -300,9 +271,12 @@ pub async fn invite(
                     match assign_to_faktory(
                         faktory,
                         String::from("provide_one_time_key"),
-                        vec![session.ap_id],
+                        vec![session.ap_id.clone()],
                     ) {
-                        Ok(_) => Ok(Status::Accepted),
+                        Ok(_) => {
+                            log::debug!("ASSIGNED TO FAKTORY: {:?}", session.ap_id);
+                            Ok(Status::Accepted)
+                        }
                         Err(_) => Err(Status::NoContent),
                     }
                 } else {
@@ -324,6 +298,8 @@ pub async fn join(
     faktory: FaktoryConnection,
     activity: ApActivity,
 ) -> Result<Status, Status> {
+    log::debug!("PROCESSING JOIN ACTIVITY\n{activity:#?}");
+
     if let Some(to) = activity.clone().to {
         if to.len() == 1 {
             if let Some(profile) = get_profile_by_ap_id(&conn, to[0].clone()).await {
@@ -333,6 +309,8 @@ pub async fn join(
                 {
                     if let ApObject::Session(session) = activity.object {
                         if let Some(ap_id) = session.id {
+                            log::debug!("ASSIGNING JOIN ACTIVITY TO FAKTORY");
+
                             match assign_to_faktory(
                                 faktory,
                                 String::from("process_join"),
@@ -342,22 +320,9 @@ pub async fn join(
                                 Err(_) => Err(Status::NoContent),
                             }
                         } else {
-                            log::error!(
-                                "no id found on ApSession (remote_encrypted_session) object"
-                            );
+                            log::error!("MISSING ID");
                             Err(Status::NoContent)
                         }
-                        // // this is the inbox; we shouldn't be creating the encrypted_session here;
-                        // // that's an outbox activity to generate the UUID that will be used by remote
-                        // // servers for locally-created assets.
-                        // if create_encrypted_session(
-                        //     &conn,
-                        //     (session, profile.id).into()
-                        // ).await.is_some() {
-                        //     Ok(Status::Accepted)
-                        // } else {
-                        //     Err(Status::NoContent)
-                        // }
                     } else {
                         Err(Status::NoContent)
                     }

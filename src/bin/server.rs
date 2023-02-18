@@ -6,10 +6,10 @@ use std::collections::HashMap;
 use enigmatick::{
     activity_pub::{
         retriever::{self, get_note, get_remote_webfinger},
-        ApActivity, ApActivityType, ApActor, ApBaseObjectSuper, ApCollection, ApNote, ApObject,
-        ApObjectType, ApOrderedCollection, FollowersPage, LeadersPage,
+        ApActivity, ApActivityType, ApActor, ApBaseObjectSuper, ApCollection, ApNote, ApNoteType,
+        ApObject, ApOrderedCollection, ApSession, FollowersPage, LeadersPage,
     },
-    admin::{self, verify_and_generate_password},
+    admin::{self, verify_and_generate_password, NewUser},
     api::{instance::InstanceInformation, processing_queue},
     db::{
         get_followers_by_profile_id, get_leaders_by_profile_id, update_avatar_by_username,
@@ -19,14 +19,14 @@ use enigmatick::{
     helper::{get_local_username_from_ap_id, is_local},
     inbox,
     models::{
+        encrypted_sessions::{
+            get_encrypted_session_by_profile_id_and_ap_to, get_encrypted_session_by_uuid,
+        },
         notes::get_note_by_uuid,
         olm_one_time_keys::create_olm_one_time_key,
-        profiles::{
-            clear_olm_external_identity_keys_by_username,
-            clear_olm_external_one_time_keys_by_username, get_profile_by_username,
-            update_olm_account_by_username, update_olm_external_identity_keys_by_username,
-            update_olm_sessions_by_username, KeyStore, Profile,
-        },
+        olm_sessions::{update_olm_session_by_encrypted_session_id, OlmSession},
+        processing_queue::resolve_processed_item_by_ap_id_and_profile_id,
+        profiles::{get_profile_by_username, update_olm_account_by_username, Profile},
         remote_activities::create_remote_activity,
         vault::{create_vault_item, get_vault_items_by_profile_id, VaultItem},
     },
@@ -199,9 +199,6 @@ pub async fn test(
     //     None => Err(Status::NoContent),
     // }
 
-    clear_olm_external_identity_keys_by_username(&conn, username.clone()).await;
-    clear_olm_external_one_time_keys_by_username(&conn, username).await;
-
     Ok(Status::Accepted)
 }
 
@@ -227,7 +224,7 @@ pub async fn host_meta() -> Result<String, Status> {
 #[get(
     "/.well-known/webfinger?<resource>",
     format = "application/xrd+xml",
-    rank = 1
+    rank = 2
 )]
 pub async fn webfinger_xml(conn: Db, resource: String) -> Result<String, Status> {
     if resource.starts_with("acct:") {
@@ -237,21 +234,26 @@ pub async fn webfinger_xml(conn: Db, resource: String) -> Result<String, Status>
 
         let server_url = (*enigmatick::SERVER_URL).clone();
 
-        match get_profile_by_username(&conn, username.to_string()).await {
-            // Some(profile) => Ok(format!(
-            //     r#"<?xml version="1.0" encoding="UTF-8"?><XRD xmlns="http://docs.oasis-open.org/ns/xri/xrd-1.0"><Subject>{resource}</Subject><Alias>{server_url}/user/{username}</Alias><Link href="{server_url}/@{username}" rel="http://webfinger.net/rel/profile-page" type="text/html" /><Link href="https://{server_url}/user/{username}" rel="self" type="application/activity+json" /><Link href="{server_url}/user/{username}" rel="self" type="application/ld+json; profile=&quot;https://www.w3.org/ns/activitystreams&quot;" /><Link rel="http://ostatus.org/schema/1.0/subscribe" template="{server_url}/ostatus_subscribe?acct={{uri}}" /></XRD>"#
-            // )),
-            Some(profile) => Ok(format!(
+        if get_profile_by_username(&conn, username.to_string())
+            .await
+            .is_some()
+        {
+            Ok(format!(
                 r#"<?xml version="1.0" encoding="UTF-8"?><XRD xmlns="http://docs.oasis-open.org/ns/xri/xrd-1.0"><Subject>{resource}</Subject><Alias>{server_url}/user/{username}</Alias><Link href="{server_url}/@{username}" rel="http://webfinger.net/rel/profile-page" type="text/html" /><Link href="{server_url}/user/{username}" rel="self" type="application/activity+json" /><Link href="{server_url}/user/{username}" rel="self" type="application/ld+json; profile=&quot;https://www.w3.org/ns/activitystreams&quot;" /></XRD>"#
-            )),
-            None => Err(Status::NoContent),
+            ))
+        } else {
+            Err(Status::NoContent)
         }
     } else {
         Err(Status::NoContent)
     }
 }
 
-#[get("/.well-known/webfinger?<resource>", rank = 2)]
+#[get(
+    "/.well-known/webfinger?<resource>",
+    format = "application/jrd+json",
+    rank = 1
+)]
 pub async fn webfinger_json(conn: Db, resource: String) -> Result<Json<WebFinger>, Status> {
     if resource.starts_with("acct:") {
         let parts = resource.split(':').collect::<Vec<&str>>();
@@ -301,8 +303,18 @@ pub async fn get_leaders(conn: Db, username: String) -> Result<Json<ApOrderedCol
 }
 
 #[derive(Deserialize, Debug, Clone)]
+pub struct SessionUpdate {
+    pub session_uuid: String,
+    pub encrypted_session: String,
+    pub session_hash: String,
+    pub mutation_of: String,
+}
+
+#[derive(Deserialize, Debug, Clone)]
 pub struct VaultStorageRequest {
     pub data: String,
+    pub remote_actor: String,
+    pub session: SessionUpdate,
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone)]
@@ -333,11 +345,35 @@ pub async fn store_vault_item(
 ) -> Result<Json<VaultStorageResponse>, Status> {
     if let Signed(true, VerificationType::Local) = signed {
         if let Some(profile) = get_profile_by_username(&conn, username).await {
-            Ok(Json(
-                create_vault_item(&conn, ((*data).clone().data, profile.id).into())
-                    .await
-                    .into(),
-            ))
+            let data = data.0;
+            let session_update = data.clone().session;
+
+            if let Some((_, Some(olm_session))) =
+                get_encrypted_session_by_uuid(&conn, session_update.session_uuid).await
+            {
+                if update_olm_session_by_encrypted_session_id(
+                    &conn,
+                    olm_session.encrypted_session_id,
+                    session_update.encrypted_session,
+                    session_update.session_hash,
+                )
+                .await
+                .is_some()
+                {
+                    Ok(Json(
+                        create_vault_item(
+                            &conn,
+                            (data.clone().data, profile.id, data.clone().remote_actor).into(),
+                        )
+                        .await
+                        .into(),
+                    ))
+                } else {
+                    Err(Status::NoContent)
+                }
+            } else {
+                Err(Status::NoContent)
+            }
         } else {
             Err(Status::NoContent)
         }
@@ -673,36 +709,15 @@ pub async fn change_password(
     }
 }
 
-#[derive(Deserialize, Debug, Clone)]
-pub struct NewUser {
-    pub username: String,
-    pub password: String,
-    pub display_name: String,
-    pub client_public_key: String,
-    pub keystore: String,
-}
-
 #[post("/api/user/create", format = "json", data = "<user>")]
 pub async fn create_user(
     conn: Db,
     user: Result<Json<NewUser>, Error<'_>>,
 ) -> Result<Json<Profile>, Status> {
-    if let Ok(user) = user {
+    if let Ok(Json(user)) = user {
         log::debug!("CREATING USER\n{user:#?}");
 
-        let keystore_value: serde_json::Value =
-            serde_json::from_str(&user.keystore.clone()).unwrap();
-
-        if let Some(profile) = admin::create_user(
-            &conn,
-            user.username.clone(),
-            user.display_name.clone(),
-            user.password.clone(),
-            Some(user.client_public_key.clone()),
-            Some(keystore_value),
-        )
-        .await
-        {
+        if let Some(profile) = admin::create_user(&conn, user).await {
             Ok(Json(profile))
         } else {
             Err(Status::NoContent)
@@ -712,24 +727,24 @@ pub async fn create_user(
     }
 }
 
-#[post(
-    "/api/user/<username>/update_olm_sessions",
-    format = "json",
-    data = "<keystore>"
-)]
-pub async fn update_olm_sessions(
-    signed: Signed,
+#[get("/api/user/<username>/session/<encoded>")]
+pub async fn get_olm_session(
+    //    signed: Signed,
     conn: Db,
     username: String,
-    keystore: Result<Json<KeyStore>, Error<'_>>,
-) -> Result<Json<Profile>, Status> {
-    log::debug!("UPDATING KEYSTORE\n{keystore:#?}");
-
-    if let Signed(true, VerificationType::Local) = signed {
-        if let Ok(Json(keystore)) = keystore {
-            if let Some(profile) = update_olm_sessions_by_username(&conn, username, keystore).await
-            {
-                Ok(Json(profile))
+    encoded: String,
+) -> Result<Json<ApSession>, Status> {
+    //  if let Signed(true, VerificationType::Local) = signed {
+    if let Some(profile) = get_profile_by_username(&conn, username).await {
+        if let Ok(id) = base64::decode(encoded) {
+            if let Ok(id) = String::from_utf8(id) {
+                if let Some((encrypted_session, Some(olm_session))) =
+                    get_encrypted_session_by_profile_id_and_ap_to(&conn, profile.id, id).await
+                {
+                    Ok(Json((olm_session, encrypted_session.into()).into()))
+                } else {
+                    Err(Status::NoContent)
+                }
             } else {
                 Err(Status::NoContent)
             }
@@ -739,9 +754,11 @@ pub async fn update_olm_sessions(
     } else {
         Err(Status::NoContent)
     }
+    // } else {
+    //     Err(Status::NoContent)
+    // }
 }
-
-#[get("/api/user/<username>/processing_queue")]
+#[get("/api/user/<username>/queue")]
 pub async fn get_processing_queue(
     signed: Signed,
     conn: Db,
@@ -760,25 +777,41 @@ pub async fn get_processing_queue(
     }
 }
 
-#[post(
-    "/api/user/<username>/update_identity_cache",
-    format = "json",
-    data = "<keystore>"
-)]
-pub async fn update_identity_cache(
+#[derive(Serialize, Deserialize, Default, Clone, Debug, PartialEq, Eq)]
+pub enum QueueTask {
+    Resolve,
+    #[default]
+    Unknown,
+}
+
+#[derive(Serialize, Deserialize, Default, Clone, Debug)]
+pub struct QueueAction {
+    id: String,
+    action: QueueTask,
+}
+
+#[post("/api/user/<username>/queue", format = "json", data = "<item>")]
+pub async fn update_processing_queue_item(
     signed: Signed,
     conn: Db,
     username: String,
-    keystore: Result<Json<KeyStore>, Error<'_>>,
-) -> Result<Json<Profile>, Status> {
-    debug!("UPDATING IDENTITY CACHE\n{keystore:#?}");
-
+    item: Result<Json<QueueAction>, Error<'_>>,
+) -> Result<Status, Status> {
     if let Signed(true, VerificationType::Local) = signed {
-        if let Ok(Json(keystore)) = keystore {
-            if let Some(profile) =
-                update_olm_external_identity_keys_by_username(&conn, username, keystore).await
-            {
-                Ok(Json(profile))
+        if let Ok(Json(item)) = item {
+            if let Some(profile) = get_profile_by_username(&conn, username).await {
+                if item.action == QueueTask::Resolve {
+                    if resolve_processed_item_by_ap_id_and_profile_id(&conn, profile.id, item.id)
+                        .await
+                        .is_some()
+                    {
+                        Ok(Status::Accepted)
+                    } else {
+                        Err(Status::NoContent)
+                    }
+                } else {
+                    Err(Status::NoContent)
+                }
             } else {
                 Err(Status::NoContent)
             }
@@ -987,10 +1020,10 @@ pub async fn outbox_post(
                     Json(ApBaseObjectSuper::Object(ApObject::Note(note))) => {
                         // EncryptedNotes need to be handled differently, but use the ApNote struct
                         match note.kind {
-                            ApObjectType::Note => {
+                            ApNoteType::Note => {
                                 outbox::object::note(conn, faktory, events, note, profile).await
                             }
-                            ApObjectType::EncryptedNote => {
+                            ApNoteType::EncryptedNote => {
                                 outbox::object::encrypted_note(conn, faktory, events, note, profile)
                                     .await
                             }
@@ -1140,10 +1173,11 @@ fn rocket() -> _ {
                 get_leaders,
                 create_user,
                 authenticate_user,
-                update_identity_cache,
-                update_olm_sessions,
                 add_one_time_keys,
                 get_processing_queue,
+                update_processing_queue_item,
+                get_olm_session,
+                store_vault_item,
                 test,
                 stream,
                 instance_information,

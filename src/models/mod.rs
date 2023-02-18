@@ -11,7 +11,5 @@ pub mod remote_actors;
 pub mod remote_announces;
 pub mod remote_encrypted_sessions;
 pub mod remote_notes;
-pub mod remote_olm_one_time_keys;
-pub mod remote_olm_identity_keys;
 pub mod timeline;
 pub mod vault;

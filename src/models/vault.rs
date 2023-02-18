@@ -12,16 +12,16 @@ pub struct NewVaultItem {
     pub profile_id: i32,
     pub uuid: String,
     pub encrypted_data: String,
+    pub remote_actor: String,
 }
 
-type EncryptedData = (String, i32);
+type EncryptedData = (String, i32, String);
 impl From<EncryptedData> for NewVaultItem {
-    fn from(data: EncryptedData) -> Self {
-        let (encrypted_data, profile_id) = data;
-
+    fn from((encrypted_data, profile_id, remote_actor): EncryptedData) -> Self {
         NewVaultItem {
             profile_id,
             encrypted_data,
+            remote_actor,
             uuid: uuid::Uuid::new_v4().to_string(),
         }
     }
@@ -37,6 +37,7 @@ pub struct VaultItem {
     pub uuid: String,
     pub profile_id: i32,
     pub encrypted_data: String,
+    pub remote_actor: String,
 }
 
 pub async fn create_vault_item(conn: &Db, vault_item: NewVaultItem) -> Option<VaultItem> {

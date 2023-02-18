@@ -1,11 +1,15 @@
 use crate::{
     activity_pub::{ApNote, ApSession},
-    db::{create_encrypted_session, create_note, Db},
+    db::{create_note, Db},
     fairings::{
         events::EventChannels,
         faktory::{assign_to_faktory, FaktoryConnection},
     },
-    models::{encrypted_sessions::NewEncryptedSession, notes::NewNote, profiles::Profile},
+    models::{
+        encrypted_sessions::{create_encrypted_session, NewEncryptedSession},
+        notes::NewNote,
+        profiles::Profile,
+    },
     //    signing::{sign, Method, SignParams},
 };
 //use reqwest::Client;

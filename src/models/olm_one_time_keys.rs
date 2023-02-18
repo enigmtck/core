@@ -1,3 +1,5 @@
+use core::fmt;
+
 use crate::db::Db;
 use crate::schema::olm_one_time_keys;
 use chrono::{DateTime, Utc};

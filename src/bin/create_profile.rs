@@ -55,8 +55,12 @@ pub fn create_profile(
             .to_public_key_pem(LineEnding::default())
             .unwrap(),
         password: Option::None,
-        keystore: Option::None,
         client_public_key: Option::None,
+        client_private_key: Option::None,
+        olm_identity_key: Option::None,
+        olm_pickled_account: Option::None,
+        olm_pickled_account_hash: Option::None,
+        salt: Option::None,
     };
 
     match diesel::insert_into(profiles::table)

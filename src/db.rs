@@ -182,44 +182,6 @@ pub async fn get_remote_encrypted_session_by_ap_id(
     }
 }
 
-pub async fn create_encrypted_session(
-    conn: &Db,
-    encrypted_session: NewEncryptedSession,
-) -> Option<EncryptedSession> {
-    use schema::encrypted_sessions;
-
-    match conn
-        .run(move |c| {
-            diesel::insert_into(encrypted_sessions::table)
-                .values(&encrypted_session)
-                .get_result::<EncryptedSession>(c)
-        })
-        .await
-    {
-        Ok(x) => Some(x),
-        Err(e) => {
-            log::debug!("{:#?}", e);
-            Option::None
-        }
-    }
-}
-
-pub async fn get_encrypted_sessions_by_profile_id(conn: &Db, id: i32) -> Vec<EncryptedSession> {
-    use self::schema::encrypted_sessions::dsl::{encrypted_sessions, profile_id};
-
-    match conn
-        .run(move |c| {
-            encrypted_sessions
-                .filter(profile_id.eq(id))
-                .get_results::<EncryptedSession>(c)
-        })
-        .await
-    {
-        Ok(x) => x,
-        Err(_) => vec![],
-    }
-}
-
 pub async fn create_leader(conn: &Db, leader: NewLeader) -> Option<Leader> {
     use schema::leaders;
 

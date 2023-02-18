@@ -1,7 +1,24 @@
-use crate::activity_pub::{ApBaseObjectType, ApContext, ApObject};
+use core::fmt;
+use std::fmt::Debug;
+
+use crate::activity_pub::{ApContext, ApObject};
 use crate::models::{followers::Follower, leaders::Leader, profiles::Profile};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
+
+#[derive(Serialize, Deserialize, Clone, Debug, Default)]
+pub enum ApCollectionType {
+    Collection,
+    OrderedCollection,
+    #[default]
+    Unknown,
+}
+
+impl fmt::Display for ApCollectionType {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        Debug::fmt(self, f)
+    }
+}
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
@@ -10,7 +27,7 @@ pub struct ApCollection {
     #[serde(rename = "@context")]
     pub context: Option<ApContext>,
     #[serde(rename = "type")]
-    pub kind: ApBaseObjectType,
+    pub kind: ApCollectionType,
     pub id: Option<String>,
     pub total_items: u32,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -31,7 +48,7 @@ impl Default for ApCollection {
     fn default() -> ApCollection {
         ApCollection {
             context: Option::from(ApContext::default()),
-            kind: ApBaseObjectType::Collection,
+            kind: ApCollectionType::Collection,
             id: Option::from(format!(
                 "https://{}/collections/{}",
                 *crate::SERVER_NAME,
@@ -55,7 +72,7 @@ pub struct ApOrderedCollection {
     #[serde(rename = "@context")]
     pub context: Option<ApContext>,
     #[serde(rename = "type")]
-    pub kind: ApBaseObjectType,
+    pub kind: ApCollectionType,
     pub id: Option<String>,
     pub total_items: u32,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -78,7 +95,7 @@ impl Default for ApOrderedCollection {
     fn default() -> ApOrderedCollection {
         ApOrderedCollection {
             context: Option::from(ApContext::default()),
-            kind: ApBaseObjectType::OrderedCollection,
+            kind: ApCollectionType::OrderedCollection,
             id: Option::from(format!(
                 "https://{}/collections/{}",
                 *crate::SERVER_NAME,
@@ -117,7 +134,7 @@ impl From<FollowersPage> for ApOrderedCollection {
     fn from(request: FollowersPage) -> Self {
         if request.page == 0 {
             ApOrderedCollection {
-                kind: ApBaseObjectType::OrderedCollection,
+                kind: ApCollectionType::OrderedCollection,
                 id: Option::from(format!(
                     "{}/users/{}/followers",
                     *crate::SERVER_URL,
@@ -156,7 +173,7 @@ impl From<LeadersPage> for ApOrderedCollection {
     fn from(request: LeadersPage) -> Self {
         if request.page == 0 {
             ApOrderedCollection {
-                kind: ApBaseObjectType::OrderedCollection,
+                kind: ApCollectionType::OrderedCollection,
                 id: Option::from(format!(
                     "{}/users/{}/following",
                     *crate::SERVER_URL,

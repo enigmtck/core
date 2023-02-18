@@ -1,3 +1,4 @@
+use crate::activity_pub::ApInstrument;
 use crate::db::Db;
 use crate::schema::olm_sessions;
 use chrono::{DateTime, Utc};
@@ -9,10 +10,10 @@ use serde::{Deserialize, Serialize};
 #[derive(Serialize, Deserialize, Insertable, Default, Debug, Clone)]
 #[table_name = "olm_sessions"]
 pub struct NewOlmSession {
-    pub profile_id: i32,
-    pub remote_id: String,
+    pub uuid: String,
     pub session_data: String,
     pub session_hash: String,
+    pub encrypted_session_id: i32,
 }
 
 #[derive(Identifiable, Queryable, AsChangeset, Serialize, Clone, Default, Debug)]
@@ -23,10 +24,22 @@ pub struct OlmSession {
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
     pub uuid: String,
-    pub profile_id: i32,
-    pub remote_id: String,
     pub session_data: String,
     pub session_hash: String,
+    pub encrypted_session_id: i32,
+}
+
+type LinkedApInstrument = (ApInstrument, i32);
+
+impl From<LinkedApInstrument> for NewOlmSession {
+    fn from((instrument, encrypted_session_id): LinkedApInstrument) -> Self {
+        NewOlmSession {
+            uuid: uuid::Uuid::new_v4().to_string(),
+            session_data: instrument.content,
+            session_hash: instrument.hash.unwrap_or_default(),
+            encrypted_session_id,
+        }
+    }
 }
 
 pub async fn create_olm_session(conn: &Db, olm_session: NewOlmSession) -> Option<OlmSession> {
@@ -44,46 +57,47 @@ pub async fn create_olm_session(conn: &Db, olm_session: NewOlmSession) -> Option
     }
 }
 
-pub async fn get_olm_sessions_by_profile_id(
+pub async fn get_olm_session_by_encrypted_session_id(
     conn: &Db,
-    id: i32,
-    limit: i64,
-    offset: i64,
-) -> Vec<OlmSession> {
+    encrypted_session_id: i32,
+) -> Option<OlmSession> {
     match conn
         .run(move |c| {
             let query = olm_sessions::table
-                .filter(olm_sessions::profile_id.eq(id))
-                .order(olm_sessions::created_at.desc())
-                .limit(limit)
-                .offset(offset)
-                .into_boxed();
+                .filter(olm_sessions::encrypted_session_id.eq(encrypted_session_id))
+                .order(olm_sessions::updated_at.desc());
 
-            query.get_results::<OlmSession>(c)
+            query.first::<OlmSession>(c).optional()
         })
         .await
     {
         Ok(x) => x,
-        Err(_) => vec![],
+        Err(_) => None,
     }
 }
 
-pub async fn get_olm_sessions_by_profile_id_and_ap_id(
+pub async fn update_olm_session_by_encrypted_session_id(
     conn: &Db,
-    profile_id: i32,
-    ap_id: String,
-) -> Vec<OlmSession> {
+    encrypted_session_id: i32,
+    session_data: String,
+    session_hash: String,
+) -> Option<OlmSession> {
     match conn
         .run(move |c| {
-            let query = olm_sessions::table
-                .filter(olm_sessions::profile_id.eq(profile_id))
-                .filter(olm_sessions::remote_id.eq(ap_id));
-
-            query.get_results::<OlmSession>(c)
+            diesel::update(
+                olm_sessions::table
+                    .filter(olm_sessions::encrypted_session_id.eq(encrypted_session_id)),
+            )
+            .set((
+                olm_sessions::session_data.eq(session_data),
+                olm_sessions::session_hash.eq(session_hash),
+            ))
+            .get_result::<OlmSession>(c)
+            .optional()
         })
         .await
     {
         Ok(x) => x,
-        Err(_) => vec![],
+        Err(_) => Option::None,
     }
 }

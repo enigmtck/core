@@ -4,18 +4,19 @@ extern crate log;
 use enigmatick::{
     activity_pub::{
         sender::{send_activity, send_follower_accept},
-        ApActivity, ApActor, ApBasicContentType, ApInstrument, ApNote, ApObject, ApSession,
-        JoinData,
+        ApActivity, ApActor, ApAttachment, ApAttachmentType, ApBasicContentType, ApInstrument,
+        ApInstrumentType, ApInstruments, ApNote, ApObject, ApSession, JoinData,
     },
-    db::jsonb_set,
     helper::{get_local_username_from_ap_id, is_local, is_public},
     models::{
         encrypted_sessions::{EncryptedSession, NewEncryptedSession},
         followers::Follower,
         leaders::Leader,
         notes::Note,
+        olm_one_time_keys::OlmOneTimeKey,
+        olm_sessions::{NewOlmSession, OlmSession},
         processing_queue::{NewProcessingItem, ProcessingItem},
-        profiles::{KeyStore, Profile},
+        profiles::Profile,
         remote_activities::{NewRemoteActivity, RemoteActivity},
         remote_actors::{NewRemoteActor, RemoteActor},
         remote_announces::RemoteAnnounce,
@@ -187,6 +188,32 @@ pub fn create_encrypted_session(
     }
 }
 
+pub fn get_encrypted_session_by_profile_id_and_ap_to(
+    profile_id: i32,
+    ap_to: String,
+) -> Option<EncryptedSession> {
+    use enigmatick::schema::encrypted_sessions::dsl::{
+        ap_to as a, encrypted_sessions, profile_id as p, updated_at,
+    };
+
+    if let Ok(conn) = POOL.get() {
+        match encrypted_sessions
+            .filter(p.eq(profile_id))
+            .filter(a.eq(ap_to))
+            .order(updated_at.desc())
+            .first::<EncryptedSession>(&conn)
+        {
+            Ok(x) => Option::from(x),
+            Err(e) => {
+                log::error!("{:#?}", e);
+                Option::None
+            }
+        }
+    } else {
+        Option::None
+    }
+}
+
 pub fn get_encrypted_session_by_uuid(uuid: String) -> Option<EncryptedSession> {
     use enigmatick::schema::encrypted_sessions::dsl::{encrypted_sessions, uuid as u};
 
@@ -201,6 +228,38 @@ pub fn get_encrypted_session_by_uuid(uuid: String) -> Option<EncryptedSession> {
                 log::error!("{:#?}", e);
                 Option::None
             }
+        }
+    } else {
+        Option::None
+    }
+}
+
+pub fn get_one_time_key(profile_id: i32) -> Option<OlmOneTimeKey> {
+    log::debug!("IN get_one_time_key");
+    use enigmatick::schema::olm_one_time_keys::dsl::{
+        distributed, olm_one_time_keys, profile_id as p,
+    };
+
+    if let Ok(conn) = POOL.get() {
+        if let Ok(Some(otk)) = olm_one_time_keys
+            .filter(p.eq(profile_id))
+            .filter(distributed.eq(false))
+            .first::<OlmOneTimeKey>(&conn)
+            .optional()
+        {
+            log::debug!("OTK\n{otk:#?}");
+            match diesel::update(olm_one_time_keys.find(otk.id))
+                .set(distributed.eq(true))
+                .get_results::<OlmOneTimeKey>(&conn)
+            {
+                Ok(mut x) => x.pop(),
+                Err(e) => {
+                    log::error!("FAILED TO RETRIEVE OTK: {e:#?}");
+                    Option::None
+                }
+            }
+        } else {
+            Option::None
         }
     } else {
         Option::None
@@ -479,81 +538,6 @@ fn get_follower_inboxes(profile: Profile) -> HashSet<String> {
     inboxes
 }
 
-pub fn update_otk_by_username(username: String, keystore: KeyStore) -> Option<Profile> {
-    use enigmatick::schema::profiles::dsl::{keystore as k, profiles, username as u};
-
-    if let Ok(conn) = POOL.get() {
-        match diesel::update(profiles.filter(u.eq(username)))
-            .set(k.eq(jsonb_set(
-                k,
-                vec![String::from("olm_one_time_keys")],
-                serde_json::to_value(keystore.olm_one_time_keys).unwrap(),
-            )))
-            .get_result::<Profile>(&conn)
-        {
-            Ok(x) => Some(x),
-            Err(e) => {
-                log::error!("{:#?}", e);
-                Option::None
-            }
-        }
-    } else {
-        Option::None
-    }
-}
-
-pub fn update_external_one_time_keys_by_username(
-    username: String,
-    keystore: KeyStore,
-) -> Option<Profile> {
-    use enigmatick::schema::profiles::dsl::{keystore as k, profiles, username as u};
-
-    if let Ok(conn) = POOL.get() {
-        match diesel::update(profiles.filter(u.eq(username)))
-            .set(k.eq(jsonb_set(
-                k,
-                vec![String::from("olm_external_one_time_keys")],
-                serde_json::to_value(keystore.olm_external_one_time_keys).unwrap(),
-            )))
-            .get_result::<Profile>(&conn)
-        {
-            Ok(x) => Some(x),
-            Err(e) => {
-                log::error!("{:#?}", e);
-                Option::None
-            }
-        }
-    } else {
-        Option::None
-    }
-}
-
-pub fn update_external_identity_keys_by_username(
-    username: String,
-    keystore: KeyStore,
-) -> Option<Profile> {
-    use enigmatick::schema::profiles::dsl::{keystore as k, profiles, username as u};
-
-    if let Ok(conn) = POOL.get() {
-        match diesel::update(profiles.filter(u.eq(username)))
-            .set(k.eq(jsonb_set(
-                k,
-                vec![String::from("olm_external_identity_keys")],
-                serde_json::to_value(keystore.olm_external_identity_keys).unwrap(),
-            )))
-            .get_result::<Profile>(&conn)
-        {
-            Ok(x) => Some(x),
-            Err(e) => {
-                log::error!("{:#?}", e);
-                Option::None
-            }
-        }
-    } else {
-        Option::None
-    }
-}
-
 pub fn update_note_cc(note: Note) -> Option<Note> {
     use enigmatick::schema::notes::dsl::{cc, notes};
 
@@ -615,6 +599,8 @@ async fn lookup_remote_note(id: String) -> Option<ApNote> {
 }
 
 fn send_kexinit(job: Job) -> io::Result<()> {
+    log::debug!("RUNNING send_kexinit JOB");
+
     let rt = Runtime::new().unwrap();
     let handle = rt.handle();
 
@@ -625,7 +611,7 @@ fn send_kexinit(job: Job) -> io::Result<()> {
             if let Some(sender) = get_profile(encrypted_session.profile_id) {
                 let mut session: ApSession = encrypted_session.clone().into();
                 session.id = Option::from(format!(
-                    "{}/encrypted-sessions/{}",
+                    "{}/session/{}",
                     *enigmatick::SERVER_URL,
                     encrypted_session.uuid
                 ));
@@ -647,7 +633,7 @@ fn send_kexinit(job: Job) -> io::Result<()> {
                     handle.block_on(async {
                         match send_activity(activity, sender, inbox.clone()).await {
                             Ok(_) => {
-                                info!("join sent: {:#?}", inbox);
+                                info!("INVITE SENT: {inbox:#?}");
                             }
                             Err(e) => error!("error: {:#?}", e),
                         }
@@ -661,6 +647,8 @@ fn send_kexinit(job: Job) -> io::Result<()> {
 }
 
 fn provide_one_time_key(job: Job) -> io::Result<()> {
+    log::debug!("RUNNING provide_one_time_key JOB");
+
     // look up remote_encrypted_session with ap_id from job.args()
 
     let rt = Runtime::new().unwrap();
@@ -671,59 +659,48 @@ fn provide_one_time_key(job: Job) -> io::Result<()> {
 
         if let Some(session) = get_remote_encrypted_session_by_ap_id(ap_id) {
             // this is the username of the Enigmatick user who received the Invite
+            log::debug!("SESSION\n{session:#?}");
             if let Some(username) = get_local_username_from_ap_id(session.ap_to.clone()) {
+                log::debug!("USERNAME: {username}");
                 if let Some(profile) = get_profile_by_username(username.clone()) {
+                    log::debug!("PROFILE\n{profile:#?}");
                     if let Some(actor) = get_remote_actor_by_ap_id(session.attributed_to.clone()) {
+                        log::debug!("ACTOR\n{actor:#?}");
                         // send Join activity with Identity and OTK to attributed_to
-                        let mut keystore = profile.keystore.clone();
 
-                        if let Some(identity_key) = keystore.olm_identity_public_key.clone() {
-                            if let Some(mut otk) = keystore.olm_one_time_keys.clone() {
-                                let mut keys = otk.keys().collect::<Vec<&String>>();
+                        if let Some(identity_key) = profile.olm_identity_key.clone() {
+                            log::debug!("IDENTITY KEY: {identity_key}");
+                            if let Some(otk) = get_one_time_key(profile.id) {
+                                log::debug!("IDK\n{identity_key:#?}");
+                                log::debug!("OTK\n{otk:#?}");
 
-                                // it feels nice to address these in order, but I'm not sure
-                                // that it actually matters; I may remove these
-                                keys.sort();
-                                keys.reverse();
+                                let session = ApSession::from(JoinData {
+                                    one_time_key: otk.key_data,
+                                    identity_key,
+                                    to: session.attributed_to,
+                                    attributed_to: session.ap_to,
+                                    reference: session.ap_id,
+                                });
 
-                                let key = keys.first().unwrap().to_string();
-                                let value = otk.remove(&key).unwrap();
-                                log::debug!("identity_key\n{:#?}", identity_key);
-                                log::debug!("value\n{:#?}", value);
-                                keystore.olm_one_time_keys = Some(otk);
-                                if update_otk_by_username(username, keystore).is_some() {
-                                    let session = ApSession::from(JoinData {
-                                        one_time_key: base64::encode(value),
-                                        identity_key,
-                                        to: session.attributed_to,
-                                        attributed_to: session.ap_to,
-                                        reference: session.ap_id,
-                                    });
+                                let activity = ApActivity::from(session.clone());
+                                let encrypted_session: NewEncryptedSession =
+                                    (session.clone(), profile.id).into();
 
-                                    let activity = ApActivity::from(session.clone());
-                                    let encrypted_session: NewEncryptedSession =
-                                        (session.clone(), profile.id).into();
+                                // this activity should be saved so that the id makes sense
+                                // but it's not right now
+                                log::debug!("JOIN ACTIVITY\n{activity:#?}");
 
-                                    // this activity should be saved so that the id makes sense
-                                    // but it's not right now
-                                    log::debug!("activity\n{:#?}", activity);
-
-                                    if create_encrypted_session(encrypted_session).is_some() {
-                                        handle.block_on(async {
-                                            match send_activity(activity, profile, actor.inbox)
-                                                .await
-                                            {
-                                                Ok(_) => {
-                                                    info!("join sent: {:#?}", actor.ap_id);
-                                                }
-                                                Err(e) => error!("error: {:#?}", e),
+                                if create_encrypted_session(encrypted_session).is_some() {
+                                    handle.block_on(async {
+                                        match send_activity(activity, profile, actor.inbox).await {
+                                            Ok(_) => {
+                                                info!("JOIN SENT");
                                             }
-                                        });
-                                    } else {
-                                        log::error!("failed to save encrypted_session");
-                                    }
+                                            Err(e) => error!("ERROR SENDING JOIN: {e:#?}"),
+                                        }
+                                    });
                                 } else {
-                                    log::error!("failed to update keystore");
+                                    log::error!("FAILED TO SAVE ENCRYPTED SESSION");
                                 }
                             }
                         }
@@ -732,6 +709,35 @@ fn provide_one_time_key(job: Job) -> io::Result<()> {
             }
         }
     }
+
+    Ok(())
+}
+
+fn process_join(job: Job) -> io::Result<()> {
+    let ap_ids = job.args();
+
+    debug!("RUNNING process_join JOB");
+
+    for ap_id in ap_ids {
+        if let Some(session) =
+            get_remote_encrypted_session_by_ap_id(ap_id.as_str().unwrap().to_string())
+        {
+            // this is the username of the Enigmatick user who received the Invite
+            if let Some(username) = get_local_username_from_ap_id(session.ap_to.clone()) {
+                if let Some(profile) = get_profile_by_username(username.clone()) {
+                    if let Some(actor) = get_remote_actor_by_ap_id(session.attributed_to.clone()) {
+                        debug!("ACTOR\n{actor:#?}");
+                        //let session: ApSession = session.clone().into();
+
+                        if let Some(item) = create_processing_item(session.clone().into()) {
+                            debug!("PROCESSING ITEM\n{item:#?}");
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     Ok(())
 }
 
@@ -803,96 +809,6 @@ fn acknowledge_followers(job: Job) -> io::Result<()> {
     Ok(())
 }
 
-fn process_join(job: Job) -> io::Result<()> {
-    let ap_ids = job.args();
-
-    debug!("running process_join job: {:#?}", ap_ids);
-
-    for ap_id in ap_ids {
-        if let Some(session) =
-            get_remote_encrypted_session_by_ap_id(ap_id.as_str().unwrap().to_string())
-        {
-            // this is the username of the Enigmatick user who received the Invite
-            if let Some(username) = get_local_username_from_ap_id(session.ap_to.clone()) {
-                if let Some(profile) = get_profile_by_username(username.clone()) {
-                    if let Some(actor) = get_remote_actor_by_ap_id(session.attributed_to.clone()) {
-                        debug!("in actor: {:#?}", actor);
-                        let session: ApSession = session.into();
-
-                        debug!("session: {:#?}", session);
-
-                        let mut keystore = profile.keystore.clone();
-                        if let (Some(mut ext_otks), Some(mut ext_idks)) = (
-                            keystore.olm_external_one_time_keys,
-                            keystore.olm_external_identity_keys.clone(),
-                        ) {
-                            debug!("in ext_otks: {:#?}", (ext_otks.clone(), ext_idks.clone()));
-                            fn add_key(
-                                ap_id: String,
-                                obj: ApObject,
-                                mut ext_otks: HashMap<String, String>,
-                                mut ext_idks: HashMap<String, String>,
-                            ) -> (HashMap<String, String>, HashMap<String, String>)
-                            {
-                                debug!("in add_key: {:#?}", obj);
-                                debug!("in add_key: {:#?}", (ext_otks.clone(), ext_idks.clone()));
-
-                                if let ApObject::Basic(instrument) = obj {
-                                    match instrument.kind {
-                                        ApBasicContentType::SessionKey => {
-                                            ext_otks.insert(ap_id, instrument.content);
-                                        }
-                                        ApBasicContentType::IdentityKey => {
-                                            ext_idks.insert(ap_id, instrument.content);
-                                        }
-                                    }
-                                }
-
-                                (ext_otks, ext_idks)
-                            }
-
-                            match session.instrument {
-                                ApInstrument::Multiple(x) => {
-                                    debug!("x is: {:#?}", x);
-                                    for obj in x {
-                                        (ext_otks, ext_idks) = add_key(
-                                            actor.ap_id.clone(),
-                                            obj,
-                                            ext_otks.clone(),
-                                            ext_idks.clone(),
-                                        );
-                                    }
-                                }
-                                ApInstrument::Single(x) => {
-                                    debug!("wtf is: {:#?}", x);
-                                    (ext_otks, ext_idks) = add_key(
-                                        actor.ap_id.clone(),
-                                        *x,
-                                        ext_otks.clone(),
-                                        ext_idks.clone(),
-                                    );
-                                }
-                                _ => {}
-                            }
-
-                            keystore.olm_external_one_time_keys = Option::from(ext_otks);
-                            keystore.olm_external_identity_keys = Option::from(ext_idks);
-
-                            update_external_one_time_keys_by_username(
-                                username.clone(),
-                                keystore.clone(),
-                            );
-                            update_external_identity_keys_by_username(username, keystore);
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    Ok(())
-}
-
 fn add_to_timeline(ap_to: Option<Value>, cc: Option<Value>, timeline_item: TimelineItem) {
     if let Some(ap_to) = ap_to {
         let to_vec: Vec<String> = serde_json::from_value(ap_to).unwrap();
@@ -915,7 +831,7 @@ fn add_to_timeline(ap_to: Option<Value>, cc: Option<Value>, timeline_item: Timel
     }
 
     if let Some(cc) = cc {
-        if let Ok(cc_vec) = serde_json::from_value::<Vec<String>>(cc.clone()) {
+        if let Ok(cc_vec) = serde_json::from_value::<Vec<String>>(cc) {
             for cc in cc_vec {
                 create_timeline_item_cc((timeline_item.clone(), cc.clone()).into());
 
@@ -1017,7 +933,7 @@ fn process_remote_note(job: Job) -> io::Result<()> {
                                 let to_vec: Vec<String> = {
                                     match serde_json::from_value(ap_to) {
                                         Ok(x) => x,
-                                        Err(e) => vec![],
+                                        Err(_e) => vec![],
                                     }
                                 };
 
@@ -1041,126 +957,202 @@ fn process_remote_note(job: Job) -> io::Result<()> {
     Ok(())
 }
 
-fn process_outbound_note(job: Job) -> io::Result<()> {
+fn get_note_by_uuid(uuid: String) -> Option<Note> {
     use enigmatick::schema::notes::dsl::{notes, uuid as u};
 
-    debug!("running process_outbound_note job");
+    if let Ok(conn) = POOL.get() {
+        match notes.filter(u.eq(uuid)).first::<Note>(&conn).optional() {
+            Ok(x) => x,
+            Err(_) => Option::None,
+        }
+    } else {
+        Option::None
+    }
+}
 
-    let uuids = job.args();
+fn handle_note(note: &mut Note, inboxes: &mut HashSet<String>, sender: Profile) -> Option<ApNote> {
+    let rt = Runtime::new().unwrap();
+    let handle = rt.handle();
+
+    if let Ok(recipients) = serde_json::from_value::<Vec<String>>(note.clone().ap_to) {
+        for recipient in recipients {
+            // check if this is the special Public recipient
+            if is_public(recipient.clone()) {
+                // if it is, get all the inboxes for this sender's followers
+                inboxes.extend(get_follower_inboxes(sender.clone()));
+
+                // add the special followers address for the sending profile to the
+                // note's cc field
+                if let Some(cc) = note.clone().cc {
+                    let mut cc: Vec<String> = serde_json::from_value(cc).unwrap();
+                    cc.push(ApActor::from(sender.clone()).followers);
+                    note.cc = Option::from(serde_json::to_value(cc).unwrap());
+                } else {
+                    note.cc = Option::from(
+                        serde_json::to_value(vec![ApActor::from(sender.clone()).followers])
+                            .unwrap(),
+                    );
+                }
+
+                update_note_cc(note.clone());
+            } else if let Some(receiver) =
+                handle.block_on(async { get_actor(sender.clone(), recipient.clone()).await })
+            {
+                inboxes.insert(receiver.0.inbox);
+            }
+        }
+    }
+
+    if let Some(_actor) = get_remote_actor_by_ap_id(note.clone().attributed_to) {
+        if let Some(timeline_item) = create_timeline_item(ApNote::from(note.clone()).into()) {
+            add_to_timeline(
+                Option::from(note.clone().ap_to),
+                note.clone().cc,
+                timeline_item,
+            );
+        }
+    }
+
+    Some(note.clone().into())
+}
+
+pub fn create_olm_session(session: NewOlmSession) -> Option<OlmSession> {
+    use enigmatick::schema::olm_sessions;
+
+    if let Ok(conn) = POOL.get() {
+        match diesel::insert_into(olm_sessions::table)
+            .values(&session)
+            .get_result::<OlmSession>(&conn)
+            .optional()
+        {
+            Ok(x) => x,
+            Err(e) => Option::None,
+        }
+    } else {
+        Option::None
+    }
+}
+
+fn handle_encrypted_note(
+    note: &mut Note,
+    inboxes: &mut HashSet<String>,
+    sender: Profile,
+) -> Option<ApNote> {
+    debug!("ENCRYPTED NOTE\n{note:#?}");
+
+    fn do_it(
+        instrument: ApInstrument,
+        inboxes: &mut HashSet<String>,
+        note: &mut Note,
+        sender: Profile,
+    ) {
+        let rt = Runtime::new().unwrap();
+        let handle = rt.handle();
+
+        if let ApInstrumentType::OlmSession = instrument.kind {
+            if let Ok(to) = serde_json::from_value::<Vec<String>>(note.ap_to.clone()) {
+                // save encrypted session
+                if let Some(encrypted_session) =
+                    get_encrypted_session_by_profile_id_and_ap_to(sender.id, to[0].clone())
+                {
+                    if let Some(_session) =
+                        create_olm_session((instrument, encrypted_session.id).into())
+                    {
+                        if let Some(receiver) = handle
+                            .block_on(async { get_actor(sender.clone(), to[0].clone()).await })
+                        {
+                            inboxes.insert(receiver.0.inbox);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if let Some(instrument) = &note.instrument {
+        if let Ok(instruments) = serde_json::from_value::<ApInstruments>(instrument.clone()) {
+            match instruments {
+                ApInstruments::Multiple(instruments) => {
+                    for instrument in instruments {
+                        do_it(instrument, inboxes, note, sender.clone());
+                    }
+                }
+                ApInstruments::Single(instrument) => {
+                    do_it(instrument, inboxes, note, sender);
+                }
+                _ => (),
+            }
+
+            Some(note.clone().into())
+        } else {
+            error!("INVALID INSTRUMENT\n{instrument:#?}");
+            Option::None
+        }
+    } else {
+        error!("NO instrument");
+        Option::None
+    }
+}
+
+fn process_outbound_note(job: Job) -> io::Result<()> {
+    debug!("running process_outbound_note job");
 
     let rt = Runtime::new().unwrap();
     let handle = rt.handle();
 
-    match POOL.get() {
-        Ok(conn) => {
-            for uuid in uuids {
-                let uuid = uuid.as_str().unwrap().to_string();
-                debug!("looking for uuid: {}", uuid);
+    for uuid in job.args() {
+        let uuid = uuid.as_str().unwrap().to_string();
 
-                match notes.filter(u.eq(uuid)).first::<Note>(&conn) {
-                    Ok(mut note) => {
-                        let mut inboxes: HashSet<String> = HashSet::new();
+        if let Some(mut note) = get_note_by_uuid(uuid) {
+            // this is the profile where the note was posted to the outbox
+            if let Some(sender) = get_profile(note.profile_id) {
+                let mut inboxes: HashSet<String> = HashSet::new();
 
-                        // this is the profile where the note was posted to the outbox
-                        if let Some(sender) = get_profile(note.profile_id) {
-                            let sender = sender.clone();
-
-                            if let Ok(recipients) =
-                                serde_json::from_value::<Vec<String>>(note.clone().ap_to)
-                            {
-                                for recipient in recipients {
-                                    // check if this is the special Public recipient
-                                    if is_public(recipient.clone()) {
-                                        // if it is, get all the inboxes for this sender's followers
-                                        inboxes.extend(get_follower_inboxes(sender.clone()));
-
-                                        // add the special followers address for the sending profile to the
-                                        // note's cc field
-                                        if let Some(cc) = note.clone().cc {
-                                            let mut cc: Vec<String> =
-                                                serde_json::from_value(cc).unwrap();
-                                            cc.push(ApActor::from(sender.clone()).followers);
-                                            note.cc =
-                                                Option::from(serde_json::to_value(cc).unwrap());
-                                        } else {
-                                            note.cc = Option::from(
-                                                serde_json::to_value(vec![
-                                                    ApActor::from(sender.clone()).followers,
-                                                ])
-                                                .unwrap(),
-                                            );
-                                        }
-
-                                        update_note_cc(note.clone());
-                                    // } else if is_local(recipient.clone()) {
-                                    //     if let Some(username) =
-                                    //         get_local_username_from_ap_id(recipient.to_string())
-                                    //     {
-                                    //         if let Some(profile) = get_profile_by_username(username) {
-                                    //             inboxes.insert(ApActor::from(profile).inbox);
-                                    //         }
-                                    //     }
-                                    } else if let Some(receiver) = handle.block_on(async {
-                                        get_actor(sender.clone(), recipient.clone()).await
-                                    }) {
-                                        inboxes.insert(receiver.0.inbox);
-                                    }
-                                }
-                            }
-
-                            if let Some(actor) =
-                                get_remote_actor_by_ap_id(note.clone().attributed_to)
-                            {
-                                if let Some(timeline_item) =
-                                    create_timeline_item(ApNote::from(note.clone()).into())
-                                {
-                                    add_to_timeline(
-                                        Option::from(note.clone().ap_to),
-                                        note.clone().cc,
-                                        timeline_item,
-                                    );
-                                }
-                            }
-
-                            let create = ApActivity::from(ApNote::from(note.clone()));
-
-                            for url in inboxes {
-                                let body = Option::from(serde_json::to_string(&create).unwrap());
-                                let method = Method::Post;
-
-                                let signature = enigmatick::signing::sign(SignParams {
-                                    profile: sender.clone(),
-                                    url: url.clone(),
-                                    body: body.clone(),
-                                    method,
-                                });
-
-                                let client = Client::new()
-                                    .post(&url)
-                                    .header("Date", signature.date)
-                                    .header("Digest", signature.digest.unwrap())
-                                    .header("Signature", &signature.signature)
-                                    .header(
-                                        "Content-Type",
-                                        "application/ld+json; profile=\"http://www.w3.org/ns/activitystreams\"",
-                                    )
-                                    .body(body.unwrap());
-
-                                handle.block_on(async {
-                                    if let Ok(resp) = client.send().await {
-                                        if let Ok(text) = resp.text().await {
-                                            debug!("send successful to: {}\n{}", url, text);
-                                        }
-                                    }
-                                })
-                            }
-                        }
+                let create = match note.kind.as_str() {
+                    "Note" => {
+                        handle_note(&mut note, &mut inboxes, sender.clone()).map(ApActivity::from)
                     }
-                    Err(e) => error!("error: {e:#?}"),
+                    "EncryptedNote" => {
+                        handle_encrypted_note(&mut note, &mut inboxes, sender.clone())
+                            .map(ApActivity::from)
+                    }
+                    _ => None,
+                };
+
+                if let Some(create) = create {
+                    for url in inboxes {
+                        let body = Option::from(serde_json::to_string(&create).unwrap());
+                        let method = Method::Post;
+
+                        let signature = enigmatick::signing::sign(SignParams {
+                            profile: sender.clone(),
+                            url: url.clone(),
+                            body: body.clone(),
+                            method,
+                        });
+
+                        let client = Client::new()
+                            .post(&url)
+                            .header("Date", signature.date)
+                            .header("Digest", signature.digest.unwrap())
+                            .header("Signature", &signature.signature)
+                            .header(
+                                "Content-Type",
+                                "application/ld+json; profile=\"http://www.w3.org/ns/activitystreams\"",
+                            )
+                            .body(body.unwrap());
+
+                        handle.block_on(async {
+                            if let Ok(resp) = client.send().await {
+                                if let Ok(text) = resp.text().await {
+                                    debug!("send successful to: {}\n{}", url, text);
+                                }
+                            }
+                        })
+                    }
                 }
             }
         }
-        Err(e) => error!("error: {e:#?}"),
     }
 
     Ok(())

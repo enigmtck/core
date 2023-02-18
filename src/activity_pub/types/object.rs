@@ -1,4 +1,6 @@
-use crate::activity_pub::{ApActivity, ApActor, ApCollection, ApNote, ApOrderedCollection};
+use crate::activity_pub::{
+    ApActivity, ApActor, ApCollection, ApInstrument, ApNote, ApOrderedCollection,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::fmt;
@@ -53,6 +55,7 @@ pub struct ApBasicContent {
 pub enum ApObject {
     Plain(String),
     Session(ApSession),
+    Instrument(ApInstrument),
     Note(ApNote),
     Actor(ApActor),
     OrderedCollection(ApOrderedCollection),
@@ -71,26 +74,53 @@ impl ApObject {
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
-pub enum ApTagType {
+pub enum ApMentionType {
     Mention,
-    Hashtag,
-    Emoji,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
-#[serde(rename_all = "camelCase")]
-pub struct ApTag {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub id: Option<String>,
+pub enum ApHashtagType {
+    Hashtag,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub enum ApEmojiType {
+    Emoji,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct ApMention {
     #[serde(rename = "type")]
-    pub kind: ApTagType,
+    pub kind: ApMentionType,
     pub name: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub href: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub updated: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub icon: Option<ApImage>,
+    pub value: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct ApHashtag {
+    #[serde(rename = "type")]
+    kind: ApHashtagType,
+    name: String,
+    href: String,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct ApEmoji {
+    #[serde(rename = "type")]
+    kind: ApEmojiType,
+    id: String,
+    name: String,
+    updated: Option<String>,
+    icon: ApImage,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(untagged)]
+pub enum ApTag {
+    Emoji(ApEmoji),
+    Mention(ApMention),
+    HashTag(ApHashtag),
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -107,7 +137,6 @@ pub struct ApAttachment {
     #[serde(rename = "type")]
     pub kind: ApAttachmentType,
     pub name: Option<String>,
-    pub value: Option<String>,
     pub media_type: Option<String>,
     pub url: Option<String>,
     pub blurhash: Option<String>,
@@ -160,59 +189,6 @@ pub enum ApFlexible {
 impl From<String> for ApFlexible {
     fn from(data: String) -> Self {
         ApFlexible::Single(Value::from(data))
-    }
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug, Default)]
-#[serde(untagged)]
-pub enum ApInstrument {
-    Multiple(Vec<ApObject>),
-    Single(Box<ApObject>),
-    #[default]
-    Unknown,
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug, Default)]
-pub enum ApBaseObjectType {
-    Object,
-    Link,
-    Activity,
-    IntransitiveActivity,
-    Collection,
-    OrderedCollection,
-    CollectionPage,
-    OrderedCollectionPage,
-    #[default]
-    Unknown,
-}
-
-impl fmt::Display for ApBaseObjectType {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        Debug::fmt(self, f)
-    }
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug, Default, Eq, PartialEq)]
-pub enum ApObjectType {
-    Article,
-    Document,
-    Image,
-    Note,
-    Page,
-    Profile,
-    EncryptedSession,
-    IdentityKey,
-    SessionKey,
-    EncryptedNote,
-    Question,
-    Service,
-    #[default]
-    Unknown,
-}
-
-impl fmt::Display for ApObjectType {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        Debug::fmt(self, f)
     }
 }
 

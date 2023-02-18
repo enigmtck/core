@@ -4,12 +4,14 @@ mod types;
 
 pub use types::activity::ApActivity;
 pub use types::actor::{ApActor, ApPublicKey};
-pub use types::collection::{ApCollection, ApOrderedCollection, FollowersPage, LeadersPage};
-pub use types::note::ApNote;
-pub use types::object::{
-    ApActivityType, ApActorType, ApAttachment, ApAttachmentType, ApBaseObjectSuper,
-    ApBaseObjectType, ApBasicContent, ApBasicContentType, ApContext, ApEndpoint, ApFlexible,
-    ApIdentifier, ApImage, ApImageType, ApInstrument, ApObject, ApObjectType, ApTag, ApTagType,
+pub use types::collection::{
+    ApCollection, ApCollectionType, ApOrderedCollection, FollowersPage, LeadersPage,
 };
-pub use types::session::ApSession;
+pub use types::note::{ApNote, ApNoteType};
+pub use types::object::{
+    ApActivityType, ApActorType, ApAttachment, ApAttachmentType, ApBaseObjectSuper, ApBasicContent,
+    ApBasicContentType, ApContext, ApEndpoint, ApFlexible, ApIdentifier, ApImage, ApImageType,
+    ApObject, ApTag,
+};
 pub use types::session::JoinData;
+pub use types::session::{ApInstrument, ApInstrumentType, ApInstruments, ApSession};

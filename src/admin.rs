@@ -4,6 +4,7 @@ use orion::pwhash;
 use rsa::{
     pkcs8::EncodePrivateKey, pkcs8::EncodePublicKey, pkcs8::LineEnding, RsaPrivateKey, RsaPublicKey,
 };
+use serde::Deserialize;
 use serde_json::Value;
 
 use uuid::Uuid;
@@ -74,24 +75,30 @@ pub async fn verify_and_generate_password(
     }
 }
 
-pub async fn create_user(
-    conn: &Db,
-    username: String,
-    display_name: String,
-    password: String,
-    client_public_key: Option<String>,
-    keystore: Option<Value>,
-) -> Option<Profile> {
+#[derive(Deserialize, Debug, Clone)]
+pub struct NewUser {
+    pub username: String,
+    pub password: String,
+    pub display_name: String,
+    pub client_public_key: Option<String>,
+    pub client_private_key: Option<String>,
+    pub olm_pickled_account: Option<String>,
+    pub olm_pickled_account_hash: Option<String>,
+    pub olm_identity_key: Option<String>,
+    pub salt: Option<String>,
+}
+
+pub async fn create_user(conn: &Db, user: NewUser) -> Option<Profile> {
     let key_pair = get_key_pair();
 
-    if let Ok(password) = pwhash::Password::from_slice(password.as_bytes()) {
+    if let Ok(password) = pwhash::Password::from_slice(user.password.as_bytes()) {
         // the example memory cost is 1<<16 (64MB); that taxes my system quite a bit,
         // so I'm using 8MB - this should be increased as available power permits
         if let Ok(hash) = pwhash::hash_password(&password, 3, 1 << 4) {
             let new_profile = NewProfile {
                 uuid: Uuid::new_v4().to_string(),
-                username,
-                display_name,
+                username: user.username,
+                display_name: user.display_name,
                 summary: Option::None,
                 private_key: key_pair
                     .private_key
@@ -103,8 +110,12 @@ pub async fn create_user(
                     .to_public_key_pem(LineEnding::default())
                     .unwrap(),
                 password: Option::from(hash.unprotected_as_encoded().to_string()),
-                client_public_key,
-                keystore,
+                client_public_key: user.client_public_key,
+                client_private_key: user.client_private_key,
+                olm_pickled_account: user.olm_pickled_account,
+                olm_pickled_account_hash: user.olm_pickled_account_hash,
+                olm_identity_key: user.olm_identity_key,
+                salt: user.salt,
             };
 
             create_profile(conn, new_profile).await

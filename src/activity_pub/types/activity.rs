@@ -6,7 +6,10 @@ use serde::{Deserialize, Serialize};
 use serde_with::serde_as;
 use std::fmt::Debug;
 
-use super::object::{ApProof, ApSignature};
+use super::{
+    object::{ApProof, ApSignature},
+    session::ApInstruments,
+};
 
 #[serde_as]
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -75,7 +78,7 @@ impl From<ApSession> for ApActivity {
 
         let mut kind = ApActivityType::Invite;
 
-        if let ApInstrument::Multiple(_) = session.instrument {
+        if let ApInstruments::Multiple(_) = session.instrument {
             kind = ApActivityType::Join;
         }
 

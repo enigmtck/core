@@ -1,17 +1,30 @@
-use std::collections::HashMap;
+use core::fmt;
+use std::{collections::HashMap, fmt::Debug};
 
 use crate::{
-    activity_pub::{ApActor, ApAttachment, ApContext, ApFlexible, ApObjectType, ApTag},
-    helper::handle_option,
+    activity_pub::{ApActor, ApAttachment, ApContext, ApFlexible, ApInstruments, ApTag},
     models::{
         notes::{NewNote, Note},
         remote_notes::RemoteNote,
         timeline::TimelineItem,
     },
 };
-use chrono::{DateTime, Utc};
+use chrono::Utc;
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
+
+#[derive(Serialize, Deserialize, Clone, Debug, Default)]
+pub enum ApNoteType {
+    Note,
+    EncryptedNote,
+    #[default]
+    Unknown,
+}
+
+impl fmt::Display for ApNoteType {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        Debug::fmt(self, f)
+    }
+}
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
@@ -23,7 +36,7 @@ pub struct ApNote {
     pub attributed_to: String,
     pub id: Option<String>,
     #[serde(rename = "type")]
-    pub kind: ApObjectType,
+    pub kind: ApNoteType,
     pub to: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub url: Option<String>,
@@ -50,6 +63,8 @@ pub struct ApNote {
     pub conversation: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub content_map: Option<HashMap<String, String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub instrument: Option<ApInstruments>,
 
     // These are ephemeral attributes to facilitate client operations
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -82,7 +97,7 @@ impl Default for ApNote {
             tag: Option::None,
             attributed_to: String::new(),
             id: Option::None,
-            kind: ApObjectType::Note,
+            kind: ApNoteType::Note,
             to: vec![],
             url: Option::None,
             published: Option::None,
@@ -97,6 +112,7 @@ impl Default for ApNote {
             in_reply_to_atom_uri: Option::None,
             conversation: Option::None,
             content_map: Option::None,
+            instrument: Option::None,
             ephemeral_announce: Option::None,
         }
     }
@@ -141,7 +157,7 @@ impl From<ApActor> for ApNote {
             tag: Option::from(vec![]),
             attributed_to: actor.id.unwrap(),
             id: Option::None,
-            kind: ApObjectType::Note,
+            kind: ApNoteType::Note,
             to: vec![],
             content: String::new(),
             ..Default::default()
@@ -152,9 +168,9 @@ impl From<ApActor> for ApNote {
 impl From<NewNote> for ApNote {
     fn from(note: NewNote) -> Self {
         let kind = match note.kind.as_str() {
-            "Note" => ApObjectType::Note,
-            "EncryptedNote" => ApObjectType::EncryptedNote,
-            _ => ApObjectType::default(),
+            "Note" => ApNoteType::Note,
+            "EncryptedNote" => ApNoteType::EncryptedNote,
+            _ => ApNoteType::default(),
         };
 
         ApNote {
@@ -189,9 +205,9 @@ impl From<NewNote> for ApNote {
 impl From<Note> for ApNote {
     fn from(note: Note) -> Self {
         let kind = match note.kind.as_str() {
-            "Note" => ApObjectType::Note,
-            "EncryptedNote" => ApObjectType::EncryptedNote,
-            _ => ApObjectType::default(),
+            "Note" => ApNoteType::Note,
+            "EncryptedNote" => ApNoteType::EncryptedNote,
+            _ => ApNoteType::default(),
         };
 
         ApNote {
@@ -226,9 +242,9 @@ impl From<Note> for ApNote {
 impl From<RemoteNote> for ApNote {
     fn from(remote_note: RemoteNote) -> ApNote {
         let kind = match remote_note.kind.as_str() {
-            "Note" => ApObjectType::Note,
-            "EncryptedNote" => ApObjectType::EncryptedNote,
-            _ => ApObjectType::default(),
+            "Note" => ApNoteType::Note,
+            "EncryptedNote" => ApNoteType::EncryptedNote,
+            _ => ApNoteType::default(),
         };
 
         ApNote {

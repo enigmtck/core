@@ -9,7 +9,31 @@ appenders:
     path: "log/requests.log"
     encoder:
       pattern: "{d} - {m}{n}"
+      
+  signing:
+    kind: file
+    path: "log/signing.log"
+    encoder:
+      pattern: "{d} - {m}{n}"
 
+  admin:
+    kind: file
+    path: "log/admin.log"
+    encoder:
+      pattern: "{d} - {m}{n}"
+
+  olm:
+    kind: file
+    path: "log/olm.log"
+    encoder:
+      pattern: "{d} - {m}{n}"
+
+  inbox:
+    kind: file
+    path: "log/inbox.log"
+    encoder:
+      pattern: "{d} - {m}{n}"
+      
 root:
   level: info
   appenders:
@@ -22,8 +46,39 @@ loggers:
       - requests
     additive: false
 
+  enigmatick::admin:
+    level: debug
+    appenders:
+      - admin
+    additive: false
+
+  enigmatick::inbox:
+    level: debug
+    appenders:
+      - olm
+      - inbox
+    additive: false
+
+  enigmatick::models::olm_one_time_keys:
+    level: debug
+    appenders:
+      - olm
+    additive: false
+
+  enigmatick::models::remote_olm_one_time_keys:
+    level: debug
+    appenders:
+      - olm
+    additive: false
+
+  enigmatick::models::remote_olm_identity_keys:
+    level: debug
+    appenders:
+      - olm
+    additive: false
+
   enigmatick::signing:
     level: debug
     appenders:
-      - requests
+      - signing
     additive: false
