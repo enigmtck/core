@@ -4,8 +4,8 @@ extern crate log;
 use enigmatick::{
     activity_pub::{
         sender::{send_activity, send_follower_accept},
-        ApActivity, ApActor, ApAttachment, ApAttachmentType, ApBasicContentType, ApInstrument,
-        ApInstrumentType, ApInstruments, ApNote, ApObject, ApSession, JoinData,
+        ApActivity, ApActor, ApInstrument, ApInstrumentType, ApInstruments, ApNote, ApObject,
+        ApSession, JoinData,
     },
     helper::{get_local_username_from_ap_id, is_local, is_public},
     models::{
@@ -36,10 +36,7 @@ use faktory::{ConsumerBuilder, Job};
 use lazy_static::lazy_static;
 use reqwest::{Client, StatusCode};
 use serde_json::Value;
-use std::{
-    collections::{HashMap, HashSet},
-    io,
-};
+use std::{collections::HashSet, io};
 use tokio::runtime::Runtime;
 
 type Pool = r2d2::Pool<ConnectionManager<PgConnection>>;
@@ -139,7 +136,7 @@ pub fn update_timeline_items(timeline_item: NewTimelineItem) -> Vec<TimelineItem
             .get_results::<TimelineItem>(&conn)
         {
             Ok(x) => x,
-            Err(e) => {
+            Err(_) => {
                 vec![]
             }
         }
@@ -428,7 +425,7 @@ pub fn get_remote_announce_by_ap_id(ap_id: String) -> Option<RemoteAnnounce> {
             .first::<RemoteAnnounce>(&conn)
         {
             Ok(x) => Option::from(x),
-            Err(e) => Option::None,
+            Err(_) => Option::None,
         }
     } else {
         Option::None
@@ -499,7 +496,7 @@ pub fn get_follower_profiles_by_endpoint(
             .get_results::<(RemoteActor, Leader, Option<Profile>)>(&conn)
         {
             Ok(x) => x,
-            Err(e) => {
+            Err(_) => {
                 vec![]
             }
         }
@@ -519,7 +516,7 @@ pub fn get_leader_by_endpoint(endpoint: String) -> Option<(RemoteActor, Leader)>
             .first::<(RemoteActor, Leader)>(&conn)
         {
             Ok(x) => Option::from(x),
-            Err(e) => Option::None,
+            Err(_) => Option::None,
         }
     } else {
         Option::None
@@ -560,8 +557,8 @@ pub fn update_note_cc(note: Note) -> Option<Note> {
 async fn lookup_remote_note(id: String) -> Option<ApNote> {
     log::debug!("performing remote lookup for note");
 
-    let url = id.clone();
-    let method = Method::Get;
+    let _url = id.clone();
+    let _method = Method::Get;
 
     let client = Client::new();
     match client
@@ -724,7 +721,7 @@ fn process_join(job: Job) -> io::Result<()> {
         {
             // this is the username of the Enigmatick user who received the Invite
             if let Some(username) = get_local_username_from_ap_id(session.ap_to.clone()) {
-                if let Some(profile) = get_profile_by_username(username.clone()) {
+                if let Some(_profile) = get_profile_by_username(username.clone()) {
                     if let Some(actor) = get_remote_actor_by_ap_id(session.attributed_to.clone()) {
                         debug!("ACTOR\n{actor:#?}");
                         //let session: ApSession = session.clone().into();
@@ -1026,10 +1023,34 @@ pub fn create_olm_session(session: NewOlmSession) -> Option<OlmSession> {
             .optional()
         {
             Ok(x) => x,
-            Err(e) => Option::None,
+            Err(_) => Option::None,
         }
     } else {
         Option::None
+    }
+}
+
+pub fn update_olm_session(
+    uuid: String,
+    session_data: String,
+    session_hash: String,
+) -> Option<OlmSession> {
+    use enigmatick::schema::olm_sessions;
+
+    if let Ok(conn) = POOL.get() {
+        match diesel::update(olm_sessions::table.filter(olm_sessions::uuid.eq(uuid)))
+            .set((
+                olm_sessions::session_data.eq(session_data),
+                olm_sessions::session_hash.eq(session_hash),
+            ))
+            .get_result::<OlmSession>(&conn)
+            .optional()
+        {
+            Ok(x) => x,
+            Err(_) => Option::None,
+        }
+    } else {
+        None
     }
 }
 
@@ -1055,13 +1076,28 @@ fn handle_encrypted_note(
                 if let Some(encrypted_session) =
                     get_encrypted_session_by_profile_id_and_ap_to(sender.id, to[0].clone())
                 {
-                    if let Some(_session) =
-                        create_olm_session((instrument, encrypted_session.id).into())
+                    // sigh - we need to check if a session already exists before creating one dummy
+                    if let (Some(uuid), Some(hash)) =
+                        (instrument.clone().uuid, instrument.clone().hash)
                     {
-                        if let Some(receiver) = handle
-                            .block_on(async { get_actor(sender.clone(), to[0].clone()).await })
+                        log::debug!("FOUND UUID - UPDATING EXISTING SESSION");
+                        if let Some(_session) = update_olm_session(uuid, instrument.content, hash) {
+                            if let Some(receiver) = handle
+                                .block_on(async { get_actor(sender.clone(), to[0].clone()).await })
+                            {
+                                inboxes.insert(receiver.0.inbox);
+                            }
+                        }
+                    } else {
+                        log::debug!("NO UUID - CREATING NEW SESSION");
+                        if let Some(_session) =
+                            create_olm_session((instrument, encrypted_session.id).into())
                         {
-                            inboxes.insert(receiver.0.inbox);
+                            if let Some(receiver) = handle
+                                .block_on(async { get_actor(sender.clone(), to[0].clone()).await })
+                            {
+                                inboxes.insert(receiver.0.inbox);
+                            }
                         }
                     }
                 }

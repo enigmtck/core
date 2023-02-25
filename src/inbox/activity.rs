@@ -1,8 +1,5 @@
 use crate::{
-    activity_pub::{
-        ApActivity, ApActivityType, ApBasicContentType, ApInstrument, ApInstruments, ApNote,
-        ApObject, ApSession,
-    },
+    activity_pub::{ApActivity, ApActivityType, ApNote, ApObject},
     db::{
         create_follower, create_remote_encrypted_session, create_remote_note,
         delete_follower_by_ap_id, update_leader_by_uuid, Db,
@@ -13,7 +10,7 @@ use crate::{
     },
     models::{
         followers::NewFollower,
-        profiles::{get_profile_by_ap_id, Profile},
+        profiles::get_profile_by_ap_id,
         remote_activities::get_remote_activity_by_ap_id,
         remote_actors::{create_or_update_remote_actor, delete_remote_actor_by_ap_id},
         remote_announces::{create_remote_announce, NewRemoteAnnounce},

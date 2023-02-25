@@ -63,6 +63,8 @@ pub struct ApInstrument {
     pub content: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub hash: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub uuid: Option<String>,
 }
 
 impl From<OlmSession> for ApInstrument {
@@ -71,6 +73,7 @@ impl From<OlmSession> for ApInstrument {
             kind: ApInstrumentType::OlmSession,
             content: session.session_data,
             hash: Some(session.session_hash),
+            uuid: Some(session.uuid),
         }
     }
 }
@@ -135,21 +138,21 @@ impl From<EncryptedSession> for ApSession {
     }
 }
 
-type JoinedOlmSession = (OlmSession, ApSession);
+type JoinedOlmSession = (ApSession, Option<OlmSession>);
 
 impl From<JoinedOlmSession> for ApSession {
-    fn from((olm_session, ap_session): JoinedOlmSession) -> Self {
+    fn from((ap_session, olm_session): JoinedOlmSession) -> Self {
         let mut session = ap_session;
 
         match session.instrument {
-            ApInstruments::Multiple(instruments) => {
+            ApInstruments::Multiple(instruments) if olm_session.is_some() => {
                 let mut instruments = instruments;
-                instruments.push(olm_session.into());
+                instruments.push(olm_session.unwrap().into());
                 session.instrument = ApInstruments::Multiple(instruments);
             }
-            ApInstruments::Single(instrument) => {
+            ApInstruments::Single(instrument) if olm_session.is_some() => {
                 let mut instruments: Vec<ApInstrument> = vec![instrument];
-                instruments.push(olm_session.into());
+                instruments.push(olm_session.unwrap().into());
                 session.instrument = ApInstruments::Multiple(instruments);
             }
             _ => (),

@@ -138,3 +138,28 @@ pub async fn get_encrypted_session_by_uuid(
         Err(_) => None,
     }
 }
+
+pub async fn get_encrypted_session_by_id_and_profile_id(
+    conn: &Db,
+    id: i32,
+    profile_id: i32,
+) -> Option<(EncryptedSession, Option<OlmSession>)> {
+    match conn
+        .run(move |c| {
+            encrypted_sessions::table
+                .left_join(
+                    olm_sessions::table
+                        .on(encrypted_sessions::id.eq(olm_sessions::encrypted_session_id)),
+                )
+                .filter(encrypted_sessions::id.eq(id))
+                .filter(encrypted_sessions::profile_id.eq(profile_id))
+                .order_by(encrypted_sessions::updated_at.desc())
+                .first::<(EncryptedSession, Option<OlmSession>)>(c)
+                .optional()
+        })
+        .await
+    {
+        Ok(x) => x,
+        Err(_) => None,
+    }
+}

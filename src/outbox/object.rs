@@ -62,7 +62,7 @@ pub async fn note(
 pub async fn encrypted_note(
     conn: Db,
     faktory: FaktoryConnection,
-    events: EventChannels,
+    _events: EventChannels,
     note: ApNote,
     profile: Profile,
 ) -> Result<Status, Status> {

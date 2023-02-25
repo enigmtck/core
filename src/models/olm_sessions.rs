@@ -1,11 +1,13 @@
 use crate::activity_pub::ApInstrument;
 use crate::db::Db;
-use crate::schema::olm_sessions;
+use crate::schema::{encrypted_sessions, olm_sessions};
 use chrono::{DateTime, Utc};
 use diesel::prelude::*;
 use diesel::{AsChangeset, Identifiable, Insertable, Queryable};
 use rocket_sync_db_pools::diesel;
 use serde::{Deserialize, Serialize};
+
+use super::encrypted_sessions::EncryptedSession;
 
 #[derive(Serialize, Deserialize, Insertable, Default, Debug, Clone)]
 #[table_name = "olm_sessions"]
@@ -57,6 +59,29 @@ pub async fn create_olm_session(conn: &Db, olm_session: NewOlmSession) -> Option
     }
 }
 
+pub async fn get_olm_session_by_uuid(
+    conn: &Db,
+    uuid: String,
+) -> Option<(OlmSession, Option<EncryptedSession>)> {
+    match conn
+        .run(move |c| {
+            olm_sessions::table
+                .left_join(
+                    encrypted_sessions::table
+                        .on(olm_sessions::encrypted_session_id.eq(encrypted_sessions::id)),
+                )
+                .filter(olm_sessions::uuid.eq(uuid))
+                .order(olm_sessions::updated_at.desc())
+                .first::<(OlmSession, Option<EncryptedSession>)>(c)
+                .optional()
+        })
+        .await
+    {
+        Ok(x) => x,
+        Err(_) => None,
+    }
+}
+
 pub async fn get_olm_session_by_encrypted_session_id(
     conn: &Db,
     encrypted_session_id: i32,
@@ -82,6 +107,8 @@ pub async fn update_olm_session_by_encrypted_session_id(
     session_data: String,
     session_hash: String,
 ) -> Option<OlmSession> {
+    log::debug!("UPDATING OLM SESSION\nencrypted_session_id: {encrypted_session_id}\nsession_data: {session_data}\nsession_hash: {session_hash}");
+
     match conn
         .run(move |c| {
             diesel::update(

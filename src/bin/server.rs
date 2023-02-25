@@ -20,11 +20,14 @@ use enigmatick::{
     inbox,
     models::{
         encrypted_sessions::{
-            get_encrypted_session_by_profile_id_and_ap_to, get_encrypted_session_by_uuid,
+            get_encrypted_session_by_profile_id_and_ap_to, get_encrypted_sessions_by_profile_id,
+            EncryptedSession,
         },
         notes::get_note_by_uuid,
         olm_one_time_keys::create_olm_one_time_key,
-        olm_sessions::{update_olm_session_by_encrypted_session_id, OlmSession},
+        olm_sessions::{
+            get_olm_session_by_uuid, update_olm_session_by_encrypted_session_id, OlmSession,
+        },
         processing_queue::resolve_processed_item_by_ap_id_and_profile_id,
         profiles::{get_profile_by_username, update_olm_account_by_username, Profile},
         remote_activities::create_remote_activity,
@@ -169,11 +172,11 @@ async fn stream(
     }
 }
 
-#[get("/user/<username>/test")]
+#[get("/user/<_username>/test")]
 pub async fn test(
-    conn: Db,
-    faktory: FaktoryConnection,
-    username: String,
+    _conn: Db,
+    _faktory: FaktoryConnection,
+    _username: String,
 ) -> Result<Status, Status> {
     // match faktory.producer.try_lock() {
     //     Ok(mut x) => {
@@ -344,41 +347,47 @@ pub async fn store_vault_item(
     data: Json<VaultStorageRequest>,
 ) -> Result<Json<VaultStorageResponse>, Status> {
     if let Signed(true, VerificationType::Local) = signed {
+        log::debug!("STORE VAULT REQUEST\n{data:#?}");
+
         if let Some(profile) = get_profile_by_username(&conn, username).await {
             let data = data.0;
             let session_update = data.clone().session;
 
-            if let Some((_, Some(olm_session))) =
-                get_encrypted_session_by_uuid(&conn, session_update.session_uuid).await
+            if let Some((olm_session, Some(encrypted_session))) =
+                get_olm_session_by_uuid(&conn, session_update.session_uuid).await
             {
-                if update_olm_session_by_encrypted_session_id(
-                    &conn,
-                    olm_session.encrypted_session_id,
-                    session_update.encrypted_session,
-                    session_update.session_hash,
-                )
-                .await
-                .is_some()
-                {
-                    Ok(Json(
-                        create_vault_item(
-                            &conn,
-                            (data.clone().data, profile.id, data.clone().remote_actor).into(),
-                        )
-                        .await
-                        .into(),
-                    ))
+                if encrypted_session.profile_id == profile.id {
+                    if update_olm_session_by_encrypted_session_id(
+                        &conn,
+                        olm_session.encrypted_session_id,
+                        session_update.encrypted_session,
+                        session_update.session_hash,
+                    )
+                    .await
+                    .is_some()
+                    {
+                        Ok(Json(
+                            create_vault_item(
+                                &conn,
+                                (data.clone().data, profile.id, data.clone().remote_actor).into(),
+                            )
+                            .await
+                            .into(),
+                        ))
+                    } else {
+                        Err(Status::Unauthorized)
+                    }
                 } else {
-                    Err(Status::NoContent)
+                    Err(Status::Unauthorized)
                 }
             } else {
-                Err(Status::NoContent)
+                Err(Status::Unauthorized)
             }
         } else {
-            Err(Status::NoContent)
+            Err(Status::Unauthorized)
         }
     } else {
-        Err(Status::NoContent)
+        Err(Status::Unauthorized)
     }
 }
 
@@ -727,6 +736,33 @@ pub async fn create_user(
     }
 }
 
+#[get("/api/user/<username>/sessions", format = "json")]
+pub async fn get_sessions(
+    //    signed: Signed,
+    conn: Db,
+    username: String,
+) -> Result<Json<ApObject>, Status> {
+    //  if let Signed(true, VerificationType::Local) = signed {
+    if let Some(profile) = get_profile_by_username(&conn, username).await {
+        let sessions: Vec<(EncryptedSession, Option<OlmSession>)> =
+            get_encrypted_sessions_by_profile_id(&conn, profile.id).await;
+
+        // this converts EncryptedSession to ApSession and (ApSession, Option<OlmSession>)
+        // into merged Vec<ApObject::Session> in one shot - see types/session.rs for details
+        let normalized: Vec<ApObject> = sessions
+            .iter()
+            .map(|(x, y)| ApObject::Session(((*x).clone().into(), (*y).clone()).into()))
+            .collect();
+
+        Ok(Json(ApObject::Collection(ApCollection::from(normalized))))
+    } else {
+        Err(Status::NoContent)
+    }
+    // } else {
+    //     Err(Status::NoContent)
+    // }
+}
+
 #[get("/api/user/<username>/session/<encoded>")]
 pub async fn get_olm_session(
     //    signed: Signed,
@@ -738,10 +774,10 @@ pub async fn get_olm_session(
     if let Some(profile) = get_profile_by_username(&conn, username).await {
         if let Ok(id) = base64::decode(encoded) {
             if let Ok(id) = String::from_utf8(id) {
-                if let Some((encrypted_session, Some(olm_session))) =
+                if let Some((encrypted_session, olm_session)) =
                     get_encrypted_session_by_profile_id_and_ap_to(&conn, profile.id, id).await
                 {
-                    Ok(Json((olm_session, encrypted_session.into()).into()))
+                    Ok(Json((encrypted_session.into(), olm_session).into()))
                 } else {
                     Err(Status::NoContent)
                 }
@@ -946,7 +982,7 @@ pub async fn conversation_get(
     limit: u8,
     conversation: String,
 ) -> Result<Json<ApObject>, Status> {
-    if let (Some(profile), Signed(true, VerificationType::Local)) =
+    if let (Some(_profile), Signed(true, VerificationType::Local)) =
         (get_profile_by_username(&conn, username).await, signed)
     {
         if let Ok(conversation) = urlencoding::decode(&conversation.clone()) {
@@ -977,7 +1013,7 @@ pub async fn conversation_get_local(conn: Db, uuid: String) -> Result<Json<ApObj
 
 #[get("/user/<username>/liked")]
 pub async fn liked_get(conn: Db, username: String) -> Result<Json<ApOrderedCollection>, Status> {
-    if let Some(profile) = get_profile_by_username(&conn, username).await {
+    if let Some(_profile) = get_profile_by_username(&conn, username).await {
         Ok(Json(ApOrderedCollection::default()))
     } else {
         Err(Status::NoContent)
@@ -986,7 +1022,7 @@ pub async fn liked_get(conn: Db, username: String) -> Result<Json<ApOrderedColle
 
 #[get("/user/<username>/outbox")]
 pub async fn outbox_get(conn: Db, username: String) -> Result<Json<ApOrderedCollection>, Status> {
-    if let Some(profile) = get_profile_by_username(&conn, username).await {
+    if let Some(_profile) = get_profile_by_username(&conn, username).await {
         Ok(Json(ApOrderedCollection::default()))
     } else {
         Err(Status::NoContent)
@@ -1061,7 +1097,7 @@ pub async fn inbox_get(
     offset: u16,
     limit: u8,
 ) -> Result<Json<ApObject>, Status> {
-    if let (Some(profile), Signed(true, VerificationType::Local)) =
+    if let (Some(_profile), Signed(true, VerificationType::Local)) =
         (get_profile_by_username(&conn, username).await, signed)
     {
         let inbox = inbox::retrieve::timeline(&conn, limit.into(), offset.into()).await;
@@ -1177,6 +1213,7 @@ fn rocket() -> _ {
                 get_processing_queue,
                 update_processing_queue_item,
                 get_olm_session,
+                get_sessions,
                 store_vault_item,
                 test,
                 stream,

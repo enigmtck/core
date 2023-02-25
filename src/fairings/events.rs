@@ -10,8 +10,8 @@ use std::collections::HashMap;
 
 #[derive(Clone)]
 pub struct IdentifiedReceiver {
-    username: String,
-    receiver: Receiver<String>,
+    _username: String,
+    _receiver: Receiver<String>,
 }
 
 type ReceiverTuple = (String, Receiver<String>);
@@ -19,8 +19,8 @@ type ReceiverTuple = (String, Receiver<String>);
 impl From<ReceiverTuple> for IdentifiedReceiver {
     fn from(t: ReceiverTuple) -> Self {
         IdentifiedReceiver {
-            username: t.0,
-            receiver: t.1,
+            _username: t.0,
+            _receiver: t.1,
         }
     }
 }

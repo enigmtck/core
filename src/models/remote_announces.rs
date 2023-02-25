@@ -1,4 +1,4 @@
-use crate::activity_pub::{ApActivity, ApFlexible, ApNote};
+use crate::activity_pub::ApActivity;
 use crate::db::Db;
 use crate::schema::remote_announces;
 use chrono::{DateTime, Utc};

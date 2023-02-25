@@ -55,7 +55,6 @@ loggers:
   enigmatick::inbox:
     level: debug
     appenders:
-      - olm
       - inbox
     additive: false
 
@@ -82,3 +81,16 @@ loggers:
     appenders:
       - signing
     additive: false
+
+  enigmatick::api::processing_queue:
+    level: debug
+    appenders:
+      - olm
+    additive: false
+
+  enigmatick::models::olm_sessions:
+    level: debug
+    appenders:
+      - olm
+    additive: false
+    

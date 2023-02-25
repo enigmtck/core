@@ -1,6 +1,6 @@
-use std::collections::{hash_map, HashMap};
+use std::collections::HashMap;
 
-use crate::activity_pub::{ApFlexible, ApNote};
+use crate::activity_pub::ApNote;
 use crate::db::Db;
 use crate::schema::remote_notes;
 use chrono::{DateTime, Utc};
