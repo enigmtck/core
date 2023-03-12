@@ -137,6 +137,7 @@ pub struct ApAttachment {
     #[serde(rename = "type")]
     pub kind: ApAttachmentType,
     pub name: Option<String>,
+    pub summary: Option<String>,
     pub media_type: Option<String>,
     pub url: Option<String>,
     pub blurhash: Option<String>,
@@ -189,6 +190,19 @@ pub enum ApFlexible {
 impl From<String> for ApFlexible {
     fn from(data: String) -> Self {
         ApFlexible::Single(Value::from(data))
+    }
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(untagged)]
+pub enum ApFlexibleString {
+    Single(String),
+    Multiple(Vec<String>),
+}
+
+impl From<String> for ApFlexibleString {
+    fn from(data: String) -> Self {
+        ApFlexibleString::Single(data)
     }
 }
 

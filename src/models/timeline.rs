@@ -35,29 +35,17 @@ pub struct NewTimelineItem {
 
 impl From<RemoteNote> for NewTimelineItem {
     fn from(note: RemoteNote) -> Self {
-        let ap_public = {
-            if let Some(ap_to) = note.ap_to {
-                if let Ok(ap_to) = serde_json::from_value::<Vec<String>>(ap_to) {
-                    ap_to.contains(&"https://www.w3.org/ns/activitystreams#Public".to_string())
-                } else {
-                    false
-                }
-            } else {
-                false
-            }
-        };
-
         NewTimelineItem {
-            tag: note.tag,
-            attributed_to: note.attributed_to,
-            ap_id: note.ap_id,
-            kind: note.kind,
-            url: note.url,
-            published: note.published,
-            replies: note.replies,
-            in_reply_to: note.in_reply_to,
-            content: Option::from(note.content),
-            ap_public,
+            tag: note.clone().tag,
+            attributed_to: note.clone().attributed_to,
+            ap_id: note.clone().ap_id,
+            kind: note.clone().kind,
+            url: note.clone().url,
+            published: note.clone().published,
+            replies: note.clone().replies,
+            in_reply_to: note.clone().in_reply_to,
+            content: Option::from(note.clone().content),
+            ap_public: note.is_public(),
             summary: note.summary,
             ap_sensitive: note.ap_sensitive,
             atom_uri: note.atom_uri,
@@ -73,22 +61,17 @@ impl From<RemoteNote> for NewTimelineItem {
 
 impl From<ApNote> for NewTimelineItem {
     fn from(note: ApNote) -> Self {
-        let ap_public = {
-            note.to
-                .contains(&"https://www.w3.org/ns/activitystreams#Public".to_string())
-        };
-
         NewTimelineItem {
             tag: Option::from(serde_json::to_value(&note.tag).unwrap_or_default()),
-            attributed_to: note.attributed_to,
-            ap_id: note.id.unwrap(),
+            attributed_to: note.clone().attributed_to,
+            ap_id: note.clone().id.unwrap(),
             kind: note.kind.to_string(),
-            url: note.url,
-            published: note.published,
+            url: note.clone().url,
+            published: note.clone().published,
             replies: Option::from(serde_json::to_value(&note.replies).unwrap_or_default()),
-            in_reply_to: note.in_reply_to,
-            content: Option::from(note.content),
-            ap_public,
+            in_reply_to: note.clone().in_reply_to,
+            content: Option::from(note.clone().content),
+            ap_public: note.is_public(),
             summary: note.summary,
             ap_sensitive: note.sensitive,
             atom_uri: note.atom_uri,
@@ -105,26 +88,18 @@ impl From<ApNote> for NewTimelineItem {
 type Announce = (ApActivity, ApNote);
 
 impl From<Announce> for NewTimelineItem {
-    fn from(announce: Announce) -> Self {
-        let activity = announce.0;
-        let note = announce.1;
-
-        let ap_public = {
-            note.to
-                .contains(&"https://www.w3.org/ns/activitystreams#Public".to_string())
-        };
-
+    fn from((activity, note): Announce) -> Self {
         NewTimelineItem {
             tag: Option::from(serde_json::to_value(&note.tag).unwrap_or_default()),
-            attributed_to: note.attributed_to,
-            ap_id: note.id.unwrap(),
+            attributed_to: note.clone().attributed_to,
+            ap_id: note.clone().id.unwrap(),
             kind: note.kind.to_string(),
-            url: note.url,
+            url: note.clone().url,
             published: activity.published,
             replies: Option::from(serde_json::to_value(&note.replies).unwrap_or_default()),
-            in_reply_to: note.in_reply_to,
-            content: Option::from(note.content),
-            ap_public,
+            in_reply_to: note.clone().in_reply_to,
+            content: Option::from(note.clone().content),
+            ap_public: note.is_public(),
             summary: note.summary,
             ap_sensitive: note.sensitive,
             atom_uri: note.atom_uri,

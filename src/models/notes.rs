@@ -1,4 +1,4 @@
-use crate::activity_pub::ApNote;
+use crate::activity_pub::{ApFlexibleString, ApNote};
 use crate::db::Db;
 use crate::helper::handle_option;
 use crate::schema::notes;
@@ -84,5 +84,20 @@ pub async fn get_note_by_uuid(conn: &Db, uuid: String) -> Option<Note> {
     {
         Ok(x) => Option::from(x),
         Err(_) => Option::None,
+    }
+}
+
+impl Note {
+    pub fn is_public(&self) -> bool {
+        if let Ok(to) = serde_json::from_value::<ApFlexibleString>(self.ap_to.clone()) {
+            match to {
+                ApFlexibleString::Multiple(n) => {
+                    n.contains(&"https://www.w3.org/ns/activitystreams#Public".to_string())
+                }
+                ApFlexibleString::Single(n) => n == *"https://www.w3.org/ns/activitystreams#Public",
+            }
+        } else {
+            false
+        }
     }
 }

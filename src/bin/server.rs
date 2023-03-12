@@ -7,7 +7,7 @@ use enigmatick::{
     activity_pub::{
         retriever::{self, get_note, get_remote_webfinger},
         ApActivity, ApActivityType, ApActor, ApBaseObjectSuper, ApCollection, ApNote, ApNoteType,
-        ApObject, ApOrderedCollection, ApSession, FollowersPage, LeadersPage,
+        ApObject, ApOrderedCollection, ApSession, FollowersPage, IdentifiedVaultItems, LeadersPage,
     },
     admin::{self, verify_and_generate_password, NewUser},
     api::{instance::InstanceInformation, processing_queue},
@@ -31,7 +31,7 @@ use enigmatick::{
         processing_queue::resolve_processed_item_by_ap_id_and_profile_id,
         profiles::{get_profile_by_username, update_olm_account_by_username, Profile},
         remote_activities::create_remote_activity,
-        vault::{create_vault_item, get_vault_items_by_profile_id, VaultItem},
+        vault::{create_vault_item, get_vault_items_by_profile_id_and_remote_actor, VaultItem},
     },
     outbox,
     signing::VerificationType,
@@ -396,6 +396,7 @@ pub struct VaultRetrievalItem {
     pub created_at: String,
     pub updated_at: String,
     pub uuid: String,
+    pub remote_actor: String,
     pub data: String,
 }
 
@@ -405,29 +406,40 @@ impl From<VaultItem> for VaultRetrievalItem {
             created_at: item.created_at.to_rfc2822(),
             updated_at: item.updated_at.to_rfc2822(),
             uuid: item.uuid,
+            remote_actor: item.remote_actor,
             data: item.encrypted_data,
         }
     }
 }
 
-#[get("/api/user/<username>/vault?<offset>&<limit>")]
+#[get("/api/user/<username>/vault?<offset>&<limit>&<actor>")]
 pub async fn vault_get(
     signed: Signed,
     conn: Db,
     username: String,
     offset: u16,
     limit: u8,
-) -> Result<Json<Vec<VaultRetrievalItem>>, Status> {
+    actor: String,
+) -> Result<Json<ApObject>, Status> {
     if let (Some(profile), Signed(true, VerificationType::Local)) =
         (get_profile_by_username(&conn, username).await, signed)
     {
-        let items: Vec<VaultRetrievalItem> =
-            get_vault_items_by_profile_id(&conn, profile.id, limit.into(), offset.into())
-                .await
-                .iter()
-                .map(|x| (*x).clone().into())
-                .collect();
-        Ok(Json(items))
+        if let Ok(actor) = base64::decode(actor) {
+            let items: Vec<VaultItem> = get_vault_items_by_profile_id_and_remote_actor(
+                &conn,
+                profile.id,
+                limit.into(),
+                offset.into(),
+                String::from_utf8(actor).unwrap(),
+            )
+            .await;
+
+            Ok(Json(ApObject::OrderedCollection(
+                ApOrderedCollection::from((items, profile) as IdentifiedVaultItems),
+            )))
+        } else {
+            Err(Status::Forbidden)
+        }
     } else {
         Err(Status::NoContent)
     }
@@ -1215,6 +1227,7 @@ fn rocket() -> _ {
                 get_olm_session,
                 get_sessions,
                 store_vault_item,
+                vault_get,
                 test,
                 stream,
                 instance_information,

@@ -1076,7 +1076,6 @@ fn handle_encrypted_note(
                 if let Some(encrypted_session) =
                     get_encrypted_session_by_profile_id_and_ap_to(sender.id, to[0].clone())
                 {
-                    // sigh - we need to check if a session already exists before creating one dummy
                     if let (Some(uuid), Some(hash)) =
                         (instrument.clone().uuid, instrument.clone().hash)
                     {

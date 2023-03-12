@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::activity_pub::ApNote;
+use crate::activity_pub::{ApFlexibleString, ApNote};
 use crate::db::Db;
 use crate::schema::remote_notes;
 use chrono::{DateTime, Utc};
@@ -122,6 +122,21 @@ pub struct RemoteNote {
     pub in_reply_to_atom_uri: Option<String>,
     pub conversation: Option<String>,
     pub content_map: Option<Value>,
+}
+
+impl RemoteNote {
+    pub fn is_public(&self) -> bool {
+        if let Ok(to) = serde_json::from_value::<ApFlexibleString>(self.ap_to.clone().into()) {
+            match to {
+                ApFlexibleString::Multiple(n) => {
+                    n.contains(&"https://www.w3.org/ns/activitystreams#Public".to_string())
+                }
+                ApFlexibleString::Single(n) => n == *"https://www.w3.org/ns/activitystreams#Public",
+            }
+        } else {
+            false
+        }
+    }
 }
 
 pub async fn get_remote_note_by_ap_id(conn: &crate::db::Db, ap_id: String) -> Option<RemoteNote> {

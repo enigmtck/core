@@ -2,6 +2,7 @@ use core::fmt;
 use std::fmt::Debug;
 
 use crate::activity_pub::{ApContext, ApObject};
+use crate::models::vault::VaultItem;
 use crate::models::{followers::Follower, leaders::Leader, profiles::Profile};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -197,6 +198,31 @@ impl From<LeadersPage> for ApOrderedCollection {
                 ordered_items: Option::None,
                 ..Default::default()
             }
+        }
+    }
+}
+
+pub type IdentifiedVaultItems = (Vec<VaultItem>, Profile);
+
+impl From<IdentifiedVaultItems> for ApOrderedCollection {
+    fn from((items, profile): IdentifiedVaultItems) -> Self {
+        ApOrderedCollection {
+            kind: ApCollectionType::OrderedCollection,
+            id: Option::from(format!(
+                "{}/ephemeral-collection/{}",
+                *crate::SERVER_URL,
+                uuid::Uuid::new_v4()
+            )),
+            total_items: items.len() as u32,
+            first: Option::None,
+            part_of: Option::None,
+            ordered_items: Option::from(
+                items
+                    .into_iter()
+                    .map(|x| ApObject::Note((x, profile.clone()).into()))
+                    .collect::<Vec<ApObject>>(),
+            ),
+            ..Default::default()
         }
     }
 }

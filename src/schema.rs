@@ -291,6 +291,7 @@ diesel::table! {
         profile_id -> Int4,
         encrypted_data -> Varchar,
         remote_actor -> Varchar,
+        outbound -> Bool,
     }
 }
 

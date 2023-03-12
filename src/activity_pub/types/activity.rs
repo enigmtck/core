@@ -1,5 +1,7 @@
 use crate::{
-    activity_pub::{ApActivityType, ApContext, ApInstrument, ApNote, ApObject, ApSession},
+    activity_pub::{
+        ApActivityType, ApContext, ApFlexibleString, ApInstrument, ApNote, ApObject, ApSession,
+    },
     models::{remote_activities::RemoteActivity, remote_announces::RemoteAnnounce},
 };
 use serde::{Deserialize, Serialize};
@@ -63,7 +65,12 @@ impl From<ApNote> for ApActivity {
         ApActivity {
             kind: ApActivityType::Create,
             id: Some(format!("{}#create", note.clone().id.unwrap())),
-            to: Option::from(note.clone().to),
+            to: {
+                match note.clone().to {
+                    ApFlexibleString::Multiple(t) => Option::from(t),
+                    ApFlexibleString::Single(t) => Option::from(vec![t]),
+                }
+            },
             actor: note.clone().attributed_to,
             object: ApObject::Note(note),
             ..Default::default()

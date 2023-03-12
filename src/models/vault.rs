@@ -38,6 +38,7 @@ pub struct VaultItem {
     pub profile_id: i32,
     pub encrypted_data: String,
     pub remote_actor: String,
+    pub outbound: bool,
 }
 
 pub async fn create_vault_item(conn: &Db, vault_item: NewVaultItem) -> Option<VaultItem> {
@@ -52,6 +53,32 @@ pub async fn create_vault_item(conn: &Db, vault_item: NewVaultItem) -> Option<Va
     {
         Ok(x) => x,
         Err(_) => Option::None,
+    }
+}
+
+pub async fn get_vault_items_by_profile_id_and_remote_actor(
+    conn: &Db,
+    id: i32,
+    limit: i64,
+    offset: i64,
+    actor: String,
+) -> Vec<VaultItem> {
+    match conn
+        .run(move |c| {
+            let query = vault::table
+                .filter(vault::profile_id.eq(id))
+                .filter(vault::remote_actor.eq(actor))
+                .order(vault::created_at.desc())
+                .limit(limit)
+                .offset(offset)
+                .into_boxed();
+
+            query.get_results::<VaultItem>(c)
+        })
+        .await
+    {
+        Ok(x) => x,
+        Err(_) => vec![],
     }
 }
 
