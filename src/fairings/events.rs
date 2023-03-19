@@ -102,14 +102,19 @@ impl EventChannels {
 
     pub fn send(&mut self, message: String) {
         log::debug!("send called");
-        if let Some(x) = self.sending_channels.try_lock() {
+        if let Some(mut x) = self.sending_channels.try_lock() {
             for (uuid, identified_sender) in (*x).clone() {
                 if identified_sender.authorized {
                     log::debug!("trying to send {message}");
 
                     match identified_sender.sender.try_send(message.clone()) {
-                        Ok(_) => log::debug!("sent: {uuid:#?} {:#?}", identified_sender.username),
-                        Err(e) => log::error!("send failed: {e:#?}"),
+                        Ok(_) => {
+                            log::debug!("sent: {uuid:#?} {:#?}", identified_sender.username);
+                        }
+                        Err(e) => {
+                            log::error!("removing: {e:#?}");
+                            x.remove(&uuid);
+                        }
                     };
                 } else {
                     log::debug!("event channel not yet authorized");
@@ -131,6 +136,8 @@ impl Fairing for EventChannelsFairing {
     }
 
     async fn on_ignite(&self, rocket: Rocket<Build>) -> fairing::Result {
+        log::debug!("igniting EventsChannel");
+
         Ok(rocket.manage({
             //let queue = VecDeque::<String>::new();
 

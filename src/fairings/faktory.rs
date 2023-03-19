@@ -30,9 +30,10 @@ impl Fairing for FaktoryConnectionFairing {
     }
 
     async fn on_ignite(&self, rocket: Rocket<Build>) -> fairing::Result {
+        log::debug!("igniting FaktoryConnection");
         Ok(rocket.manage(FaktoryConnection {
             producer: Arc::new(Mutex::new(
-                Producer::connect(Some("tcp://:password@localhost:7419")).unwrap(),
+                Producer::connect(Some(&*crate::FAKTORY_URL)).unwrap(),
             )),
         }))
     }

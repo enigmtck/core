@@ -1155,12 +1155,14 @@ pub async fn shared_inbox_post(
                 .await
                 .is_some()
             {
+                log::debug!("ACTIVITY CREATED");
                 match activity.kind {
                     ApActivityType::Delete => inbox::activity::delete(conn, activity).await,
                     ApActivityType::Create => {
                         inbox::activity::create(conn, faktory, events, activity).await
                     }
                     ApActivityType::Follow => {
+                        log::debug!("LOOKS LIKE A FOLLOW ACTIVITY");
                         inbox::activity::follow(conn, faktory, events, activity).await
                     }
                     ApActivityType::Undo => inbox::activity::undo(conn, events, activity).await,
@@ -1196,8 +1198,15 @@ pub async fn shared_inbox_post(
 
 #[launch]
 fn rocket() -> _ {
-    //env_logger::init();
-    log4rs::init_file("log4rs.yml", Default::default()).unwrap();
+    if let Ok(profile) = std::env::var("PROFILE") {
+        match profile.as_str() {
+            "debug" => log4rs::init_file("log4rs.yml", Default::default()).unwrap(),
+            "release" => env_logger::init(),
+            _ => (),
+        }
+    } else {
+        env_logger::init();
+    }
 
     rocket::build()
         .attach(FaktoryConnection::fairing())

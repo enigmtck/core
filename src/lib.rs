@@ -1,5 +1,3 @@
-#![feature(async_fn_in_trait)]
-
 extern crate log;
 extern crate rocket;
 

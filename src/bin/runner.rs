@@ -808,27 +808,32 @@ fn acknowledge_followers(job: Job) -> io::Result<()> {
 
 fn add_to_timeline(ap_to: Option<Value>, cc: Option<Value>, timeline_item: TimelineItem) {
     if let Some(ap_to) = ap_to {
-        let to_vec: Vec<String> = serde_json::from_value(ap_to).unwrap();
+        if let Ok(to_vec) = serde_json::from_value::<Vec<String>>(ap_to.clone()) {
+            //let to_vec: Vec<String> = serde_json::from_value(ap_to).unwrap();
 
-        for to in to_vec {
-            create_timeline_item_to((timeline_item.clone(), to.clone()).into());
+            for to in to_vec {
+                create_timeline_item_to((timeline_item.clone(), to.clone()).into());
 
-            if get_leader_by_endpoint(to.clone()).is_some() {
-                for follower in get_follower_profiles_by_endpoint(to) {
-                    if let Some(follower) = follower.2 {
-                        log::debug!("adding to for {}", follower.username);
+                if get_leader_by_endpoint(to.clone()).is_some() {
+                    for follower in get_follower_profiles_by_endpoint(to) {
+                        if let Some(follower) = follower.2 {
+                            log::debug!("adding to for {}", follower.username);
 
-                        let follower =
-                            format!("{}/user/{}", &*enigmatick::SERVER_URL, follower.username);
-                        create_timeline_item_to((timeline_item.clone(), follower).into());
+                            let follower =
+                                format!("{}/user/{}", &*enigmatick::SERVER_URL, follower.username);
+                            create_timeline_item_to((timeline_item.clone(), follower).into());
+                        }
                     }
                 }
             }
+        } else {
+            log::error!("TO VALUE NOT A VEC: {ap_to:#?}");
         }
     }
 
     if let Some(cc) = cc {
-        if let Ok(cc_vec) = serde_json::from_value::<Vec<String>>(cc) {
+        if let Ok(cc_vec) = serde_json::from_value::<Vec<String>>(cc.clone()) {
+            //if let Ok(cc_vec) = serde_json::from_value::<Vec<String>>(cc) {
             for cc in cc_vec {
                 create_timeline_item_cc((timeline_item.clone(), cc.clone()).into());
 
@@ -844,6 +849,8 @@ fn add_to_timeline(ap_to: Option<Value>, cc: Option<Value>, timeline_item: Timel
                     }
                 }
             }
+        } else {
+            log::error!("CC VALUE NOT A VEC: {cc:#?}");
         }
     };
 }
@@ -878,9 +885,13 @@ fn process_announce(job: Job) -> io::Result<()> {
                                     Option::from(
                                         serde_json::to_value(remote_note.clone().to).unwrap(),
                                     ),
-                                    Option::from(
-                                        serde_json::to_value(remote_note.cc.unwrap()).unwrap(),
-                                    ),
+                                    {
+                                        if let Some(cc) = remote_note.cc {
+                                            Option::from(serde_json::to_value(cc).unwrap())
+                                        } else {
+                                            Option::None
+                                        }
+                                    },
                                     timeline_item,
                                 );
                             }
@@ -1247,9 +1258,7 @@ fn main() {
         Ok(())
     });
 
-    let mut consumer = consumer
-        .connect(Some("tcp://:password@localhost:7419"))
-        .unwrap();
+    let mut consumer = consumer.connect(Some(faktory_url)).unwrap();
 
     if let Err(e) = consumer.run(&["default"]) {
         error!("worker failed: {}", e);

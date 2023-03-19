@@ -206,6 +206,21 @@ impl From<String> for ApFlexibleString {
     }
 }
 
+impl ApFlexibleString {
+    pub fn get_single(&self) -> Option<String> {
+        match self {
+            ApFlexibleString::Multiple(s) => {
+                if s.len() == 1 {
+                    Some(s[0].clone())
+                } else {
+                    None
+                }
+            }
+            ApFlexibleString::Single(s) => Some(s.to_string()),
+        }
+    }
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub enum ApLinkType {
     Mention,

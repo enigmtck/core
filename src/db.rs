@@ -6,17 +6,12 @@ use crate::models::remote_encrypted_sessions::{NewRemoteEncryptedSession, Remote
 use crate::models::remote_notes::{NewRemoteNote, RemoteNote};
 use crate::schema;
 use diesel::prelude::*;
-use diesel::sql_types::{Array, Jsonb, Text};
 use rocket_sync_db_pools::{database, diesel};
 
 // this is a reference to the value in Rocket.toml, not the actual
 // database name
 #[database("enigmatick")]
 pub struct Db(diesel::PgConnection);
-
-sql_function! {
-    fn jsonb_set(target: Jsonb, path: Array<Text>, new_value: Jsonb) -> Jsonb
-}
 
 pub async fn get_leader_by_profile_id_and_ap_id(
     conn: &Db,

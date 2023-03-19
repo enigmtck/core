@@ -26,7 +26,7 @@ impl From<ApActivity> for NewRemoteActivity {
             context: Option::from(serde_json::to_value(&activity.context).unwrap()),
             kind: activity.kind.to_string(),
             ap_id: activity.id.unwrap_or_default(),
-            ap_to: Option::from(serde_json::to_value(activity.to.unwrap_or_default()).unwrap()),
+            ap_to: activity.to.map(|to| serde_json::to_value(to).unwrap()),
             cc: Option::from(serde_json::to_value(activity.cc.unwrap_or_default()).unwrap()),
             actor: activity.actor,
             published: activity.published,

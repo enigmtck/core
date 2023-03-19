@@ -26,7 +26,7 @@ pub struct ApActivity {
     pub id: Option<String>,
     pub actor: String,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub to: Option<Vec<String>>,
+    pub to: Option<ApFlexibleString>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cc: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -65,12 +65,7 @@ impl From<ApNote> for ApActivity {
         ApActivity {
             kind: ApActivityType::Create,
             id: Some(format!("{}#create", note.clone().id.unwrap())),
-            to: {
-                match note.clone().to {
-                    ApFlexibleString::Multiple(t) => Option::from(t),
-                    ApFlexibleString::Single(t) => Option::from(vec![t]),
-                }
-            },
+            to: Some(note.clone().to),
             actor: note.clone().attributed_to,
             object: ApObject::Note(note),
             ..Default::default()
@@ -92,7 +87,7 @@ impl From<ApSession> for ApActivity {
         ApActivity {
             id: Option::from(format!("{}#join", session.id.clone().unwrap_or_default())),
             kind,
-            to: Option::from(vec![session.to.clone()]),
+            to: Option::from(ApFlexibleString::Multiple(vec![session.to.clone()])),
             actor: session.attributed_to.clone(),
             object: ApObject::Session(session),
             ..Default::default()
@@ -110,7 +105,8 @@ impl From<RemoteActivity> for ApActivity {
             id: Option::from(activity.ap_id),
             actor: activity.actor,
             to: Option::from(
-                serde_json::from_value::<Vec<String>>(activity.ap_to.unwrap_or_default()).unwrap(),
+                serde_json::from_value::<ApFlexibleString>(activity.ap_to.unwrap_or_default())
+                    .unwrap(),
             ),
             cc: Option::from(
                 serde_json::from_value::<Vec<String>>(activity.cc.unwrap_or_default()).unwrap(),
@@ -132,7 +128,8 @@ impl From<RemoteAnnounce> for ApActivity {
             id: Option::from(activity.ap_id),
             actor: activity.actor,
             to: Option::from(
-                serde_json::from_value::<Vec<String>>(activity.ap_to.unwrap_or_default()).unwrap(),
+                serde_json::from_value::<ApFlexibleString>(activity.ap_to.unwrap_or_default())
+                    .unwrap(),
             ),
             cc: Option::from(
                 serde_json::from_value::<Vec<String>>(activity.cc.unwrap_or_default()).unwrap(),

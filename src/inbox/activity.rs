@@ -151,31 +151,40 @@ pub async fn follow(
     events: EventChannels,
     activity: ApActivity,
 ) -> Result<Status, Status> {
-    if let Some(to) = activity.clone().to {
-        if to.len() == 1 {
-            if let Some(profile) = get_profile_by_ap_id(&conn, to[0].clone()).await {
-                let mut f = NewFollower::from(activity.clone());
-                f.profile_id = profile.id;
+    let followed: Option<String> = {
+        if let ApObject::Plain(to) = activity.clone().object {
+            Some(to)
+        } else if let Some(to) = activity.clone().to {
+            to.get_single()
+        } else {
+            None
+        }
+    };
 
-                if let Some(created_follower) = create_follower(&conn, f).await {
-                    //log::debug!("created_follower\n{:#?}", created_follower);
+    if let Some(to) = followed {
+        if let Some(profile) = get_profile_by_ap_id(&conn, to.clone()).await {
+            let mut f = NewFollower::from(activity.clone());
+            f.profile_id = profile.id;
 
-                    let mut events = events;
-                    events.send(serde_json::to_string(&activity).unwrap());
+            if let Some(created_follower) = create_follower(&conn, f).await {
+                log::debug!("CREATED FOLLOWER\n{created_follower:#?}");
 
-                    match assign_to_faktory(
-                        faktory,
-                        String::from("acknowledge_followers"),
-                        vec![created_follower.uuid],
-                    ) {
-                        Ok(_) => Ok(Status::Accepted),
-                        Err(_) => Err(Status::NoContent),
+                let mut events = events;
+                events.send(serde_json::to_string(&activity).unwrap());
+
+                match assign_to_faktory(
+                    faktory,
+                    String::from("acknowledge_followers"),
+                    vec![created_follower.uuid],
+                ) {
+                    Ok(_) => Ok(Status::Accepted),
+                    Err(e) => {
+                        log::error!("FAILED TO ASSIGN TO FAKTORY\n{e:#?}");
+                        Err(Status::NoContent)
                     }
-                } else {
-                    log::debug!("create_follower failed");
-                    Err(Status::NoContent)
                 }
             } else {
+                log::error!("CREATE FOLLOWER FAILED");
                 Err(Status::NoContent)
             }
         } else {
@@ -258,26 +267,31 @@ pub async fn invite(
 ) -> Result<Status, Status> {
     log::debug!("PROCESSING INVITE\n{activity:#?}");
 
-    if let Some(to) = activity.clone().to {
-        if to.len() == 1 {
-            if let Some(profile) = get_profile_by_ap_id(&conn, to[0].clone()).await {
-                if let Some(session) =
-                    create_remote_encrypted_session(&conn, (activity.clone(), profile.id).into())
-                        .await
-                {
-                    match assign_to_faktory(
-                        faktory,
-                        String::from("provide_one_time_key"),
-                        vec![session.ap_id.clone()],
-                    ) {
-                        Ok(_) => {
-                            log::debug!("ASSIGNED TO FAKTORY: {:?}", session.ap_id);
-                            Ok(Status::Accepted)
-                        }
-                        Err(_) => Err(Status::NoContent),
+    let invited: Option<String> = {
+        if let ApObject::Plain(to) = activity.clone().object {
+            Some(to)
+        } else if let Some(to) = activity.clone().to {
+            to.get_single()
+        } else {
+            None
+        }
+    };
+
+    if let Some(to) = invited {
+        if let Some(profile) = get_profile_by_ap_id(&conn, to.clone()).await {
+            if let Some(session) =
+                create_remote_encrypted_session(&conn, (activity.clone(), profile.id).into()).await
+            {
+                match assign_to_faktory(
+                    faktory,
+                    String::from("provide_one_time_key"),
+                    vec![session.ap_id.clone()],
+                ) {
+                    Ok(_) => {
+                        log::debug!("ASSIGNED TO FAKTORY: {:?}", session.ap_id);
+                        Ok(Status::Accepted)
                     }
-                } else {
-                    Err(Status::NoContent)
+                    Err(_) => Err(Status::NoContent),
                 }
             } else {
                 Err(Status::NoContent)
@@ -297,30 +311,33 @@ pub async fn join(
 ) -> Result<Status, Status> {
     log::debug!("PROCESSING JOIN ACTIVITY\n{activity:#?}");
 
-    if let Some(to) = activity.clone().to {
-        if to.len() == 1 {
-            if let Some(profile) = get_profile_by_ap_id(&conn, to[0].clone()).await {
-                if create_remote_encrypted_session(&conn, (activity.clone(), profile.id).into())
-                    .await
-                    .is_some()
-                {
-                    if let ApObject::Session(session) = activity.object {
-                        if let Some(ap_id) = session.id {
-                            log::debug!("ASSIGNING JOIN ACTIVITY TO FAKTORY");
+    let joined: Option<String> = {
+        if let ApObject::Plain(to) = activity.clone().object {
+            Some(to)
+        } else if let Some(to) = activity.clone().to {
+            to.get_single()
+        } else {
+            None
+        }
+    };
 
-                            match assign_to_faktory(
-                                faktory,
-                                String::from("process_join"),
-                                vec![ap_id],
-                            ) {
-                                Ok(_) => Ok(Status::Accepted),
-                                Err(_) => Err(Status::NoContent),
-                            }
-                        } else {
-                            log::error!("MISSING ID");
-                            Err(Status::NoContent)
+    if let Some(to) = joined {
+        if let Some(profile) = get_profile_by_ap_id(&conn, to.clone()).await {
+            if create_remote_encrypted_session(&conn, (activity.clone(), profile.id).into())
+                .await
+                .is_some()
+            {
+                if let ApObject::Session(session) = activity.object {
+                    if let Some(ap_id) = session.id {
+                        log::debug!("ASSIGNING JOIN ACTIVITY TO FAKTORY");
+
+                        match assign_to_faktory(faktory, String::from("process_join"), vec![ap_id])
+                        {
+                            Ok(_) => Ok(Status::Accepted),
+                            Err(_) => Err(Status::NoContent),
                         }
                     } else {
+                        log::error!("MISSING ID");
                         Err(Status::NoContent)
                     }
                 } else {
