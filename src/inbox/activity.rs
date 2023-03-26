@@ -155,7 +155,7 @@ pub async fn follow(
         if let ApObject::Plain(to) = activity.clone().object {
             Some(to)
         } else if let Some(to) = activity.clone().to {
-            to.get_single()
+            to.single()
         } else {
             None
         }
@@ -271,7 +271,7 @@ pub async fn invite(
         if let ApObject::Plain(to) = activity.clone().object {
             Some(to)
         } else if let Some(to) = activity.clone().to {
-            to.get_single()
+            to.single()
         } else {
             None
         }
@@ -315,7 +315,7 @@ pub async fn join(
         if let ApObject::Plain(to) = activity.clone().object {
             Some(to)
         } else if let Some(to) = activity.clone().to {
-            to.get_single()
+            to.single()
         } else {
             None
         }

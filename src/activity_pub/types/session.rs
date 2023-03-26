@@ -54,26 +54,34 @@ pub enum ApInstrumentType {
     IdentityKey,
     SessionKey,
     OlmSession,
+    Service,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub struct ApInstrument {
     #[serde(rename = "type")]
     pub kind: ApInstrumentType,
-    pub content: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub content: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub hash: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub uuid: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub url: Option<String>,
 }
 
 impl From<OlmSession> for ApInstrument {
     fn from(session: OlmSession) -> Self {
         ApInstrument {
             kind: ApInstrumentType::OlmSession,
-            content: session.session_data,
+            content: Some(session.session_data),
             hash: Some(session.session_hash),
             uuid: Some(session.uuid),
+            name: None,
+            url: None,
         }
     }
 }
@@ -105,12 +113,12 @@ impl From<JoinData> for ApSession {
             instrument: ApInstruments::Multiple(vec![
                 ApInstrument {
                     kind: ApInstrumentType::IdentityKey,
-                    content: keys.identity_key,
+                    content: Some(keys.identity_key),
                     ..Default::default()
                 },
                 ApInstrument {
                     kind: ApInstrumentType::SessionKey,
-                    content: keys.one_time_key,
+                    content: Some(keys.one_time_key),
                     ..Default::default()
                 },
             ]),

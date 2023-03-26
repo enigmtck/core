@@ -1,7 +1,8 @@
-use crate::activity_pub::{ApFlexibleString, ApNote};
+use crate::activity_pub::ApNote;
 use crate::db::Db;
 use crate::helper::handle_option;
 use crate::schema::notes;
+use crate::MaybeMultiple;
 use chrono::{DateTime, Utc};
 use diesel::prelude::*;
 use diesel::{AsChangeset, Identifiable, Insertable, Queryable};
@@ -89,12 +90,12 @@ pub async fn get_note_by_uuid(conn: &Db, uuid: String) -> Option<Note> {
 
 impl Note {
     pub fn is_public(&self) -> bool {
-        if let Ok(to) = serde_json::from_value::<ApFlexibleString>(self.ap_to.clone()) {
+        if let Ok(to) = serde_json::from_value::<MaybeMultiple<String>>(self.ap_to.clone()) {
             match to {
-                ApFlexibleString::Multiple(n) => {
+                MaybeMultiple::Multiple(n) => {
                     n.contains(&"https://www.w3.org/ns/activitystreams#Public".to_string())
                 }
-                ApFlexibleString::Single(n) => n == *"https://www.w3.org/ns/activitystreams#Public",
+                MaybeMultiple::Single(n) => n == *"https://www.w3.org/ns/activitystreams#Public",
             }
         } else {
             false

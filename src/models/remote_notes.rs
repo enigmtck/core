@@ -1,8 +1,9 @@
 use std::collections::HashMap;
 
-use crate::activity_pub::{ApFlexibleString, ApNote};
+use crate::activity_pub::ApNote;
 use crate::db::Db;
 use crate::schema::remote_notes;
+use crate::MaybeMultiple;
 use chrono::{DateTime, Utc};
 use diesel::prelude::*;
 use diesel::{AsChangeset, Identifiable, Insertable, Queryable};
@@ -126,12 +127,12 @@ pub struct RemoteNote {
 
 impl RemoteNote {
     pub fn is_public(&self) -> bool {
-        if let Ok(to) = serde_json::from_value::<ApFlexibleString>(self.ap_to.clone().into()) {
+        if let Ok(to) = serde_json::from_value::<MaybeMultiple<String>>(self.ap_to.clone().into()) {
             match to {
-                ApFlexibleString::Multiple(n) => {
+                MaybeMultiple::Multiple(n) => {
                     n.contains(&"https://www.w3.org/ns/activitystreams#Public".to_string())
                 }
-                ApFlexibleString::Single(n) => n == *"https://www.w3.org/ns/activitystreams#Public",
+                MaybeMultiple::Single(n) => n == *"https://www.w3.org/ns/activitystreams#Public",
             }
         } else {
             false

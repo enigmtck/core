@@ -38,7 +38,6 @@ pub async fn get_remote_webfinger(acct: String) -> Option<WebFinger> {
 
     if let Ok(response) = client.get(&url).send().await {
         let response: WebFinger = response.json().await.unwrap();
-        log::debug!("webfinger response\n{response:#?}");
         Option::from(response)
     } else {
         Option::from(WebFinger::default())
@@ -47,14 +46,8 @@ pub async fn get_remote_webfinger(acct: String) -> Option<WebFinger> {
 
 pub async fn get_note(conn: &Db, profile: Profile, id: String) -> Option<ApNote> {
     match get_remote_note_by_ap_id(conn, id.clone()).await {
-        Some(remote_note) => {
-            log::debug!("note retrieved from storage");
-
-            Some(remote_note.into())
-        }
+        Some(remote_note) => Some(remote_note.into()),
         None => {
-            log::debug!("performing remote lookup for note");
-
             let url = id.clone();
             let body = Option::None;
             let method = Method::Get;
@@ -123,8 +116,6 @@ pub async fn get_actor(
 ) -> Option<(RemoteActor, Option<Leader>)> {
     match get_remote_actor_by_ap_id(conn, id.clone()).await {
         Some(remote_actor) => {
-            log::debug!("actor retrieved from storage");
-
             if let Some(profile) = profile {
                 Option::from((
                     remote_actor,
@@ -135,8 +126,6 @@ pub async fn get_actor(
             }
         }
         None => {
-            log::debug!("performing remote lookup for actor");
-
             // let url = id.clone();
             // let body = Option::None;
             // let method = Method::Get;
@@ -154,97 +143,109 @@ pub async fn get_actor(
                 .get(&id)
                 //    .header("Signature", &signature.signature)
                 //    .header("Date", signature.date)
-                .header(
-                    "Accept",
-                    "application/ld+json; profile=\"https://www.w3.org/ns/activitystreams\"",
-                );
+                // .header(
+                //     "Accept",
+                //     "application/ld+json; profile=\"https://www.w3.org/ns/activitystreams\"",
+                // )
+                // I changed the above to the below to accommodate BirdsiteLive which sucks
+                // it may make sense to revert and just deal with the fact that that service doesn't work right
+                .header("Accept", "application/activity+json");
 
             //log::debug!("inter: {inter:#?}");
 
             match inter.send().await {
                 Ok(resp) => match resp.status() {
                     StatusCode::ACCEPTED | StatusCode::OK => {
-                        //log::debug!("resp: {resp:#?}");
-                        let actor: ApActor = resp.json().await.unwrap();
-                        if let Some(remote) =
-                            create_or_update_remote_actor(conn, NewRemoteActor::from(actor)).await
-                        {
-                            Option::from((remote, Option::None))
+                        if let Ok(text) = resp.text().await {
+                            if let Ok(actor) = serde_json::from_str::<ApActor>(&text) {
+                                if let Some(remote) =
+                                    create_or_update_remote_actor(conn, NewRemoteActor::from(actor))
+                                        .await
+                                {
+                                    Option::from((remote, Option::None))
+                                } else {
+                                    None
+                                }
+                            } else {
+                                log::error!("UNABLE TO DECODE ACTOR\n{text}");
+                                None
+                            }
                         } else {
-                            Option::None
+                            log::error!("UNABLE TO DECODE RESPONSE TO TEXT");
+                            None
                         }
                     }
                     StatusCode::GONE => {
                         log::debug!("GONE: {:#?}", resp.status());
-                        Option::None
+                        None
                     }
                     _ => {
                         log::debug!("STATUS: {:#?}", resp.status());
-                        Option::None
+                        None
                     }
                 },
                 Err(e) => {
-                    log::debug!("{:#?}", e);
-                    Option::None
+                    log::debug!("{e:#?}");
+                    None
                 }
             }
         }
     }
 }
 
-pub async fn get_followers(conn: &Db, profile: Profile, id: String, page: Option<usize>) {
-    if let Some(actor) = get_actor(conn, id.clone(), Some(profile.clone())).await {
-        log::debug!("performing remote lookup for actor's followers");
+// pub async fn get_followers(conn: &Db, profile: Profile, id: String, page: Option<usize>) {
+//     if let Some(actor) = get_actor(conn, id.clone(), Some(profile.clone())).await {
+//         log::debug!("performing remote lookup for actor's followers");
 
-        let page = match page {
-            Some(x) => format!("{}?page={}", actor.0.followers, x),
-            None => actor.0.followers.to_string(),
-        };
+//         let page = match page {
+//             Some(x) => format!("{}?page={}", actor.0.followers, x),
+//             None => actor.0.followers.to_string(),
+//         };
 
-        let url = page.clone();
-        let body = Option::None;
-        let method = Method::Get;
+//         let url = page.clone();
+//         let body = Option::None;
+//         let method = Method::Get;
 
-        let signature = sign(SignParams {
-            profile,
-            url,
-            body,
-            method,
-        });
+//         let signature = sign(SignParams {
+//             profile,
+//             url,
+//             body,
+//             method,
+//         });
 
-        let client = Client::new();
-        match client
-            .get(&page)
-            .header("Signature", &signature.signature)
-            .header("Date", signature.date)
-            .header(
-                "Accept",
-                "application/ld+json; profile=\"http://www.w3.org/ns/activitystreams\"",
-            )
-            .send()
-            .await
-        {
-            Ok(resp) => {
-                match resp.status() {
-                    StatusCode::ACCEPTED | StatusCode::OK => {
-                        let j: ApObject =
-                            serde_json::from_str(&resp.text().await.unwrap()).unwrap();
-                        log::debug!("followers\n{:#?}", j);
-                    }
-                    StatusCode::GONE => {
-                        log::debug!("GONE: {:#?}", resp.status());
-                        //Option::None;
-                    }
-                    _ => {
-                        log::debug!("STATUS: {:#?}", resp.status());
-                        //Option::None;
-                    }
-                }
-            }
-            Err(e) => {
-                log::debug!("{:#?}", e);
-                //Option::None;
-            }
-        }
-    }
-}
+//         let client = Client::new();
+//         match client
+//             .get(&page)
+//             .header("Signature", &signature.signature)
+//             .header("Date", signature.date)
+//             .header(
+//                 "Accept",
+//                 "application/ld+json; profile=\"http://www.w3.org/ns/activitystreams\"",
+//             )
+//             .send()
+//             .await
+//         {
+//             Ok(resp) => {
+//                 match resp.status() {
+//                     StatusCode::ACCEPTED | StatusCode::OK => {
+//                         let j: ApObject =
+//                             serde_json::from_str(&resp.text().await.unwrap()).unwrap();
+//                         log::debug!("followers\n{:#?}", j);
+//                     }
+//                     StatusCode::GONE => {
+//                         log::debug!("GONE: {:#?}", resp.status());
+//                         //Option::None;
+//                     }
+//                     _ => {
+//                         log::debug!("STATUS: {:#?}", resp.status());
+//                         //Option::None;
+//                     }
+//                 }
+//             }
+//             Err(e) => {
+//                 log::debug!("{:#?}", e);
+//                 //Option::None;
+//             }
+//         }
+//     }
+// }

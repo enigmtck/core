@@ -7,7 +7,7 @@ use enigmatick::{
     activity_pub::{
         retriever::{self, get_note, get_remote_webfinger},
         ApActivity, ApActivityType, ApActor, ApBaseObjectSuper, ApCollection, ApNote, ApNoteType,
-        ApObject, ApOrderedCollection, ApSession, FollowersPage, IdentifiedVaultItems, LeadersPage,
+        ApObject, ApSession, FollowersPage, IdentifiedVaultItems, LeadersPage,
     },
     admin::{self, verify_and_generate_password, NewUser},
     api::{instance::InstanceInformation, processing_queue},
@@ -124,16 +124,24 @@ impl<'r> FromParam<'r> for ApiVersion<'r> {
     }
 }
 
+struct DropGuard {
+    events: EventChannels,
+    uuid: String,
+}
+
+impl Drop for DropGuard {
+    fn drop(&mut self) {
+        log::debug!("REMOVING EVENT LISTENER {}", self.uuid.clone());
+        self.events.remove(self.uuid.clone());
+    }
+}
+
 #[get("/api/user/<username>/events")]
-async fn stream(
-    mut shutdown: Shutdown,
-    mut events: EventChannels,
-    username: String,
-) -> EventStream![] {
+fn stream(mut shutdown: Shutdown, mut events: EventChannels, username: String) -> EventStream![] {
     EventStream! {
         let (uuid, rx) = events.subscribe(username);
+        let _drop_guard = DropGuard { events: events.clone(), uuid: uuid.clone() };
         let mut i = 1;
-        let mut k = 0;
 
         #[derive(Serialize)]
         struct StreamConnect {
@@ -151,24 +159,18 @@ async fn stream(
             select! {
                 _ = interval.tick() => {
                     if let Ok(message) = rx.try_recv() {
+                        log::debug!("SENDING MESSAGE TO {uuid}");
                         i += 1;
-                        yield Event::data(message).event("message").id(i.to_string());
+                        yield Event::data(message).event("message").id(i.to_string())
                     }
                 },
                 _ = &mut shutdown => {
+                    log::debug!("SHUTDOWN {uuid}");
                     yield Event::data("goodbye").event("message");
                     break;
                 }
             };
-
-            if k >= 300 {
-                break;
-            } else {
-                k += 1;
-            }
         }
-
-        events.remove(uuid);
     }
 }
 
@@ -273,14 +275,11 @@ pub async fn webfinger_json(conn: Db, resource: String) -> Result<Json<WebFinger
 }
 
 #[get("/user/<username>/followers")]
-pub async fn get_followers(
-    conn: Db,
-    username: String,
-) -> Result<Json<ApOrderedCollection>, Status> {
+pub async fn get_followers(conn: Db, username: String) -> Result<Json<ApCollection>, Status> {
     if let Some(profile) = get_profile_by_username(&conn, username).await {
         let followers = get_followers_by_profile_id(&conn, profile.id).await;
 
-        Ok(Json(ApOrderedCollection::from(FollowersPage {
+        Ok(Json(ApCollection::from(FollowersPage {
             page: 0,
             profile,
             followers,
@@ -291,11 +290,11 @@ pub async fn get_followers(
 }
 
 #[get("/user/<username>/following")]
-pub async fn get_leaders(conn: Db, username: String) -> Result<Json<ApOrderedCollection>, Status> {
+pub async fn get_leaders(conn: Db, username: String) -> Result<Json<ApCollection>, Status> {
     if let Some(profile) = get_profile_by_username(&conn, username).await {
         let leaders = get_leaders_by_profile_id(&conn, profile.id).await;
 
-        Ok(Json(ApOrderedCollection::from(LeadersPage {
+        Ok(Json(ApCollection::from(LeadersPage {
             page: 0,
             profile,
             leaders,
@@ -434,9 +433,9 @@ pub async fn vault_get(
             )
             .await;
 
-            Ok(Json(ApObject::OrderedCollection(
-                ApOrderedCollection::from((items, profile) as IdentifiedVaultItems),
-            )))
+            Ok(Json(ApObject::Collection(ApCollection::from(
+                (items, profile) as IdentifiedVaultItems,
+            ))))
         } else {
             Err(Status::Forbidden)
         }
@@ -989,6 +988,7 @@ pub async fn authenticate_user(
 pub async fn conversation_get(
     signed: Signed,
     conn: Db,
+    faktory: FaktoryConnection,
     username: String,
     offset: u16,
     limit: u8,
@@ -1000,6 +1000,7 @@ pub async fn conversation_get(
         if let Ok(conversation) = urlencoding::decode(&conversation.clone()) {
             let inbox = inbox::retrieve::conversation(
                 &conn,
+                faktory,
                 conversation.to_string(),
                 limit.into(),
                 offset.into(),
@@ -1015,27 +1016,31 @@ pub async fn conversation_get(
 }
 
 #[get("/conversation/<uuid>")]
-pub async fn conversation_get_local(conn: Db, uuid: String) -> Result<Json<ApObject>, Status> {
+pub async fn conversation_get_local(
+    conn: Db,
+    faktory: FaktoryConnection,
+    uuid: String,
+) -> Result<Json<ApObject>, Status> {
     let conversation = format!("{}/conversation/{}", *enigmatick::SERVER_URL, uuid);
 
     Ok(Json(
-        inbox::retrieve::conversation(&conn, conversation.to_string(), 40, 0).await,
+        inbox::retrieve::conversation(&conn, faktory, conversation.to_string(), 40, 0).await,
     ))
 }
 
 #[get("/user/<username>/liked")]
-pub async fn liked_get(conn: Db, username: String) -> Result<Json<ApOrderedCollection>, Status> {
+pub async fn liked_get(conn: Db, username: String) -> Result<Json<ApCollection>, Status> {
     if let Some(_profile) = get_profile_by_username(&conn, username).await {
-        Ok(Json(ApOrderedCollection::default()))
+        Ok(Json(ApCollection::default()))
     } else {
         Err(Status::NoContent)
     }
 }
 
 #[get("/user/<username>/outbox")]
-pub async fn outbox_get(conn: Db, username: String) -> Result<Json<ApOrderedCollection>, Status> {
+pub async fn outbox_get(conn: Db, username: String) -> Result<Json<ApCollection>, Status> {
     if let Some(_profile) = get_profile_by_username(&conn, username).await {
-        Ok(Json(ApOrderedCollection::default()))
+        Ok(Json(ApCollection::default()))
     } else {
         Err(Status::NoContent)
     }
@@ -1117,6 +1122,13 @@ pub async fn inbox_get(
     } else {
         Err(Status::NoContent)
     }
+}
+
+#[get("/api/timeline?<offset>&<limit>")]
+pub async fn timeline(conn: Db, offset: u16, limit: u8) -> Result<Json<ApObject>, Status> {
+    Ok(Json(
+        inbox::retrieve::timeline(&conn, limit.into(), offset.into()).await,
+    ))
 }
 
 #[post("/user/<_username>/inbox", data = "<activity>")]
@@ -1224,6 +1236,7 @@ fn rocket() -> _ {
                 outbox_get,
                 inbox_post,
                 shared_inbox_post,
+                timeline,
                 inbox_get,
                 liked_get,
                 get_followers,

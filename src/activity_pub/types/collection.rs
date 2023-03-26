@@ -4,6 +4,7 @@ use std::fmt::Debug;
 use crate::activity_pub::{ApContext, ApObject};
 use crate::models::vault::VaultItem;
 use crate::models::{followers::Follower, leaders::Leader, profiles::Profile};
+use crate::MaybeReference;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -21,6 +22,22 @@ impl fmt::Display for ApCollectionType {
     }
 }
 
+#[derive(Serialize, Deserialize, Clone, Debug, Default)]
+pub enum ApCollectionPageType {
+    #[default]
+    CollectionPage,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct ApCollectionPage {
+    #[serde(rename = "type")]
+    pub kind: ApCollectionPageType,
+    pub next: Option<String>,
+    pub part_of: Option<String>,
+    pub items: Vec<ApObject>,
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct ApCollection {
@@ -30,19 +47,24 @@ pub struct ApCollection {
     #[serde(rename = "type")]
     pub kind: ApCollectionType,
     pub id: Option<String>,
-    pub total_items: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub total_items: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub items: Option<Vec<ApObject>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub first: Option<String>,
+    pub ordered_items: Option<Vec<ApObject>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub last: Option<String>,
+    pub first: Option<MaybeReference<ApCollectionPage>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub next: Option<String>,
+    pub last: Option<MaybeReference<ApCollectionPage>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub current: Option<String>,
+    pub next: Option<MaybeReference<ApCollectionPage>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    part_of: Option<String>,
+    pub prev: Option<MaybeReference<ApCollectionPage>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub current: Option<MaybeReference<ApCollectionPage>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub part_of: Option<String>,
 }
 
 impl Default for ApCollection {
@@ -55,61 +77,15 @@ impl Default for ApCollection {
                 *crate::SERVER_NAME,
                 Uuid::new_v4()
             )),
-            total_items: 0,
-            items: Option::None,
-            first: Option::None,
-            last: Option::None,
-            next: Option::None,
-            current: Option::None,
-            part_of: Option::None,
-        }
-    }
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug)]
-#[serde(rename_all = "camelCase")]
-pub struct ApOrderedCollection {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[serde(rename = "@context")]
-    pub context: Option<ApContext>,
-    #[serde(rename = "type")]
-    pub kind: ApCollectionType,
-    pub id: Option<String>,
-    pub total_items: u32,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub items: Option<Vec<ApObject>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub first: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub last: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub next: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub current: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub part_of: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub ordered_items: Option<Vec<ApObject>>,
-}
-
-impl Default for ApOrderedCollection {
-    fn default() -> ApOrderedCollection {
-        ApOrderedCollection {
-            context: Option::from(ApContext::default()),
-            kind: ApCollectionType::OrderedCollection,
-            id: Option::from(format!(
-                "https://{}/collections/{}",
-                *crate::SERVER_NAME,
-                Uuid::new_v4()
-            )),
-            total_items: 0,
-            items: Option::None,
-            first: Option::None,
-            last: Option::None,
-            next: Option::None,
-            current: Option::None,
-            part_of: Option::None,
-            ordered_items: Option::None,
+            total_items: None,
+            items: None,
+            ordered_items: None,
+            first: None,
+            last: None,
+            next: None,
+            prev: None,
+            current: None,
+            part_of: None,
         }
     }
 }
@@ -117,7 +93,7 @@ impl Default for ApOrderedCollection {
 impl From<Vec<ApObject>> for ApCollection {
     fn from(objects: Vec<ApObject>) -> Self {
         ApCollection {
-            total_items: objects.len() as u32,
+            total_items: Some(objects.len() as u32),
             items: Option::from(objects),
             ..Default::default()
         }
@@ -131,17 +107,17 @@ pub struct FollowersPage {
     pub followers: Vec<Follower>,
 }
 
-impl From<FollowersPage> for ApOrderedCollection {
+impl From<FollowersPage> for ApCollection {
     fn from(request: FollowersPage) -> Self {
         if request.page == 0 {
-            ApOrderedCollection {
+            ApCollection {
                 kind: ApCollectionType::OrderedCollection,
                 id: Option::from(format!(
                     "{}/users/{}/followers",
                     *crate::SERVER_URL,
                     request.profile.username
                 )),
-                total_items: request.followers.len() as u32,
+                total_items: Some(request.followers.len() as u32),
                 first: Option::None,
                 part_of: Option::None,
                 ordered_items: Option::from(
@@ -154,7 +130,7 @@ impl From<FollowersPage> for ApOrderedCollection {
                 ..Default::default()
             }
         } else {
-            ApOrderedCollection {
+            ApCollection {
                 part_of: Option::None,
                 ordered_items: Option::None,
                 ..Default::default()
@@ -170,17 +146,17 @@ pub struct LeadersPage {
     pub leaders: Vec<Leader>,
 }
 
-impl From<LeadersPage> for ApOrderedCollection {
+impl From<LeadersPage> for ApCollection {
     fn from(request: LeadersPage) -> Self {
         if request.page == 0 {
-            ApOrderedCollection {
+            ApCollection {
                 kind: ApCollectionType::OrderedCollection,
                 id: Option::from(format!(
                     "{}/users/{}/following",
                     *crate::SERVER_URL,
                     request.profile.username
                 )),
-                total_items: request.leaders.len() as u32,
+                total_items: Some(request.leaders.len() as u32),
                 first: Option::None,
                 part_of: Option::None,
                 ordered_items: Option::from(
@@ -193,7 +169,7 @@ impl From<LeadersPage> for ApOrderedCollection {
                 ..Default::default()
             }
         } else {
-            ApOrderedCollection {
+            ApCollection {
                 part_of: Option::None,
                 ordered_items: Option::None,
                 ..Default::default()
@@ -204,16 +180,16 @@ impl From<LeadersPage> for ApOrderedCollection {
 
 pub type IdentifiedVaultItems = (Vec<VaultItem>, Profile);
 
-impl From<IdentifiedVaultItems> for ApOrderedCollection {
+impl From<IdentifiedVaultItems> for ApCollection {
     fn from((items, profile): IdentifiedVaultItems) -> Self {
-        ApOrderedCollection {
+        ApCollection {
             kind: ApCollectionType::OrderedCollection,
             id: Option::from(format!(
                 "{}/ephemeral-collection/{}",
                 *crate::SERVER_URL,
                 uuid::Uuid::new_v4()
             )),
-            total_items: items.len() as u32,
+            total_items: Some(items.len() as u32),
             first: Option::None,
             part_of: Option::None,
             ordered_items: Option::from(

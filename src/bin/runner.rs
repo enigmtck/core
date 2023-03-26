@@ -28,6 +28,7 @@ use enigmatick::{
         },
     },
     signing::{Method, SignParams},
+    MaybeReference,
 };
 
 use diesel::prelude::*;
@@ -555,7 +556,7 @@ pub fn update_note_cc(note: Note) -> Option<Note> {
 }
 
 async fn lookup_remote_note(id: String) -> Option<ApNote> {
-    log::debug!("performing remote lookup for note");
+    log::debug!("PERFORMING REMOTE LOOKUP FOR NOTE: {id}");
 
     let _url = id.clone();
     let _method = Method::Get;
@@ -993,7 +994,9 @@ fn handle_note(note: &mut Note, inboxes: &mut HashSet<String>, sender: Profile) 
                 // note's cc field
                 if let Some(cc) = note.clone().cc {
                     let mut cc: Vec<String> = serde_json::from_value(cc).unwrap();
-                    cc.push(ApActor::from(sender.clone()).followers);
+                    if let Some(followers) = ApActor::from(sender.clone()).followers {
+                        cc.push(followers)
+                    };
                     note.cc = Option::from(serde_json::to_value(cc).unwrap());
                 } else {
                     note.cc = Option::from(
@@ -1087,11 +1090,13 @@ fn handle_encrypted_note(
                 if let Some(encrypted_session) =
                     get_encrypted_session_by_profile_id_and_ap_to(sender.id, to[0].clone())
                 {
-                    if let (Some(uuid), Some(hash)) =
-                        (instrument.clone().uuid, instrument.clone().hash)
-                    {
+                    if let (Some(uuid), Some(hash), Some(content)) = (
+                        instrument.clone().uuid,
+                        instrument.clone().hash,
+                        instrument.clone().content,
+                    ) {
                         log::debug!("FOUND UUID - UPDATING EXISTING SESSION");
-                        if let Some(_session) = update_olm_session(uuid, instrument.content, hash) {
+                        if let Some(_session) = update_olm_session(uuid, content, hash) {
                             if let Some(receiver) = handle
                                 .block_on(async { get_actor(sender.clone(), to[0].clone()).await })
                             {
@@ -1138,6 +1143,28 @@ fn handle_encrypted_note(
         error!("NO instrument");
         Option::None
     }
+}
+
+fn retrieve_context(job: Job) -> io::Result<()> {
+    debug!("running retrieve_context job");
+
+    let rt = Runtime::new().unwrap();
+    let handle = rt.handle();
+
+    for ap_id in job.args() {
+        let ap_id = ap_id.as_str().unwrap().to_string();
+        handle.block_on(async {
+            if let Some(note) = lookup_remote_note(ap_id.to_string()).await {
+                log::debug!("REPLIES\n{:#?}", note.replies);
+
+                if let Some(replies) = note.replies {
+                    if let Some(MaybeReference::Actual(first)) = replies.first {}
+                }
+            }
+        });
+    }
+
+    Ok(())
 }
 
 fn process_outbound_note(job: Job) -> io::Result<()> {
@@ -1252,6 +1279,7 @@ fn main() {
     consumer.register("process_announce", process_announce);
     consumer.register("send_kexinit", send_kexinit);
     consumer.register("update_timeline_record", update_timeline_record);
+    consumer.register("retrieve_context", retrieve_context);
 
     consumer.register("test_job", |job| {
         debug!("{:#?}", job);

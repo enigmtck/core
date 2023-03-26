@@ -37,7 +37,7 @@ impl From<LinkedApInstrument> for NewOlmSession {
     fn from((instrument, encrypted_session_id): LinkedApInstrument) -> Self {
         NewOlmSession {
             uuid: uuid::Uuid::new_v4().to_string(),
-            session_data: instrument.content,
+            session_data: instrument.content.unwrap_or_default(),
             session_hash: instrument.hash.unwrap_or_default(),
             encrypted_session_id,
         }

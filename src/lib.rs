@@ -6,7 +6,11 @@ extern crate diesel;
 
 use dotenvy::dotenv;
 use lazy_static::lazy_static;
-use std::env;
+use serde::{Deserialize, Serialize};
+use std::{
+    any::{Any, TypeId},
+    env,
+};
 
 pub mod activity_pub;
 pub mod admin;
@@ -80,4 +84,39 @@ lazy_static! {
         dotenv().ok();
         env::var("INSTANCE_DESCRIPTION").expect("INSTANCE_DESCRIPTION must be set")
     };
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(untagged)]
+pub enum MaybeMultiple<T> {
+    Single(T),
+    Multiple(Vec<T>),
+}
+
+impl From<String> for MaybeMultiple<String> {
+    fn from(data: String) -> Self {
+        MaybeMultiple::Single(data)
+    }
+}
+
+impl<T: Clone> MaybeMultiple<T> {
+    pub fn single(&self) -> Option<T> {
+        match self {
+            MaybeMultiple::Multiple(s) => {
+                if s.len() == 1 {
+                    Some(s[0].clone())
+                } else {
+                    None
+                }
+            }
+            MaybeMultiple::Single(s) => Some(s.clone()),
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(untagged)]
+pub enum MaybeReference<T> {
+    Reference(String),
+    Actual(T),
 }

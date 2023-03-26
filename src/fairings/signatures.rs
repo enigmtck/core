@@ -25,7 +25,7 @@ impl<'r> FromRequest<'r> for Signed {
     type Error = SignatureError;
 
     async fn from_request(request: &'r Request<'_>) -> Outcome<Self, Self::Error> {
-        log::debug!("REQUEST\n{request:#?}");
+        //log::debug!("REQUEST\n{request:#?}");
 
         let conn = request.guard::<Db>().await.unwrap();
         let method = request.method().to_string();

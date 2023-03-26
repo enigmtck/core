@@ -1,6 +1,5 @@
-use crate::activity_pub::{
-    ApActivity, ApActor, ApCollection, ApInstrument, ApNote, ApOrderedCollection,
-};
+use crate::activity_pub::{ApActivity, ApActor, ApCollection, ApInstrument, ApNote};
+use crate::MaybeMultiple;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::fmt;
@@ -9,14 +8,24 @@ use std::fmt::Debug;
 use super::session::ApSession;
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
+pub enum ApSignatureType {
+    RsaSignature2017,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct ApSignature {
     #[serde(rename = "type")]
     #[serde(skip_serializing_if = "Option::is_none")]
-    kind: Option<String>,
+    kind: Option<ApSignatureType>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     creator: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     created: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     signature_value: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    nonce: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -50,19 +59,31 @@ pub struct ApBasicContent {
     pub content: String,
 }
 
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+pub enum ApTombstoneType {
+    Tombstone,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct ApTombstone {
+    #[serde(rename = "type")]
+    pub kind: ApTombstoneType,
+    pub id: String,
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 #[serde(untagged)]
 pub enum ApObject {
     Plain(String),
+    Tombstone(ApTombstone),
     Session(ApSession),
     Instrument(ApInstrument),
     Note(ApNote),
     Actor(ApActor),
-    OrderedCollection(ApOrderedCollection),
     Collection(ApCollection),
     Identifier(ApIdentifier),
     Basic(ApBasicContent),
-    Complex(ApFlexible),
+    Complex(MaybeMultiple<Value>),
     #[default]
     Unknown,
 }
@@ -181,47 +202,6 @@ pub struct ApImage {
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
-#[serde(untagged)]
-pub enum ApFlexible {
-    Single(Value),
-    Multiple(Vec<Value>),
-}
-
-impl From<String> for ApFlexible {
-    fn from(data: String) -> Self {
-        ApFlexible::Single(Value::from(data))
-    }
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug)]
-#[serde(untagged)]
-pub enum ApFlexibleString {
-    Single(String),
-    Multiple(Vec<String>),
-}
-
-impl From<String> for ApFlexibleString {
-    fn from(data: String) -> Self {
-        ApFlexibleString::Single(data)
-    }
-}
-
-impl ApFlexibleString {
-    pub fn get_single(&self) -> Option<String> {
-        match self {
-            ApFlexibleString::Multiple(s) => {
-                if s.len() == 1 {
-                    Some(s[0].clone())
-                } else {
-                    None
-                }
-            }
-            ApFlexibleString::Single(s) => Some(s.to_string()),
-        }
-    }
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug)]
 pub enum ApLinkType {
     Mention,
 }
@@ -281,23 +261,6 @@ impl From<&str> for ApActivityType {
             "Join" => ApActivityType::Join,
             _ => ApActivityType::Unknown,
         }
-    }
-}
-
-#[derive(Serialize, PartialEq, Eq, Deserialize, Clone, Debug, Default)]
-pub enum ApActorType {
-    Application,
-    Group,
-    Organization,
-    Person,
-    Service,
-    #[default]
-    Unknown,
-}
-
-impl fmt::Display for ApActorType {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        Debug::fmt(self, f)
     }
 }
 

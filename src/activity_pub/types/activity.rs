@@ -1,8 +1,7 @@
 use crate::{
-    activity_pub::{
-        ApActivityType, ApContext, ApFlexibleString, ApInstrument, ApNote, ApObject, ApSession,
-    },
+    activity_pub::{ApActivityType, ApContext, ApInstrument, ApNote, ApObject, ApSession},
     models::{remote_activities::RemoteActivity, remote_announces::RemoteAnnounce},
+    MaybeMultiple,
 };
 use serde::{Deserialize, Serialize};
 use serde_with::serde_as;
@@ -26,7 +25,7 @@ pub struct ApActivity {
     pub id: Option<String>,
     pub actor: String,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub to: Option<ApFlexibleString>,
+    pub to: Option<MaybeMultiple<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cc: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -87,7 +86,7 @@ impl From<ApSession> for ApActivity {
         ApActivity {
             id: Option::from(format!("{}#join", session.id.clone().unwrap_or_default())),
             kind,
-            to: Option::from(ApFlexibleString::Multiple(vec![session.to.clone()])),
+            to: Option::from(MaybeMultiple::Multiple(vec![session.to.clone()])),
             actor: session.attributed_to.clone(),
             object: ApObject::Session(session),
             ..Default::default()
@@ -105,7 +104,7 @@ impl From<RemoteActivity> for ApActivity {
             id: Option::from(activity.ap_id),
             actor: activity.actor,
             to: Option::from(
-                serde_json::from_value::<ApFlexibleString>(activity.ap_to.unwrap_or_default())
+                serde_json::from_value::<MaybeMultiple<String>>(activity.ap_to.unwrap_or_default())
                     .unwrap(),
             ),
             cc: Option::from(
@@ -128,7 +127,7 @@ impl From<RemoteAnnounce> for ApActivity {
             id: Option::from(activity.ap_id),
             actor: activity.actor,
             to: Option::from(
-                serde_json::from_value::<ApFlexibleString>(activity.ap_to.unwrap_or_default())
+                serde_json::from_value::<MaybeMultiple<String>>(activity.ap_to.unwrap_or_default())
                     .unwrap(),
             ),
             cc: Option::from(

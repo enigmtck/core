@@ -1,6 +1,7 @@
-use crate::activity_pub::{
-    ApActorType, ApAttachment, ApContext, ApEndpoint, ApImage, ApImageType, ApTag,
-};
+use core::fmt;
+use std::fmt::Debug;
+
+use crate::activity_pub::{ApAttachment, ApContext, ApEndpoint, ApImage, ApImageType, ApTag};
 use crate::models::leaders::Leader;
 use crate::models::profiles::Profile;
 use crate::models::remote_actors::RemoteActor;
@@ -18,7 +19,24 @@ pub struct ApPublicKey {
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct ApCapabilities {
-    accepts_chat_messages: bool,
+    pub accepts_chat_messages: Option<bool>,
+}
+
+#[derive(Serialize, PartialEq, Eq, Deserialize, Clone, Debug, Default)]
+pub enum ApActorType {
+    Application,
+    Group,
+    Organization,
+    Person,
+    Service,
+    #[default]
+    Unknown,
+}
+
+impl fmt::Display for ApActorType {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        Debug::fmt(self, f)
+    }
 }
 
 #[serde_as]
@@ -39,8 +57,10 @@ pub struct ApActor {
     pub preferred_username: String,
     pub inbox: String,
     pub outbox: String,
-    pub followers: String,
-    pub following: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub followers: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub following: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub liked: Option<String>,
     pub public_key: ApPublicKey,
@@ -83,35 +103,35 @@ pub struct ApActor {
 impl Default for ApActor {
     fn default() -> ApActor {
         ApActor {
-            context: Option::from(ApContext::Plain(
+            context: Some(ApContext::Plain(
                 "https://www.w3.org/ns/activitystreams".to_string(),
             )),
             kind: ApActorType::default(),
-            name: Option::None,
-            summary: Option::None,
-            id: Option::None,
+            name: None,
+            summary: None,
+            id: None,
             preferred_username: String::new(),
             inbox: String::new(),
             outbox: String::new(),
-            followers: String::new(),
-            following: String::new(),
-            liked: Option::None,
+            followers: None,
+            following: None,
+            liked: None,
             public_key: ApPublicKey::default(),
-            featured: Option::None,
-            featured_tags: Option::None,
-            url: Option::None,
-            manually_approves_followers: Option::None,
-            published: Option::None,
-            tag: Option::None,
-            attachment: Option::None,
-            endpoints: Option::None,
-            icon: Option::None,
-            image: Option::None,
-            also_known_as: Option::None,
-            discoverable: Option::None,
-            capabilities: Option::None,
-            ephemeral_following: Option::None,
-            ephemeral_leader_ap_id: Option::None,
+            featured: None,
+            featured_tags: None,
+            url: None,
+            manually_approves_followers: None,
+            published: None,
+            tag: None,
+            attachment: None,
+            endpoints: None,
+            icon: None,
+            image: None,
+            also_known_as: None,
+            discoverable: None,
+            capabilities: None,
+            ephemeral_following: None,
+            ephemeral_leader_ap_id: None,
         }
     }
 }
@@ -121,46 +141,52 @@ impl From<Profile> for ApActor {
         let server_url = &*crate::SERVER_URL;
 
         ApActor {
-            name: Option::from(profile.display_name),
-            summary: Option::from(profile.summary.unwrap_or_default()),
-            id: Option::from(format!("{}/user/{}", server_url, profile.username)),
+            name: Some(profile.display_name),
+            summary: Some(profile.summary.unwrap_or_default()),
+            id: Some(format!("{}/user/{}", server_url, profile.username)),
             kind: ApActorType::Person,
             preferred_username: profile.username.clone(),
             inbox: format!("{}/user/{}/inbox/", server_url, profile.username),
             outbox: format!("{}/user/{}/outbox/", server_url, profile.username),
-            followers: format!("{}/user/{}/followers/", server_url, profile.username),
-            following: format!("{}/user/{}/following/", server_url, profile.username),
-            liked: Option::from(format!("{}/user/{}/liked/", server_url, profile.username)),
+            followers: Some(format!(
+                "{}/user/{}/followers/",
+                server_url, profile.username
+            )),
+            following: Some(format!(
+                "{}/user/{}/following/",
+                server_url, profile.username
+            )),
+            liked: Some(format!("{}/user/{}/liked/", server_url, profile.username)),
             public_key: ApPublicKey {
                 id: format!("{}/user/{}#main-key", server_url, profile.username),
                 owner: format!("{}/user/{}", server_url, profile.username),
                 public_key_pem: profile.public_key,
             },
-            url: Option::from(format!("{}/@{}", server_url, profile.username)),
-            icon: Option::from(ApImage {
+            url: Some(format!("{}/@{}", server_url, profile.username)),
+            icon: Some(ApImage {
                 kind: ApImageType::Image,
-                media_type: Option::None,
+                media_type: None,
                 url: format!("{}/{}", server_url, profile.avatar_filename),
             }),
             image: {
                 if let Some(banner) = profile.banner_filename {
-                    Option::from(ApImage {
+                    Some(ApImage {
                         kind: ApImageType::Image,
-                        media_type: Option::None,
+                        media_type: None,
                         url: format!("{}/{}", server_url, banner),
                     })
                 } else {
-                    Option::None
+                    None
                 }
             },
-            discoverable: Option::from(true),
-            capabilities: Option::from(ApCapabilities {
-                accepts_chat_messages: false,
+            discoverable: Some(true),
+            capabilities: Some(ApCapabilities {
+                accepts_chat_messages: Some(false),
             }),
-            attachment: Option::from(vec![]),
-            also_known_as: Option::from(vec![]),
-            tag: Option::from(vec![]),
-            endpoints: Option::from(ApEndpoint {
+            attachment: Some(vec![]),
+            also_known_as: Some(vec![]),
+            tag: Some(vec![]),
+            endpoints: Some(ApEndpoint {
                 shared_inbox: format!("{server_url}/inbox"),
             }),
             ..Default::default()
@@ -171,13 +197,13 @@ impl From<Profile> for ApActor {
 impl From<RemoteActor> for ApActor {
     fn from(actor: RemoteActor) -> Self {
         ApActor {
-            context: Option::from(ApContext::Plain(
+            context: Some(ApContext::Plain(
                 "https://www.w3.org/ns/activitystreams".to_string(),
             )),
             kind: ApActorType::Person,
-            name: Option::from(actor.name),
+            name: Some(actor.name),
             summary: actor.summary,
-            id: Option::from(actor.ap_id),
+            id: Some(actor.ap_id),
             preferred_username: actor.preferred_username.unwrap_or_default(),
             inbox: actor.inbox,
             outbox: actor.outbox,
@@ -198,8 +224,8 @@ impl From<RemoteActor> for ApActor {
             also_known_as: serde_json::from_value(actor.also_known_as.into()).unwrap(),
             discoverable: actor.discoverable,
             capabilities: serde_json::from_value(actor.capabilities.into()).unwrap(),
-            ephemeral_following: Option::None,
-            ephemeral_leader_ap_id: Option::None,
+            ephemeral_following: None,
+            ephemeral_leader_ap_id: None,
         }
     }
 }
@@ -214,7 +240,7 @@ impl From<RemoteActorAndLeader> for ApActor {
             if let Some(leader) = actor_and_leader.1.clone() {
                 leader.accepted
             } else {
-                Option::None
+                None
             }
         };
 
@@ -222,7 +248,7 @@ impl From<RemoteActorAndLeader> for ApActor {
             if let Some(leader) = actor_and_leader.1 {
                 format!("{}/leader/{}", *crate::SERVER_URL, leader.uuid).into()
             } else {
-                Option::None
+                None
             }
         };
 
