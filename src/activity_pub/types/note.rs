@@ -78,8 +78,10 @@ pub struct ApNote {
     pub ephemeral_announce: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ephemeral_actors: Option<Vec<ApActor>>,
-    pub ephemeral_liked: bool,
-    pub ephemeral_targeted: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ephemeral_liked: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ephemeral_targeted: Option<bool>,
 }
 
 impl ApNote {
@@ -137,8 +139,8 @@ impl Default for ApNote {
             instrument: None,
             ephemeral_announce: None,
             ephemeral_actors: None,
-            ephemeral_liked: false,
-            ephemeral_targeted: false,
+            ephemeral_liked: None,
+            ephemeral_targeted: None,
         }
     }
 }
@@ -239,8 +241,8 @@ impl From<FullyQualifiedTimelineItem> for ApNote {
             },
             ephemeral_announce: timeline.announce,
             ephemeral_actors: actors,
-            ephemeral_liked: like.is_some(),
-            ephemeral_targeted: cc.is_some(),
+            ephemeral_liked: Some(like.is_some()),
+            ephemeral_targeted: Some(cc.is_some()),
             ..Default::default()
         }
     }
