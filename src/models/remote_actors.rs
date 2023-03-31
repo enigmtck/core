@@ -108,6 +108,7 @@ pub struct RemoteActor {
     pub also_known_as: Option<Value>,
     pub discoverable: Option<bool>,
     pub capabilities: Option<Value>,
+    pub checked_at: DateTime<Utc>,
 }
 
 pub async fn get_remote_actor_by_url(conn: &Db, url: String) -> Option<RemoteActor> {
@@ -132,7 +133,7 @@ pub async fn create_or_update_remote_actor(
                 .values(&actor)
                 .on_conflict(remote_actors::ap_id)
                 .do_update()
-                .set(&actor)
+                .set((&actor, remote_actors::checked_at.eq(Utc::now())))
                 .get_result::<RemoteActor>(c)
                 .optional()
         })

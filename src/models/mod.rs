@@ -1,6 +1,7 @@
 pub mod encrypted_sessions;
 pub mod followers;
 pub mod leaders;
+pub mod likes;
 pub mod notes;
 pub mod olm_one_time_keys;
 pub mod olm_sessions;
@@ -10,6 +11,7 @@ pub mod remote_activities;
 pub mod remote_actors;
 pub mod remote_announces;
 pub mod remote_encrypted_sessions;
+pub mod remote_likes;
 pub mod remote_notes;
 pub mod timeline;
 pub mod vault;

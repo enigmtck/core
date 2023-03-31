@@ -1,10 +1,19 @@
 use rocket::futures::future::join_all;
 
 use crate::{
-    activity_pub::{retriever::get_actor, ApActor, ApCollection, ApNote, ApObject, ApTag},
+    activity_pub::{
+        retriever::get_actor, ApActor, ApCollection, ApNote, ApObject, ApTag,
+        FullyQualifiedTimelineItem,
+    },
     db::Db,
     fairings::faktory::{assign_to_faktory, FaktoryConnection},
-    models::timeline::{get_public_timeline_items, get_timeline_items_by_conversation},
+    models::{
+        profiles::Profile,
+        timeline::{
+            get_authenticated_timeline_items, get_public_timeline_items,
+            get_timeline_items_by_conversation,
+        },
+    },
 };
 
 pub async fn timeline(conn: &Db, limit: i64, offset: i64) -> ApObject {
@@ -34,6 +43,40 @@ pub async fn timeline(conn: &Db, limit: i64, offset: i64) -> ApObject {
             }
 
             ApObject::Note(ApNote::from((x.clone(), Some(ap_actors))))
+        }))
+        .await,
+    ))
+}
+
+pub async fn inbox(conn: &Db, limit: i64, offset: i64, profile: Profile) -> ApObject {
+    let timeline = get_authenticated_timeline_items(conn, limit, offset, profile).await;
+
+    ApObject::Collection(ApCollection::from(
+        join_all(timeline.iter().map(|(x, l, c)| async {
+            let mut ap_ids = vec![x.clone().attributed_to];
+            let mut ap_actors: Vec<ApActor> = vec![];
+
+            if let Some(tags) = x.clone().tag {
+                if let Ok(tags) = serde_json::from_value::<Vec<ApTag>>(tags) {
+                    for tag in tags {
+                        if let ApTag::Mention(tag) = tag {
+                            if let Some(href) = tag.href {
+                                ap_ids.push(href)
+                            }
+                        }
+                    }
+                }
+            }
+
+            for ap_id in ap_ids {
+                if let Some((actor, _)) = get_actor(conn, ap_id, None).await {
+                    ap_actors.push(actor.into());
+                }
+            }
+
+            let param: FullyQualifiedTimelineItem =
+                ((x.clone(), l.clone(), c.clone()), Some(ap_actors));
+            ApObject::Note(param.into())
         }))
         .await,
     ))

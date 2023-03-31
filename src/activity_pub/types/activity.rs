@@ -1,8 +1,9 @@
 use crate::{
-    activity_pub::{ApActivityType, ApContext, ApInstrument, ApNote, ApObject, ApSession},
+    activity_pub::{ApContext, ApInstrument, ApNote, ApObject, ApSession},
     models::{remote_activities::RemoteActivity, remote_announces::RemoteAnnounce},
     MaybeMultiple,
 };
+use core::fmt;
 use serde::{Deserialize, Serialize};
 use serde_with::serde_as;
 use std::fmt::Debug;
@@ -11,6 +12,58 @@ use super::{
     object::{ApProof, ApSignature},
     session::ApInstruments,
 };
+
+#[derive(Serialize, PartialEq, Eq, Deserialize, Clone, Debug, Default)]
+pub enum ApActivityType {
+    Create,
+    Update,
+    Delete,
+    Follow,
+    Accept,
+    Reject,
+    Add,
+    Remove,
+    Like,
+    Announce,
+    Undo,
+    Invite,
+    Join,
+    #[default]
+    Unknown,
+}
+
+impl fmt::Display for ApActivityType {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        Debug::fmt(self, f)
+    }
+}
+
+impl From<String> for ApActivityType {
+    fn from(data: String) -> Self {
+        data.as_str().into()
+    }
+}
+
+impl From<&str> for ApActivityType {
+    fn from(data: &str) -> Self {
+        match data {
+            "Create" => ApActivityType::Create,
+            "Update" => ApActivityType::Update,
+            "Delete" => ApActivityType::Delete,
+            "Follow" => ApActivityType::Follow,
+            "Accept" => ApActivityType::Accept,
+            "Reject" => ApActivityType::Reject,
+            "Add" => ApActivityType::Add,
+            "Remove" => ApActivityType::Remove,
+            "Like" => ApActivityType::Like,
+            "Announce" => ApActivityType::Announce,
+            "Undo" => ApActivityType::Undo,
+            "Invite" => ApActivityType::Invite,
+            "Join" => ApActivityType::Join,
+            _ => ApActivityType::Unknown,
+        }
+    }
+}
 
 #[serde_as]
 #[derive(Serialize, Deserialize, Clone, Debug)]

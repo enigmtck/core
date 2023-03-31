@@ -1,19 +1,17 @@
 use crate::{
     activity_pub::{ApActivity, ApActivityType, ApNote, ApObject},
-    db::{
-        create_follower, create_remote_encrypted_session, create_remote_note,
-        delete_follower_by_ap_id, update_leader_by_uuid, Db,
-    },
+    db::{create_remote_encrypted_session, create_remote_note, update_leader_by_uuid, Db},
     fairings::{
         events::EventChannels,
         faktory::{assign_to_faktory, FaktoryConnection},
     },
     models::{
-        followers::NewFollower,
+        followers::{create_follower, delete_follower_by_ap_id, NewFollower},
         profiles::get_profile_by_ap_id,
         remote_activities::get_remote_activity_by_ap_id,
         remote_actors::{create_or_update_remote_actor, delete_remote_actor_by_ap_id},
         remote_announces::{create_remote_announce, NewRemoteAnnounce},
+        remote_likes::{create_remote_like, delete_remote_like_by_actor_and_object_id},
         remote_notes::{create_or_update_remote_note, delete_remote_note_by_ap_id, NewRemoteNote},
         timeline::delete_timeline_item_by_ap_id,
     },
@@ -196,11 +194,9 @@ pub async fn follow(
 }
 
 pub async fn undo(conn: Db, events: EventChannels, activity: ApActivity) -> Result<Status, Status> {
-    if let ApObject::Identifier(x) = activity.clone().object {
-        if let Some(x) = get_remote_activity_by_ap_id(&conn, x.id).await {
-            if x.kind == ApActivityType::Follow.to_string()
-                && delete_follower_by_ap_id(&conn, x.ap_id).await
-            {
+    match activity.clone().object {
+        ApObject::Like(like) => {
+            if delete_remote_like_by_actor_and_object_id(&conn, like.actor, like.object).await {
                 let mut events = events;
                 events.send(serde_json::to_string(&activity).unwrap());
 
@@ -208,11 +204,21 @@ pub async fn undo(conn: Db, events: EventChannels, activity: ApActivity) -> Resu
             } else {
                 Err(Status::NoContent)
             }
-        } else {
+        }
+        ApObject::Follow(follow) => {
+            if delete_follower_by_ap_id(&conn, follow.id.unwrap_or_default()).await {
+                let mut events = events;
+                events.send(serde_json::to_string(&activity).unwrap());
+
+                Ok(Status::Accepted)
+            } else {
+                Err(Status::NoContent)
+            }
+        }
+        _ => {
+            log::debug!("UNIMPLEMENTED UNDO TYPE\n{:#?}", activity.clone().object);
             Err(Status::NoContent)
         }
-    } else {
-        Err(Status::NoContent)
     }
 }
 
@@ -224,8 +230,9 @@ pub async fn accept(
     //debug!("activity: {activity:#?}");
 
     let identifier = match activity.clone().object {
-        ApObject::Identifier(x) => Option::from(x.id),
-        ApObject::Plain(x) => Option::from(x),
+        ApObject::Identifier(x) => Some(x.id),
+        ApObject::Plain(x) => Some(x),
+        ApObject::Follow(x) => x.id,
         _ => Option::None,
     };
 
@@ -400,6 +407,30 @@ pub async fn update(
         }
         _ => {
             log::debug!("UNIMPLEMENTED UPDATE TYPE");
+            Err(Status::NoContent)
+        }
+    }
+}
+
+pub async fn like(
+    conn: Db,
+    faktory: FaktoryConnection,
+    activity: ApActivity,
+) -> Result<Status, Status> {
+    match activity.object {
+        ApObject::Plain(_) => {
+            if create_remote_like(&conn, activity.clone().into())
+                .await
+                .is_some()
+            {
+                Ok(Status::Accepted)
+            } else {
+                log::warn!("FAILED TO CREATE LIKE (DUPLICATE?)\n{:#?}", activity.object);
+                Err(Status::NoContent)
+            }
+        }
+        _ => {
+            log::warn!("UNEXPECTED OBJECT TYPE\n{:#?}", activity.object);
             Err(Status::NoContent)
         }
     }

@@ -1,12 +1,15 @@
 use crate::activity_pub::{ApActivity, ApNote};
 use crate::db::Db;
-use crate::schema::{timeline, timeline_cc, timeline_to};
+use crate::helper::get_ap_id_from_username;
+use crate::schema::{likes, timeline, timeline_cc, timeline_to};
 use chrono::{DateTime, Utc};
 use diesel::prelude::*;
 use diesel::{AsChangeset, Identifiable, Insertable, Queryable};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+use super::likes::Like;
+use super::profiles::Profile;
 use super::remote_notes::RemoteNote;
 
 #[derive(Serialize, Deserialize, Insertable, Default, Debug, Clone, AsChangeset)]
@@ -200,6 +203,40 @@ impl From<IdentifiedTimelineItem> for NewTimelineItemTo {
             timeline_id: identified_timeline_item.0.id,
             ap_id: identified_timeline_item.1,
         }
+    }
+}
+
+pub async fn get_authenticated_timeline_items(
+    conn: &Db,
+    limit: i64,
+    offset: i64,
+    profile: Profile,
+) -> Vec<(TimelineItem, Option<Like>, Option<TimelineItemCc>)> {
+    match conn
+        .run(move |c| {
+            let query =
+                timeline::table
+                    .left_join(
+                        likes::table.on(likes::object_ap_id
+                            .eq(timeline::ap_id)
+                            .and(likes::profile_id.eq(profile.id))),
+                    )
+                    .left_join(timeline_cc::table.on(timeline_cc::id.eq(timeline::id).and(
+                        timeline_cc::ap_id.eq(get_ap_id_from_username(profile.username.clone())),
+                    )))
+                    .filter(timeline::ap_public.eq(true))
+                    .or_filter(timeline_cc::ap_id.eq(get_ap_id_from_username(profile.username)))
+                    .order(timeline::created_at.desc())
+                    .limit(limit)
+                    .offset(offset)
+                    .into_boxed();
+
+            query.get_results::<(TimelineItem, Option<Like>, Option<TimelineItemCc>)>(c)
+        })
+        .await
+    {
+        Ok(x) => x,
+        Err(_) => vec![],
     }
 }
 

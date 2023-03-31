@@ -208,36 +208,6 @@ pub async fn delete_leader(conn: &Db, leader_id: i32) -> Result<(), ()> {
     }
 }
 
-pub async fn create_follower(conn: &Db, follower: NewFollower) -> Option<Follower> {
-    use schema::followers;
-
-    if let Ok(x) = conn
-        .run(move |c| {
-            diesel::insert_into(followers::table)
-                .values(&follower)
-                .get_result::<Follower>(c)
-        })
-        .await
-    {
-        Some(x)
-    } else {
-        Option::None
-    }
-}
-
-pub async fn get_follower_by_uuid(conn: &Db, uuid: String) -> Option<Follower> {
-    use self::schema::followers::dsl::{followers, uuid as uid};
-
-    if let Ok(x) = conn
-        .run(move |c| followers.filter(uid.eq(uuid)).first::<Follower>(c))
-        .await
-    {
-        Option::from(x)
-    } else {
-        Option::None
-    }
-}
-
 // pub async fn get_remote_notes_by_profile_id(conn: &Db, id: i32) -> Vec<RemoteNote> {
 //     use self::schema::remote_notes::dsl::{profile_id, remote_notes};
 
@@ -287,31 +257,6 @@ pub async fn create_remote_note(conn: &Db, remote_note: NewRemoteNote) -> Option
         Some(x)
     } else {
         Option::None
-    }
-}
-pub async fn delete_follower_by_ap_id(conn: &Db, ap_id: String) -> bool {
-    use self::schema::followers::dsl::{ap_id as aid, followers};
-
-    conn.run(move |c| diesel::delete(followers).filter(aid.eq(ap_id)).execute(c))
-        .await
-        .is_ok()
-}
-
-pub async fn get_followers_by_profile_id(conn: &Db, profile_id: i32) -> Vec<Follower> {
-    use self::schema::followers::dsl::{created_at, followers, profile_id as pid};
-
-    if let Ok(x) = conn
-        .run(move |c| {
-            followers
-                .filter(pid.eq(profile_id))
-                .order_by(created_at.desc())
-                .get_results::<Follower>(c)
-        })
-        .await
-    {
-        x
-    } else {
-        vec![]
     }
 }
 

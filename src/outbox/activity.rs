@@ -1,9 +1,15 @@
 use crate::{
-    activity_pub::{sender, ApActivity, ApIdentifier, ApObject},
+    activity_pub::{sender, ApActivity, ApIdentifier, ApLike, ApObject},
     db::{create_leader, delete_leader, get_leader_by_profile_id_and_ap_id, Db},
-    fairings::events::EventChannels,
+    fairings::{
+        events::EventChannels,
+        faktory::{assign_to_faktory, FaktoryConnection},
+    },
     models::{
-        leaders::NewLeader, profiles::Profile, remote_activities::create_remote_activity,
+        leaders::NewLeader,
+        likes::{create_like, NewLike},
+        profiles::Profile,
+        remote_activities::create_remote_activity,
         remote_actors::get_remote_actor_by_ap_id,
     },
 };
@@ -117,6 +123,42 @@ pub async fn follow(
             Err(Status::NoContent)
         }
     } else {
+        Err(Status::NoContent)
+    }
+}
+
+pub async fn like(
+    conn: Db,
+    faktory: FaktoryConnection,
+    events: EventChannels,
+    mut activity: ApActivity,
+    profile: Profile,
+) -> Result<Status, Status> {
+    // we ignore whatever was submitted for the actor value and enforce the correct
+    // value here; this will be used in the conversion to an ApLike
+    activity.actor = format!("{}/user/{}", *crate::SERVER_URL, profile.username);
+
+    // ApLike messages do not include the "to" field, but that field is necessary for
+    // delivery; so we store that as "ap_to" in the Like model, and we derive the NewLike
+    // from the ApActivity directly rather than through the ApLike
+
+    // the client sends the ApLike as an ApActivity to include the "to" field data
+    if let Ok(mut like) = NewLike::try_from(activity) {
+        like.link(&conn).await;
+
+        if let Some(like) = create_like(&conn, like).await {
+            log::debug!("LIKE CREATED: {}", like.uuid);
+
+            match assign_to_faktory(faktory, String::from("send_like"), vec![like.uuid]) {
+                Ok(_) => Ok(Status::Accepted),
+                Err(_) => Err(Status::NoContent),
+            }
+        } else {
+            log::error!("FAILED TO CREATE LIKE");
+            Err(Status::NoContent)
+        }
+    } else {
+        log::error!("FAILED TO CONVERT ACTIVITY TO LIKE");
         Err(Status::NoContent)
     }
 }

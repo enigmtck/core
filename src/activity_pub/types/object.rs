@@ -5,6 +5,8 @@ use serde_json::Value;
 use std::fmt;
 use std::fmt::Debug;
 
+use super::follow::ApFollow;
+use super::like::ApLike;
 use super::session::ApSession;
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -80,6 +82,8 @@ pub enum ApObject {
     Instrument(ApInstrument),
     Note(ApNote),
     Actor(ApActor),
+    Like(ApLike),
+    Follow(ApFollow),
     Collection(ApCollection),
     Identifier(ApIdentifier),
     Basic(ApBasicContent),
@@ -212,61 +216,9 @@ impl fmt::Display for ApLinkType {
     }
 }
 
-#[derive(Serialize, PartialEq, Eq, Deserialize, Clone, Debug, Default)]
-pub enum ApActivityType {
-    Create,
-    Update,
-    Delete,
-    Follow,
-    Accept,
-    Reject,
-    Add,
-    Remove,
-    Like,
-    Announce,
-    Undo,
-    Invite,
-    Join,
-    #[default]
-    Unknown,
-}
-
-impl fmt::Display for ApActivityType {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        Debug::fmt(self, f)
-    }
-}
-
-impl From<String> for ApActivityType {
-    fn from(data: String) -> Self {
-        data.as_str().into()
-    }
-}
-
-impl From<&str> for ApActivityType {
-    fn from(data: &str) -> Self {
-        match data {
-            "Create" => ApActivityType::Create,
-            "Update" => ApActivityType::Update,
-            "Delete" => ApActivityType::Delete,
-            "Follow" => ApActivityType::Follow,
-            "Accept" => ApActivityType::Accept,
-            "Reject" => ApActivityType::Reject,
-            "Add" => ApActivityType::Add,
-            "Remove" => ApActivityType::Remove,
-            "Like" => ApActivityType::Like,
-            "Announce" => ApActivityType::Announce,
-            "Undo" => ApActivityType::Undo,
-            "Invite" => ApActivityType::Invite,
-            "Join" => ApActivityType::Join,
-            _ => ApActivityType::Unknown,
-        }
-    }
-}
-
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(untagged)]
-pub enum ApBaseObjectSuper {
+pub enum ActivityPub {
     Activity(ApActivity),
     Actor(ApActor),
     Object(ApObject),

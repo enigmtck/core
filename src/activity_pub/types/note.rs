@@ -5,10 +5,11 @@ use crate::{
     activity_pub::{ApActor, ApAttachment, ApCollection, ApContext, ApInstruments, ApTag},
     helper::get_ap_id_from_username,
     models::{
+        likes::Like,
         notes::{NewNote, Note},
         profiles::Profile,
         remote_notes::RemoteNote,
-        timeline::TimelineItem,
+        timeline::{TimelineItem, TimelineItemCc},
         vault::VaultItem,
     },
     MaybeMultiple,
@@ -77,6 +78,8 @@ pub struct ApNote {
     pub ephemeral_announce: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ephemeral_actors: Option<Vec<ApActor>>,
+    pub ephemeral_liked: bool,
+    pub ephemeral_targeted: bool,
 }
 
 impl ApNote {
@@ -112,9 +115,7 @@ impl ApNote {
 impl Default for ApNote {
     fn default() -> ApNote {
         ApNote {
-            context: Some(ApContext::Plain(
-                "https://www.w3.org/ns/activitystreams".to_string(),
-            )),
+            context: Some(ApContext::default()),
             tag: None,
             attributed_to: String::new(),
             id: None,
@@ -136,6 +137,8 @@ impl Default for ApNote {
             instrument: None,
             ephemeral_announce: None,
             ephemeral_actors: None,
+            ephemeral_liked: false,
+            ephemeral_targeted: false,
         }
     }
 }
@@ -180,6 +183,17 @@ pub type QualifiedTimelineItem = (TimelineItem, Option<Vec<ApActor>>);
 
 impl From<QualifiedTimelineItem> for ApNote {
     fn from((timeline, actors): QualifiedTimelineItem) -> Self {
+        ApNote::from(((timeline, None, None), actors))
+    }
+}
+
+pub type FullyQualifiedTimelineItem = (
+    (TimelineItem, Option<Like>, Option<TimelineItemCc>),
+    Option<Vec<ApActor>>,
+);
+
+impl From<FullyQualifiedTimelineItem> for ApNote {
+    fn from(((timeline, like, cc), actors): FullyQualifiedTimelineItem) -> Self {
         ApNote {
             tag: {
                 if let Some(x) = timeline.tag {
@@ -225,6 +239,8 @@ impl From<QualifiedTimelineItem> for ApNote {
             },
             ephemeral_announce: timeline.announce,
             ephemeral_actors: actors,
+            ephemeral_liked: like.is_some(),
+            ephemeral_targeted: cc.is_some(),
             ..Default::default()
         }
     }

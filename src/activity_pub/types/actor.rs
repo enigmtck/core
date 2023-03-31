@@ -168,17 +168,11 @@ impl From<Profile> for ApActor {
                 media_type: None,
                 url: format!("{}/{}", server_url, profile.avatar_filename),
             }),
-            image: {
-                if let Some(banner) = profile.banner_filename {
-                    Some(ApImage {
-                        kind: ApImageType::Image,
-                        media_type: None,
-                        url: format!("{}/{}", server_url, banner),
-                    })
-                } else {
-                    None
-                }
-            },
+            image: profile.banner_filename.map(|banner| ApImage {
+                kind: ApImageType::Image,
+                media_type: None,
+                url: format!("{}/{}", server_url, banner),
+            }),
             discoverable: Some(true),
             capabilities: Some(ApCapabilities {
                 accepts_chat_messages: Some(false),

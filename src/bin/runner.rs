@@ -4,14 +4,15 @@ extern crate log;
 use enigmatick::{
     activity_pub::{
         sender::{send_activity, send_follower_accept},
-        ApActivity, ApActor, ApInstrument, ApInstrumentType, ApInstruments, ApNote, ApObject,
-        ApSession, JoinData,
+        ApActivity, ApActor, ApInstrument, ApInstrumentType, ApInstruments, ApLike, ApNote,
+        ApObject, ApSession, JoinData,
     },
     helper::{get_local_username_from_ap_id, is_local, is_public},
     models::{
         encrypted_sessions::{EncryptedSession, NewEncryptedSession},
         followers::Follower,
         leaders::Leader,
+        likes::Like,
         notes::Note,
         olm_one_time_keys::OlmOneTimeKey,
         olm_sessions::{NewOlmSession, OlmSession},
@@ -27,6 +28,7 @@ use enigmatick::{
             TimelineItemTo,
         },
     },
+    schema::likes,
     signing::{Method, SignParams},
     MaybeReference,
 };
@@ -229,6 +231,20 @@ pub fn get_encrypted_session_by_uuid(uuid: String) -> Option<EncryptedSession> {
         }
     } else {
         Option::None
+    }
+}
+
+pub fn get_like_by_uuid(uuid: String) -> Option<Like> {
+    if let Ok(conn) = POOL.get() {
+        match likes::table
+            .filter(likes::uuid.eq(uuid))
+            .first::<Like>(&conn)
+        {
+            Ok(x) => Option::from(x),
+            Err(_) => Option::None,
+        }
+    } else {
+        None
     }
 }
 
@@ -1263,6 +1279,56 @@ fn update_timeline_record(job: Job) -> io::Result<()> {
     Ok(())
 }
 
+fn send_like(job: Job) -> io::Result<()> {
+    debug!("SENDING LIKE");
+
+    let rt = Runtime::new().unwrap();
+    let handle = rt.handle();
+
+    for uuid in job.args() {
+        if let Some(like) = get_like_by_uuid(uuid.as_str().unwrap().to_string()) {
+            if let Some(profile_id) = like.profile_id {
+                if let Some(sender) = get_profile(profile_id) {
+                    if let Some(actor) = get_remote_actor_by_ap_id(like.ap_to.clone()) {
+                        let ap_like = ApLike::from(like.clone());
+                        let url = actor.inbox;
+                        let body = Option::from(serde_json::to_string(&ap_like).unwrap());
+                        let method = Method::Post;
+
+                        let signature = enigmatick::signing::sign(SignParams {
+                            profile: sender.clone(),
+                            url: url.clone(),
+                            body: body.clone(),
+                            method,
+                        });
+
+                        let client = Client::new()
+                            .post(&url)
+                            .header("Date", signature.date)
+                            .header("Digest", signature.digest.unwrap())
+                            .header("Signature", &signature.signature)
+                            .header(
+                                "Content-Type",
+                                "application/ld+json; profile=\"http://www.w3.org/ns/activitystreams\"",
+                            )
+                            .body(body.unwrap());
+
+                        handle.block_on(async {
+                            if let Ok(resp) = client.send().await {
+                                if let Ok(text) = resp.text().await {
+                                    debug!("SEND SUCCESSFUL: {url}\n{text}");
+                                }
+                            }
+                        })
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(())
+}
+
 fn main() {
     env_logger::init();
 
@@ -1280,6 +1346,7 @@ fn main() {
     consumer.register("send_kexinit", send_kexinit);
     consumer.register("update_timeline_record", update_timeline_record);
     consumer.register("retrieve_context", retrieve_context);
+    consumer.register("send_like", send_like);
 
     consumer.register("test_job", |job| {
         debug!("{:#?}", job);

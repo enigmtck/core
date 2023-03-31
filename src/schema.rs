@@ -42,6 +42,19 @@ diesel::table! {
 }
 
 diesel::table! {
+    likes (id) {
+        id -> Int4,
+        created_at -> Timestamptz,
+        updated_at -> Timestamptz,
+        uuid -> Varchar,
+        profile_id -> Nullable<Int4>,
+        ap_to -> Varchar,
+        actor -> Varchar,
+        object_ap_id -> Varchar,
+    }
+}
+
+diesel::table! {
     notes (id) {
         id -> Int4,
         created_at -> Timestamptz,
@@ -171,6 +184,7 @@ diesel::table! {
         also_known_as -> Nullable<Jsonb>,
         discoverable -> Nullable<Bool>,
         capabilities -> Nullable<Jsonb>,
+        checked_at -> Timestamptz,
     }
 }
 
@@ -205,6 +219,17 @@ diesel::table! {
         attributed_to -> Varchar,
         instrument -> Jsonb,
         reference -> Nullable<Varchar>,
+    }
+}
+
+diesel::table! {
+    remote_likes (id) {
+        id -> Int4,
+        created_at -> Timestamptz,
+        updated_at -> Timestamptz,
+        ap_id -> Varchar,
+        actor -> Varchar,
+        object_id -> Varchar,
     }
 }
 
@@ -311,6 +336,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     encrypted_sessions,
     followers,
     leaders,
+    likes,
     notes,
     olm_one_time_keys,
     olm_sessions,
@@ -320,6 +346,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     remote_actors,
     remote_announces,
     remote_encrypted_sessions,
+    remote_likes,
     remote_notes,
     timeline,
     timeline_cc,

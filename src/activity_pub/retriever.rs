@@ -1,3 +1,5 @@
+use chrono::Duration;
+use chrono::Utc;
 use reqwest::Client;
 use reqwest::StatusCode;
 
@@ -114,80 +116,92 @@ pub async fn get_actor(
     id: String,
     profile: Option<Profile>,
 ) -> Option<(RemoteActor, Option<Leader>)> {
-    match get_remote_actor_by_ap_id(conn, id.clone()).await {
-        Some(remote_actor) => {
-            if let Some(profile) = profile {
-                Option::from((
+    let actor = {
+        if let Some(remote_actor) = get_remote_actor_by_ap_id(conn, id.clone()).await {
+            let now = Utc::now();
+            let updated = remote_actor.updated_at;
+
+            if now - updated > Duration::days(7) {
+                log::debug!("ACTOR STALE: {}", remote_actor.ap_id);
+                log::debug!("NOW: {now:#?}, UPDATED: {updated:#?}");
+                None
+            } else if let Some(profile) = profile {
+                Some((
                     remote_actor,
-                    get_leader_by_actor_ap_id_and_profile(conn, id, profile.id).await,
+                    get_leader_by_actor_ap_id_and_profile(conn, id.clone(), profile.id).await,
                 ))
             } else {
-                Option::from((remote_actor, Option::None))
+                Some((remote_actor, Option::None))
             }
+        } else {
+            None
         }
-        None => {
-            // let url = id.clone();
-            // let body = Option::None;
-            // let method = Method::Get;
+    };
 
-            // let signature = sign(SignParams {
-            //     profile,
-            //     url,
-            //     body,
-            //     method,
-            // });
+    if let Some(actor) = actor {
+        Some(actor)
+    } else {
+        // let url = id.clone();
+        // let body = Option::None;
+        // let method = Method::Get;
 
-            let client = Client::builder();
-            let client = client.user_agent("Enigmatick/0.1").build().unwrap();
-            let inter = client
-                .get(&id)
-                //    .header("Signature", &signature.signature)
-                //    .header("Date", signature.date)
-                // .header(
-                //     "Accept",
-                //     "application/ld+json; profile=\"https://www.w3.org/ns/activitystreams\"",
-                // )
-                // I changed the above to the below to accommodate BirdsiteLive which sucks
-                // it may make sense to revert and just deal with the fact that that service doesn't work right
-                .header("Accept", "application/activity+json");
+        // let signature = sign(SignParams {
+        //     profile,
+        //     url,
+        //     body,
+        //     method,
+        // });
 
-            //log::debug!("inter: {inter:#?}");
+        let client = Client::builder();
+        let client = client.user_agent("Enigmatick/0.1").build().unwrap();
+        let inter = client
+            .get(&id)
+            //    .header("Signature", &signature.signature)
+            //    .header("Date", signature.date)
+            // .header(
+            //     "Accept",
+            //     "application/ld+json; profile=\"https://www.w3.org/ns/activitystreams\"",
+            // )
+            // I changed the above to the below to accommodate BirdsiteLive which sucks
+            // it may make sense to revert and just deal with the fact that that service doesn't work right
+            .header("Accept", "application/activity+json");
 
-            match inter.send().await {
-                Ok(resp) => match resp.status() {
-                    StatusCode::ACCEPTED | StatusCode::OK => {
-                        if let Ok(text) = resp.text().await {
-                            if let Ok(actor) = serde_json::from_str::<ApActor>(&text) {
-                                if let Some(remote) =
-                                    create_or_update_remote_actor(conn, NewRemoteActor::from(actor))
-                                        .await
-                                {
-                                    Option::from((remote, Option::None))
-                                } else {
-                                    None
-                                }
+        //log::debug!("inter: {inter:#?}");
+
+        match inter.send().await {
+            Ok(resp) => match resp.status() {
+                StatusCode::ACCEPTED | StatusCode::OK => {
+                    if let Ok(text) = resp.text().await {
+                        if let Ok(actor) = serde_json::from_str::<ApActor>(&text) {
+                            if let Some(remote) =
+                                create_or_update_remote_actor(conn, NewRemoteActor::from(actor))
+                                    .await
+                            {
+                                Option::from((remote, Option::None))
                             } else {
-                                log::error!("UNABLE TO DECODE ACTOR\n{text}");
                                 None
                             }
                         } else {
-                            log::error!("UNABLE TO DECODE RESPONSE TO TEXT");
+                            log::error!("UNABLE TO DECODE ACTOR\n{text}");
                             None
                         }
-                    }
-                    StatusCode::GONE => {
-                        log::debug!("GONE: {:#?}", resp.status());
+                    } else {
+                        log::error!("UNABLE TO DECODE RESPONSE TO TEXT");
                         None
                     }
-                    _ => {
-                        log::debug!("STATUS: {:#?}", resp.status());
-                        None
-                    }
-                },
-                Err(e) => {
-                    log::debug!("{e:#?}");
+                }
+                StatusCode::GONE => {
+                    log::debug!("GONE: {:#?}", resp.status());
                     None
                 }
+                _ => {
+                    log::debug!("STATUS: {:#?}", resp.status());
+                    None
+                }
+            },
+            Err(e) => {
+                log::debug!("{e:#?}");
+                None
             }
         }
     }

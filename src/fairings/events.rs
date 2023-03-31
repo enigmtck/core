@@ -84,7 +84,7 @@ impl EventChannels {
     }
 
     pub fn subscribe(&mut self, username: String) -> (String, Receiver<String>) {
-        log::debug!("subscribe called");
+        log::debug!("SUBSCRIBE CALLED");
 
         let uuid = uuid::Uuid::new_v4().to_string();
         let (tx, rx) = unbounded::<String>();
@@ -105,19 +105,19 @@ impl EventChannels {
         if let Some(mut x) = self.sending_channels.try_lock() {
             for (uuid, identified_sender) in (*x).clone() {
                 if identified_sender.authorized {
-                    log::debug!("trying to send {message}");
+                    log::debug!("SENDING EVENT");
 
                     match identified_sender.sender.try_send(message.clone()) {
                         Ok(_) => {
-                            log::debug!("sent: {uuid:#?} {:#?}", identified_sender.username);
+                            log::debug!("SENT {uuid:#?} {:#?}", identified_sender.username);
                         }
                         Err(e) => {
-                            log::error!("removing: {e:#?}");
+                            log::error!("REMOVING {e:#?}");
                             x.remove(&uuid);
                         }
                     };
                 } else {
-                    log::debug!("event channel not yet authorized");
+                    log::debug!("{uuid} NOT YET AUTHORIZED");
                 }
             }
         }

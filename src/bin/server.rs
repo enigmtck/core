@@ -6,14 +6,14 @@ use std::collections::HashMap;
 use enigmatick::{
     activity_pub::{
         retriever::{self, get_note, get_remote_webfinger},
-        ApActivity, ApActivityType, ApActor, ApBaseObjectSuper, ApCollection, ApNote, ApNoteType,
+        ActivityPub, ApActivity, ApActivityType, ApActor, ApCollection, ApNote, ApNoteType,
         ApObject, ApSession, FollowersPage, IdentifiedVaultItems, LeadersPage,
     },
     admin::{self, verify_and_generate_password, NewUser},
     api::{instance::InstanceInformation, processing_queue},
     db::{
-        get_followers_by_profile_id, get_leaders_by_profile_id, update_avatar_by_username,
-        update_banner_by_username, update_password_by_username, update_summary_by_username, Db,
+        get_leaders_by_profile_id, update_avatar_by_username, update_banner_by_username,
+        update_password_by_username, update_summary_by_username, Db,
     },
     fairings::{events::EventChannels, faktory::FaktoryConnection, signatures::Signed},
     helper::{get_local_username_from_ap_id, is_local},
@@ -23,6 +23,7 @@ use enigmatick::{
             get_encrypted_session_by_profile_id_and_ap_to, get_encrypted_sessions_by_profile_id,
             EncryptedSession,
         },
+        followers::get_followers_by_profile_id,
         notes::get_note_by_uuid,
         olm_one_time_keys::create_olm_one_time_key,
         olm_sessions::{
@@ -1053,7 +1054,7 @@ pub async fn outbox_post(
     faktory: FaktoryConnection,
     events: EventChannels,
     username: String,
-    object: Result<Json<ApBaseObjectSuper>, Error<'_>>,
+    object: Result<Json<ActivityPub>, Error<'_>>,
 ) -> Result<Status, Status> {
     log::debug!("POSTING TO OUTBOX\n{object:#?}");
 
@@ -1061,16 +1062,19 @@ pub async fn outbox_post(
         match get_profile_by_username(&conn, username).await {
             Some(profile) => match object {
                 Ok(object) => match object {
-                    Json(ApBaseObjectSuper::Activity(activity)) => match activity.kind {
+                    Json(ActivityPub::Activity(activity)) => match activity.kind {
                         ApActivityType::Undo => {
                             outbox::activity::undo(conn, events, activity, profile).await
                         }
                         ApActivityType::Follow => {
                             outbox::activity::follow(conn, events, activity, profile).await
                         }
+                        ApActivityType::Like => {
+                            outbox::activity::like(conn, faktory, events, activity, profile).await
+                        }
                         _ => Err(Status::NoContent),
                     },
-                    Json(ApBaseObjectSuper::Object(ApObject::Note(note))) => {
+                    Json(ActivityPub::Object(ApObject::Note(note))) => {
                         // EncryptedNotes need to be handled differently, but use the ApNote struct
                         match note.kind {
                             ApNoteType::Note => {
@@ -1083,7 +1087,7 @@ pub async fn outbox_post(
                             _ => Err(Status::NoContent),
                         }
                     }
-                    Json(ApBaseObjectSuper::Object(ApObject::Session(session))) => {
+                    Json(ActivityPub::Object(ApObject::Session(session))) => {
                         outbox::object::session(conn, faktory, session, profile).await
                     }
                     _ => Err(Status::NoContent),
@@ -1114,10 +1118,10 @@ pub async fn inbox_get(
     offset: u16,
     limit: u8,
 ) -> Result<Json<ApObject>, Status> {
-    if let (Some(_profile), Signed(true, VerificationType::Local)) =
+    if let (Some(profile), Signed(true, VerificationType::Local)) =
         (get_profile_by_username(&conn, username).await, signed)
     {
-        let inbox = inbox::retrieve::timeline(&conn, limit.into(), offset.into()).await;
+        let inbox = inbox::retrieve::inbox(&conn, limit.into(), offset.into(), profile).await;
         Ok(Json(inbox))
     } else {
         Err(Status::NoContent)
@@ -1189,6 +1193,7 @@ pub async fn shared_inbox_post(
                     ApActivityType::Update => {
                         inbox::activity::update(conn, faktory, activity).await
                     }
+                    ApActivityType::Like => inbox::activity::like(conn, faktory, activity).await,
                     _ => {
                         log::warn!("UNIMPLEMENTED ACTIVITY\n{activity:#?}");
                         Err(Status::NoContent)
