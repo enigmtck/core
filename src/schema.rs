@@ -284,6 +284,7 @@ diesel::table! {
         attachment -> Nullable<Jsonb>,
         ap_object -> Nullable<Jsonb>,
         announce -> Nullable<Varchar>,
+        metadata -> Nullable<Jsonb>,
     }
 }
 

@@ -5,7 +5,7 @@ use enigmatick::{
     activity_pub::{
         sender::{send_activity, send_follower_accept},
         ApActivity, ApActor, ApInstrument, ApInstrumentType, ApInstruments, ApLike, ApNote,
-        ApObject, ApSession, JoinData,
+        ApObject, ApSession, JoinData, Metadata,
     },
     helper::{get_local_username_from_ap_id, is_local, is_public},
     models::{
@@ -41,6 +41,7 @@ use reqwest::{Client, StatusCode};
 use serde_json::Value;
 use std::{collections::HashSet, io};
 use tokio::runtime::Runtime;
+use webpage::{Webpage, WebpageOptions};
 
 type Pool = r2d2::Pool<ConnectionManager<PgConnection>>;
 pub type DbConnection = r2d2::PooledConnection<ConnectionManager<PgConnection>>;
@@ -922,6 +923,19 @@ fn process_announce(job: Job) -> io::Result<()> {
     Ok(())
 }
 
+fn get_links(text: String) -> Vec<String> {
+    let re = regex::Regex::new(r#"<a href="(.+?)".*?>"#).unwrap();
+
+    re.captures_iter(&text)
+        .filter(|cap| {
+            !cap[0].to_string().contains("mention")
+                && !cap[0].to_string().contains("u-url")
+                && !cap[0].contains("hashtag")
+        })
+        .map(|cap| cap[1].to_string())
+        .collect()
+}
+
 fn process_remote_note(job: Job) -> io::Result<()> {
     use enigmatick::schema::remote_notes::dsl::{ap_id as rn_id, remote_notes};
 
@@ -941,9 +955,21 @@ fn process_remote_note(job: Job) -> io::Result<()> {
                 {
                     Ok(remote_note) => {
                         if remote_note.kind == "Note" {
-                            if let Some(timeline_item) =
-                                create_timeline_item(remote_note.clone().into())
-                            {
+                            let links = get_links(remote_note.content.clone());
+                            log::debug!("{links:#?}");
+
+                            let metadata: Vec<Metadata> = {
+                                links
+                                    .iter()
+                                    .map(|link| Webpage::from_url(link, WebpageOptions::default()))
+                                    .filter(|metadata| metadata.is_ok())
+                                    .map(|metadata| metadata.unwrap().html.meta.into())
+                                    .collect()
+                            };
+
+                            let note: ApNote = (remote_note.clone(), Some(metadata)).into();
+
+                            if let Some(timeline_item) = create_timeline_item(note.into()) {
                                 add_to_timeline(
                                     remote_note.clone().ap_to,
                                     remote_note.clone().cc,

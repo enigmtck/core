@@ -115,6 +115,7 @@ pub async fn get_actor(
     conn: &Db,
     id: String,
     profile: Option<Profile>,
+    update: bool,
 ) -> Option<(RemoteActor, Option<Leader>)> {
     let actor = {
         if let Some(remote_actor) = get_remote_actor_by_ap_id(conn, id.clone()).await {
@@ -140,7 +141,7 @@ pub async fn get_actor(
 
     if let Some(actor) = actor {
         Some(actor)
-    } else {
+    } else if update {
         // let url = id.clone();
         // let body = Option::None;
         // let method = Method::Get;
@@ -204,6 +205,8 @@ pub async fn get_actor(
                 None
             }
         }
+    } else {
+        None
     }
 }
 

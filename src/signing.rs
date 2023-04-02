@@ -136,7 +136,7 @@ pub async fn verify(conn: Db, params: VerifyParams) -> (bool, VerificationType) 
         } else {
             (false, VerificationType::Local)
         }
-    } else if let Some(actor) = retriever::get_actor(&conn, ap_id, Option::None).await {
+    } else if let Some(actor) = retriever::get_actor(&conn, ap_id, Option::None, true).await {
         if let Some(public_key_value) = actor.0.public_key {
             if let Ok(public_key) = serde_json::from_value::<ApPublicKey>(public_key_value) {
                 if let Ok(public_key) =

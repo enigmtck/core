@@ -14,7 +14,7 @@ use crate::{
     },
     MaybeMultiple,
 };
-use chrono::Utc;
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
@@ -29,6 +29,42 @@ pub enum ApNoteType {
 impl fmt::Display for ApNoteType {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         Debug::fmt(self, f)
+    }
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct Metadata {
+    pub twitter_title: Option<String>,
+    pub description: Option<String>,
+    pub og_description: Option<String>,
+    pub og_title: Option<String>,
+    pub og_image: Option<String>,
+    pub og_site_name: Option<String>,
+    pub twitter_image: Option<String>,
+    pub og_url: Option<String>,
+    pub twitter_description: Option<String>,
+    pub published: Option<String>,
+    pub twitter_site: Option<String>,
+    pub og_type: Option<String>,
+}
+
+impl From<HashMap<String, String>> for Metadata {
+    fn from(meta: HashMap<String, String>) -> Self {
+        Metadata {
+            twitter_title: meta.get("twitter:title").cloned(),
+            description: meta.get("description").cloned(),
+            og_description: meta.get("og:description").cloned(),
+            og_title: meta.get("og:title").cloned(),
+            og_image: meta.get("og:image").cloned(),
+            og_site_name: meta.get("og:site_name").cloned(),
+            twitter_image: meta.get("twitter:image").cloned(),
+            og_url: meta.get("og:url").cloned(),
+            twitter_description: meta.get("twitter:description").cloned(),
+            published: meta.get("article:published").cloned(),
+            twitter_site: meta.get("twitter:site").cloned(),
+            og_type: meta.get("og:type").cloned(),
+        }
     }
 }
 
@@ -82,6 +118,10 @@ pub struct ApNote {
     pub ephemeral_liked: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ephemeral_targeted: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ephemeral_timestamp: Option<DateTime<Utc>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ephemeral_metadata: Option<Vec<Metadata>>,
 }
 
 impl ApNote {
@@ -141,6 +181,8 @@ impl Default for ApNote {
             ephemeral_actors: None,
             ephemeral_liked: None,
             ephemeral_targeted: None,
+            ephemeral_timestamp: None,
+            ephemeral_metadata: None,
         }
     }
 }
@@ -243,6 +285,17 @@ impl From<FullyQualifiedTimelineItem> for ApNote {
             ephemeral_actors: actors,
             ephemeral_liked: Some(like.is_some()),
             ephemeral_targeted: Some(cc.is_some()),
+            ephemeral_timestamp: Some(timeline.created_at),
+            ephemeral_metadata: {
+                if let Some(x) = timeline.metadata {
+                    match serde_json::from_value(x) {
+                        Ok(y) => y,
+                        Err(_) => None,
+                    }
+                } else {
+                    None
+                }
+            },
             ..Default::default()
         }
     }
@@ -336,8 +389,16 @@ impl From<Note> for ApNote {
     }
 }
 
+type RemoteNoteAndMetadata = (RemoteNote, Option<Vec<Metadata>>);
+
 impl From<RemoteNote> for ApNote {
-    fn from(remote_note: RemoteNote) -> ApNote {
+    fn from(remote_note: RemoteNote) -> Self {
+        (remote_note, None).into()
+    }
+}
+
+impl From<RemoteNoteAndMetadata> for ApNote {
+    fn from((remote_note, metadata): RemoteNoteAndMetadata) -> ApNote {
         let kind = match remote_note.kind.as_str() {
             "Note" => ApNoteType::Note,
             "EncryptedNote" => ApNoteType::EncryptedNote,
@@ -373,6 +434,7 @@ impl From<RemoteNote> for ApNote {
                 Err(_) => None,
             },
             conversation: remote_note.conversation,
+            ephemeral_metadata: metadata,
             ..Default::default()
         }
     }

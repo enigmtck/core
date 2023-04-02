@@ -34,6 +34,7 @@ orion = "0.17"
 urlencoding = "2.1"
 ammonia = "3.3"
 maplit = "1.0"
+webpage = { version = "1.5", features = ["serde"] }
 
 rocket = { version = "0.5.0-rc.3", features = ["json"] }
 diesel = { version = "1.4.8", features = ["postgres", "chrono", "r2d2", "serde_json"] }

@@ -34,6 +34,7 @@ pub struct NewTimelineItem {
     pub attachment: Option<Value>,
     pub ap_object: Option<Value>,
     pub announce: Option<String>,
+    pub metadata: Option<Value>,
 }
 
 impl From<RemoteNote> for NewTimelineItem {
@@ -58,6 +59,7 @@ impl From<RemoteNote> for NewTimelineItem {
             attachment: note.attachment,
             ap_object: Option::None,
             announce: Option::None,
+            metadata: Option::None,
         }
     }
 }
@@ -84,6 +86,9 @@ impl From<ApNote> for NewTimelineItem {
             attachment: Option::from(serde_json::to_value(&note.attachment).unwrap_or_default()),
             ap_object: Option::None,
             announce: Option::None,
+            metadata: Option::from(
+                serde_json::to_value(&note.ephemeral_metadata).unwrap_or_default(),
+            ),
         }
     }
 }
@@ -116,6 +121,7 @@ impl From<Announce> for NewTimelineItem {
             ),
             ap_object: Option::None,
             announce: Option::from(activity.actor),
+            metadata: Option::None,
         }
     }
 }
@@ -146,6 +152,7 @@ pub struct TimelineItem {
     pub attachment: Option<Value>,
     pub ap_object: Option<Value>,
     pub announce: Option<String>,
+    pub metadata: Option<Value>,
 }
 
 #[derive(Serialize, Deserialize, Insertable, Default, Debug, Clone)]

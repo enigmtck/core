@@ -37,7 +37,7 @@ pub async fn timeline(conn: &Db, limit: i64, offset: i64) -> ApObject {
             }
 
             for ap_id in ap_ids {
-                if let Some((actor, _)) = get_actor(conn, ap_id, None).await {
+                if let Some((actor, _)) = get_actor(conn, ap_id, None, false).await {
                     ap_actors.push(actor.into());
                 }
             }
@@ -69,7 +69,7 @@ pub async fn inbox(conn: &Db, limit: i64, offset: i64, profile: Profile) -> ApOb
             }
 
             for ap_id in ap_ids {
-                if let Some((actor, _)) = get_actor(conn, ap_id, None).await {
+                if let Some((actor, _)) = get_actor(conn, ap_id, None, false).await {
                     ap_actors.push(actor.into());
                 }
             }

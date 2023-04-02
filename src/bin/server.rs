@@ -671,7 +671,7 @@ pub async fn remote_actor_lookup(
                             Err(Status::NoContent)
                         }
                     } else if let Some(actor) =
-                        retriever::get_actor(&conn, ap_id, Some(profile)).await
+                        retriever::get_actor(&conn, ap_id, Some(profile), true).await
                     {
                         Ok(Json(actor.into()))
                     } else {
@@ -1163,7 +1163,7 @@ pub async fn shared_inbox_post(
     if let Signed(true, _) = signed {
         let activity = activity.clone();
 
-        if retriever::get_actor(&conn, activity.actor.clone(), Option::None)
+        if retriever::get_actor(&conn, activity.actor.clone(), Option::None, true)
             .await
             .is_some()
         {

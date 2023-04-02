@@ -8,7 +8,7 @@ pub use types::collection::{
     ApCollection, ApCollectionType, FollowersPage, IdentifiedVaultItems, LeadersPage,
 };
 pub use types::like::{ApLike, ApLikeType};
-pub use types::note::{ApNote, ApNoteType, FullyQualifiedTimelineItem};
+pub use types::note::{ApNote, ApNoteType, FullyQualifiedTimelineItem, Metadata};
 pub use types::object::{
     ActivityPub, ApAttachment, ApAttachmentType, ApBasicContent, ApBasicContentType, ApContext,
     ApEndpoint, ApIdentifier, ApImage, ApImageType, ApObject, ApTag,
