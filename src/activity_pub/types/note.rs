@@ -434,6 +434,7 @@ impl From<RemoteNoteAndMetadata> for ApNote {
                 Err(_) => None,
             },
             conversation: remote_note.conversation,
+            ephemeral_timestamp: Some(remote_note.created_at),
             ephemeral_metadata: metadata,
             ..Default::default()
         }

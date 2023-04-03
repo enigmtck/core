@@ -15,7 +15,9 @@ use enigmatick::{
         get_leaders_by_profile_id, update_avatar_by_username, update_banner_by_username,
         update_password_by_username, update_summary_by_username, Db,
     },
-    fairings::{events::EventChannels, faktory::FaktoryConnection, signatures::Signed},
+    fairings::{
+        events::EventChannels, faktory::FaktoryConnection, mq::MqConnection, signatures::Signed,
+    },
     helper::{get_local_username_from_ap_id, is_local},
     inbox,
     models::{
@@ -1229,6 +1231,7 @@ fn rocket() -> _ {
         .attach(FaktoryConnection::fairing())
         .attach(EventChannels::fairing())
         .attach(Db::fairing())
+        .attach(MqConnection::fairing())
         .mount(
             "/",
             routes![

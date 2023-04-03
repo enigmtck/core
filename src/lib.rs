@@ -46,6 +46,18 @@ lazy_static! {
         dotenv().ok();
         env::var("FAKTORY_URL").expect("FAKTORY_URL must be set")
     };
+    pub static ref AMQP_URL: String = {
+        dotenv().ok();
+        env::var("AMQP_URL").expect("AMQP_URL must be set")
+    };
+    pub static ref AMQP_CONSUMER_TAG: String = {
+        dotenv().ok();
+        env::var("AMQP_CONSUMER_TAG").expect("AMQP_CONSUMER_TAG must be set")
+    };
+    pub static ref AMQP_QUEUE: String = {
+        dotenv().ok();
+        env::var("AMQP_QUEUE").expect("AMQP_QUEUE must be set")
+    };
     pub static ref REGISTRATION_ENABLED: bool = {
         dotenv().ok();
         env::var("REGISTRATION_ENABLED")

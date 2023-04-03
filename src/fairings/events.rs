@@ -137,10 +137,7 @@ impl Fairing for EventChannelsFairing {
 
     async fn on_ignite(&self, rocket: Rocket<Build>) -> fairing::Result {
         log::debug!("igniting EventsChannel");
-
         Ok(rocket.manage({
-            //let queue = VecDeque::<String>::new();
-
             EventChannels {
                 receiving_channels: Arc::new(Mutex::new(HashMap::new())),
                 sending_channels: Arc::new(Mutex::new(HashMap::new())),
