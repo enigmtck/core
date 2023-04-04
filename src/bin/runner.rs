@@ -877,6 +877,12 @@ fn add_to_timeline(ap_to: Option<Value>, cc: Option<Value>, timeline_item: Timel
     };
 }
 
+fn clean_text(text: String) -> String {
+    let mut ammonia = ammonia::Builder::default();
+
+    ammonia.clean(&text).to_string()
+}
+
 fn get_links(text: String) -> Vec<String> {
     let re = regex::Regex::new(r#"<a href="(.+?)".*?>"#).unwrap();
 
@@ -885,6 +891,7 @@ fn get_links(text: String) -> Vec<String> {
             !cap[0].to_string().contains("mention")
                 && !cap[0].to_string().contains("u-url")
                 && !cap[0].contains("hashtag")
+                && !cap[1].to_lowercase().contains(".pdf")
         })
         .map(|cap| cap[1].to_string())
         .collect()
