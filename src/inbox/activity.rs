@@ -90,13 +90,6 @@ pub async fn create(
             let n = NewRemoteNote::from(x.clone());
 
             if let Some(created_note) = create_remote_note(&conn, n).await {
-                log::debug!("CREATED REMOTE NOTE\n{:#?}", created_note);
-                log::debug!("...FROM\n{:#?}", x.clone());
-
-                let note: ApNote = created_note.clone().into();
-                let mut events = events;
-                events.send(serde_json::to_string(&note).unwrap());
-
                 match assign_to_faktory(
                     faktory,
                     String::from("process_remote_note"),
@@ -106,14 +99,10 @@ pub async fn create(
                     Err(_) => Err(Status::NoContent),
                 }
             } else {
-                //log::debug!("create_remote_note failed (probably a duplicate)");
                 Err(Status::NoContent)
             }
         }
-        _ => {
-            log::debug!("doesn't look like a note\n{activity:#?}");
-            Err(Status::NoContent)
-        }
+        _ => Err(Status::NoContent),
     }
 }
 
@@ -126,9 +115,6 @@ pub async fn announce(
     let n = NewRemoteAnnounce::from(activity.clone());
 
     if let Some(created_announce) = create_remote_announce(&conn, n).await {
-        let mut events = events;
-        events.send(serde_json::to_string(&activity).unwrap());
-
         match assign_to_faktory(
             faktory,
             String::from("process_announce"),

@@ -36,6 +36,8 @@ ammonia = "3.3"
 maplit = "1.0"
 lapin = { version = "2.1.1" }
 futures-lite = "^1.7"
+bb8-lapin = "0.5"
+async_once = "0.2"
 webpage = { version = "1.5", features = ["serde"] }
 
 rocket = { version = "0.5.0-rc.3", features = ["json"] }

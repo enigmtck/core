@@ -1,6 +1,8 @@
 #[macro_use]
 extern crate log;
 
+use diesel::prelude::*;
+use diesel::r2d2::ConnectionManager;
 use enigmatick::{
     activity_pub::{
         sender::{send_activity, send_follower_accept},
@@ -32,15 +34,17 @@ use enigmatick::{
     signing::{Method, SignParams},
     MaybeReference,
 };
-
-use diesel::prelude::*;
-use diesel::r2d2::ConnectionManager;
 use faktory::{ConsumerBuilder, Job};
+use lapin::{
+    options::{BasicPublishOptions, QueueDeclareOptions},
+    types::FieldTable,
+    BasicProperties, ConnectionProperties,
+};
 use lazy_static::lazy_static;
 use reqwest::{Client, StatusCode};
 use serde_json::Value;
 use std::{collections::HashSet, io};
-use tokio::runtime::Runtime;
+use tokio::runtime::{Handle, Runtime};
 use webpage::{Webpage, WebpageOptions};
 
 type Pool = r2d2::Pool<ConnectionManager<PgConnection>>;
@@ -572,7 +576,7 @@ pub fn update_note_cc(note: Note) -> Option<Note> {
     }
 }
 
-async fn lookup_remote_note(id: String) -> Option<ApNote> {
+async fn fetch_remote_note(id: String) -> Option<ApNote> {
     log::debug!("PERFORMING REMOTE LOOKUP FOR NOTE: {id}");
 
     let _url = id.clone();
@@ -873,6 +877,49 @@ fn add_to_timeline(ap_to: Option<Value>, cc: Option<Value>, timeline_item: Timel
     };
 }
 
+fn get_links(text: String) -> Vec<String> {
+    let re = regex::Regex::new(r#"<a href="(.+?)".*?>"#).unwrap();
+
+    re.captures_iter(&text)
+        .filter(|cap| {
+            !cap[0].to_string().contains("mention")
+                && !cap[0].to_string().contains("u-url")
+                && !cap[0].contains("hashtag")
+        })
+        .map(|cap| cap[1].to_string())
+        .collect()
+}
+
+async fn send_to_mq(note: ApNote) {
+    let mq = lapin::Connection::connect(&enigmatick::AMQP_URL, ConnectionProperties::default())
+        .await
+        .unwrap();
+    log::debug!("SENDING TO MQ");
+
+    let channel = mq.create_channel().await.unwrap();
+    // let _queue = channel
+    //     .queue_declare(
+    //         "events",
+    //         QueueDeclareOptions::default(),
+    //         FieldTable::default(),
+    //     )
+    //     .await
+    //     .unwrap();
+
+    let _confirm = channel
+        .basic_publish(
+            "",
+            "events",
+            BasicPublishOptions::default(),
+            &serde_json::to_vec(&note).unwrap(),
+            BasicProperties::default(),
+        )
+        .await
+        .unwrap()
+        .await
+        .unwrap();
+}
+
 fn process_announce(job: Job) -> io::Result<()> {
     debug!("running process_announce job");
 
@@ -893,25 +940,39 @@ fn process_announce(job: Job) -> io::Result<()> {
             if activity.kind == "Announce".into() {
                 if let ApObject::Plain(note_id) = activity.clone().object {
                     handle.block_on(async {
-                        let note = lookup_remote_note(note_id).await;
+                        let note = fetch_remote_note(note_id).await;
 
-                        if let Some(remote_note) = note {
+                        if let Some(ap_note) = note {
                             if let Some(timeline_item) =
-                                create_timeline_item((activity, remote_note.clone()).into())
+                                create_timeline_item((activity, ap_note.clone()).into())
                             {
                                 add_to_timeline(
-                                    Option::from(
-                                        serde_json::to_value(remote_note.clone().to).unwrap(),
-                                    ),
+                                    Option::from(serde_json::to_value(ap_note.clone().to).unwrap()),
                                     {
-                                        if let Some(cc) = remote_note.cc {
+                                        if let Some(cc) = ap_note.clone().cc {
                                             Option::from(serde_json::to_value(cc).unwrap())
                                         } else {
                                             Option::None
                                         }
                                     },
-                                    timeline_item,
+                                    timeline_item.clone(),
                                 );
+
+                                let mut ap_note: ApNote = timeline_item.into();
+                                let links = get_links(ap_note.content.clone());
+
+                                let metadata: Vec<Metadata> = {
+                                    links
+                                        .iter()
+                                        .map(|link| {
+                                            Webpage::from_url(link, WebpageOptions::default())
+                                        })
+                                        .filter(|metadata| metadata.is_ok())
+                                        .map(|metadata| metadata.unwrap().html.meta.into())
+                                        .collect()
+                                };
+                                ap_note.ephemeral_metadata = Some(metadata);
+                                send_to_mq(ap_note).await;
                             }
                         }
                     });
@@ -923,23 +984,13 @@ fn process_announce(job: Job) -> io::Result<()> {
     Ok(())
 }
 
-fn get_links(text: String) -> Vec<String> {
-    let re = regex::Regex::new(r#"<a href="(.+?)".*?>"#).unwrap();
-
-    re.captures_iter(&text)
-        .filter(|cap| {
-            !cap[0].to_string().contains("mention")
-                && !cap[0].to_string().contains("u-url")
-                && !cap[0].contains("hashtag")
-        })
-        .map(|cap| cap[1].to_string())
-        .collect()
-}
-
 fn process_remote_note(job: Job) -> io::Result<()> {
     use enigmatick::schema::remote_notes::dsl::{ap_id as rn_id, remote_notes};
 
     debug!("running process_remote_note job");
+
+    let rt = Runtime::new().unwrap();
+    let handle = rt.handle();
 
     let ap_ids = job.args();
 
@@ -969,12 +1020,16 @@ fn process_remote_note(job: Job) -> io::Result<()> {
 
                             let note: ApNote = (remote_note.clone(), Some(metadata)).into();
 
-                            if let Some(timeline_item) = create_timeline_item(note.into()) {
+                            if let Some(timeline_item) = create_timeline_item(note.clone().into()) {
                                 add_to_timeline(
                                     remote_note.clone().ap_to,
                                     remote_note.clone().cc,
                                     timeline_item,
                                 );
+
+                                handle.block_on(async {
+                                    send_to_mq(note.clone()).await;
+                                });
                             }
                         } else if remote_note.kind == "EncryptedNote" {
                             // need to resolve ap_to to a profile_id for the command below
@@ -1196,7 +1251,7 @@ fn retrieve_context(job: Job) -> io::Result<()> {
     for ap_id in job.args() {
         let ap_id = ap_id.as_str().unwrap().to_string();
         handle.block_on(async {
-            if let Some(note) = lookup_remote_note(ap_id.to_string()).await {
+            if let Some(note) = fetch_remote_note(ap_id.to_string()).await {
                 log::debug!("REPLIES\n{:#?}", note.replies);
 
                 if let Some(replies) = note.replies {

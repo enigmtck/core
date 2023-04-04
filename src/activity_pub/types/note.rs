@@ -219,6 +219,12 @@ impl From<IdentifiedVaultItem> for ApNote {
     }
 }
 
+impl From<TimelineItem> for ApNote {
+    fn from(timeline: TimelineItem) -> Self {
+        ApNote::from(((timeline, None, None), None))
+    }
+}
+
 // we're pre-loading the ApActor objects here so that we don't have to make
 // separate calls to retrieve that data at the client; making those extra calls
 // is particularly problematic for unauthenticated retrieval as it would require
