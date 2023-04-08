@@ -8,6 +8,36 @@ use crate::models::remote_actors::RemoteActor;
 use serde::{Deserialize, Serialize};
 use serde_with::serde_as;
 
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(untagged)]
+pub enum ApAddress {
+    Address(String),
+}
+
+impl ApAddress {
+    pub fn is_public(&self) -> bool {
+        let ApAddress::Address(x) = self;
+        x.to_lowercase() == *"https://www.w3.org/ns/activitystreams#public"
+    }
+
+    pub fn get_public() -> Self {
+        ApAddress::Address("https://www.w3.org/ns/activitystreams#Public".to_string())
+    }
+}
+
+impl fmt::Display for ApAddress {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let ApAddress::Address(x) = self;
+        write!(f, "{}", x.clone())
+    }
+}
+
+impl From<String> for ApAddress {
+    fn from(address: String) -> Self {
+        ApAddress::Address(address)
+    }
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct ApPublicKey {
@@ -224,11 +254,11 @@ impl From<RemoteActor> for ApActor {
     }
 }
 
-type RemoteActorAndLeader = (RemoteActor, Option<Leader>);
+type ActorAndLeader = (ApActor, Option<Leader>);
 
-impl From<RemoteActorAndLeader> for ApActor {
-    fn from(actor_and_leader: RemoteActorAndLeader) -> Self {
-        let mut actor: ApActor = actor_and_leader.0.into();
+impl From<ActorAndLeader> for ApActor {
+    fn from(actor_and_leader: ActorAndLeader) -> Self {
+        let mut actor: ApActor = actor_and_leader.0;
 
         actor.ephemeral_following = {
             if let Some(leader) = actor_and_leader.1.clone() {

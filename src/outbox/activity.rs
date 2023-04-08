@@ -1,11 +1,12 @@
 use crate::{
-    activity_pub::{sender, ApActivity, ApIdentifier, ApLike, ApObject},
+    activity_pub::{sender, ApActivity, ApIdentifier, ApObject},
     db::{create_leader, delete_leader, get_leader_by_profile_id_and_ap_id, Db},
     fairings::{
         events::EventChannels,
         faktory::{assign_to_faktory, FaktoryConnection},
     },
     models::{
+        announces::{create_announce, NewAnnounce},
         leaders::NewLeader,
         likes::{create_like, NewLike},
         profiles::Profile,
@@ -130,7 +131,6 @@ pub async fn follow(
 pub async fn like(
     conn: Db,
     faktory: FaktoryConnection,
-    events: EventChannels,
     mut activity: ApActivity,
     profile: Profile,
 ) -> Result<Status, Status> {
@@ -159,6 +159,36 @@ pub async fn like(
         }
     } else {
         log::error!("FAILED TO CONVERT ACTIVITY TO LIKE");
+        Err(Status::NoContent)
+    }
+}
+
+pub async fn announce(
+    conn: Db,
+    faktory: FaktoryConnection,
+    mut activity: ApActivity,
+    profile: Profile,
+) -> Result<Status, Status> {
+    // we ignore whatever was submitted for the actor value and enforce the correct
+    // value here; this will be used in the conversion to an ApAnnounce
+    activity.actor = format!("{}/user/{}", *crate::SERVER_URL, profile.username);
+
+    if let Ok(mut announce) = NewAnnounce::try_from(activity) {
+        announce.link(&conn).await;
+
+        if let Some(announce) = create_announce(&conn, announce).await {
+            log::debug!("ANNOUNCE CREATED: {}", announce.uuid);
+
+            match assign_to_faktory(faktory, String::from("send_announce"), vec![announce.uuid]) {
+                Ok(_) => Ok(Status::Accepted),
+                Err(_) => Err(Status::NoContent),
+            }
+        } else {
+            log::error!("FAILED TO CREATE ANNOUNCE");
+            Err(Status::NoContent)
+        }
+    } else {
+        log::error!("FAILED TO CONVERT ACTIVITY TO ANNOUNCE");
         Err(Status::NoContent)
     }
 }

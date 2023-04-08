@@ -137,21 +137,13 @@ pub async fn verify(conn: Db, params: VerifyParams) -> (bool, VerificationType) 
             (false, VerificationType::Local)
         }
     } else if let Some(actor) = retriever::get_actor(&conn, ap_id, Option::None, true).await {
-        if let Some(public_key_value) = actor.0.public_key {
-            if let Ok(public_key) = serde_json::from_value::<ApPublicKey>(public_key_value) {
-                if let Ok(public_key) =
-                    RsaPublicKey::from_public_key_pem(&public_key.public_key_pem)
-                {
-                    (
-                        verify(public_key, signature_str, verify_string),
-                        VerificationType::Remote,
-                    )
-                } else {
-                    (false, VerificationType::Remote)
-                }
-            } else {
-                (false, VerificationType::Remote)
-            }
+        if let Ok(public_key) =
+            RsaPublicKey::from_public_key_pem(&actor.0.public_key.public_key_pem)
+        {
+            (
+                verify(public_key, signature_str, verify_string),
+                VerificationType::Remote,
+            )
         } else {
             (false, VerificationType::Remote)
         }

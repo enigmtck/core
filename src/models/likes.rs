@@ -1,4 +1,4 @@
-use crate::activity_pub::{ApActivity, ApLike, ApObject};
+use crate::activity_pub::{ApActivity, ApObject};
 use crate::db::Db;
 use crate::schema::likes;
 use crate::MaybeMultiple;
@@ -26,7 +26,7 @@ impl TryFrom<ApActivity> for NewLike {
         if let (ApObject::Plain(object), Some(MaybeMultiple::Single(to))) = (like.object, like.to) {
             Ok(NewLike {
                 object_ap_id: object,
-                ap_to: to,
+                ap_to: to.to_string(),
                 actor: like.actor,
                 uuid: uuid::Uuid::new_v4().to_string(),
                 profile_id: None,

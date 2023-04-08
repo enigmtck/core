@@ -7,10 +7,7 @@ extern crate diesel;
 use dotenvy::dotenv;
 use lazy_static::lazy_static;
 use serde::{Deserialize, Serialize};
-use std::{
-    any::{Any, TypeId},
-    env,
-};
+use std::env;
 
 pub mod activity_pub;
 pub mod admin;
@@ -122,6 +119,15 @@ impl<T: Clone> MaybeMultiple<T> {
                 }
             }
             MaybeMultiple::Single(s) => Some(s.clone()),
+        }
+    }
+
+    pub fn multiple(&self) -> Vec<T> {
+        match self {
+            MaybeMultiple::Multiple(data) => data.clone(),
+            MaybeMultiple::Single(data) => {
+                vec![data.clone()]
+            }
         }
     }
 }

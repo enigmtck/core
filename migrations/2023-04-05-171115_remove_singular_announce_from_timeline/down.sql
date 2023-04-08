@@ -1,0 +1,1 @@
+ALTER TABLE timeline ADD COLUMN announce VARCHAR;

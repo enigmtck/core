@@ -8,6 +8,7 @@ use crate::db::create_remote_note;
 use crate::db::Db;
 use crate::models::leaders::get_leader_by_actor_ap_id_and_profile;
 use crate::models::leaders::Leader;
+use crate::models::profiles::get_profile_by_ap_id;
 use crate::models::profiles::Profile;
 use crate::models::remote_actors::get_remote_actor_by_ap_id;
 use crate::models::remote_actors::{create_or_update_remote_actor, NewRemoteActor, RemoteActor};
@@ -116,23 +117,30 @@ pub async fn get_actor(
     id: String,
     profile: Option<Profile>,
     update: bool,
-) -> Option<(RemoteActor, Option<Leader>)> {
+) -> Option<(ApActor, Option<Leader>)> {
     let actor = {
-        if let Some(remote_actor) = get_remote_actor_by_ap_id(conn, id.clone()).await {
+        if let Some(actor_profile) = get_profile_by_ap_id(conn, id.clone()).await {
+            if let Some(profile) = profile {
+                Some((
+                    actor_profile.into(),
+                    get_leader_by_actor_ap_id_and_profile(conn, id.clone(), profile.id).await,
+                ))
+            } else {
+                Some((actor_profile.into(), None))
+            }
+        } else if let Some(remote_actor) = get_remote_actor_by_ap_id(conn, id.clone()).await {
             let now = Utc::now();
             let updated = remote_actor.updated_at;
 
             if now - updated > Duration::days(7) {
-                log::debug!("ACTOR STALE: {}", remote_actor.ap_id);
-                log::debug!("NOW: {now:#?}, UPDATED: {updated:#?}");
                 None
             } else if let Some(profile) = profile {
                 Some((
-                    remote_actor,
+                    remote_actor.into(),
                     get_leader_by_actor_ap_id_and_profile(conn, id.clone(), profile.id).await,
                 ))
             } else {
-                Some((remote_actor, Option::None))
+                Some((remote_actor.into(), None))
             }
         } else {
             None
@@ -178,7 +186,7 @@ pub async fn get_actor(
                                 create_or_update_remote_actor(conn, NewRemoteActor::from(actor))
                                     .await
                             {
-                                Option::from((remote, Option::None))
+                                Option::from((remote.into(), Option::None))
                             } else {
                                 None
                             }

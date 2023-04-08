@@ -3,7 +3,8 @@ pub mod sender;
 mod types;
 
 pub use types::activity::{ApActivity, ApActivityType};
-pub use types::actor::{ApActor, ApActorType, ApPublicKey};
+pub use types::actor::{ApActor, ApActorType, ApAddress, ApPublicKey};
+pub use types::announce::{ApAnnounce, ApAnnounceType};
 pub use types::collection::{
     ApCollection, ApCollectionType, FollowersPage, IdentifiedVaultItems, LeadersPage,
 };

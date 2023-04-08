@@ -1,6 +1,6 @@
 use crate::fairings::events::EventChannels;
 use futures_lite::stream::StreamExt;
-use lapin::options::{BasicAckOptions, BasicConsumeOptions};
+use lapin::options::{BasicAckOptions, BasicConsumeOptions, QueueDeclareOptions};
 use lapin::types::FieldTable;
 use lapin::{Connection, ConnectionProperties};
 use rocket::fairing::{Fairing, Info, Kind};
@@ -31,6 +31,15 @@ impl Fairing for MqConnectionFairing {
             Connection::connect(&crate::AMQP_URL, ConnectionProperties::default()).await
         {
             if let Ok(channel) = conn.create_channel().await {
+                let _queue = channel
+                    .queue_declare(
+                        "events",
+                        QueueDeclareOptions::default(),
+                        FieldTable::default(),
+                    )
+                    .await
+                    .unwrap();
+
                 if let Ok(mut consumer) = channel
                     .basic_consume(
                         &crate::AMQP_QUEUE,

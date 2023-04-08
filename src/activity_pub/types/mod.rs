@@ -1,5 +1,6 @@
 pub mod activity;
 pub mod actor;
+pub mod announce;
 pub mod collection;
 pub mod follow;
 pub mod like;

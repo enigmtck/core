@@ -6,11 +6,12 @@ use diesel::r2d2::ConnectionManager;
 use enigmatick::{
     activity_pub::{
         sender::{send_activity, send_follower_accept},
-        ApActivity, ApActor, ApInstrument, ApInstrumentType, ApInstruments, ApLike, ApNote,
-        ApObject, ApSession, JoinData, Metadata,
+        ApActivity, ApActor, ApAddress, ApAnnounce, ApInstrument, ApInstrumentType, ApInstruments,
+        ApLike, ApNote, ApObject, ApSession, JoinData, Metadata,
     },
     helper::{get_local_username_from_ap_id, is_local, is_public},
     models::{
+        announces::Announce,
         encrypted_sessions::{EncryptedSession, NewEncryptedSession},
         followers::Follower,
         leaders::Leader,
@@ -30,21 +31,17 @@ use enigmatick::{
             TimelineItemTo,
         },
     },
-    schema::likes,
+    schema::{announces, likes, remote_announces},
     signing::{Method, SignParams},
-    MaybeReference,
+    MaybeMultiple, MaybeReference,
 };
 use faktory::{ConsumerBuilder, Job};
-use lapin::{
-    options::{BasicPublishOptions, QueueDeclareOptions},
-    types::FieldTable,
-    BasicProperties, ConnectionProperties,
-};
+use lapin::{options::BasicPublishOptions, BasicProperties, ConnectionProperties};
 use lazy_static::lazy_static;
 use reqwest::{Client, StatusCode};
 use serde_json::Value;
 use std::{collections::HashSet, io};
-use tokio::runtime::{Handle, Runtime};
+use tokio::runtime::Runtime;
 use webpage::{Webpage, WebpageOptions};
 
 type Pool = r2d2::Pool<ConnectionManager<PgConnection>>;
@@ -236,6 +233,20 @@ pub fn get_encrypted_session_by_uuid(uuid: String) -> Option<EncryptedSession> {
         }
     } else {
         Option::None
+    }
+}
+
+pub fn get_announce_by_uuid(uuid: String) -> Option<Announce> {
+    if let Ok(conn) = POOL.get() {
+        match announces::table
+            .filter(announces::uuid.eq(uuid))
+            .first::<Announce>(&conn)
+        {
+            Ok(x) => Option::from(x),
+            Err(_) => Option::None,
+        }
+    } else {
+        None
     }
 }
 
@@ -438,6 +449,19 @@ pub async fn get_actor(profile: Profile, id: String) -> Option<(RemoteActor, Opt
     }
 }
 
+pub fn get_timeline_item_by_ap_id(ap_id: String) -> Option<TimelineItem> {
+    use enigmatick::schema::timeline::dsl::{ap_id as a, timeline};
+
+    if let Ok(conn) = POOL.get() {
+        match timeline.filter(a.eq(ap_id)).first::<TimelineItem>(&conn) {
+            Ok(x) => Option::from(x),
+            Err(_) => Option::None,
+        }
+    } else {
+        Option::None
+    }
+}
+
 pub fn get_remote_announce_by_ap_id(ap_id: String) -> Option<RemoteAnnounce> {
     use enigmatick::schema::remote_announces::dsl::{ap_id as a, remote_announces};
 
@@ -451,6 +475,23 @@ pub fn get_remote_announce_by_ap_id(ap_id: String) -> Option<RemoteAnnounce> {
         }
     } else {
         Option::None
+    }
+}
+
+pub fn link_remote_announces_to_timeline(timeline_ap_id: String) {
+    if let Some(timeline) = get_timeline_item_by_ap_id(timeline_ap_id) {
+        let timeline_ap_id = serde_json::to_value(timeline.ap_id).unwrap();
+
+        if let Ok(conn) = POOL.get() {
+            if let Ok(x) = diesel::update(
+                remote_announces::table.filter(remote_announces::ap_object.eq(timeline_ap_id)),
+            )
+            .set(remote_announces::timeline_id.eq(timeline.id))
+            .execute(&conn)
+            {
+                log::debug!("{x} ANNOUNCE ROWS UPDATED");
+            }
+        }
     }
 }
 
@@ -665,63 +706,50 @@ fn send_kexinit(job: Job) -> io::Result<()> {
     Ok(())
 }
 
+// ChatGPT generated some of this function; it looks good from a cursory
+// overview but the original is below for reference.
 fn provide_one_time_key(job: Job) -> io::Result<()> {
     log::debug!("RUNNING provide_one_time_key JOB");
-
-    // look up remote_encrypted_session with ap_id from job.args()
-
-    let rt = Runtime::new().unwrap();
-    let handle = rt.handle();
 
     for ap_id in job.args() {
         let ap_id = ap_id.as_str().unwrap().to_string();
 
         if let Some(session) = get_remote_encrypted_session_by_ap_id(ap_id) {
-            // this is the username of the Enigmatick user who received the Invite
-            log::debug!("SESSION\n{session:#?}");
-            if let Some(username) = get_local_username_from_ap_id(session.ap_to.clone()) {
-                log::debug!("USERNAME: {username}");
+            if let (Some(username), Some(actor)) = (
+                get_local_username_from_ap_id(session.ap_to.clone()),
+                get_remote_actor_by_ap_id(session.attributed_to.clone()),
+            ) {
                 if let Some(profile) = get_profile_by_username(username.clone()) {
-                    log::debug!("PROFILE\n{profile:#?}");
-                    if let Some(actor) = get_remote_actor_by_ap_id(session.attributed_to.clone()) {
-                        log::debug!("ACTOR\n{actor:#?}");
-                        // send Join activity with Identity and OTK to attributed_to
+                    if let (Some(identity_key), Some(otk)) = (
+                        profile.olm_identity_key.clone(),
+                        get_one_time_key(profile.id),
+                    ) {
+                        let session = ApSession::from(JoinData {
+                            one_time_key: otk.key_data,
+                            identity_key,
+                            to: session.attributed_to,
+                            attributed_to: session.ap_to,
+                            reference: session.ap_id,
+                        });
 
-                        if let Some(identity_key) = profile.olm_identity_key.clone() {
-                            log::debug!("IDENTITY KEY: {identity_key}");
-                            if let Some(otk) = get_one_time_key(profile.id) {
-                                log::debug!("IDK\n{identity_key:#?}");
-                                log::debug!("OTK\n{otk:#?}");
+                        let activity = ApActivity::from(session.clone());
+                        let encrypted_session: NewEncryptedSession =
+                            (session.clone(), profile.id).into();
 
-                                let session = ApSession::from(JoinData {
-                                    one_time_key: otk.key_data,
-                                    identity_key,
-                                    to: session.attributed_to,
-                                    attributed_to: session.ap_to,
-                                    reference: session.ap_id,
-                                });
-
-                                let activity = ApActivity::from(session.clone());
-                                let encrypted_session: NewEncryptedSession =
-                                    (session.clone(), profile.id).into();
-
-                                // this activity should be saved so that the id makes sense
-                                // but it's not right now
-                                log::debug!("JOIN ACTIVITY\n{activity:#?}");
-
-                                if create_encrypted_session(encrypted_session).is_some() {
-                                    handle.block_on(async {
-                                        match send_activity(activity, profile, actor.inbox).await {
-                                            Ok(_) => {
-                                                info!("JOIN SENT");
-                                            }
-                                            Err(e) => error!("ERROR SENDING JOIN: {e:#?}"),
-                                        }
-                                    });
-                                } else {
-                                    log::error!("FAILED TO SAVE ENCRYPTED SESSION");
+                        if create_encrypted_session(encrypted_session).is_some() {
+                            let rt = Runtime::new().unwrap();
+                            tokio::task::block_in_place(|| {
+                                match rt.block_on(async {
+                                    send_activity(activity, profile, actor.inbox).await
+                                }) {
+                                    Ok(_) => {
+                                        info!("JOIN SENT");
+                                    }
+                                    Err(e) => error!("ERROR SENDING JOIN: {e:#?}",),
                                 }
-                            }
+                            });
+                        } else {
+                            log::error!("FAILED TO SAVE ENCRYPTED SESSION");
                         }
                     }
                 }
@@ -731,6 +759,73 @@ fn provide_one_time_key(job: Job) -> io::Result<()> {
 
     Ok(())
 }
+
+// fn provide_one_time_key(job: Job) -> io::Result<()> {
+//     log::debug!("RUNNING provide_one_time_key JOB");
+
+//     // look up remote_encrypted_session with ap_id from job.args()
+
+//     let rt = Runtime::new().unwrap();
+//     let handle = rt.handle();
+
+//     for ap_id in job.args() {
+//         let ap_id = ap_id.as_str().unwrap().to_string();
+
+//         if let Some(session) = get_remote_encrypted_session_by_ap_id(ap_id) {
+//             // this is the username of the Enigmatick user who received the Invite
+//             log::debug!("SESSION\n{session:#?}");
+//             if let Some(username) = get_local_username_from_ap_id(session.ap_to.clone()) {
+//                 log::debug!("USERNAME: {username}");
+//                 if let Some(profile) = get_profile_by_username(username.clone()) {
+//                     log::debug!("PROFILE\n{profile:#?}");
+//                     if let Some(actor) = get_remote_actor_by_ap_id(session.attributed_to.clone()) {
+//                         log::debug!("ACTOR\n{actor:#?}");
+//                         // send Join activity with Identity and OTK to attributed_to
+
+//                         if let Some(identity_key) = profile.olm_identity_key.clone() {
+//                             log::debug!("IDENTITY KEY: {identity_key}");
+//                             if let Some(otk) = get_one_time_key(profile.id) {
+//                                 log::debug!("IDK\n{identity_key:#?}");
+//                                 log::debug!("OTK\n{otk:#?}");
+
+//                                 let session = ApSession::from(JoinData {
+//                                     one_time_key: otk.key_data,
+//                                     identity_key,
+//                                     to: session.attributed_to,
+//                                     attributed_to: session.ap_to,
+//                                     reference: session.ap_id,
+//                                 });
+
+//                                 let activity = ApActivity::from(session.clone());
+//                                 let encrypted_session: NewEncryptedSession =
+//                                     (session.clone(), profile.id).into();
+
+//                                 // this activity should be saved so that the id makes sense
+//                                 // but it's not right now
+//                                 log::debug!("JOIN ACTIVITY\n{activity:#?}");
+
+//                                 if create_encrypted_session(encrypted_session).is_some() {
+//                                     handle.block_on(async {
+//                                         match send_activity(activity, profile, actor.inbox).await {
+//                                             Ok(_) => {
+//                                                 info!("JOIN SENT");
+//                                             }
+//                                             Err(e) => error!("ERROR SENDING JOIN: {e:#?}"),
+//                                         }
+//                                     });
+//                                 } else {
+//                                     log::error!("FAILED TO SAVE ENCRYPTED SESSION");
+//                                 }
+//                             }
+//                         }
+//                     }
+//                 }
+//             }
+//         }
+//     }
+
+//     Ok(())
+// }
 
 fn process_join(job: Job) -> io::Result<()> {
     let ap_ids = job.args();
@@ -878,7 +973,7 @@ fn add_to_timeline(ap_to: Option<Value>, cc: Option<Value>, timeline_item: Timel
 }
 
 fn clean_text(text: String) -> String {
-    let mut ammonia = ammonia::Builder::default();
+    let ammonia = ammonia::Builder::default();
 
     ammonia.clean(&text).to_string()
 }
@@ -946,43 +1041,51 @@ fn process_announce(job: Job) -> io::Result<()> {
 
             if activity.kind == "Announce".into() {
                 if let ApObject::Plain(note_id) = activity.clone().object {
-                    handle.block_on(async {
-                        let note = fetch_remote_note(note_id).await;
+                    if get_timeline_item_by_ap_id(note_id.clone()).is_none() {
+                        handle.block_on(async {
+                            let note = fetch_remote_note(note_id.clone()).await;
 
-                        if let Some(ap_note) = note {
-                            if let Some(timeline_item) =
-                                create_timeline_item((activity, ap_note.clone()).into())
-                            {
-                                add_to_timeline(
-                                    Option::from(serde_json::to_value(ap_note.clone().to).unwrap()),
-                                    {
-                                        if let Some(cc) = ap_note.clone().cc {
-                                            Option::from(serde_json::to_value(cc).unwrap())
-                                        } else {
-                                            Option::None
-                                        }
-                                    },
-                                    timeline_item.clone(),
-                                );
+                            if let Some(ap_note) = note {
+                                if let Some(timeline_item) =
+                                    create_timeline_item((activity, ap_note.clone()).into())
+                                {
+                                    add_to_timeline(
+                                        Option::from(
+                                            serde_json::to_value(ap_note.clone().to).unwrap(),
+                                        ),
+                                        {
+                                            if let Some(cc) = ap_note.clone().cc {
+                                                Option::from(serde_json::to_value(cc).unwrap())
+                                            } else {
+                                                Option::None
+                                            }
+                                        },
+                                        timeline_item.clone(),
+                                    );
 
-                                let mut ap_note: ApNote = timeline_item.into();
-                                let links = get_links(ap_note.content.clone());
+                                    let mut ap_note: ApNote = timeline_item.into();
+                                    let links = get_links(ap_note.content.clone());
 
-                                let metadata: Vec<Metadata> = {
-                                    links
-                                        .iter()
-                                        .map(|link| {
-                                            Webpage::from_url(link, WebpageOptions::default())
-                                        })
-                                        .filter(|metadata| metadata.is_ok())
-                                        .map(|metadata| metadata.unwrap().html.meta.into())
-                                        .collect()
-                                };
-                                ap_note.ephemeral_metadata = Some(metadata);
-                                send_to_mq(ap_note).await;
+                                    let metadata: Vec<Metadata> = {
+                                        links
+                                            .iter()
+                                            .map(|link| {
+                                                Webpage::from_url(link, WebpageOptions::default())
+                                            })
+                                            .filter(|metadata| metadata.is_ok())
+                                            .map(|metadata| metadata.unwrap().html.meta.into())
+                                            .collect()
+                                    };
+                                    ap_note.ephemeral_metadata = Some(metadata);
+                                    send_to_mq(ap_note).await;
+                                }
                             }
-                        }
-                    });
+                        });
+                    }
+
+                    // TODO: also update the updated_at time on timeline and surface that in the
+                    // client to bring bump it in the view
+                    link_remote_announces_to_timeline(note_id);
                 }
             }
         }
@@ -1417,6 +1520,132 @@ fn send_like(job: Job) -> io::Result<()> {
     Ok(())
 }
 
+fn send_announce(job: Job) -> io::Result<()> {
+    debug!("SENDING ANNOUNCE");
+
+    let rt = Runtime::new().unwrap();
+    let handle = rt.handle();
+
+    for uuid in job.args() {
+        if let Some(mut announce) = get_announce_by_uuid(uuid.as_str().unwrap().to_string()) {
+            if let Some(profile_id) = announce.profile_id {
+                if let Some(sender) = get_profile(profile_id) {
+                    if let Ok(ap_to) =
+                        serde_json::from_value::<MaybeMultiple<ApAddress>>(announce.ap_to.clone())
+                    {
+                        if let Some(address) = ap_to.single() {
+                            if address.is_public() {
+                                let mut inboxes = get_follower_inboxes(sender.clone());
+
+                                // we assume coming in to this that we only have one address in the
+                                // cc field, belonging to the original sender of the announced post;
+                                // before inserting the followers url in to the cc vec, we grab that
+                                // single sender address to add to the inboxes set for direct delivey.
+                                // this is ugly, but it saves us from having to figure out if the
+                                // addresses in that vec are really addresses or weird "followers" URLs.
+                                // will probably need to rethink this later
+
+                                let actor: ApActor = sender.clone().into();
+
+                                if let (Some(followers), Some(cc)) =
+                                    (actor.followers, announce.cc.clone())
+                                {
+                                    if let Ok(cc) =
+                                        serde_json::from_value::<MaybeMultiple<ApAddress>>(cc)
+                                    {
+                                        announce.cc = match cc {
+                                            MaybeMultiple::Multiple(mut cc) => {
+                                                handle.block_on(async {
+                                                    let original_sender = get_actor(
+                                                        sender.clone(),
+                                                        cc[0].to_string(),
+                                                    )
+                                                    .await;
+
+                                                    if let Some((original_sender, _leader)) =
+                                                        original_sender
+                                                    {
+                                                        inboxes.insert(original_sender.inbox);
+                                                    }
+                                                });
+
+                                                cc.push(ApAddress::Address(followers));
+                                                Some(
+                                                    serde_json::to_value(MaybeMultiple::Multiple(
+                                                        cc,
+                                                    ))
+                                                    .unwrap(),
+                                                )
+                                            }
+                                            MaybeMultiple::Single(cc) => {
+                                                handle.block_on(async {
+                                                    let original_sender =
+                                                        get_actor(sender.clone(), cc.to_string())
+                                                            .await;
+
+                                                    if let Some((original_sender, _leader)) =
+                                                        original_sender
+                                                    {
+                                                        inboxes.insert(original_sender.inbox);
+                                                    }
+                                                });
+                                                Some(
+                                                    serde_json::to_value(MaybeMultiple::Multiple(
+                                                        vec![cc, ApAddress::Address(followers)],
+                                                    ))
+                                                    .unwrap(),
+                                                )
+                                            }
+                                        };
+                                    }
+                                }
+
+                                let ap_announce = ApAnnounce::from(announce.clone());
+
+                                log::debug!("SENDING ANNOUNCE\n{ap_announce:#?}");
+
+                                for url in inboxes {
+                                    let body =
+                                        Option::from(serde_json::to_string(&ap_announce).unwrap());
+                                    let method = Method::Post;
+
+                                    let signature = enigmatick::signing::sign(SignParams {
+                                        profile: sender.clone(),
+                                        url: url.clone(),
+                                        body: body.clone(),
+                                        method,
+                                    });
+
+                                    let client = Client::new()
+                                        .post(url.clone())
+                                        .header("Date", signature.date)
+                                        .header("Digest", signature.digest.unwrap())
+                                        .header("Signature", &signature.signature)
+                                        .header(
+                                            "Content-Type",
+                                            "application/ld+json; profile=\"http://www.w3.org/ns/activitystreams\"",
+                                        )
+                                        .body(body.unwrap());
+
+                                    handle.block_on(async {
+                                        if let Ok(resp) = client.send().await {
+                                            if let Ok(text) = resp.text().await {
+                                                debug!("SEND SUCCESSFUL: {url}\n{text}");
+                                            }
+                                        }
+                                    })
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(())
+}
+
 fn main() {
     env_logger::init();
 
@@ -1435,6 +1664,7 @@ fn main() {
     consumer.register("update_timeline_record", update_timeline_record);
     consumer.register("retrieve_context", retrieve_context);
     consumer.register("send_like", send_like);
+    consumer.register("send_announce", send_announce);
 
     consumer.register("test_job", |job| {
         debug!("{:#?}", job);

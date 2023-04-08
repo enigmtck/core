@@ -1,3 +1,5 @@
+use std::collections::{hash_map::Entry, HashMap};
+
 use rocket::futures::future::join_all;
 
 use crate::{
@@ -11,7 +13,7 @@ use crate::{
         profiles::Profile,
         timeline::{
             get_authenticated_timeline_items, get_public_timeline_items,
-            get_timeline_items_by_conversation,
+            get_timeline_items_by_conversation, AuthenticatedTimelineItem, TimelineItem,
         },
     },
 };
@@ -19,67 +21,119 @@ use crate::{
 pub async fn timeline(conn: &Db, limit: i64, offset: i64) -> ApObject {
     let timeline = get_public_timeline_items(conn, limit, offset).await;
 
-    ApObject::Collection(ApCollection::from(
-        join_all(timeline.iter().map(|x| async {
-            let mut ap_ids = vec![x.clone().attributed_to];
-            let mut ap_actors: Vec<ApActor> = vec![];
+    let items = timeline
+        .iter()
+        .map(|(timeline, announce, like)| {
+            (
+                timeline.clone(),
+                None,
+                None,
+                None,
+                announce.clone(),
+                like.clone(),
+            )
+        })
+        .collect();
 
-            if let Some(tags) = x.clone().tag {
-                if let Ok(tags) = serde_json::from_value::<Vec<ApTag>>(tags) {
-                    for tag in tags {
-                        if let ApTag::Mention(tag) = tag {
-                            if let Some(href) = tag.href {
-                                ap_ids.push(href)
-                            }
-                        }
-                    }
-                }
-            }
-
-            for ap_id in ap_ids {
-                if let Some((actor, _)) = get_actor(conn, ap_id, None, false).await {
-                    ap_actors.push(actor.into());
-                }
-            }
-
-            ApObject::Note(ApNote::from((x.clone(), Some(ap_actors))))
-        }))
-        .await,
-    ))
+    process(conn, items).await
 }
 
 pub async fn inbox(conn: &Db, limit: i64, offset: i64, profile: Profile) -> ApObject {
-    let timeline = get_authenticated_timeline_items(conn, limit, offset, profile).await;
+    // the timeline vec will include duplicates due to the table joins
+    process(
+        conn,
+        get_authenticated_timeline_items(conn, limit, offset, profile).await,
+    )
+    .await
+}
 
+async fn process(conn: &Db, timeline: Vec<AuthenticatedTimelineItem>) -> ApObject {
+    let notes = process_notes(conn, &timeline).await;
+    let consolidated_notes = consolidate_notes(notes);
     ApObject::Collection(ApCollection::from(
-        join_all(timeline.iter().map(|(x, l, c)| async {
-            let mut ap_ids = vec![x.clone().attributed_to];
-            let mut ap_actors: Vec<ApActor> = vec![];
+        consolidated_notes
+            .values()
+            .map(|note| ApObject::Note(note.clone()))
+            .collect::<Vec<ApObject>>(),
+    ))
+}
 
-            if let Some(tags) = x.clone().tag {
-                if let Ok(tags) = serde_json::from_value::<Vec<ApTag>>(tags) {
-                    for tag in tags {
-                        if let ApTag::Mention(tag) = tag {
-                            if let Some(href) = tag.href {
-                                ap_ids.push(href)
-                            }
-                        }
+async fn process_notes(conn: &Db, timeline_items: &[AuthenticatedTimelineItem]) -> Vec<ApNote> {
+    join_all(timeline_items.iter().map(
+        |(timeline_item, like, announce, cc, remote_announce, remote_like)| async move {
+            let ap_ids = gather_ap_ids(timeline_item);
+            let ap_actors = get_ap_actors(conn, ap_ids).await;
+            let fully_qualified_timeline_item: FullyQualifiedTimelineItem = (
+                (
+                    timeline_item.clone(),
+                    like.clone(),
+                    announce.clone(),
+                    cc.clone(),
+                    remote_announce.clone(),
+                    remote_like.clone(),
+                ),
+                Some(ap_actors),
+            );
+            fully_qualified_timeline_item.into()
+        },
+    ))
+    .await
+}
+
+fn gather_ap_ids(x: &TimelineItem) -> Vec<String> {
+    let mut ap_ids = vec![x.clone().attributed_to];
+    if let Some(tags) = x.clone().tag {
+        if let Ok(tags) = serde_json::from_value::<Vec<ApTag>>(tags) {
+            for tag in tags {
+                if let ApTag::Mention(tag) = tag {
+                    if let Some(href) = tag.href {
+                        ap_ids.push(href)
                     }
                 }
             }
+        }
+    }
+    ap_ids
+}
 
-            for ap_id in ap_ids {
-                if let Some((actor, _)) = get_actor(conn, ap_id, None, false).await {
-                    ap_actors.push(actor.into());
+async fn get_ap_actors(conn: &Db, ap_ids: Vec<String>) -> Vec<ApActor> {
+    let mut ap_actors: Vec<ApActor> = vec![];
+    for ap_id in ap_ids {
+        if let Some((actor, _)) = get_actor(conn, ap_id.clone(), None, false).await {
+            ap_actors.push(actor);
+        }
+    }
+    ap_actors
+}
+
+fn consolidate_notes(notes: Vec<ApNote>) -> HashMap<String, ApNote> {
+    let mut consolidated_notes: HashMap<String, ApNote> = HashMap::new();
+    for note in notes {
+        if let Some(id) = note.id.clone() {
+            match consolidated_notes.entry(id) {
+                Entry::Occupied(mut entry) => {
+                    let consolidated = entry.get_mut();
+
+                    if let (Some(existing), Some(announces)) = (
+                        consolidated.ephemeral_announces.as_mut(),
+                        note.ephemeral_announces,
+                    ) {
+                        existing.extend(announces);
+                    }
+
+                    if let (Some(existing), Some(likes)) =
+                        (consolidated.ephemeral_likes.as_mut(), note.ephemeral_likes)
+                    {
+                        existing.extend(likes);
+                    }
+                }
+                Entry::Vacant(entry) => {
+                    entry.insert(note);
                 }
             }
-
-            let param: FullyQualifiedTimelineItem =
-                ((x.clone(), l.clone(), c.clone()), Some(ap_actors));
-            ApObject::Note(param.into())
-        }))
-        .await,
-    ))
+        }
+    }
+    consolidated_notes
 }
 
 pub async fn conversation(

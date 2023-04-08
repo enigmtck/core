@@ -1,4 +1,4 @@
-use crate::activity_pub::ApActivity;
+use crate::activity_pub::{ApActivity, ApObject};
 use crate::db::Db;
 use crate::schema::remote_announces;
 use chrono::{DateTime, Utc};
@@ -7,7 +7,9 @@ use diesel::{AsChangeset, Identifiable, Insertable, Queryable};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-#[derive(Serialize, Deserialize, Insertable, Default, Debug)]
+use super::timeline::get_timeline_item_by_ap_id;
+
+#[derive(Serialize, Deserialize, Insertable, Default, Debug, Clone)]
 #[table_name = "remote_announces"]
 pub struct NewRemoteAnnounce {
     pub context: Option<String>,
@@ -18,6 +20,25 @@ pub struct NewRemoteAnnounce {
     pub cc: Option<Value>,
     pub published: String,
     pub ap_object: Value,
+    pub timeline_id: Option<i32>,
+}
+
+impl NewRemoteAnnounce {
+    pub async fn link(&mut self, conn: &Db) -> Self {
+        self.timeline_id = {
+            if let Ok(ApObject::Plain(id)) = serde_json::from_value(self.ap_object.clone()) {
+                if let Some(timeline) = get_timeline_item_by_ap_id(conn, id).await {
+                    Some(timeline.id)
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        };
+
+        self.clone()
+    }
 }
 
 #[derive(Identifiable, Queryable, AsChangeset, Serialize, Deserialize, Clone, Default, Debug)]
@@ -50,6 +71,7 @@ impl From<ApActivity> for NewRemoteAnnounce {
             cc: Option::from(serde_json::to_value(activity.cc.unwrap()).unwrap()),
             published: activity.published.unwrap(),
             ap_object: serde_json::to_value(&activity.object).unwrap(),
+            timeline_id: None,
         }
     }
 }

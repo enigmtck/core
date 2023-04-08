@@ -1,5 +1,5 @@
 use crate::{
-    activity_pub::{ApActivity, ApActivityType, ApNote, ApObject},
+    activity_pub::{ApActivity, ApObject},
     db::{create_remote_encrypted_session, create_remote_note, update_leader_by_uuid, Db},
     fairings::{
         events::EventChannels,
@@ -8,7 +8,6 @@ use crate::{
     models::{
         followers::{create_follower, delete_follower_by_ap_id, NewFollower},
         profiles::get_profile_by_ap_id,
-        remote_activities::get_remote_activity_by_ap_id,
         remote_actors::{create_or_update_remote_actor, delete_remote_actor_by_ap_id},
         remote_announces::{create_remote_announce, NewRemoteAnnounce},
         remote_likes::{create_remote_like, delete_remote_like_by_actor_and_object_id},
@@ -112,7 +111,9 @@ pub async fn announce(
     events: EventChannels,
     activity: ApActivity,
 ) -> Result<Status, Status> {
-    let n = NewRemoteAnnounce::from(activity.clone());
+    // this .link won't work if we don't already have the message; we'll need to
+    // address that at Faktory
+    let n = NewRemoteAnnounce::from(activity.clone()).link(&conn).await;
 
     if let Some(created_announce) = create_remote_announce(&conn, n).await {
         match assign_to_faktory(
@@ -139,7 +140,11 @@ pub async fn follow(
         if let ApObject::Plain(to) = activity.clone().object {
             Some(to)
         } else if let Some(to) = activity.clone().to {
-            to.single()
+            if let Some(single) = to.single() {
+                Some(single.to_string())
+            } else {
+                None
+            }
         } else {
             None
         }
@@ -264,7 +269,11 @@ pub async fn invite(
         if let ApObject::Plain(to) = activity.clone().object {
             Some(to)
         } else if let Some(to) = activity.clone().to {
-            to.single()
+            if let Some(single) = to.single() {
+                Some(single.to_string())
+            } else {
+                None
+            }
         } else {
             None
         }
@@ -308,7 +317,11 @@ pub async fn join(
         if let ApObject::Plain(to) = activity.clone().object {
             Some(to)
         } else if let Some(to) = activity.clone().to {
-            to.single()
+            if let Some(single) = to.single() {
+                Some(single.to_string())
+            } else {
+                None
+            }
         } else {
             None
         }

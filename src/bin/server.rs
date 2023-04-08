@@ -1072,7 +1072,10 @@ pub async fn outbox_post(
                             outbox::activity::follow(conn, events, activity, profile).await
                         }
                         ApActivityType::Like => {
-                            outbox::activity::like(conn, faktory, events, activity, profile).await
+                            outbox::activity::like(conn, faktory, activity, profile).await
+                        }
+                        ApActivityType::Announce => {
+                            outbox::activity::announce(conn, faktory, activity, profile).await
                         }
                         _ => Err(Status::NoContent),
                     },

@@ -5,9 +5,12 @@ use crate::{
     activity_pub::{ApActor, ApAttachment, ApCollection, ApContext, ApInstruments, ApTag},
     helper::get_ap_id_from_username,
     models::{
+        announces::Announce,
         likes::Like,
         notes::{NewNote, Note},
         profiles::Profile,
+        remote_announces::RemoteAnnounce,
+        remote_likes::RemoteLike,
         remote_notes::RemoteNote,
         timeline::{TimelineItem, TimelineItemCc},
         vault::VaultItem,
@@ -16,6 +19,8 @@ use crate::{
 };
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+
+use super::actor::ApAddress;
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub enum ApNoteType {
@@ -80,7 +85,7 @@ pub struct ApNote {
     #[serde(rename = "type")]
     pub kind: ApNoteType,
     //pub to: Vec<String>,
-    pub to: MaybeMultiple<String>,
+    pub to: MaybeMultiple<ApAddress>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub url: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -111,24 +116,28 @@ pub struct ApNote {
 
     // These are ephemeral attributes to facilitate client operations
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub ephemeral_announce: Option<String>,
+    pub ephemeral_announces: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ephemeral_actors: Option<Vec<ApActor>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ephemeral_liked: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ephemeral_announced: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ephemeral_targeted: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ephemeral_timestamp: Option<DateTime<Utc>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ephemeral_metadata: Option<Vec<Metadata>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ephemeral_likes: Option<Vec<String>>,
 }
 
 impl ApNote {
     pub fn to(mut self, to: String) -> Self {
         if let MaybeMultiple::Multiple(v) = self.to {
             let mut t = v;
-            t.push(to);
+            t.push(ApAddress::Address(to));
             self.to = MaybeMultiple::Multiple(t);
         }
         self
@@ -142,15 +151,6 @@ impl ApNote {
     pub fn tag(mut self, tag: ApTag) -> Self {
         self.tag.as_mut().expect("unwrap failed").push(tag);
         self
-    }
-
-    pub fn is_public(&self) -> bool {
-        match self.to.clone() {
-            MaybeMultiple::Multiple(n) => {
-                n.contains(&"https://www.w3.org/ns/activitystreams#Public".to_string())
-            }
-            MaybeMultiple::Single(n) => n == *"https://www.w3.org/ns/activitystreams#Public",
-        }
     }
 }
 
@@ -177,12 +177,14 @@ impl Default for ApNote {
             conversation: None,
             content_map: None,
             instrument: None,
-            ephemeral_announce: None,
+            ephemeral_announces: None,
             ephemeral_actors: None,
             ephemeral_liked: None,
+            ephemeral_announced: None,
             ephemeral_targeted: None,
             ephemeral_timestamp: None,
             ephemeral_metadata: None,
+            ephemeral_likes: None,
         }
     }
 }
@@ -202,9 +204,11 @@ impl From<IdentifiedVaultItem> for ApNote {
             },
             to: {
                 if vault.outbound {
-                    MaybeMultiple::Multiple(vec![vault.remote_actor])
+                    MaybeMultiple::Multiple(vec![ApAddress::Address(vault.remote_actor)])
                 } else {
-                    MaybeMultiple::Multiple(vec![get_ap_id_from_username(profile.username)])
+                    MaybeMultiple::Multiple(vec![ApAddress::Address(get_ap_id_from_username(
+                        profile.username,
+                    ))])
                 }
             },
             id: Some(format!(
@@ -221,7 +225,7 @@ impl From<IdentifiedVaultItem> for ApNote {
 
 impl From<TimelineItem> for ApNote {
     fn from(timeline: TimelineItem) -> Self {
-        ApNote::from(((timeline, None, None), None))
+        ApNote::from(((timeline, None, None, None, None, None), None))
     }
 }
 
@@ -233,18 +237,32 @@ pub type QualifiedTimelineItem = (TimelineItem, Option<Vec<ApActor>>);
 
 impl From<QualifiedTimelineItem> for ApNote {
     fn from((timeline, actors): QualifiedTimelineItem) -> Self {
-        ApNote::from(((timeline, None, None), actors))
+        ApNote::from(((timeline, None, None, None, None, None), actors))
     }
 }
 
 pub type FullyQualifiedTimelineItem = (
-    (TimelineItem, Option<Like>, Option<TimelineItemCc>),
+    (
+        TimelineItem,
+        Option<Like>,
+        Option<Announce>,
+        Option<TimelineItemCc>,
+        Option<RemoteAnnounce>,
+        Option<RemoteLike>,
+    ),
     Option<Vec<ApActor>>,
 );
 
 impl From<FullyQualifiedTimelineItem> for ApNote {
-    fn from(((timeline, like, cc), actors): FullyQualifiedTimelineItem) -> Self {
+    fn from(
+        ((timeline, like, announce, cc, remote_announce, remote_like), actors): FullyQualifiedTimelineItem,
+    ) -> Self {
         ApNote {
+            context: Some(ApContext::default()),
+            to: MaybeMultiple::Multiple(vec![]),
+            cc: None,
+            instrument: None,
+            kind: ApNoteType::Note,
             tag: {
                 if let Some(x) = timeline.tag {
                     match serde_json::from_value(x) {
@@ -287,9 +305,11 @@ impl From<FullyQualifiedTimelineItem> for ApNote {
                     None
                 }
             },
-            ephemeral_announce: timeline.announce,
+            ephemeral_announces: remote_announce.map(|announce| vec![announce.actor]),
+            ephemeral_announced: Some(announce.is_some()),
             ephemeral_actors: actors,
             ephemeral_liked: Some(like.is_some()),
+            ephemeral_likes: remote_like.map(|like| vec![like.actor]),
             ephemeral_targeted: Some(cc.is_some()),
             ephemeral_timestamp: Some(timeline.created_at),
             ephemeral_metadata: {
@@ -302,7 +322,6 @@ impl From<FullyQualifiedTimelineItem> for ApNote {
                     None
                 }
             },
-            ..Default::default()
         }
     }
 }
@@ -378,6 +397,11 @@ impl From<Note> for ApNote {
                 *crate::SERVER_NAME,
                 note.uuid
             )),
+            url: Option::from(format!(
+                "https://{}/notes/{}",
+                *crate::SERVER_NAME,
+                note.uuid
+            )),
             kind,
             to: match serde_json::from_value(note.ap_to) {
                 Ok(x) => x,
@@ -390,6 +414,8 @@ impl From<Note> for ApNote {
             },
             in_reply_to: note.in_reply_to,
             conversation: note.conversation,
+            attachment: Some(vec![]),
+            ephemeral_metadata: Some(vec![]),
             ..Default::default()
         }
     }
