@@ -1,7 +1,6 @@
-use crate::activity_pub::{ApActivity, ApActor, ApAddress, ApObject};
+use crate::activity_pub::{ApActivity, ApObject};
 use crate::db::Db;
 use crate::schema::announces;
-use crate::MaybeMultiple;
 use chrono::{DateTime, Utc};
 use diesel::prelude::*;
 use diesel::{AsChangeset, Identifiable, Insertable, Queryable};

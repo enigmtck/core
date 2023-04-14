@@ -80,11 +80,19 @@ impl From<ApNote> for NewTimelineItem {
             in_reply_to: note.clone().in_reply_to,
             content: Option::from(note.clone().content),
             ap_public: {
-                if let Some(address) = note.to.single() {
-                    address.is_public()
-                } else {
-                    false
+                let mut public = false;
+
+                let mut addresses = note.to.multiple();
+                if let Some(cc) = note.cc {
+                    addresses.append(&mut cc.multiple());
                 }
+
+                for address in addresses {
+                    if !public {
+                        public = address.is_public();
+                    }
+                }
+                public
             },
             summary: note.summary,
             ap_sensitive: note.sensitive,

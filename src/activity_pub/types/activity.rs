@@ -8,11 +8,7 @@ use serde::{Deserialize, Serialize};
 use serde_with::serde_as;
 use std::fmt::Debug;
 
-use super::{
-    actor::ApAddress,
-    object::{ApProof, ApSignature},
-    session::ApInstruments,
-};
+use super::{actor::ApAddress, object::ApProof, session::ApInstruments, signature::ApSignature};
 
 #[derive(Serialize, PartialEq, Eq, Deserialize, Clone, Debug, Default)]
 pub enum ApActivityType {

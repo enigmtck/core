@@ -5,9 +5,9 @@ use std::collections::HashMap;
 
 use enigmatick::{
     activity_pub::{
-        retriever::{self, get_note, get_remote_webfinger},
-        ActivityPub, ApActivity, ApActivityType, ApActor, ApCollection, ApNote, ApNoteType,
-        ApObject, ApSession, FollowersPage, IdentifiedVaultItems, LeadersPage,
+        retriever::{self, get_actor, get_note, get_remote_webfinger},
+        ActivityPub, ActorsPage, ApActivity, ApActivityType, ApActor, ApCollection, ApNote,
+        ApNoteType, ApObject, ApSession, FollowersPage, IdentifiedVaultItems, LeadersPage,
     },
     admin::{self, verify_and_generate_password, NewUser},
     api::{instance::InstanceInformation, processing_queue},
@@ -18,7 +18,7 @@ use enigmatick::{
     fairings::{
         events::EventChannels, faktory::FaktoryConnection, mq::MqConnection, signatures::Signed,
     },
-    helper::{get_local_username_from_ap_id, is_local},
+    helper::{get_local_identifier, is_local, LocalIdentifierType},
     inbox,
     models::{
         encrypted_sessions::{
@@ -26,6 +26,7 @@ use enigmatick::{
             EncryptedSession,
         },
         followers::get_followers_by_profile_id,
+        leaders::Leader,
         notes::get_note_by_uuid,
         olm_one_time_keys::create_olm_one_time_key,
         olm_sessions::{
@@ -43,6 +44,7 @@ use enigmatick::{
 
 use rocket::{
     data::{Data, ToByteUnit},
+    futures::future::join_all,
     http::RawStr,
     http::Status,
     request::FromParam,
@@ -278,8 +280,38 @@ pub async fn webfinger_json(conn: Db, resource: String) -> Result<Json<WebFinger
 }
 
 #[get("/user/<username>/followers")]
-pub async fn get_followers(conn: Db, username: String) -> Result<Json<ApCollection>, Status> {
-    if let Some(profile) = get_profile_by_username(&conn, username).await {
+pub async fn get_followers(
+    signed: Signed,
+    conn: Db,
+    username: String,
+) -> Result<Json<ApCollection>, Status> {
+    if let (Signed(true, VerificationType::Local), Some(profile)) = (
+        signed,
+        get_profile_by_username(&conn, username.clone()).await,
+    ) {
+        let followers = get_followers_by_profile_id(&conn, profile.id).await;
+
+        let maybe_actors: Vec<Option<(ApActor, Option<Leader>)>> =
+            join_all(followers.iter().map(|follower| async {
+                get_actor(&conn, follower.actor.clone(), Some(profile.clone()), false).await
+            }))
+            .await;
+
+        Ok(Json(ApCollection::from(ActorsPage {
+            page: 0,
+            profile,
+            actors: maybe_actors
+                .iter()
+                .filter_map(|a| {
+                    if let Some((actor, _)) = a {
+                        Some(actor.clone())
+                    } else {
+                        None
+                    }
+                })
+                .collect(),
+        })))
+    } else if let Some(profile) = get_profile_by_username(&conn, username).await {
         let followers = get_followers_by_profile_id(&conn, profile.id).await;
 
         Ok(Json(ApCollection::from(FollowersPage {
@@ -293,8 +325,44 @@ pub async fn get_followers(conn: Db, username: String) -> Result<Json<ApCollecti
 }
 
 #[get("/user/<username>/following")]
-pub async fn get_leaders(conn: Db, username: String) -> Result<Json<ApCollection>, Status> {
-    if let Some(profile) = get_profile_by_username(&conn, username).await {
+pub async fn get_leaders(
+    signed: Signed,
+    conn: Db,
+    username: String,
+) -> Result<Json<ApCollection>, Status> {
+    if let (Signed(true, VerificationType::Local), Some(profile)) = (
+        signed,
+        get_profile_by_username(&conn, username.clone()).await,
+    ) {
+        let leaders = get_leaders_by_profile_id(&conn, profile.id).await;
+
+        let maybe_actors: Vec<Option<(ApActor, Option<Leader>)>> =
+            join_all(leaders.iter().map(|leader| async {
+                get_actor(
+                    &conn,
+                    leader.leader_ap_id.clone(),
+                    Some(profile.clone()),
+                    false,
+                )
+                .await
+            }))
+            .await;
+
+        Ok(Json(ApCollection::from(ActorsPage {
+            page: 0,
+            profile,
+            actors: maybe_actors
+                .iter()
+                .filter_map(|a| {
+                    if let Some((actor, _)) = a {
+                        Some(actor.clone())
+                    } else {
+                        None
+                    }
+                })
+                .collect(),
+        })))
+    } else if let Some(profile) = get_profile_by_username(&conn, username).await {
         let leaders = get_leaders_by_profile_id(&conn, profile.id).await;
 
         Ok(Json(ApCollection::from(LeadersPage {
@@ -662,13 +730,17 @@ pub async fn remote_actor_lookup(
 
                 if let Some(ap_id) = ap_id {
                     if is_local(ap_id.clone()) {
-                        if let Some(username) = get_local_username_from_ap_id(ap_id.clone()) {
-                            Ok(Json(
-                                get_profile_by_username(&conn, username)
-                                    .await
-                                    .unwrap()
-                                    .into(),
-                            ))
+                        if let Some(x) = get_local_identifier(ap_id.clone()) {
+                            if x.kind == LocalIdentifierType::User {
+                                Ok(Json(
+                                    get_profile_by_username(&conn, x.identifier)
+                                        .await
+                                        .unwrap()
+                                        .into(),
+                                ))
+                            } else {
+                                Err(Status::NoContent)
+                            }
                         } else {
                             Err(Status::NoContent)
                         }
@@ -1076,6 +1148,9 @@ pub async fn outbox_post(
                         }
                         ApActivityType::Announce => {
                             outbox::activity::announce(conn, faktory, activity, profile).await
+                        }
+                        ApActivityType::Delete => {
+                            outbox::activity::delete(conn, faktory, activity, profile).await
                         }
                         _ => Err(Status::NoContent),
                     },

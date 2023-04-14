@@ -89,6 +89,7 @@ fn build_verify_string(
 pub enum VerificationType {
     Remote,
     Local,
+    None,
 }
 
 pub async fn verify(conn: Db, params: VerifyParams) -> (bool, VerificationType) {

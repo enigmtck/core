@@ -61,33 +61,37 @@ impl<'r> FromRequest<'r> for Signed {
             user_agent = Option::from(user_agent_vec[0].to_string());
         }
 
-        let content_type = request.content_type().unwrap().to_string();
+        if let Some(content_type) = request.content_type() {
+            let content_type = content_type.to_string();
 
-        let signature_vec: Vec<_> = request.headers().get("signature").collect();
-        //let signature = signature_vec[0].to_string();
+            let signature_vec: Vec<_> = request.headers().get("signature").collect();
+            //let signature = signature_vec[0].to_string();
 
-        match signature_vec.len() {
-            0 => Outcome::Failure((Status::BadRequest, SignatureError::NonExistent)),
-            1 => {
-                let signature = signature_vec[0].to_string();
+            match signature_vec.len() {
+                0 => Outcome::Success(Signed(false, VerificationType::None)),
+                1 => {
+                    let signature = signature_vec[0].to_string();
 
-                let (x, t) = verify(
-                    conn,
-                    VerifyParams {
-                        signature,
-                        request_target,
-                        host,
-                        date,
-                        digest,
-                        content_type,
-                        user_agent,
-                    },
-                )
-                .await;
+                    let (x, t) = verify(
+                        conn,
+                        VerifyParams {
+                            signature,
+                            request_target,
+                            host,
+                            date,
+                            digest,
+                            content_type,
+                            user_agent,
+                        },
+                    )
+                    .await;
 
-                Outcome::Success(Signed(x, t))
+                    Outcome::Success(Signed(x, t))
+                }
+                _ => Outcome::Failure((Status::BadRequest, SignatureError::MultipleSignatures)),
             }
-            _ => Outcome::Failure((Status::BadRequest, SignatureError::MultipleSignatures)),
+        } else {
+            Outcome::Success(Signed(false, VerificationType::None))
         }
     }
 }

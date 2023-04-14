@@ -126,6 +126,7 @@ pub struct RemoteNote {
 }
 
 impl RemoteNote {
+    // TODO: This should probably be handled by ApAddress
     pub fn is_public(&self) -> bool {
         if let Ok(to) = serde_json::from_value::<MaybeMultiple<String>>(self.ap_to.clone().into()) {
             match to {
@@ -133,6 +134,7 @@ impl RemoteNote {
                     n.contains(&"https://www.w3.org/ns/activitystreams#Public".to_string())
                 }
                 MaybeMultiple::Single(n) => n == *"https://www.w3.org/ns/activitystreams#Public",
+                MaybeMultiple::None => false,
             }
         } else {
             false

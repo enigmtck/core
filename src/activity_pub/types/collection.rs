@@ -1,7 +1,7 @@
 use core::fmt;
 use std::fmt::Debug;
 
-use crate::activity_pub::{ApContext, ApObject};
+use crate::activity_pub::{ApActor, ApContext, ApObject};
 use crate::models::vault::VaultItem;
 use crate::models::{followers::Follower, leaders::Leader, profiles::Profile};
 use crate::MaybeReference;
@@ -96,6 +96,45 @@ impl From<Vec<ApObject>> for ApCollection {
             total_items: Some(objects.len() as u32),
             items: Option::from(objects),
             ..Default::default()
+        }
+    }
+}
+
+#[derive(Clone)]
+pub struct ActorsPage {
+    pub page: u32,
+    pub profile: Profile,
+    pub actors: Vec<ApActor>,
+}
+
+impl From<ActorsPage> for ApCollection {
+    fn from(request: ActorsPage) -> Self {
+        if request.page == 0 {
+            ApCollection {
+                kind: ApCollectionType::OrderedCollection,
+                id: Option::from(format!(
+                    "{}/users/{}/actors",
+                    *crate::SERVER_URL,
+                    request.profile.username
+                )),
+                total_items: Some(request.actors.len() as u32),
+                first: Option::None,
+                part_of: Option::None,
+                ordered_items: Option::from(
+                    request
+                        .actors
+                        .into_iter()
+                        .map(ApObject::Actor)
+                        .collect::<Vec<ApObject>>(),
+                ),
+                ..Default::default()
+            }
+        } else {
+            ApCollection {
+                part_of: Option::None,
+                ordered_items: Option::None,
+                ..Default::default()
+            }
         }
     }
 }

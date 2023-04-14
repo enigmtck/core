@@ -1,34 +1,14 @@
-use crate::activity_pub::{ApActivity, ApActor, ApCollection, ApInstrument, ApNote};
+use crate::activity_pub::{ApActivity, ApActor, ApCollection, ApDelete, ApInstrument, ApNote};
 use crate::MaybeMultiple;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::fmt;
 use std::fmt::Debug;
 
+use super::delete::ApTombstone;
 use super::follow::ApFollow;
 use super::like::ApLike;
 use super::session::ApSession;
-
-#[derive(Serialize, Deserialize, Clone, Debug)]
-pub enum ApSignatureType {
-    RsaSignature2017,
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug)]
-#[serde(rename_all = "camelCase")]
-pub struct ApSignature {
-    #[serde(rename = "type")]
-    #[serde(skip_serializing_if = "Option::is_none")]
-    kind: Option<ApSignatureType>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    creator: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    created: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    signature_value: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    nonce: Option<String>,
-}
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(untagged)]
@@ -61,18 +41,6 @@ pub struct ApBasicContent {
     pub content: String,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
-pub enum ApTombstoneType {
-    Tombstone,
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug)]
-pub struct ApTombstone {
-    #[serde(rename = "type")]
-    pub kind: ApTombstoneType,
-    pub id: String,
-}
-
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 #[serde(untagged)]
 pub enum ApObject {
@@ -84,6 +52,7 @@ pub enum ApObject {
     Actor(ApActor),
     Like(ApLike),
     Follow(ApFollow),
+    Delete(Box<ApDelete>),
     Collection(ApCollection),
     Identifier(ApIdentifier),
     Basic(ApBasicContent),

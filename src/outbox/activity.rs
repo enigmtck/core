@@ -1,18 +1,21 @@
 use crate::{
-    activity_pub::{sender, ApActivity, ApIdentifier, ApObject},
+    activity_pub::{sender, ApActivity, ApDelete, ApIdentifier, ApObject},
     db::{create_leader, delete_leader, get_leader_by_profile_id_and_ap_id, Db},
     fairings::{
         events::EventChannels,
         faktory::{assign_to_faktory, FaktoryConnection},
     },
+    helper::{get_local_identifier, LocalIdentifier, LocalIdentifierType},
     models::{
         announces::{create_announce, NewAnnounce},
         leaders::NewLeader,
         likes::{create_like, NewLike},
+        notes::get_note_by_uuid,
         profiles::Profile,
         remote_activities::create_remote_activity,
         remote_actors::get_remote_actor_by_ap_id,
     },
+    MaybeReference,
 };
 use log::debug;
 use rocket::http::Status;
@@ -189,6 +192,59 @@ pub async fn announce(
         }
     } else {
         log::error!("FAILED TO CONVERT ACTIVITY TO ANNOUNCE");
+        Err(Status::NoContent)
+    }
+}
+
+pub async fn delete(
+    conn: Db,
+    faktory: FaktoryConnection,
+    mut delete: ApActivity,
+    profile: Profile,
+) -> Result<Status, Status> {
+    // we ignore whatever was submitted for the actor value and enforce the correct
+    // value here
+    delete.actor = format!("{}/user/{}", *crate::SERVER_URL, profile.username);
+
+    if let ApObject::Plain(id) = delete.object {
+        if let Some(identifier) = get_local_identifier(id) {
+            match identifier.kind {
+                LocalIdentifierType::Note => {
+                    let uuid = identifier.identifier;
+
+                    if let Some(note) = get_note_by_uuid(&conn, uuid.clone()).await {
+                        if note.profile_id == profile.id {
+                            match assign_to_faktory(
+                                faktory,
+                                String::from("delete_note"),
+                                vec![uuid],
+                            ) {
+                                Ok(_) => Ok(Status::Accepted),
+                                Err(_) => {
+                                    log::error!("FAILED TO ASSIGN DELETE TO FAKTORY");
+                                    Err(Status::NoContent)
+                                }
+                            }
+                        } else {
+                            log::error!("DELETE OBJECT NOT OWNED BY ACTOR");
+                            Err(Status::NoContent)
+                        }
+                    } else {
+                        log::error!("FAILED TO LOCATE NOTE BY UUID");
+                        Err(Status::NoContent)
+                    }
+                }
+                _ => {
+                    log::error!("DELETE ACTION UNIMPLEMENTED FOR OBJECT TYPE");
+                    Err(Status::NoContent)
+                }
+            }
+        } else {
+            log::error!("FAILED TO EXTRACT UUID FROM AP_ID");
+            Err(Status::NoContent)
+        }
+    } else {
+        log::error!("DELETE OBJECT DOES NOT LOOK LIKE A REFERENCE");
         Err(Status::NoContent)
     }
 }

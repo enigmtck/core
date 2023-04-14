@@ -11,7 +11,10 @@ use crate::{
         remote_actors::{create_or_update_remote_actor, delete_remote_actor_by_ap_id},
         remote_announces::{create_remote_announce, NewRemoteAnnounce},
         remote_likes::{create_remote_like, delete_remote_like_by_actor_and_object_id},
-        remote_notes::{create_or_update_remote_note, delete_remote_note_by_ap_id, NewRemoteNote},
+        remote_notes::{
+            create_or_update_remote_note, delete_remote_note_by_ap_id, get_remote_note_by_ap_id,
+            NewRemoteNote,
+        },
         timeline::delete_timeline_item_by_ap_id,
     },
 };
@@ -47,6 +50,21 @@ pub async fn delete(conn: Db, activity: ApActivity) -> Result<Status, Status> {
     }
 
     match activity.object {
+        ApObject::Tombstone(tombstone) => {
+            if let Some(remote_note) = get_remote_note_by_ap_id(&conn, tombstone.id.clone()).await {
+                if remote_note.attributed_to == activity.actor {
+                    if delete_note(&conn, tombstone.id.clone()).await.is_ok() {
+                        delete_timeline(&conn, tombstone.id).await
+                    } else {
+                        Err(Status::NoContent)
+                    }
+                } else {
+                    Err(Status::NoContent)
+                }
+            } else {
+                Err(Status::NoContent)
+            }
+        }
         ApObject::Plain(ap_id) => {
             if ap_id == activity.actor {
                 delete_actor(conn, ap_id).await

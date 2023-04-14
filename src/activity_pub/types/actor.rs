@@ -50,6 +50,7 @@ pub struct ApPublicKey {
 #[serde(rename_all = "camelCase")]
 pub struct ApCapabilities {
     pub accepts_chat_messages: Option<bool>,
+    pub enigmatick_encryption: Option<bool>,
 }
 
 #[derive(Serialize, PartialEq, Eq, Deserialize, Clone, Debug, Default)]
@@ -206,6 +207,7 @@ impl From<Profile> for ApActor {
             discoverable: Some(true),
             capabilities: Some(ApCapabilities {
                 accepts_chat_messages: Some(false),
+                enigmatick_encryption: Some(true),
             }),
             attachment: Some(vec![]),
             also_known_as: Some(vec![]),

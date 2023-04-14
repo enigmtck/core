@@ -1,5 +1,5 @@
 use crate::db::Db;
-use crate::helper::get_local_username_from_ap_id;
+use crate::helper::{get_local_identifier, LocalIdentifierType};
 use crate::schema::{self, profiles};
 use chrono::{DateTime, Utc};
 use diesel::prelude::*;
@@ -93,8 +93,12 @@ pub async fn get_profile_by_username(conn: &Db, username: String) -> Option<Prof
 }
 
 pub async fn get_profile_by_ap_id(conn: &Db, ap_id: String) -> Option<Profile> {
-    if let Some(username) = get_local_username_from_ap_id(ap_id) {
-        get_profile_by_username(conn, username).await
+    if let Some(x) = get_local_identifier(ap_id) {
+        if x.kind == LocalIdentifierType::User {
+            get_profile_by_username(conn, x.identifier).await
+        } else {
+            Option::None
+        }
     } else {
         Option::None
     }

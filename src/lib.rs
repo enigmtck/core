@@ -95,11 +95,13 @@ lazy_static! {
     };
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug, Default)]
 #[serde(untagged)]
 pub enum MaybeMultiple<T> {
     Single(T),
     Multiple(Vec<T>),
+    #[default]
+    None,
 }
 
 impl From<String> for MaybeMultiple<String> {
@@ -119,6 +121,7 @@ impl<T: Clone> MaybeMultiple<T> {
                 }
             }
             MaybeMultiple::Single(s) => Some(s.clone()),
+            MaybeMultiple::None => None,
         }
     }
 
@@ -128,13 +131,16 @@ impl<T: Clone> MaybeMultiple<T> {
             MaybeMultiple::Single(data) => {
                 vec![data.clone()]
             }
+            MaybeMultiple::None => vec![],
         }
     }
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug, Default)]
 #[serde(untagged)]
 pub enum MaybeReference<T> {
     Reference(String),
     Actual(T),
+    #[default]
+    None,
 }

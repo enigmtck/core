@@ -1,8 +1,5 @@
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
-
-pub fn is_public(ap_id: String) -> bool {
-    *"https://www.w3.org/ns/activitystreams#Public" == ap_id
-}
 
 pub fn is_local(ap_id: String) -> bool {
     let pattern = format!(r#"\w+?://{}/(.+)"#, *crate::SERVER_NAME);
@@ -20,18 +17,55 @@ pub fn is_local(ap_id: String) -> bool {
     }
 }
 
-pub fn get_local_username_from_ap_id(ap_id: String) -> Option<String> {
-    let pattern = format!(r#"\w+?://{}/user/(.+)"#, *crate::SERVER_NAME);
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq, Eq)]
+pub enum LocalIdentifierType {
+    User,
+    Note,
+    Session,
+    Announce,
+    Collection,
+    #[default]
+    None,
+}
+
+impl From<&str> for LocalIdentifierType {
+    fn from(text: &str) -> Self {
+        match text {
+            "user" => LocalIdentifierType::User,
+            "notes" => LocalIdentifierType::Note,
+            "session" => LocalIdentifierType::Session,
+            "announces" => LocalIdentifierType::Announce,
+            "collections" => LocalIdentifierType::Collection,
+            _ => LocalIdentifierType::None,
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, Default)]
+pub struct LocalIdentifier {
+    pub identifier: String,
+    #[serde(rename = "type")]
+    pub kind: LocalIdentifierType,
+}
+
+pub fn get_local_identifier(ap_id: String) -> Option<LocalIdentifier> {
+    let pattern = format!(
+        r#"^{}/(user|notes|session|announces|collections)/(.+)$"#,
+        *crate::SERVER_URL
+    );
 
     if let Ok(re) = regex::Regex::new(&pattern) {
         if let Some(ap_id_match) = re.captures(&ap_id) {
-            log::debug!("username_match: {:#?}", ap_id_match);
-            Option::from(ap_id_match.get(1).unwrap().as_str().to_string())
+            log::debug!("IDENTIFIER MATCH: {ap_id_match:#?}");
+            Some(LocalIdentifier {
+                identifier: ap_id_match.get(2).unwrap().as_str().to_string(),
+                kind: ap_id_match.get(1).unwrap().as_str().into(),
+            })
         } else {
-            Option::None
+            None
         }
     } else {
-        Option::None
+        None
     }
 }
 
@@ -39,10 +73,14 @@ pub fn get_ap_id_from_username(username: String) -> String {
     format!("https://{}/user/{}", *crate::SERVER_NAME, username)
 }
 
+pub fn get_note_ap_id_from_uuid(uuid: String) -> String {
+    format!("https://{}/notes/{}", *crate::SERVER_NAME, uuid)
+}
+
 pub fn handle_option(v: Value) -> Option<Value> {
     if v == Value::Null {
-        Option::None
+        None
     } else {
-        Option::from(v)
+        Some(v)
     }
 }

@@ -6,8 +6,9 @@ pub use types::activity::{ApActivity, ApActivityType};
 pub use types::actor::{ApActor, ApActorType, ApAddress, ApPublicKey};
 pub use types::announce::{ApAnnounce, ApAnnounceType};
 pub use types::collection::{
-    ApCollection, ApCollectionType, FollowersPage, IdentifiedVaultItems, LeadersPage,
+    ActorsPage, ApCollection, ApCollectionType, FollowersPage, IdentifiedVaultItems, LeadersPage,
 };
+pub use types::delete::{ApDelete, ApDeleteType};
 pub use types::like::{ApLike, ApLikeType};
 pub use types::note::{ApNote, ApNoteType, FullyQualifiedTimelineItem, Metadata};
 pub use types::object::{

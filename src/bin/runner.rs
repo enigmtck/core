@@ -6,10 +6,10 @@ use diesel::r2d2::ConnectionManager;
 use enigmatick::{
     activity_pub::{
         sender::{send_activity, send_follower_accept},
-        ApActivity, ApActor, ApAddress, ApAnnounce, ApInstrument, ApInstrumentType, ApInstruments,
-        ApLike, ApNote, ApObject, ApSession, JoinData, Metadata,
+        ApActivity, ApActor, ApAddress, ApAnnounce, ApDelete, ApInstrument, ApInstrumentType,
+        ApInstruments, ApLike, ApNote, ApObject, ApSession, JoinData, Metadata,
     },
-    helper::{get_local_username_from_ap_id, is_local, is_public},
+    helper::{get_local_identifier, get_note_ap_id_from_uuid, is_local, LocalIdentifierType},
     models::{
         announces::Announce,
         encrypted_sessions::{EncryptedSession, NewEncryptedSession},
@@ -31,7 +31,7 @@ use enigmatick::{
             TimelineItemTo,
         },
     },
-    schema::{announces, likes, remote_announces},
+    schema::{announces, likes, notes, remote_announces, timeline},
     signing::{Method, SignParams},
     MaybeMultiple, MaybeReference,
 };
@@ -617,6 +617,34 @@ pub fn update_note_cc(note: Note) -> Option<Note> {
     }
 }
 
+pub fn delete_note_by_uuid(uuid: String) -> Result<usize, ()> {
+    if let Ok(conn) = POOL.get() {
+        match diesel::delete(notes::table.filter(notes::uuid.eq(uuid))).execute(&conn) {
+            Ok(x) => Ok(x),
+            Err(e) => {
+                log::error!("FAILED TO DELETE\n{e:#?}");
+                Err(())
+            }
+        }
+    } else {
+        Err(())
+    }
+}
+
+pub fn delete_timeline_item_by_ap_id(ap_id: String) -> Result<usize, ()> {
+    if let Ok(conn) = POOL.get() {
+        match diesel::delete(timeline::table.filter(timeline::ap_id.eq(ap_id))).execute(&conn) {
+            Ok(x) => Ok(x),
+            Err(e) => {
+                log::error!("FAILED TO DELETE\n{e:#?}");
+                Err(())
+            }
+        }
+    } else {
+        Err(())
+    }
+}
+
 async fn fetch_remote_note(id: String) -> Option<ApNote> {
     log::debug!("PERFORMING REMOTE LOOKUP FOR NOTE: {id}");
 
@@ -679,9 +707,11 @@ fn send_kexinit(job: Job) -> io::Result<()> {
                 let mut inbox = Option::<String>::None;
 
                 if is_local(session.to.clone()) {
-                    if let Some(username) = get_local_username_from_ap_id(session.to.clone()) {
-                        if let Some(profile) = get_profile_by_username(username) {
-                            inbox = Option::from(ApActor::from(profile).inbox);
+                    if let Some(x) = get_local_identifier(session.to.clone()) {
+                        if x.kind == LocalIdentifierType::User {
+                            if let Some(profile) = get_profile_by_username(x.identifier) {
+                                inbox = Option::from(ApActor::from(profile).inbox);
+                            }
                         }
                     }
                 } else if let Some(actor) = get_remote_actor_by_ap_id(session.to.clone()) {
@@ -715,41 +745,44 @@ fn provide_one_time_key(job: Job) -> io::Result<()> {
         let ap_id = ap_id.as_str().unwrap().to_string();
 
         if let Some(session) = get_remote_encrypted_session_by_ap_id(ap_id) {
-            if let (Some(username), Some(actor)) = (
-                get_local_username_from_ap_id(session.ap_to.clone()),
+            if let (Some(identifier), Some(actor)) = (
+                get_local_identifier(session.ap_to.clone()),
                 get_remote_actor_by_ap_id(session.attributed_to.clone()),
             ) {
-                if let Some(profile) = get_profile_by_username(username.clone()) {
-                    if let (Some(identity_key), Some(otk)) = (
-                        profile.olm_identity_key.clone(),
-                        get_one_time_key(profile.id),
-                    ) {
-                        let session = ApSession::from(JoinData {
-                            one_time_key: otk.key_data,
-                            identity_key,
-                            to: session.attributed_to,
-                            attributed_to: session.ap_to,
-                            reference: session.ap_id,
-                        });
-
-                        let activity = ApActivity::from(session.clone());
-                        let encrypted_session: NewEncryptedSession =
-                            (session.clone(), profile.id).into();
-
-                        if create_encrypted_session(encrypted_session).is_some() {
-                            let rt = Runtime::new().unwrap();
-                            tokio::task::block_in_place(|| {
-                                match rt.block_on(async {
-                                    send_activity(activity, profile, actor.inbox).await
-                                }) {
-                                    Ok(_) => {
-                                        info!("JOIN SENT");
-                                    }
-                                    Err(e) => error!("ERROR SENDING JOIN: {e:#?}",),
-                                }
+                if identifier.kind == LocalIdentifierType::User {
+                    let username = identifier.identifier;
+                    if let Some(profile) = get_profile_by_username(username.clone()) {
+                        if let (Some(identity_key), Some(otk)) = (
+                            profile.olm_identity_key.clone(),
+                            get_one_time_key(profile.id),
+                        ) {
+                            let session = ApSession::from(JoinData {
+                                one_time_key: otk.key_data,
+                                identity_key,
+                                to: session.attributed_to,
+                                attributed_to: session.ap_to,
+                                reference: session.ap_id,
                             });
-                        } else {
-                            log::error!("FAILED TO SAVE ENCRYPTED SESSION");
+
+                            let activity = ApActivity::from(session.clone());
+                            let encrypted_session: NewEncryptedSession =
+                                (session.clone(), profile.id).into();
+
+                            if create_encrypted_session(encrypted_session).is_some() {
+                                let rt = Runtime::new().unwrap();
+                                tokio::task::block_in_place(|| {
+                                    match rt.block_on(async {
+                                        send_activity(activity, profile, actor.inbox).await
+                                    }) {
+                                        Ok(_) => {
+                                            info!("JOIN SENT");
+                                        }
+                                        Err(e) => error!("ERROR SENDING JOIN: {e:#?}",),
+                                    }
+                                });
+                            } else {
+                                log::error!("FAILED TO SAVE ENCRYPTED SESSION");
+                            }
                         }
                     }
                 }
@@ -837,14 +870,19 @@ fn process_join(job: Job) -> io::Result<()> {
             get_remote_encrypted_session_by_ap_id(ap_id.as_str().unwrap().to_string())
         {
             // this is the username of the Enigmatick user who received the Invite
-            if let Some(username) = get_local_username_from_ap_id(session.ap_to.clone()) {
-                if let Some(_profile) = get_profile_by_username(username.clone()) {
-                    if let Some(actor) = get_remote_actor_by_ap_id(session.attributed_to.clone()) {
-                        debug!("ACTOR\n{actor:#?}");
-                        //let session: ApSession = session.clone().into();
+            if let Some(identifier) = get_local_identifier(session.ap_to.clone()) {
+                if identifier.kind == LocalIdentifierType::User {
+                    let username = identifier.identifier;
+                    if let Some(_profile) = get_profile_by_username(username.clone()) {
+                        if let Some(actor) =
+                            get_remote_actor_by_ap_id(session.attributed_to.clone())
+                        {
+                            debug!("ACTOR\n{actor:#?}");
+                            //let session: ApSession = session.clone().into();
 
-                        if let Some(item) = create_processing_item(session.clone().into()) {
-                            debug!("PROCESSING ITEM\n{item:#?}");
+                            if let Some(item) = create_processing_item(session.clone().into()) {
+                                debug!("PROCESSING ITEM\n{item:#?}");
+                            }
                         }
                     }
                 }
@@ -1190,10 +1228,15 @@ fn handle_note(note: &mut Note, inboxes: &mut HashSet<String>, sender: Profile) 
     let rt = Runtime::new().unwrap();
     let handle = rt.handle();
 
-    if let Ok(recipients) = serde_json::from_value::<Vec<String>>(note.clone().ap_to) {
+    if let (Ok(mut recipients), Ok(mut cc_recipients)) = (
+        serde_json::from_value::<Vec<ApAddress>>(note.clone().ap_to),
+        serde_json::from_value::<Vec<ApAddress>>(note.clone().cc.into()),
+    ) {
+        recipients.append(&mut cc_recipients);
+
         for recipient in recipients {
             // check if this is the special Public recipient
-            if is_public(recipient.clone()) {
+            if recipient.clone().is_public() {
                 // if it is, get all the inboxes for this sender's followers
                 inboxes.extend(get_follower_inboxes(sender.clone()));
 
@@ -1213,10 +1256,10 @@ fn handle_note(note: &mut Note, inboxes: &mut HashSet<String>, sender: Profile) 
                 }
 
                 update_note_cc(note.clone());
-            } else if let Some(receiver) =
-                handle.block_on(async { get_actor(sender.clone(), recipient.clone()).await })
+            } else if let Some((receiver, _)) = handle
+                .block_on(async { get_actor(sender.clone(), recipient.clone().to_string()).await })
             {
-                inboxes.insert(receiver.0.inbox);
+                inboxes.insert(receiver.inbox);
             }
         }
     }
@@ -1596,6 +1639,7 @@ fn send_announce(job: Job) -> io::Result<()> {
                                                     .unwrap(),
                                                 )
                                             }
+                                            MaybeMultiple::None => None,
                                         };
                                     }
                                 }
@@ -1646,6 +1690,81 @@ fn send_announce(job: Job) -> io::Result<()> {
     Ok(())
 }
 
+fn send_to_inboxes(inboxes: HashSet<String>, profile: Profile, message: ApObject) {
+    let rt = Runtime::new().unwrap();
+    let handle = rt.handle();
+
+    for url in inboxes {
+        let body = Option::from(serde_json::to_string(&message).unwrap());
+        let method = Method::Post;
+
+        let signature = enigmatick::signing::sign(SignParams {
+            profile: profile.clone(),
+            url: url.clone(),
+            body: body.clone(),
+            method,
+        });
+
+        let client = Client::new()
+            .post(url.clone())
+            .header("Date", signature.date)
+            .header("Digest", signature.digest.unwrap())
+            .header("Signature", &signature.signature)
+            .header(
+                "Content-Type",
+                "application/ld+json; profile=\"http://www.w3.org/ns/activitystreams\"",
+            )
+            .body(body.unwrap());
+
+        handle.block_on(async {
+            if let Ok(resp) = client.send().await {
+                let code = resp.status();
+                debug!("SEND RESULT FOR {url}: {code}");
+            }
+        });
+    }
+}
+
+fn delete_note(job: Job) -> io::Result<()> {
+    debug!("DELETING NOTE");
+
+    for uuid in job.args() {
+        let uuid = uuid.as_str().unwrap().to_string();
+        log::debug!("UUID: {uuid}");
+
+        if let Some(note) = get_note_by_uuid(uuid.to_string()) {
+            if let Some(profile) = get_profile(note.profile_id) {
+                log::debug!("NOTE\n{note:#?}");
+
+                let ap_note = ApNote::from(note);
+                log::debug!("AP_NOTE\n{ap_note:#?}");
+
+                match ApDelete::try_from(ap_note) {
+                    Ok(delete) => {
+                        log::debug!("DELETE\n{delete:#?}");
+                        let inboxes = get_follower_inboxes(profile.clone());
+
+                        send_to_inboxes(inboxes, profile, ApObject::Delete(Box::new(delete)));
+
+                        let ap_id = get_note_ap_id_from_uuid(uuid.clone());
+
+                        if let Ok(records) = delete_timeline_item_by_ap_id(ap_id) {
+                            log::debug!("TIMELINE RECORDS DELETED: {records}");
+
+                            if let Ok(records) = delete_note_by_uuid(uuid) {
+                                log::debug!("NOTE RECORDS DELETED: {records}");
+                            }
+                        }
+                    }
+                    Err(e) => log::error!("{e}"),
+                }
+            }
+        }
+    }
+
+    Ok(())
+}
+
 fn main() {
     env_logger::init();
 
@@ -1665,6 +1784,7 @@ fn main() {
     consumer.register("retrieve_context", retrieve_context);
     consumer.register("send_like", send_like);
     consumer.register("send_announce", send_announce);
+    consumer.register("delete_note", delete_note);
 
     consumer.register("test_job", |job| {
         debug!("{:#?}", job);

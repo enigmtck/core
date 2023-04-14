@@ -91,7 +91,7 @@ pub struct ApNote {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub published: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub cc: Option<Vec<String>>,
+    pub cc: Option<MaybeMultiple<ApAddress>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub replies: Option<ApCollection>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -391,7 +391,7 @@ impl From<Note> for ApNote {
                 Err(_) => Option::None,
             },
             attributed_to: note.attributed_to,
-            published: Option::from(Utc::now().format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string()),
+            published: Option::from(note.updated_at.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string()),
             id: Option::from(format!(
                 "https://{}/notes/{}",
                 *crate::SERVER_NAME,

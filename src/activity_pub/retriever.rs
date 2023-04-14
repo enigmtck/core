@@ -132,7 +132,7 @@ pub async fn get_actor(
             let now = Utc::now();
             let updated = remote_actor.updated_at;
 
-            if now - updated > Duration::days(7) {
+            if update && now - updated > Duration::days(7) {
                 None
             } else if let Some(profile) = profile {
                 Some((

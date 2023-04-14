@@ -1,4 +1,4 @@
-use std::collections::{hash_map::Entry, HashMap};
+use std::collections::{hash_map::Entry, HashMap, HashSet};
 
 use rocket::futures::future::join_all;
 
@@ -47,12 +47,104 @@ pub async fn inbox(conn: &Db, limit: i64, offset: i64, profile: Profile) -> ApOb
     .await
 }
 
+// // TODO: this is too complex
+// async fn process(conn: &Db, timeline: Vec<AuthenticatedTimelineItem>) -> ApObject {
+//     // the async here is due to the get_actor call below
+//     let notes: Vec<ApNote> = join_all(timeline.iter().map(|(x, l, a, c, ra, rl)| async {
+//         let mut ap_ids = vec![x.clone().attributed_to];
+//         let mut ap_actors: Vec<ApActor> = vec![];
+
+//         if let Some(tags) = x.clone().tag {
+//             if let Ok(tags) = serde_json::from_value::<Vec<ApTag>>(tags) {
+//                 for tag in tags {
+//                     if let ApTag::Mention(tag) = tag {
+//                         if let Some(href) = tag.href {
+//                             ap_ids.push(href)
+//                         }
+//                     }
+//                 }
+//             }
+//         }
+
+//         // we populate the actors with data that exists in the database to reduce external
+//         // calls by the client; we specify "false" on the option to get_actor to tell it not
+//         // to have the server retrieve the data externally, however (those external calls slow
+//         // the response time down far too much)
+//         for ap_id in ap_ids {
+//             if let Some((actor, _)) = get_actor(conn, ap_id.clone(), None, false).await {
+//                 ap_actors.push(actor);
+//             }
+//         }
+
+//         // set up the tuple structure for the ApNote conversion
+//         let param: FullyQualifiedTimelineItem = (
+//             (
+//                 x.clone(),
+//                 l.clone(),
+//                 a.clone(),
+//                 c.clone(),
+//                 ra.clone(),
+//                 rl.clone(),
+//             ),
+//             Some(ap_actors),
+//         );
+
+//         // convert to an ApNote
+//         param.into()
+//     }))
+//     .await;
+
+//     // use this to dedup the aforementioned duplicates
+//     let mut consolidated_notes: HashMap<String, ApNote> = HashMap::new();
+
+//     // this loop combines RemoteAnnounces and Likes in to the vecs that exists on
+//     // the ApNote struct; the data from above will have one or no vec members per
+//     // entry
+//     for note in notes {
+//         if let Some(id) = note.clone().id {
+//             if consolidated_notes.contains_key(&id) {
+//                 if let Some(consolidated) = consolidated_notes.get(&id) {
+//                     let mut consolidated = consolidated.clone();
+
+//                     if let (Some(mut existing), Some(announces)) = (
+//                         consolidated.ephemeral_announces.clone(),
+//                         note.ephemeral_announces,
+//                     ) {
+//                         existing.extend(announces);
+//                         consolidated.ephemeral_announces = Some(existing);
+//                     }
+
+//                     if let (Some(mut existing), Some(likes)) =
+//                         (consolidated.ephemeral_likes.clone(), note.ephemeral_likes)
+//                     {
+//                         existing.extend(likes);
+//                         consolidated.ephemeral_likes = Some(existing);
+//                     }
+
+//                     consolidated_notes.insert(id, consolidated);
+//                 }
+//             } else {
+//                 consolidated_notes.insert(id, note.clone());
+//             }
+//         }
+//     }
+
+//     // pull out the ApNote(s) from the consolidated map and reformat them as ApObject(s)
+//     // to populate the ApCollection to send to the client
+//     ApObject::Collection(ApCollection::from(
+//         consolidated_notes
+//             .values()
+//             .map(|note| ApObject::Note(note.clone()))
+//             .collect::<Vec<ApObject>>(),
+//     ))
+// }
+
 async fn process(conn: &Db, timeline: Vec<AuthenticatedTimelineItem>) -> ApObject {
     let notes = process_notes(conn, &timeline).await;
     let consolidated_notes = consolidate_notes(notes);
     ApObject::Collection(ApCollection::from(
         consolidated_notes
-            .values()
+            .iter()
             .map(|note| ApObject::Note(note.clone()))
             .collect::<Vec<ApObject>>(),
     ))
@@ -106,7 +198,7 @@ async fn get_ap_actors(conn: &Db, ap_ids: Vec<String>) -> Vec<ApActor> {
     ap_actors
 }
 
-fn consolidate_notes(notes: Vec<ApNote>) -> HashMap<String, ApNote> {
+fn consolidate_notes(notes: Vec<ApNote>) -> Vec<ApNote> {
     let mut consolidated_notes: HashMap<String, ApNote> = HashMap::new();
     for note in notes {
         if let Some(id) = note.id.clone() {
@@ -133,7 +225,7 @@ fn consolidate_notes(notes: Vec<ApNote>) -> HashMap<String, ApNote> {
             }
         }
     }
-    consolidated_notes
+    consolidated_notes.values().cloned().collect()
 }
 
 pub async fn conversation(
