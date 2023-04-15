@@ -4,7 +4,7 @@ use std::fmt::Debug;
 use crate::{
     activity_pub::{ApActivity, ApActivityType, ApAddress, ApContext, ApObject},
     models::announces::Announce,
-    MaybeMultiple,
+    MaybeMultiple, MaybeReference,
 };
 use serde::{Deserialize, Serialize};
 
@@ -57,7 +57,7 @@ impl TryFrom<ApActivity> for ApAnnounce {
     type Error = &'static str;
 
     fn try_from(activity: ApActivity) -> Result<Self, Self::Error> {
-        if let ApObject::Plain(object_id) = activity.object {
+        if let MaybeReference::Reference(object_id) = activity.object {
             if activity.kind == ApActivityType::Announce {
                 Ok(ApAnnounce {
                     context: Some(ApContext::default()),

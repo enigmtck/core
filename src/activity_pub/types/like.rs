@@ -4,6 +4,7 @@ use std::fmt::Debug;
 use crate::{
     activity_pub::{ApActivity, ApActivityType, ApContext, ApObject},
     models::likes::Like,
+    MaybeReference,
 };
 use serde::{Deserialize, Serialize};
 
@@ -48,7 +49,7 @@ impl TryFrom<ApActivity> for ApLike {
     type Error = &'static str;
 
     fn try_from(activity: ApActivity) -> Result<Self, Self::Error> {
-        if let ApObject::Plain(object_id) = activity.object {
+        if let MaybeReference::Reference(object_id) = activity.object {
             if activity.kind == ApActivityType::Like {
                 Ok(ApLike {
                     context: Some(ApContext::default()),

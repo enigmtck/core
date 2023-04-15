@@ -1,7 +1,7 @@
-use crate::activity_pub::{ApActivity, ApObject};
+use crate::activity_pub::ApActivity;
 use crate::db::Db;
 use crate::schema::likes;
-use crate::MaybeMultiple;
+use crate::{MaybeMultiple, MaybeReference};
 use chrono::{DateTime, Utc};
 use diesel::prelude::*;
 use diesel::{AsChangeset, Identifiable, Insertable, Queryable};
@@ -23,7 +23,9 @@ impl TryFrom<ApActivity> for NewLike {
     type Error = &'static str;
 
     fn try_from(like: ApActivity) -> Result<Self, Self::Error> {
-        if let (ApObject::Plain(object), Some(MaybeMultiple::Single(to))) = (like.object, like.to) {
+        if let (MaybeReference::Reference(object), Some(MaybeMultiple::Single(to))) =
+            (like.object, like.to)
+        {
             Ok(NewLike {
                 object_ap_id: object,
                 ap_to: to.to_string(),

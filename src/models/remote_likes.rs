@@ -1,6 +1,7 @@
 use crate::activity_pub::{ApActivity, ApObject};
 use crate::db::Db;
 use crate::schema::remote_likes;
+use crate::MaybeReference;
 use chrono::{DateTime, Utc};
 use diesel::prelude::*;
 use diesel::{AsChangeset, Identifiable, Insertable, Queryable};
@@ -17,7 +18,7 @@ pub struct NewRemoteLike {
 impl From<ApActivity> for NewRemoteLike {
     fn from(activity: ApActivity) -> NewRemoteLike {
         let target = {
-            if let ApObject::Plain(x) = activity.object {
+            if let MaybeReference::Reference(x) = activity.object {
                 Some(x)
             } else {
                 Option::<String>::None

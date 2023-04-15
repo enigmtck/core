@@ -1,5 +1,6 @@
 use crate::activity_pub::{ApActivity, ApObject};
 use crate::schema::remote_encrypted_sessions;
+use crate::MaybeReference;
 use chrono::{DateTime, Utc};
 use diesel::{AsChangeset, Identifiable, Insertable, Queryable};
 use serde::{Deserialize, Serialize};
@@ -21,7 +22,7 @@ pub struct NewRemoteEncryptedSession {
 type IdentifiedApActivity = (ApActivity, i32);
 impl From<IdentifiedApActivity> for NewRemoteEncryptedSession {
     fn from(activity: IdentifiedApActivity) -> NewRemoteEncryptedSession {
-        if let ApObject::Session(session) = activity.0.object {
+        if let MaybeReference::Actual(ApObject::Session(session)) = activity.0.object {
             NewRemoteEncryptedSession {
                 actor: activity.0.actor,
                 kind: activity.0.kind.to_string(),

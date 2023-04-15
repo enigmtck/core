@@ -9,6 +9,7 @@ use super::delete::ApTombstone;
 use super::follow::ApFollow;
 use super::like::ApLike;
 use super::session::ApSession;
+use super::undo::ApUndo;
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(untagged)]
@@ -51,7 +52,8 @@ pub enum ApObject {
     Note(ApNote),
     Actor(ApActor),
     Like(ApLike),
-    Follow(ApFollow),
+    Follow(Box<ApFollow>),
+    Undo(Box<ApUndo>),
     Delete(Box<ApDelete>),
     Collection(ApCollection),
     Identifier(ApIdentifier),

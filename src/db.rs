@@ -179,35 +179,6 @@ pub async fn get_remote_encrypted_session_by_ap_id(
     }
 }
 
-pub async fn create_leader(conn: &Db, leader: NewLeader) -> Option<Leader> {
-    use schema::leaders;
-
-    if let Ok(x) = conn
-        .run(move |c| {
-            diesel::insert_into(leaders::table)
-                .values(&leader)
-                .get_result::<Leader>(c)
-        })
-        .await
-    {
-        Some(x)
-    } else {
-        Option::None
-    }
-}
-
-pub async fn delete_leader(conn: &Db, leader_id: i32) -> Result<(), ()> {
-    use schema::leaders::dsl::leaders;
-
-    match conn
-        .run(move |c| diesel::delete(leaders.find(leader_id)).execute(c))
-        .await
-    {
-        Ok(_) => Ok(()),
-        Err(_) => Err(()),
-    }
-}
-
 // pub async fn get_remote_notes_by_profile_id(conn: &Db, id: i32) -> Vec<RemoteNote> {
 //     use self::schema::remote_notes::dsl::{profile_id, remote_notes};
 

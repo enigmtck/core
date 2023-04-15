@@ -1,6 +1,7 @@
 use crate::activity_pub::{ApActivity, ApObject};
 use crate::db::Db;
 use crate::schema::announces;
+use crate::MaybeReference;
 use chrono::{DateTime, Utc};
 use diesel::prelude::*;
 use diesel::{AsChangeset, Identifiable, Insertable, Queryable};
@@ -24,7 +25,7 @@ impl TryFrom<ApActivity> for NewAnnounce {
     type Error = &'static str;
 
     fn try_from(activity: ApActivity) -> Result<Self, Self::Error> {
-        if let (ApObject::Plain(object), Some(to)) = (activity.object, activity.to) {
+        if let (MaybeReference::Reference(object), Some(to)) = (activity.object, activity.to) {
             Ok(NewAnnounce {
                 object_ap_id: object,
                 ap_to: serde_json::to_value(to.multiple()).unwrap(),

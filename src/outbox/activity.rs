@@ -1,18 +1,18 @@
 use crate::{
-    activity_pub::{sender, ApActivity, ApDelete, ApIdentifier, ApObject},
-    db::{create_leader, delete_leader, get_leader_by_profile_id_and_ap_id, Db},
+    activity_pub::{sender, ApActivity, ApIdentifier, ApObject, ApUndo},
+    db::Db,
     fairings::{
         events::EventChannels,
         faktory::{assign_to_faktory, FaktoryConnection},
     },
-    helper::{get_local_identifier, LocalIdentifier, LocalIdentifierType},
+    helper::{get_local_identifier, LocalIdentifierType},
     models::{
         announces::{create_announce, NewAnnounce},
-        leaders::NewLeader,
+        follows::{create_follow, get_follow_by_ap_object_and_profile, NewFollow},
+        leaders::delete_leader_by_ap_id_and_profile,
         likes::{create_like, NewLike},
         notes::get_note_by_uuid,
         profiles::Profile,
-        remote_activities::create_remote_activity,
         remote_actors::get_remote_actor_by_ap_id,
     },
     MaybeReference,
@@ -27,19 +27,24 @@ pub async fn undo_follow(
     profile: Profile,
     ap_id: String,
 ) -> bool {
-    if let Some(leader) = get_leader_by_profile_id_and_ap_id(&conn, profile.id, ap_id.clone()).await
+    if let Some(follow) =
+        get_follow_by_ap_object_and_profile(&conn, ap_id.clone(), profile.id).await
     {
-        debug!("LEADER RETRIEVED: {leader:#?}");
-        let locator = format!("{}/leader/{}", *crate::SERVER_URL, leader.uuid);
-        activity.object = ApObject::Identifier(ApIdentifier { id: locator });
+        debug!("FOLLOW RETRIEVED: {follow:#?}");
+        let locator = format!("{}/follows/{}", *crate::SERVER_URL, follow.uuid);
+        activity.object =
+            MaybeReference::Actual(ApObject::Identifier(ApIdentifier { id: locator }));
 
-        if let Some(actor) = get_remote_actor_by_ap_id(&conn, ap_id).await {
-            if sender::send_activity(activity.clone(), profile, actor.inbox)
+        if let Some(actor) = get_remote_actor_by_ap_id(&conn, ap_id.clone()).await {
+            if sender::send_activity(activity.clone(), profile.clone(), actor.inbox)
                 .await
                 .is_ok()
             {
                 debug!("UNDO FOLLOW REQUEST SENT");
-                if delete_leader(&conn, leader.id).await.is_ok() {
+                if delete_leader_by_ap_id_and_profile(&conn, ap_id, profile.id)
+                    .await
+                    .is_ok()
+                {
                     debug!("LEADER RECORD DELETED");
 
                     let mut events = events;
@@ -62,66 +67,77 @@ pub async fn undo_follow(
 
 pub async fn undo(
     conn: Db,
-    events: EventChannels,
-    mut activity: ApActivity,
+    faktory: FaktoryConnection,
+    activity: ApActivity,
     profile: Profile,
 ) -> Result<Status, Status> {
-    activity.actor = format!("{}/user/{}", *crate::SERVER_URL, profile.username);
-
-    if let ApObject::Plain(ap_id) = activity.clone().object {
-        if undo_follow(conn, events, activity.clone(), profile, ap_id).await {
-            Ok(Status::Accepted)
+    if let Ok(undo) = ApUndo::try_from(activity.clone()) {
+        if let MaybeReference::Actual(object) = undo.object {
+            match object {
+                ApObject::Follow(follow) => {
+                    if let MaybeReference::Reference(leader) = follow.object {
+                        if let Some(follow) =
+                            get_follow_by_ap_object_and_profile(&conn, leader, profile.id).await
+                        {
+                            match assign_to_faktory(
+                                faktory,
+                                String::from("process_undo_follow"),
+                                vec![follow.uuid],
+                            ) {
+                                Ok(_) => Ok(Status::Accepted),
+                                Err(_) => Err(Status::NoContent),
+                            }
+                        } else {
+                            Err(Status::NoContent)
+                        }
+                    } else {
+                        Err(Status::NoContent)
+                    }
+                }
+                _ => {
+                    log::warn!("UNDO ACTION MAY BE UNIMPLEMENTED");
+                    log::debug!("ACTIVITY\n{activity:#?}");
+                    Err(Status::NoContent)
+                }
+            }
         } else {
-            log::warn!("UNDO ACTION MAY BE UNIMPLEMENTED");
-            log::debug!("ACTIVITY\n{activity:#?}");
             Err(Status::NoContent)
         }
     } else {
         Err(Status::NoContent)
     }
+    // activity.actor = format!("{}/user/{}", *crate::SERVER_URL, profile.username);
+
+    // if let ApObject::Plain(ap_id) = activity.clone().object {
+    //     if undo_follow(conn, events, activity.clone(), profile, ap_id).await {
+    //         Ok(Status::Accepted)
+    //     } else {
+    //         log::warn!("UNDO ACTION MAY BE UNIMPLEMENTED");
+    //         log::debug!("ACTIVITY\n{activity:#?}");
+    //         Err(Status::NoContent)
+    //     }
+    // } else {
+    //     Err(Status::NoContent)
+    // }
 }
 
 pub async fn follow(
     conn: Db,
-    events: EventChannels,
+    faktory: FaktoryConnection,
     mut activity: ApActivity,
     profile: Profile,
 ) -> Result<Status, Status> {
     activity.actor = format!("{}/user/{}", *crate::SERVER_URL, profile.username);
 
-    let mut leader = NewLeader::from(activity.clone());
-    leader.profile_id = profile.id;
+    if let Ok(mut follow) = NewFollow::try_from(activity) {
+        follow.link(&conn).await;
 
-    if let Some(leader) = create_leader(&conn, leader).await {
-        debug!("leader created: {}", leader.uuid);
-        activity.id = Option::from(format!("{}/leader/{}", *crate::SERVER_URL, leader.uuid));
+        if create_follow(&conn, follow.clone()).await.is_some() {
+            log::debug!("FOLLOW CREATED: {}", follow.uuid);
 
-        if create_remote_activity(&conn, activity.clone().into())
-            .await
-            .is_some()
-        {
-            debug!("updated activity\n{:#?}", activity);
-
-            if let ApObject::Plain(object) = activity.clone().object {
-                if let Some(actor) = get_remote_actor_by_ap_id(&conn, object).await {
-                    if sender::send_activity(activity.clone(), profile, actor.inbox)
-                        .await
-                        .is_ok()
-                    {
-                        debug!("sent follow request successfully");
-
-                        let mut events = events;
-                        events.send(serde_json::to_string(&activity).unwrap());
-
-                        Ok(Status::Accepted)
-                    } else {
-                        Err(Status::NoContent)
-                    }
-                } else {
-                    Err(Status::NoContent)
-                }
-            } else {
-                Err(Status::NoContent)
+            match assign_to_faktory(faktory, String::from("process_follow"), vec![follow.uuid]) {
+                Ok(_) => Ok(Status::Accepted),
+                Err(_) => Err(Status::NoContent),
             }
         } else {
             Err(Status::NoContent)
@@ -206,7 +222,7 @@ pub async fn delete(
     // value here
     delete.actor = format!("{}/user/{}", *crate::SERVER_URL, profile.username);
 
-    if let ApObject::Plain(id) = delete.object {
+    if let MaybeReference::Reference(id) = delete.object {
         if let Some(identifier) = get_local_identifier(id) {
             match identifier.kind {
                 LocalIdentifierType::Note => {

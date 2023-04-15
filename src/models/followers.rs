@@ -1,12 +1,16 @@
-use crate::activity_pub::{ApActivity, ApObject};
+use crate::activity_pub::{ApAccept, ApActivity, ApFollow, ApObject};
 use crate::db::Db;
+use crate::helper::{get_local_identifier, LocalIdentifierType};
 use crate::schema::followers;
+use crate::MaybeReference;
 use diesel::prelude::*;
 
 use chrono::{DateTime, Utc};
 use diesel::{AsChangeset, Identifiable, Insertable, Queryable};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
+
+use super::profiles::Profile;
 
 #[derive(Serialize, Deserialize, Insertable, Default, Debug)]
 #[table_name = "followers"]
@@ -22,7 +26,7 @@ impl From<ApActivity> for NewFollower {
     fn from(activity: ApActivity) -> NewFollower {
         let mut o = Option::<String>::None;
 
-        if let ApObject::Plain(x) = activity.object {
+        if let MaybeReference::Reference(x) = activity.object {
             o = Some(x);
         };
 
@@ -32,6 +36,48 @@ impl From<ApActivity> for NewFollower {
             followed_ap_id: o.unwrap_or_default(),
             uuid: Uuid::new_v4().to_string(),
             ..Default::default()
+        }
+    }
+}
+
+impl TryFrom<ApFollow> for NewFollower {
+    type Error = &'static str;
+
+    fn try_from(follow: ApFollow) -> Result<Self, Self::Error> {
+        let followed = {
+            match follow.object {
+                MaybeReference::Reference(followed) => Some(followed),
+                _ => None,
+            }
+        };
+
+        if let Some(followed) = followed {
+            Ok(NewFollower {
+                ap_id: follow.id.unwrap(),
+                actor: follow.actor,
+                followed_ap_id: followed,
+                uuid: Uuid::new_v4().to_string(),
+                ..Default::default()
+            })
+        } else {
+            Err("COULD NOT BUILD NEW FOLLOWER")
+        }
+    }
+}
+
+impl NewFollower {
+    pub fn link(&mut self, profile: Profile) -> &mut Self {
+        if let Some(id) = get_local_identifier(self.followed_ap_id.clone()) {
+            if id.kind == LocalIdentifierType::User
+                && id.identifier.to_lowercase() == profile.username.to_lowercase()
+            {
+                self.profile_id = profile.id;
+                self
+            } else {
+                self
+            }
+        } else {
+            self
         }
     }
 }

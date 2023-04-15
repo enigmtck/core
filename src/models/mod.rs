@@ -1,6 +1,7 @@
 pub mod announces;
 pub mod encrypted_sessions;
 pub mod followers;
+pub mod follows;
 pub mod leaders;
 pub mod likes;
 pub mod notes;

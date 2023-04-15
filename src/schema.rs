@@ -42,6 +42,18 @@ diesel::table! {
 }
 
 diesel::table! {
+    follows (id) {
+        id -> Int4,
+        created_at -> Timestamptz,
+        updated_at -> Timestamptz,
+        uuid -> Varchar,
+        profile_id -> Nullable<Int4>,
+        ap_object -> Varchar,
+        actor -> Varchar,
+    }
+}
+
+diesel::table! {
     leaders (id) {
         id -> Int4,
         created_at -> Timestamptz,
@@ -350,6 +362,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     announces,
     encrypted_sessions,
     followers,
+    follows,
     leaders,
     likes,
     notes,

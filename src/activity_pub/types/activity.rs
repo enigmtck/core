@@ -1,14 +1,31 @@
 use crate::{
-    activity_pub::{ApContext, ApInstrument, ApNote, ApObject, ApSession},
+    activity_pub::{
+        ApAccept, ApAnnounce, ApContext, ApDelete, ApInstrument, ApLike, ApNote, ApObject,
+        ApSession, ApUndo,
+    },
     models::{remote_activities::RemoteActivity, remote_announces::RemoteAnnounce},
-    MaybeMultiple,
+    MaybeMultiple, MaybeReference,
 };
 use core::fmt;
 use serde::{Deserialize, Serialize};
 use serde_with::serde_as;
 use std::fmt::Debug;
 
-use super::{actor::ApAddress, object::ApProof, session::ApInstruments, signature::ApSignature};
+use super::{
+    actor::ApAddress, follow::ApFollow, object::ApProof, session::ApInstruments,
+    signature::ApSignature,
+};
+
+// Redesigning this to align with the ApObject structure; this will eventually
+// replace ApActivity
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(untagged)]
+pub enum ApActivityEnum {
+    Delete(ApDelete),
+    Follow(ApFollow),
+    Like(ApLike),
+    Announce(ApAnnounce),
+}
 
 #[derive(Serialize, PartialEq, Eq, Deserialize, Clone, Debug, Default)]
 pub enum ApActivityType {
@@ -86,7 +103,7 @@ pub struct ApActivity {
     pub instrument: Option<ApInstrument>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub signature: Option<ApSignature>,
-    pub object: ApObject,
+    pub object: MaybeReference<ApObject>,
 }
 
 impl Default for ApActivity {
@@ -104,7 +121,7 @@ impl Default for ApActivity {
             proof: Option::None,
             instrument: Option::None,
             signature: Option::None,
-            object: ApObject::default(),
+            object: MaybeReference::Actual(ApObject::default()),
         }
     }
 }
@@ -116,7 +133,7 @@ impl From<ApNote> for ApActivity {
             id: Some(format!("{}#create", note.clone().id.unwrap())),
             to: Some(note.clone().to),
             actor: note.clone().attributed_to,
-            object: ApObject::Note(note),
+            object: MaybeReference::Actual(ApObject::Note(note)),
             ..Default::default()
         }
     }
@@ -140,7 +157,7 @@ impl From<ApSession> for ApActivity {
                 session.to.clone(),
             )])),
             actor: session.attributed_to.clone(),
-            object: ApObject::Session(session),
+            object: MaybeReference::Actual(ApObject::Session(session)),
             ..Default::default()
         }
     }
@@ -194,6 +211,45 @@ impl From<RemoteAnnounce> for ApActivity {
             instrument: Option::None,
             signature: Option::None,
             object: serde_json::from_value(activity.ap_object).unwrap(),
+        }
+    }
+}
+
+impl From<ApFollow> for ApActivity {
+    fn from(follow: ApFollow) -> Self {
+        ApActivity {
+            context: Some(ApContext::default()),
+            kind: ApActivityType::Follow,
+            id: follow.id,
+            actor: follow.actor,
+            object: follow.object,
+            ..Default::default()
+        }
+    }
+}
+
+impl From<ApUndo> for ApActivity {
+    fn from(undo: ApUndo) -> Self {
+        ApActivity {
+            context: Some(ApContext::default()),
+            kind: ApActivityType::Undo,
+            id: undo.id,
+            actor: undo.actor,
+            object: undo.object,
+            ..Default::default()
+        }
+    }
+}
+
+impl From<ApAccept> for ApActivity {
+    fn from(accept: ApAccept) -> Self {
+        ApActivity {
+            context: Some(ApContext::default()),
+            kind: ApActivityType::Accept,
+            id: accept.id,
+            actor: accept.actor,
+            object: accept.object,
+            ..Default::default()
         }
     }
 }

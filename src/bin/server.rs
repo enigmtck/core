@@ -1138,10 +1138,10 @@ pub async fn outbox_post(
                 Ok(object) => match object {
                     Json(ActivityPub::Activity(activity)) => match activity.kind {
                         ApActivityType::Undo => {
-                            outbox::activity::undo(conn, events, activity, profile).await
+                            outbox::activity::undo(conn, faktory, activity, profile).await
                         }
                         ApActivityType::Follow => {
-                            outbox::activity::follow(conn, events, activity, profile).await
+                            outbox::activity::follow(conn, faktory, activity, profile).await
                         }
                         ApActivityType::Like => {
                             outbox::activity::like(conn, faktory, activity, profile).await
@@ -1255,20 +1255,19 @@ pub async fn shared_inbox_post(
                 match activity.kind {
                     ApActivityType::Delete => inbox::activity::delete(conn, activity).await,
                     ApActivityType::Create => {
-                        inbox::activity::create(conn, faktory, events, activity).await
+                        inbox::activity::create(conn, faktory, activity).await
                     }
-                    ApActivityType::Follow => {
-                        log::debug!("LOOKS LIKE A FOLLOW ACTIVITY");
-                        inbox::activity::follow(conn, faktory, events, activity).await
+                    ApActivityType::Follow => inbox::activity::follow(faktory, activity).await,
+                    ApActivityType::Undo => {
+                        inbox::activity::undo(conn, events, faktory, activity).await
                     }
-                    ApActivityType::Undo => inbox::activity::undo(conn, events, activity).await,
-                    ApActivityType::Accept => inbox::activity::accept(conn, events, activity).await,
+                    ApActivityType::Accept => inbox::activity::accept(faktory, activity).await,
                     ApActivityType::Invite => {
                         inbox::activity::invite(conn, faktory, activity).await
                     }
                     ApActivityType::Join => inbox::activity::join(conn, faktory, activity).await,
                     ApActivityType::Announce => {
-                        inbox::activity::announce(conn, faktory, events, activity).await
+                        inbox::activity::announce(conn, faktory, activity).await
                     }
                     ApActivityType::Update => {
                         inbox::activity::update(conn, faktory, activity).await
