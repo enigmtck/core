@@ -3,9 +3,8 @@ use std::fmt::Debug;
 
 use crate::{
     // activity_pub::{ApActivity, ApActivityType, ApContext},
-    activity_pub::{ApActivity, ApContext},
+    activity_pub::{ApAddress, ApContext},
     models::likes::Like,
-    MaybeReference,
 };
 use serde::{Deserialize, Serialize};
 
@@ -29,7 +28,7 @@ pub struct ApLike {
     pub context: Option<ApContext>,
     #[serde(rename = "type")]
     pub kind: ApLikeType,
-    pub actor: String,
+    pub actor: ApAddress,
     pub id: Option<String>,
     pub object: String,
 }
@@ -39,31 +38,9 @@ impl From<Like> for ApLike {
         ApLike {
             context: Some(ApContext::default()),
             kind: ApLikeType::Like,
-            actor: like.actor,
+            actor: ApAddress::Address(like.actor),
             id: Some(format!("{}/likes/{}", *crate::SERVER_URL, like.uuid)),
             object: like.object_ap_id,
         }
     }
 }
-
-// impl TryFrom<ApActivity> for ApLike {
-//     type Error = &'static str;
-
-//     fn try_from(activity: ApActivity) -> Result<Self, Self::Error> {
-//         if let MaybeReference::Reference(object_id) = activity.object {
-//             if activity.kind == ApActivityType::Like {
-//                 Ok(ApLike {
-//                     context: Some(ApContext::default()),
-//                     kind: ApLikeType::default(),
-//                     actor: activity.actor,
-//                     id: activity.id,
-//                     object: object_id,
-//                 })
-//             } else {
-//                 Err("ACTIVITY IS NOT A LIKE")
-//             }
-//         } else {
-//             Err("ACTIVITY OBJECT IS NOT PLAIN")
-//         }
-//     }
-// }

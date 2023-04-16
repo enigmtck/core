@@ -34,7 +34,7 @@ pub struct ApDelete {
     pub context: Option<ApContext>,
     #[serde(rename = "type")]
     pub kind: ApDeleteType,
-    pub actor: String,
+    pub actor: ApAddress,
     pub id: Option<String>,
     pub object: MaybeReference<ApObject>,
     pub signature: Option<ApSignature>,

@@ -1,7 +1,7 @@
 use crate::{
     activity_pub::{
-        ApAccept, ApActivity, ApAnnounce, ApCreate, ApDelete, ApFollow, ApInvite, ApJoin, ApLike,
-        ApObject, ApUndo, ApUpdate,
+        ApAccept, ApActivity, ApAddress, ApAnnounce, ApCreate, ApDelete, ApFollow, ApInvite,
+        ApJoin, ApLike, ApObject, ApUndo, ApUpdate,
     },
     db::{create_remote_encrypted_session, create_remote_note, Db},
     fairings::{
@@ -58,7 +58,7 @@ pub async fn delete(conn: Db, activity: ApDelete) -> Result<Status, Status> {
                 if let Some(remote_note) =
                     get_remote_note_by_ap_id(&conn, tombstone.id.clone()).await
                 {
-                    if remote_note.attributed_to == activity.actor {
+                    if remote_note.attributed_to == activity.actor.to_string() {
                         if delete_note(&conn, tombstone.id.clone()).await.is_ok() {
                             delete_timeline(&conn, tombstone.id).await
                         } else {
@@ -72,7 +72,7 @@ pub async fn delete(conn: Db, activity: ApDelete) -> Result<Status, Status> {
                 }
             }
             ApObject::Identifier(obj) => {
-                if obj.id == activity.actor {
+                if obj.id == activity.actor.to_string() {
                     delete_actor(conn, obj.id).await
                 } else {
                     debug!("DOESN'T MATCH ACTOR; ASSUMING NOTE");
@@ -89,7 +89,7 @@ pub async fn delete(conn: Db, activity: ApDelete) -> Result<Status, Status> {
             }
         },
         MaybeReference::Reference(ap_id) => {
-            if ap_id == activity.actor {
+            if ap_id == activity.actor.to_string() {
                 delete_actor(conn, ap_id).await
             } else {
                 debug!("DOESN'T MATCH ACTOR; ASSUMING NOTE");
@@ -176,8 +176,14 @@ pub async fn undo(
 ) -> Result<Status, Status> {
     match activity.clone().object {
         MaybeReference::Actual(actual) => match actual {
-            ApObject::Like(like) => {
-                if delete_remote_like_by_actor_and_object_id(&conn, like.actor, like.object).await {
+            ApActivity::Like(like) => {
+                if delete_remote_like_by_actor_and_object_id(
+                    &conn,
+                    like.actor.to_string(),
+                    like.object,
+                )
+                .await
+                {
                     let mut events = events;
                     events.send(serde_json::to_string(&activity).unwrap());
 
@@ -186,7 +192,7 @@ pub async fn undo(
                     Err(Status::NoContent)
                 }
             }
-            ApObject::Follow(follow) => {
+            ApActivity::Follow(follow) => {
                 if let Some(id) = follow.id {
                     match assign_to_faktory(
                         faktory,
@@ -234,7 +240,7 @@ pub async fn invite(
 ) -> Result<Status, Status> {
     log::debug!("PROCESSING INVITE\n{activity:#?}");
 
-    if let Some(to) = activity.to.single() {
+    if let Some(ApAddress::Address(to)) = activity.to.single() {
         if let Some(profile) = get_profile_by_ap_id(&conn, to).await {
             if let Some(session) =
                 create_remote_encrypted_session(&conn, (activity.clone(), profile.id).into()).await
@@ -268,7 +274,7 @@ pub async fn join(
 ) -> Result<Status, Status> {
     log::debug!("PROCESSING JOIN ACTIVITY\n{activity:#?}");
 
-    if let Some(to) = activity.to.clone().single() {
+    if let Some(ApAddress::Address(to)) = activity.to.clone().single() {
         if let Some(profile) = get_profile_by_ap_id(&conn, to.clone()).await {
             if create_remote_encrypted_session(&conn, (activity.clone(), profile.id).into())
                 .await

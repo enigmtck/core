@@ -1,7 +1,6 @@
-use crate::activity_pub::{ApActivity, ApAnnounce};
+use crate::activity_pub::ApAnnounce;
 use crate::db::Db;
 use crate::schema::announces;
-use crate::MaybeReference;
 use chrono::{DateTime, Utc};
 use diesel::prelude::*;
 use diesel::{AsChangeset, Identifiable, Insertable, Queryable};
@@ -20,25 +19,6 @@ pub struct NewAnnounce {
     pub uuid: String,
     pub profile_id: Option<i32>,
 }
-
-// impl TryFrom<ApActivity> for NewAnnounce {
-//     type Error = &'static str;
-
-//     fn try_from(activity: ApActivity) -> Result<Self, Self::Error> {
-//         if let (MaybeReference::Reference(object), Some(to)) = (activity.object, activity.to) {
-//             Ok(NewAnnounce {
-//                 object_ap_id: object,
-//                 ap_to: serde_json::to_value(to.multiple()).unwrap(),
-//                 cc: activity.cc.map(|cc| serde_json::to_value(cc).unwrap()),
-//                 actor: activity.actor,
-//                 uuid: uuid::Uuid::new_v4().to_string(),
-//                 profile_id: None,
-//             })
-//         } else {
-//             Err("INCORRECT OBJECT OR TO TYPE")
-//         }
-//     }
-// }
 
 impl From<ApAnnounce> for NewAnnounce {
     fn from(activity: ApAnnounce) -> Self {

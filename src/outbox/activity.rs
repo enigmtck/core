@@ -1,8 +1,5 @@
 use crate::{
-    activity_pub::{
-        sender, ApActivity, ApAddress, ApAnnounce, ApDelete, ApFollow, ApIdentifier, ApLike,
-        ApObject, ApUndo,
-    },
+    activity_pub::{sender, ApActivity, ApAddress, ApAnnounce, ApDelete, ApFollow, ApLike, ApUndo},
     db::Db,
     fairings::{
         events::EventChannels,
@@ -18,7 +15,7 @@ use crate::{
         profiles::Profile,
         remote_actors::get_remote_actor_by_ap_id,
     },
-    MaybeReference,
+    Identifier, MaybeReference,
 };
 use log::debug;
 use rocket::http::Status;
@@ -35,12 +32,11 @@ pub async fn undo_follow(
     {
         debug!("FOLLOW RETRIEVED: {follow:#?}");
         let locator = format!("{}/follows/{}", *crate::SERVER_URL, follow.uuid);
-        activity.object =
-            MaybeReference::Actual(ApObject::Identifier(ApIdentifier { id: locator }));
+        activity.object = MaybeReference::Identifier(Identifier { id: locator });
 
         if let Some(actor) = get_remote_actor_by_ap_id(&conn, ap_id.clone()).await {
             if sender::send_activity(
-                ApActivity::Undo(activity.clone()),
+                ApActivity::Undo(Box::new(activity.clone())),
                 profile.clone(),
                 actor.inbox,
             )
@@ -80,7 +76,7 @@ pub async fn undo(
 ) -> Result<Status, Status> {
     if let MaybeReference::Actual(object) = activity.object.clone() {
         match object {
-            ApObject::Follow(follow) => {
+            ApActivity::Follow(follow) => {
                 if let MaybeReference::Reference(leader) = follow.object {
                     if let Some(follow) =
                         get_follow_by_ap_object_and_profile(&conn, leader, profile.id).await
@@ -109,19 +105,6 @@ pub async fn undo(
     } else {
         Err(Status::NoContent)
     }
-    // activity.actor = format!("{}/user/{}", *crate::SERVER_URL, profile.username);
-
-    // if let ApObject::Plain(ap_id) = activity.clone().object {
-    //     if undo_follow(conn, events, activity.clone(), profile, ap_id).await {
-    //         Ok(Status::Accepted)
-    //     } else {
-    //         log::warn!("UNDO ACTION MAY BE UNIMPLEMENTED");
-    //         log::debug!("ACTIVITY\n{activity:#?}");
-    //         Err(Status::NoContent)
-    //     }
-    // } else {
-    //     Err(Status::NoContent)
-    // }
 }
 
 pub async fn follow(
@@ -130,7 +113,8 @@ pub async fn follow(
     mut activity: ApFollow,
     profile: Profile,
 ) -> Result<Status, Status> {
-    activity.actor = format!("{}/user/{}", *crate::SERVER_URL, profile.username);
+    activity.actor =
+        ApAddress::Address(format!("{}/user/{}", *crate::SERVER_URL, profile.username));
 
     if let Ok(mut follow) = NewFollow::try_from(activity) {
         follow.link(&conn).await;
@@ -158,7 +142,8 @@ pub async fn like(
 ) -> Result<Status, Status> {
     // we ignore whatever was submitted for the actor value and enforce the correct
     // value here; this will be used in the conversion to an ApLike
-    activity.actor = format!("{}/user/{}", *crate::SERVER_URL, profile.username);
+    activity.actor =
+        ApAddress::Address(format!("{}/user/{}", *crate::SERVER_URL, profile.username));
 
     // ApLike messages do not include the "to" field, but that field is necessary for
     // delivery; so we store that as "ap_to" in the Like model, and we derive the NewLike
@@ -224,7 +209,7 @@ pub async fn delete(
 ) -> Result<Status, Status> {
     // we ignore whatever was submitted for the actor value and enforce the correct
     // value here
-    delete.actor = format!("{}/user/{}", *crate::SERVER_URL, profile.username);
+    delete.actor = ApAddress::Address(format!("{}/user/{}", *crate::SERVER_URL, profile.username));
 
     if let MaybeReference::Reference(id) = delete.object {
         if let Some(identifier) = get_local_identifier(id) {

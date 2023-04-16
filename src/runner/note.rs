@@ -49,7 +49,7 @@ pub fn delete_note(job: Job) -> io::Result<()> {
                         log::debug!("DELETE\n{delete:#?}");
                         let inboxes = get_follower_inboxes(profile.clone());
 
-                        send_to_inboxes(inboxes, profile, ApObject::Delete(Box::new(delete)));
+                        send_to_inboxes(inboxes, profile, ApActivity::Delete(Box::new(delete)));
 
                         let ap_id = get_note_ap_id_from_uuid(uuid.clone());
 

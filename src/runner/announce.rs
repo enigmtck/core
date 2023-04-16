@@ -6,7 +6,7 @@ use tokio::runtime::Runtime;
 use webpage::{Webpage, WebpageOptions};
 
 use crate::{
-    activity_pub::{ApActivity, ApActor, ApAddress, ApAnnounce, ApNote, Metadata},
+    activity_pub::{ApActor, ApAddress, ApAnnounce, ApNote, Metadata},
     models::{announces::Announce, remote_announces::RemoteAnnounce},
     runner::{
         actor::get_actor,
@@ -17,7 +17,7 @@ use crate::{
     },
     schema::{announces, remote_announces},
     signing::{Method, SignParams},
-    MaybeMultiple, MaybeReference,
+    MaybeMultiple,
 };
 
 use super::POOL;

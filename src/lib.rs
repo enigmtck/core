@@ -139,10 +139,16 @@ impl<T: Clone> MaybeMultiple<T> {
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
+pub struct Identifier {
+    id: String,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, Default)]
 #[serde(untagged)]
 pub enum MaybeReference<T> {
     Reference(String),
     Actual(T),
+    Identifier(Identifier),
     #[default]
     None,
 }

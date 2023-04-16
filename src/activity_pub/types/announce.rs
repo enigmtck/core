@@ -2,11 +2,9 @@ use core::fmt;
 use std::fmt::Debug;
 
 use crate::{
-    // activity_pub::{ApActivity, ApActivityType, ApAddress, ApContext},
-    activity_pub::{ApActivity, ApAddress, ApContext},
+    activity_pub::{ApAddress, ApContext},
     models::{announces::Announce, remote_announces::RemoteAnnounce},
     MaybeMultiple,
-    MaybeReference,
 };
 use serde::{Deserialize, Serialize};
 
@@ -56,32 +54,6 @@ impl From<Announce> for ApAnnounce {
         }
     }
 }
-
-// impl TryFrom<ApActivity> for ApAnnounce {
-//     type Error = &'static str;
-
-//     fn try_from(activity: ApActivity) -> Result<Self, Self::Error> {
-//         if let MaybeReference::Reference(object_id) = activity.object {
-//             if activity.kind == ApActivityType::Announce {
-//                 Ok(ApAnnounce {
-//                     context: Some(ApContext::default()),
-//                     kind: ApAnnounceType::default(),
-//                     actor: ApAddress::Address(activity.actor),
-//                     id: activity.id,
-//                     object: object_id,
-//                     to: activity.to.unwrap(),
-//                     cc: activity.cc.map(|cc| {
-//                         MaybeMultiple::Multiple(cc.iter().map(|cc| cc.clone().into()).collect())
-//                     }),
-//                 })
-//             } else {
-//                 Err("ACTIVITY IS NOT AN ANNOUNCE")
-//             }
-//         } else {
-//             Err("ACTIVITY OBJECT IS NOT PLAIN")
-//         }
-//     }
-// }
 
 impl TryFrom<RemoteAnnounce> for ApAnnounce {
     type Error = &'static str;

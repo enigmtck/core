@@ -1,7 +1,6 @@
-use crate::activity_pub::{ApActivity, ApLike};
+use crate::activity_pub::ApLike;
 use crate::db::Db;
 use crate::schema::likes;
-use crate::{MaybeMultiple, MaybeReference};
 use chrono::{DateTime, Utc};
 use diesel::prelude::*;
 use diesel::{AsChangeset, Identifiable, Insertable, Queryable};
@@ -19,32 +18,12 @@ pub struct NewLike {
     pub profile_id: Option<i32>,
 }
 
-// impl TryFrom<ApActivity> for NewLike {
-//     type Error = &'static str;
-
-//     fn try_from(like: ApActivity) -> Result<Self, Self::Error> {
-//         if let (MaybeReference::Reference(object), Some(MaybeMultiple::Single(to))) =
-//             (like.object, like.to)
-//         {
-//             Ok(NewLike {
-//                 object_ap_id: object,
-//                 ap_to: to.to_string(),
-//                 actor: like.actor,
-//                 uuid: uuid::Uuid::new_v4().to_string(),
-//                 profile_id: None,
-//             })
-//         } else {
-//             Err("INCORRECT OBJECT OR TO TYPE")
-//         }
-//     }
-// }
-
 impl From<ApLike> for NewLike {
     fn from(like: ApLike) -> Self {
         NewLike {
             object_ap_id: like.object,
             ap_to: "".to_string(),
-            actor: like.actor,
+            actor: like.actor.to_string(),
             uuid: uuid::Uuid::new_v4().to_string(),
             profile_id: None,
         }

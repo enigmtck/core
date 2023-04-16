@@ -1,4 +1,4 @@
-use crate::activity_pub::{ApActivity, ApAnnounce, ApNote};
+use crate::activity_pub::{ApAnnounce, ApNote};
 use crate::db::Db;
 use crate::helper::get_ap_id_from_username;
 use crate::schema::{
@@ -71,7 +71,7 @@ impl From<ApNote> for NewTimelineItem {
     fn from(note: ApNote) -> Self {
         NewTimelineItem {
             tag: Option::from(serde_json::to_value(&note.tag).unwrap_or_default()),
-            attributed_to: note.clone().attributed_to,
+            attributed_to: note.clone().attributed_to.to_string(),
             ap_id: note.clone().id.unwrap(),
             kind: note.kind.to_string(),
             url: note.clone().url,
@@ -115,7 +115,7 @@ impl From<SynthesizedAnnounce> for NewTimelineItem {
     fn from((activity, note): SynthesizedAnnounce) -> Self {
         NewTimelineItem {
             tag: Option::from(serde_json::to_value(&note.tag).unwrap_or_default()),
-            attributed_to: note.clone().attributed_to,
+            attributed_to: note.clone().attributed_to.to_string(),
             ap_id: note.clone().id.unwrap(),
             kind: note.kind.to_string(),
             url: note.clone().url,

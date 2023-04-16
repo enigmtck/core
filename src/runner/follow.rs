@@ -4,7 +4,7 @@ use std::io;
 use tokio::runtime::Runtime;
 
 use crate::{
-    activity_pub::{sender::send_activity, ApAccept, ApActivity, ApFollow, ApObject, ApUndo},
+    activity_pub::{sender::send_activity, ApAccept, ApActivity, ApFollow, ApUndo},
     models::{
         followers::{Follower, NewFollower},
         follows::Follow,
@@ -113,8 +113,8 @@ pub fn process_accept(job: Job) -> io::Result<()> {
 
         if let Some(activity) = get_remote_activity_by_apid(ap_id) {
             if let Ok(accept) = ApAccept::try_from(activity) {
-                if let MaybeReference::Actual(ApObject::Follow(follow)) = accept.object.clone() {
-                    if let Some(profile) = get_profile_by_ap_id(follow.actor) {
+                if let MaybeReference::Actual(ApActivity::Follow(follow)) = accept.object.clone() {
+                    if let Some(profile) = get_profile_by_ap_id(follow.actor.to_string()) {
                         if let Ok(mut leader) = NewLeader::try_from(accept.clone()) {
                             leader.link(profile);
 
@@ -176,14 +176,14 @@ pub fn process_undo_follow(job: Job) -> io::Result<()> {
 
             log::debug!("UNDO\n{undo:#?}");
 
-            if let Some(profile) = get_profile_by_ap_id(follow.actor) {
+            if let Some(profile) = get_profile_by_ap_id(follow.actor.to_string()) {
                 if let MaybeReference::Reference(to) = follow.object.clone() {
                     handle.block_on(async {
                         if let Some((actor, _)) = get_actor(profile.clone(), to.clone()).await {
                             let inbox = actor.inbox;
 
                             match send_activity(
-                                ApActivity::Undo(undo),
+                                ApActivity::Undo(Box::new(undo)),
                                 profile.clone(),
                                 inbox.clone(),
                             )
@@ -259,14 +259,16 @@ pub fn acknowledge_followers(job: Job) -> io::Result<()> {
             if let Some(activity) = get_remote_activity_by_apid(ap_id) {
                 if let Ok(follow) = ApFollow::try_from(activity) {
                     if let Ok(accept) = ApAccept::try_from(follow.clone()) {
-                        if let Some(profile) = get_profile_by_ap_id(accept.actor.clone()) {
+                        if let Some(profile) =
+                            get_profile_by_ap_id(accept.actor.clone().to_string())
+                        {
                             if let Some((actor, _)) =
-                                get_actor(profile.clone(), follow.actor.clone()).await
+                                get_actor(profile.clone(), follow.actor.clone().to_string()).await
                             {
                                 let inbox = actor.inbox;
 
                                 match send_activity(
-                                    ApActivity::Accept(accept),
+                                    ApActivity::Accept(Box::new(accept)),
                                     profile.clone(),
                                     inbox.clone(),
                                 )

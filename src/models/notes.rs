@@ -29,28 +29,28 @@ pub struct NewNote {
 pub type IdentifiedApNote = (ApNote, i32);
 
 impl From<IdentifiedApNote> for NewNote {
-    fn from(note: IdentifiedApNote) -> Self {
+    fn from((note, profile_id): IdentifiedApNote) -> Self {
         NewNote {
-            profile_id: note.1,
+            profile_id,
             uuid: uuid::Uuid::new_v4().to_string(),
-            kind: note.0.kind.to_string(),
-            ap_to: serde_json::to_value(&note.0.to).unwrap(),
-            attributed_to: note.0.attributed_to,
-            tag: handle_option(serde_json::to_value(&note.0.tag).unwrap()),
-            attachment: handle_option(serde_json::to_value(&note.0.attachment).unwrap()),
-            instrument: handle_option(serde_json::to_value(&note.0.instrument).unwrap()),
-            content: note.0.content,
-            in_reply_to: note.0.in_reply_to,
-            cc: handle_option(serde_json::to_value(&note.0.cc).unwrap()),
+            kind: note.kind.to_string(),
+            ap_to: serde_json::to_value(&note.to).unwrap(),
+            attributed_to: note.attributed_to.to_string(),
+            tag: handle_option(serde_json::to_value(&note.tag).unwrap()),
+            attachment: handle_option(serde_json::to_value(&note.attachment).unwrap()),
+            instrument: handle_option(serde_json::to_value(&note.instrument).unwrap()),
+            content: note.content,
+            in_reply_to: note.in_reply_to,
+            cc: handle_option(serde_json::to_value(&note.cc).unwrap()),
             conversation: {
-                if note.0.conversation.is_none() {
+                if note.conversation.is_none() {
                     Option::from(format!(
                         "{}/conversation/{}",
                         *crate::SERVER_URL,
                         uuid::Uuid::new_v4()
                     ))
                 } else {
-                    note.0.conversation
+                    note.conversation
                 }
             },
         }

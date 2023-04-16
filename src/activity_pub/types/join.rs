@@ -2,7 +2,7 @@ use core::fmt;
 use std::fmt::Debug;
 
 use crate::{
-    activity_pub::{ApContext, ApInstruments, ApObject, ApSession},
+    activity_pub::{ApAddress, ApContext, ApInstruments, ApObject, ApSession},
     MaybeMultiple, MaybeReference,
 };
 use serde::{Deserialize, Serialize};
@@ -27,9 +27,9 @@ pub struct ApJoin {
     pub context: Option<ApContext>,
     #[serde(rename = "type")]
     pub kind: ApJoinType,
-    pub actor: String,
+    pub actor: ApAddress,
     pub id: Option<String>,
-    pub to: MaybeMultiple<String>,
+    pub to: MaybeMultiple<ApAddress>,
     pub object: MaybeReference<ApObject>,
 }
 
@@ -42,7 +42,7 @@ impl TryFrom<ApSession> for ApJoin {
                 kind: ApJoinType::default(),
                 actor: session.attributed_to.clone(),
                 id: session.id.clone().map(|id| format!("{id}#join")),
-                to: session.to.clone().into(),
+                to: MaybeMultiple::Single(session.to.clone()),
                 object: ApObject::Session(session).into(),
             })
         } else {

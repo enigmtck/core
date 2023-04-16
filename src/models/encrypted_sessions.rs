@@ -23,14 +23,14 @@ pub struct NewEncryptedSession {
 
 type IdentifiedEncryptedSession = (ApSession, i32);
 impl From<IdentifiedEncryptedSession> for NewEncryptedSession {
-    fn from(session: IdentifiedEncryptedSession) -> NewEncryptedSession {
+    fn from((session, profile_id): IdentifiedEncryptedSession) -> NewEncryptedSession {
         NewEncryptedSession {
-            ap_to: session.0.to,
-            attributed_to: session.0.attributed_to,
-            reference: session.0.reference,
-            instrument: serde_json::to_value(session.0.instrument).unwrap(),
+            ap_to: session.to.to_string(),
+            attributed_to: session.attributed_to.to_string(),
+            reference: session.reference,
+            instrument: serde_json::to_value(session.instrument).unwrap(),
             uuid: Uuid::new_v4().to_string(),
-            profile_id: session.1,
+            profile_id,
         }
     }
 }

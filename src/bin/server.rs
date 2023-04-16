@@ -1138,19 +1138,19 @@ pub async fn outbox_post(
                 Ok(object) => match object {
                     Json(ActivityPub::Activity(activity)) => match activity {
                         ApActivity::Undo(activity) => {
-                            outbox::activity::undo(conn, faktory, activity, profile).await
+                            outbox::activity::undo(conn, faktory, *activity, profile).await
                         }
                         ApActivity::Follow(activity) => {
                             outbox::activity::follow(conn, faktory, activity, profile).await
                         }
                         ApActivity::Like(activity) => {
-                            outbox::activity::like(conn, faktory, activity, profile).await
+                            outbox::activity::like(conn, faktory, *activity, profile).await
                         }
                         ApActivity::Announce(activity) => {
                             outbox::activity::announce(conn, faktory, activity, profile).await
                         }
                         ApActivity::Delete(activity) => {
-                            outbox::activity::delete(conn, faktory, activity, profile).await
+                            outbox::activity::delete(conn, faktory, *activity, profile).await
                         }
                         _ => Err(Status::NoContent),
                     },
@@ -1243,25 +1243,21 @@ pub async fn shared_inbox_post(
     if let Signed(true, _) = signed {
         let activity = activity.clone();
 
-        // if retriever::get_actor(&conn, activity.actor.clone(), Option::None, true)
-        //     .await
-        //     .is_some()
-        // {
         if create_remote_activity(&conn, activity.clone().into())
             .await
             .is_some()
         {
             log::debug!("ACTIVITY CREATED");
             match activity {
-                ApActivity::Delete(activity) => inbox::activity::delete(conn, activity).await,
+                ApActivity::Delete(activity) => inbox::activity::delete(conn, *activity).await,
                 ApActivity::Create(activity) => {
                     inbox::activity::create(conn, faktory, activity).await
                 }
                 ApActivity::Follow(activity) => inbox::activity::follow(faktory, activity).await,
                 ApActivity::Undo(activity) => {
-                    inbox::activity::undo(conn, events, faktory, activity).await
+                    inbox::activity::undo(conn, events, faktory, *activity).await
                 }
-                ApActivity::Accept(activity) => inbox::activity::accept(faktory, activity).await,
+                ApActivity::Accept(activity) => inbox::activity::accept(faktory, *activity).await,
                 ApActivity::Invite(activity) => {
                     inbox::activity::invite(conn, faktory, activity).await
                 }
@@ -1272,20 +1268,12 @@ pub async fn shared_inbox_post(
                 ApActivity::Update(activity) => {
                     inbox::activity::update(conn, faktory, activity).await
                 }
-                ApActivity::Like(activity) => inbox::activity::like(conn, faktory, activity).await,
-                _ => {
-                    log::warn!("UNIMPLEMENTED ACTIVITY\n{activity:#?}");
-                    Err(Status::NoContent)
-                }
+                ApActivity::Like(activity) => inbox::activity::like(conn, faktory, *activity).await,
             }
         } else {
             log::debug!("FAILED TO CREATE REMOTE ACTIVITY");
             Err(Status::NoContent)
         }
-        // } else {
-        //     log::debug!("FAILED TO RETRIEVE ACTOR");
-        //     Err(Status::NoContent)
-        // }
     } else {
         log::debug!("REQUEST WAS UNSIGNED OR MALFORMED");
         Err(Status::NoContent)

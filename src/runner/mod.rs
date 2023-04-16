@@ -7,7 +7,7 @@ use reqwest::Client;
 use tokio::runtime::Runtime;
 
 use crate::{
-    activity_pub::{ApNote, ApObject},
+    activity_pub::{ApActivity, ApNote},
     models::profiles::Profile,
     signing::{Method, SignParams},
 };
@@ -71,7 +71,7 @@ pub async fn send_to_mq(note: ApNote) {
         .unwrap();
 }
 
-pub fn send_to_inboxes(inboxes: HashSet<String>, profile: Profile, message: ApObject) {
+pub fn send_to_inboxes(inboxes: HashSet<String>, profile: Profile, message: ApActivity) {
     let rt = Runtime::new().unwrap();
     let handle = rt.handle();
 

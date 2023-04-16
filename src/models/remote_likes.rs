@@ -1,7 +1,6 @@
-use crate::activity_pub::{ApActivity, ApLike};
+use crate::activity_pub::ApLike;
 use crate::db::Db;
 use crate::schema::remote_likes;
-use crate::MaybeReference;
 use chrono::{DateTime, Utc};
 use diesel::prelude::*;
 use diesel::{AsChangeset, Identifiable, Insertable, Queryable};
@@ -19,7 +18,7 @@ impl From<ApLike> for NewRemoteLike {
     fn from(activity: ApLike) -> NewRemoteLike {
         NewRemoteLike {
             object_id: activity.object,
-            actor: activity.actor,
+            actor: activity.actor.to_string(),
             ap_id: activity.id.unwrap_or_default(),
         }
     }

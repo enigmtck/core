@@ -1,5 +1,5 @@
 use crate::{
-    activity_pub::ApContext,
+    activity_pub::{ApAddress, ApContext},
     models::{
         encrypted_sessions::EncryptedSession, olm_sessions::OlmSession,
         remote_encrypted_sessions::RemoteEncryptedSession,
@@ -18,8 +18,8 @@ pub struct ApSession {
     pub kind: ApSessionType,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub id: Option<String>,
-    pub to: String,
-    pub attributed_to: String,
+    pub to: ApAddress,
+    pub attributed_to: ApAddress,
     pub instrument: ApInstruments,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reference: Option<String>,
@@ -33,8 +33,8 @@ impl Default for ApSession {
             context: Option::from(ApContext::default()),
             kind: ApSessionType::default(),
             id: Option::from(format!("https://{}/session/{}", *crate::SERVER_NAME, uuid)),
-            to: String::new(),
-            attributed_to: String::new(),
+            to: ApAddress::None,
+            attributed_to: ApAddress::None,
             instrument: ApInstruments::default(),
             reference: Option::None,
             uuid: Some(uuid.to_string()),
@@ -108,8 +108,8 @@ impl From<JoinData> for ApSession {
     fn from(keys: JoinData) -> ApSession {
         ApSession {
             reference: Option::from(keys.reference),
-            to: keys.to,
-            attributed_to: keys.attributed_to,
+            to: ApAddress::Address(keys.to),
+            attributed_to: ApAddress::Address(keys.attributed_to),
             instrument: ApInstruments::Multiple(vec![
                 ApInstrument {
                     kind: ApInstrumentType::IdentityKey,
@@ -136,8 +136,8 @@ impl From<EncryptedSession> for ApSession {
                 session.uuid
             )),
             reference: session.reference,
-            to: session.ap_to,
-            attributed_to: session.attributed_to,
+            to: ApAddress::Address(session.ap_to),
+            attributed_to: ApAddress::Address(session.attributed_to),
             instrument: serde_json::from_value(session.instrument).unwrap(),
             uuid: Some(session.uuid),
 
@@ -177,8 +177,8 @@ impl From<RemoteEncryptedSession> for ApSession {
         ApSession {
             id: Option::from(session.ap_id),
             reference: session.reference,
-            to: session.ap_to,
-            attributed_to: session.attributed_to,
+            to: ApAddress::Address(session.ap_to),
+            attributed_to: ApAddress::Address(session.attributed_to),
             instrument,
             ..Default::default()
         }

@@ -49,7 +49,7 @@ impl From<ApActor> for NewRemoteActor {
                 }
             },
             kind: actor.kind.to_string(),
-            ap_id: actor.id.unwrap(),
+            ap_id: actor.id.unwrap().to_string(),
             name: actor.name.unwrap(),
             preferred_username: actor.preferred_username,
             summary: actor.summary.unwrap_or_default(),

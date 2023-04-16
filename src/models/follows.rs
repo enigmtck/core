@@ -1,4 +1,4 @@
-use crate::activity_pub::{ApActivity, ApFollow};
+use crate::activity_pub::ApFollow;
 use crate::db::Db;
 use crate::schema::follows;
 use crate::MaybeReference;
@@ -25,7 +25,7 @@ impl TryFrom<ApFollow> for NewFollow {
         if let MaybeReference::Reference(object) = follow.object {
             Ok(NewFollow {
                 ap_object: object,
-                actor: follow.actor,
+                actor: follow.actor.to_string(),
                 uuid: uuid::Uuid::new_v4().to_string(),
                 profile_id: None,
             })

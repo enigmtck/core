@@ -196,15 +196,17 @@ pub fn send_kexinit(job: Job) -> io::Result<()> {
 
                 let mut inbox = Option::<String>::None;
 
-                if is_local(session.to.clone()) {
-                    if let Some(x) = get_local_identifier(session.to.clone()) {
+                if is_local(session.to.clone().to_string()) {
+                    if let Some(x) = get_local_identifier(session.to.clone().to_string()) {
                         if x.kind == LocalIdentifierType::User {
                             if let Some(profile) = get_profile_by_username(x.identifier) {
                                 inbox = Option::from(ApActor::from(profile).inbox);
                             }
                         }
                     }
-                } else if let Some(actor) = get_remote_actor_by_ap_id(session.to.clone()) {
+                } else if let Some(actor) =
+                    get_remote_actor_by_ap_id(session.to.clone().to_string())
+                {
                     inbox = Option::from(actor.inbox);
                 }
 

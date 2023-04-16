@@ -29,7 +29,7 @@ pub struct ApCreate {
     pub context: Option<ApContext>,
     #[serde(rename = "type")]
     pub kind: ApCreateType,
-    pub actor: String,
+    pub actor: ApAddress,
     pub to: MaybeMultiple<ApAddress>,
     pub cc: Option<MaybeMultiple<ApAddress>>,
     pub id: Option<String>,

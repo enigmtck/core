@@ -8,16 +8,21 @@ use crate::models::remote_actors::RemoteActor;
 use serde::{Deserialize, Serialize};
 use serde_with::serde_as;
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, PartialEq, Eq, Debug, Default)]
 #[serde(untagged)]
 pub enum ApAddress {
     Address(String),
+    #[default]
+    None,
 }
 
 impl ApAddress {
     pub fn is_public(&self) -> bool {
-        let ApAddress::Address(x) = self;
-        x.to_lowercase() == *"https://www.w3.org/ns/activitystreams#public"
+        if let ApAddress::Address(x) = self {
+            x.to_lowercase() == *"https://www.w3.org/ns/activitystreams#public"
+        } else {
+            false
+        }
     }
 
     pub fn get_public() -> Self {
@@ -27,8 +32,11 @@ impl ApAddress {
 
 impl fmt::Display for ApAddress {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let ApAddress::Address(x) = self;
-        write!(f, "{}", x.clone())
+        if let ApAddress::Address(x) = self {
+            write!(f, "{}", x.clone())
+        } else {
+            write!(f, "https://localhost")
+        }
     }
 }
 
@@ -84,7 +92,7 @@ pub struct ApActor {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub summary: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub id: Option<String>,
+    pub id: Option<ApAddress>,
     pub preferred_username: String,
     pub inbox: String,
     pub outbox: String,
@@ -174,7 +182,10 @@ impl From<Profile> for ApActor {
         ApActor {
             name: Some(profile.display_name),
             summary: Some(profile.summary.unwrap_or_default()),
-            id: Some(format!("{}/user/{}", server_url, profile.username)),
+            id: Some(ApAddress::Address(format!(
+                "{}/user/{}",
+                server_url, profile.username
+            ))),
             kind: ApActorType::Person,
             preferred_username: profile.username.clone(),
             inbox: format!("{}/user/{}/inbox/", server_url, profile.username),
@@ -229,7 +240,7 @@ impl From<RemoteActor> for ApActor {
             kind: ApActorType::Person,
             name: Some(actor.name),
             summary: actor.summary,
-            id: Some(actor.ap_id),
+            id: Some(ApAddress::Address(actor.ap_id)),
             preferred_username: actor.preferred_username.unwrap_or_default(),
             inbox: actor.inbox,
             outbox: actor.outbox,

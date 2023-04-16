@@ -80,7 +80,7 @@ pub struct ApNote {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub context: Option<ApContext>,
     pub tag: Option<Vec<ApTag>>,
-    pub attributed_to: String,
+    pub attributed_to: ApAddress,
     pub id: Option<String>,
     #[serde(rename = "type")]
     pub kind: ApNoteType,
@@ -159,7 +159,7 @@ impl Default for ApNote {
         ApNote {
             context: Some(ApContext::default()),
             tag: None,
-            attributed_to: String::new(),
+            attributed_to: ApAddress::default(),
             id: None,
             kind: ApNoteType::Note,
             to: MaybeMultiple::Multiple(vec![]),
@@ -197,9 +197,9 @@ impl From<IdentifiedVaultItem> for ApNote {
             kind: ApNoteType::VaultNote,
             attributed_to: {
                 if vault.outbound {
-                    get_ap_id_from_username(profile.clone().username)
+                    ApAddress::Address(get_ap_id_from_username(profile.clone().username))
                 } else {
-                    vault.clone().remote_actor
+                    ApAddress::Address(vault.clone().remote_actor)
                 }
             },
             to: {
@@ -273,7 +273,7 @@ impl From<FullyQualifiedTimelineItem> for ApNote {
                     None
                 }
             },
-            attributed_to: timeline.attributed_to,
+            attributed_to: ApAddress::Address(timeline.attributed_to),
             id: Some(timeline.ap_id),
             url: timeline.url,
             published: timeline.published,
@@ -353,7 +353,7 @@ impl From<NewNote> for ApNote {
                 Ok(x) => x,
                 Err(_) => Option::None,
             },
-            attributed_to: note.attributed_to,
+            attributed_to: ApAddress::Address(note.attributed_to),
             published: Option::from(Utc::now().format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string()),
             id: Option::from(format!(
                 "https://{}/notes/{}",
@@ -390,7 +390,7 @@ impl From<Note> for ApNote {
                 Ok(x) => x,
                 Err(_) => Option::None,
             },
-            attributed_to: note.attributed_to,
+            attributed_to: ApAddress::Address(note.attributed_to),
             published: Option::from(note.updated_at.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string()),
             id: Option::from(format!(
                 "https://{}/notes/{}",
@@ -454,7 +454,7 @@ impl From<RemoteNoteAndMetadata> for ApNote {
                 Ok(x) => x,
                 Err(_) => None,
             },
-            attributed_to: remote_note.attributed_to,
+            attributed_to: ApAddress::Address(remote_note.attributed_to),
             content: remote_note.content,
             replies: match serde_json::from_value(remote_note.replies.into()) {
                 Ok(x) => x,

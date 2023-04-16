@@ -1,15 +1,12 @@
-use crate::activity_pub::{ApActivity, ApActor, ApCollection, ApDelete, ApInstrument, ApNote};
-use crate::MaybeMultiple;
+use crate::activity_pub::{ApActor, ApCollection, ApInstrument, ApNote};
+use crate::{Identifier, MaybeMultiple};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::fmt;
 use std::fmt::Debug;
 
 use super::delete::ApTombstone;
-use super::follow::ApFollow;
-use super::like::ApLike;
 use super::session::ApSession;
-use super::undo::ApUndo;
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(untagged)]
@@ -22,11 +19,6 @@ impl Default for ApContext {
     fn default() -> Self {
         ApContext::Plain("https://www.w3.org/ns/activitystreams".to_string())
     }
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug)]
-pub struct ApIdentifier {
-    pub id: String,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
@@ -45,18 +37,16 @@ pub struct ApBasicContent {
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 #[serde(untagged)]
 pub enum ApObject {
-    Plain(String),
     Tombstone(ApTombstone),
     Session(ApSession),
     Instrument(ApInstrument),
     Note(ApNote),
     Actor(ApActor),
-    Like(ApLike),
-    Follow(Box<ApFollow>),
-    Undo(Box<ApUndo>),
-    Delete(Box<ApDelete>),
     Collection(ApCollection),
-    Identifier(ApIdentifier),
+
+    // These members exist to catch unknown object types
+    Plain(String),
+    Identifier(Identifier),
     Basic(ApBasicContent),
     Complex(MaybeMultiple<Value>),
     #[default]
@@ -185,12 +175,4 @@ impl fmt::Display for ApLinkType {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         Debug::fmt(self, f)
     }
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug)]
-#[serde(untagged)]
-pub enum ActivityPub {
-    Activity(ApActivity),
-    Actor(ApActor),
-    Object(ApObject),
 }

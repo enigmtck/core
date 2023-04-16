@@ -31,7 +31,7 @@ impl From<ApActivity> for NewRemoteActivity {
                 ap_id: activity.id.unwrap_or_default(),
                 ap_to: Some(serde_json::to_value(activity.to).unwrap()),
                 cc: None,
-                actor: activity.actor,
+                actor: activity.actor.to_string(),
                 published: None,
                 ap_object: Option::from(serde_json::to_value(&activity.object).unwrap()),
             },
@@ -41,7 +41,7 @@ impl From<ApActivity> for NewRemoteActivity {
                 ap_id: activity.id.unwrap_or_default(),
                 ap_to: None,
                 cc: None,
-                actor: activity.actor,
+                actor: activity.actor.to_string(),
                 published: None,
                 ap_object: Option::from(serde_json::to_value(&activity.object).unwrap()),
             },
@@ -51,7 +51,7 @@ impl From<ApActivity> for NewRemoteActivity {
                 ap_id: activity.id.unwrap_or_default(),
                 ap_to: None,
                 cc: None,
-                actor: activity.actor,
+                actor: activity.actor.to_string(),
                 published: None,
                 ap_object: Option::from(serde_json::to_value(&activity.object).unwrap()),
             },
@@ -61,7 +61,7 @@ impl From<ApActivity> for NewRemoteActivity {
                 ap_id: activity.id.unwrap_or_default(),
                 ap_to: None,
                 cc: None,
-                actor: activity.actor,
+                actor: activity.actor.to_string(),
                 published: None,
                 ap_object: Some(serde_json::to_value(&activity.object).unwrap()),
             },
@@ -81,7 +81,7 @@ impl From<ApActivity> for NewRemoteActivity {
                 ap_id: activity.id.unwrap_or_default(),
                 ap_to: Some(serde_json::to_value(activity.to).unwrap()),
                 cc: activity.cc.map(|cc| serde_json::to_value(cc).unwrap()),
-                actor: activity.actor,
+                actor: activity.actor.to_string(),
                 published: activity.published,
                 ap_object: Some(serde_json::to_value(&activity.object).unwrap()),
             },
@@ -91,7 +91,7 @@ impl From<ApActivity> for NewRemoteActivity {
                 ap_id: activity.id.unwrap_or_default(),
                 ap_to: Some(serde_json::to_value(activity.to).unwrap()),
                 cc: None,
-                actor: activity.actor,
+                actor: activity.actor.to_string(),
                 published: None,
                 ap_object: Option::from(serde_json::to_value(&activity.object).unwrap()),
             },
@@ -101,7 +101,7 @@ impl From<ApActivity> for NewRemoteActivity {
                 ap_id: activity.id.unwrap_or_default(),
                 ap_to: Some(serde_json::to_value(activity.to).unwrap()),
                 cc: None,
-                actor: activity.actor,
+                actor: activity.actor.to_string(),
                 published: None,
                 ap_object: Option::from(serde_json::to_value(&activity.object).unwrap()),
             },
@@ -111,7 +111,7 @@ impl From<ApActivity> for NewRemoteActivity {
                 ap_id: activity.id.unwrap_or_default(),
                 ap_to: None,
                 cc: None,
-                actor: activity.actor,
+                actor: activity.actor.to_string(),
                 published: None,
                 ap_object: Some(serde_json::to_value(&activity.object).unwrap()),
             },
@@ -121,28 +121,13 @@ impl From<ApActivity> for NewRemoteActivity {
                 ap_id: activity.id.unwrap_or_default(),
                 ap_to: Some(serde_json::to_value(activity.to).unwrap()),
                 cc: None,
-                actor: activity.actor,
+                actor: activity.actor.to_string(),
                 published: None,
                 ap_object: Some(serde_json::to_value(&activity.object).unwrap()),
             },
         }
     }
 }
-
-// impl From<ApActivity> for NewRemoteActivity {
-//     fn from(activity: ApActivity) -> NewRemoteActivity {
-//         NewRemoteActivity {
-//             context: Option::from(serde_json::to_value(&activity.context).unwrap()),
-//             kind: activity.kind.to_string(),
-//             ap_id: activity.id.unwrap_or_default(),
-//             ap_to: activity.to.map(|to| serde_json::to_value(to).unwrap()),
-//             cc: Option::from(serde_json::to_value(activity.cc.unwrap_or_default()).unwrap()),
-//             actor: activity.actor,
-//             published: activity.published,
-//             ap_object: Option::from(serde_json::to_value(&activity.object).unwrap()),
-//         }
-//     }
-// }
 
 #[derive(Identifiable, Queryable, AsChangeset, Serialize, Clone, Default, Debug)]
 #[table_name = "remote_activities"]

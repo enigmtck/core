@@ -2,6 +2,7 @@ pub mod retriever;
 pub mod sender;
 mod types;
 
+use serde::{Deserialize, Serialize};
 pub use types::accept::{ApAccept, ApAcceptType};
 //pub use types::activity::{ApActivity, ApActivityType};
 pub use types::activity::ApActivity;
@@ -18,10 +19,18 @@ pub use types::join::{ApJoin, ApJoinType};
 pub use types::like::{ApLike, ApLikeType};
 pub use types::note::{ApNote, ApNoteType, FullyQualifiedTimelineItem, Metadata};
 pub use types::object::{
-    ActivityPub, ApAttachment, ApAttachmentType, ApBasicContent, ApBasicContentType, ApContext,
-    ApEndpoint, ApIdentifier, ApImage, ApImageType, ApObject, ApTag,
+    ApAttachment, ApAttachmentType, ApBasicContent, ApBasicContentType, ApContext, ApEndpoint,
+    ApImage, ApImageType, ApObject, ApTag,
 };
 pub use types::session::JoinData;
 pub use types::session::{ApInstrument, ApInstrumentType, ApInstruments, ApSession};
 pub use types::undo::{ApUndo, ApUndoType};
 pub use types::update::{ApUpdate, ApUpdateType};
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(untagged)]
+pub enum ActivityPub {
+    Activity(ApActivity),
+    Actor(ApActor),
+    Object(ApObject),
+}

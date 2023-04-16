@@ -1,4 +1,4 @@
-use crate::activity_pub::{ApActivity, ApCreate, ApInvite, ApJoin, ApObject, ApSession};
+use crate::activity_pub::{ApInvite, ApJoin, ApObject};
 use crate::schema::remote_encrypted_sessions;
 use crate::MaybeReference;
 use chrono::{DateTime, Utc};
@@ -24,12 +24,12 @@ impl From<IdentifiedApInvite> for NewRemoteEncryptedSession {
     fn from((activity, profile_id): IdentifiedApInvite) -> NewRemoteEncryptedSession {
         if let MaybeReference::Actual(ApObject::Session(session)) = activity.object {
             NewRemoteEncryptedSession {
-                actor: activity.actor,
+                actor: activity.actor.to_string(),
                 kind: activity.kind.to_string(),
                 profile_id,
                 ap_id: session.id.unwrap(),
-                ap_to: session.to,
-                attributed_to: session.attributed_to,
+                ap_to: session.to.to_string(),
+                attributed_to: session.attributed_to.to_string(),
                 reference: session.reference,
                 instrument: serde_json::to_value(session.instrument).unwrap(),
             }
@@ -44,12 +44,12 @@ impl From<IdentifiedApJoin> for NewRemoteEncryptedSession {
     fn from((activity, profile_id): IdentifiedApJoin) -> NewRemoteEncryptedSession {
         if let MaybeReference::Actual(ApObject::Session(session)) = activity.object {
             NewRemoteEncryptedSession {
-                actor: activity.actor,
+                actor: activity.actor.to_string(),
                 kind: activity.kind.to_string(),
                 profile_id,
                 ap_id: session.id.unwrap(),
-                ap_to: session.to,
-                attributed_to: session.attributed_to,
+                ap_to: session.to.to_string(),
+                attributed_to: session.attributed_to.to_string(),
                 reference: session.reference,
                 instrument: serde_json::to_value(session.instrument).unwrap(),
             }

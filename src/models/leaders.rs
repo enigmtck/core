@@ -1,4 +1,4 @@
-use crate::activity_pub::{ApAccept, ApActivity, ApObject};
+use crate::activity_pub::{ApAccept, ApActivity};
 use crate::db::Db;
 use crate::helper::{get_local_identifier, LocalIdentifierType};
 use crate::schema::leaders;
@@ -22,31 +22,14 @@ pub struct NewLeader {
     pub accepted: Option<bool>,
 }
 
-// impl From<ApActivity> for NewLeader {
-//     fn from(activity: ApActivity) -> NewLeader {
-//         let mut object = Option::<String>::None;
-
-//         if let MaybeReference::Reference(x) = activity.object {
-//             object = Some(x);
-//         };
-
-//         NewLeader {
-//             actor: activity.actor,
-//             leader_ap_id: object.unwrap_or_default(),
-//             uuid: Uuid::new_v4().to_string(),
-//             ..Default::default()
-//         }
-//     }
-// }
-
 impl TryFrom<ApAccept> for NewLeader {
     type Error = &'static str;
 
     fn try_from(accept: ApAccept) -> Result<Self, Self::Error> {
-        if let MaybeReference::Actual(ApObject::Follow(follow)) = accept.object {
+        if let MaybeReference::Actual(ApActivity::Follow(follow)) = accept.object {
             Ok(NewLeader {
-                actor: follow.actor,
-                leader_ap_id: accept.actor,
+                actor: follow.actor.to_string(),
+                leader_ap_id: accept.actor.to_string(),
                 uuid: Uuid::new_v4().to_string(),
                 accept_ap_id: accept.id,
                 accepted: Some(true),

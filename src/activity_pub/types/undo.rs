@@ -2,8 +2,7 @@ use core::fmt;
 use std::fmt::Debug;
 
 use crate::{
-    //activity_pub::{ApActivity, ApActivityType, ApContext, ApFollow, ApObject},
-    activity_pub::{ApActivity, ApContext, ApFollow, ApObject},
+    activity_pub::{ApActivity, ApAddress, ApContext, ApFollow},
     MaybeReference,
 };
 use serde::{Deserialize, Serialize};
@@ -28,28 +27,10 @@ pub struct ApUndo {
     pub context: Option<ApContext>,
     #[serde(rename = "type")]
     pub kind: ApUndoType,
-    pub actor: String,
+    pub actor: ApAddress,
     pub id: Option<String>,
-    pub object: MaybeReference<ApObject>,
+    pub object: MaybeReference<ApActivity>,
 }
-
-// impl TryFrom<ApActivity> for ApUndo {
-//     type Error = &'static str;
-
-//     fn try_from(activity: ApActivity) -> Result<Self, Self::Error> {
-//         if activity.kind == ApActivityType::Undo {
-//             Ok(ApUndo {
-//                 context: activity.context,
-//                 kind: ApUndoType::default(),
-//                 actor: activity.actor,
-//                 id: activity.id,
-//                 object: activity.object,
-//             })
-//         } else {
-//             Err("ACTIVITY COULD NOT BE CONVERTED TO UNDO")
-//         }
-//     }
-// }
 
 impl From<ApFollow> for ApUndo {
     fn from(follow: ApFollow) -> Self {
@@ -58,7 +39,7 @@ impl From<ApFollow> for ApUndo {
             kind: ApUndoType::default(),
             actor: follow.actor.clone(),
             id: follow.id.clone().map(|follow| format!("{}#undo", follow)),
-            object: MaybeReference::Actual(ApObject::Follow(Box::new(follow))),
+            object: MaybeReference::Actual(ApActivity::Follow(follow)),
         }
     }
 }

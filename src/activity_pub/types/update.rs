@@ -2,15 +2,10 @@ use core::fmt;
 use std::fmt::Debug;
 
 use crate::{
-    activity_pub::{types::signature::ApSignatureType, ApAddress, ApContext, ApNote, ApObject},
-    models::profiles::Profile,
+    activity_pub::{ApAddress, ApContext, ApNote, ApObject},
     MaybeMultiple, MaybeReference,
 };
-use rsa::pkcs8::DecodePrivateKey;
-use rsa::signature::{RandomizedSigner, Signature};
-use rsa::{pkcs1v15::SigningKey, RsaPrivateKey};
 use serde::{Deserialize, Serialize};
-use sha2::Sha256;
 
 use super::signature::ApSignature;
 
@@ -34,7 +29,7 @@ pub struct ApUpdate {
     pub context: Option<ApContext>,
     #[serde(rename = "type")]
     pub kind: ApUpdateType,
-    pub actor: String,
+    pub actor: ApAddress,
     pub id: Option<String>,
     pub object: MaybeReference<ApObject>,
     pub signature: Option<ApSignature>,

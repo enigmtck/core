@@ -2,8 +2,7 @@ use core::fmt;
 use std::fmt::Debug;
 
 use crate::{
-    //activity_pub::{ApActivity, ApActivityType, ApContext, ApFollow, ApObject},
-    activity_pub::{ApActivity, ApContext, ApFollow, ApObject},
+    activity_pub::{ApActivity, ApAddress, ApContext, ApFollow, ApObject},
     models::remote_activities::RemoteActivity,
     MaybeReference,
 };
@@ -29,9 +28,9 @@ pub struct ApAccept {
     pub context: Option<ApContext>,
     #[serde(rename = "type")]
     pub kind: ApAcceptType,
-    pub actor: String,
+    pub actor: ApAddress,
     pub id: Option<String>,
-    pub object: MaybeReference<ApObject>,
+    pub object: MaybeReference<ApActivity>,
 }
 
 impl TryFrom<RemoteActivity> for ApAccept {
@@ -44,7 +43,7 @@ impl TryFrom<RemoteActivity> for ApAccept {
                     .context
                     .map(|ctx| serde_json::from_value(ctx).unwrap()),
                 kind: ApAcceptType::default(),
-                actor: activity.actor,
+                actor: ApAddress::Address(activity.actor),
                 id: Some(activity.ap_id),
                 object: serde_json::from_value(activity.ap_object.into()).unwrap(),
             })
@@ -61,7 +60,7 @@ impl TryFrom<ApFollow> for ApAccept {
         let actor = {
             match follow.object.clone() {
                 MaybeReference::Actual(ApObject::Actor(actual)) => actual.id,
-                MaybeReference::Reference(reference) => Some(reference),
+                MaybeReference::Reference(reference) => Some(ApAddress::Address(reference)),
                 _ => None,
             }
         };
@@ -72,7 +71,7 @@ impl TryFrom<ApFollow> for ApAccept {
                 kind: ApAcceptType::default(),
                 actor,
                 id: follow.id.clone().map(|id| format!("{id}#accept")),
-                object: MaybeReference::Actual(ApObject::Follow(Box::new(follow))),
+                object: MaybeReference::Actual(ApActivity::Follow(follow)),
             })
         } else {
             Err("COULD NOT IDENTIFY ACTOR")

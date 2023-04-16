@@ -72,7 +72,7 @@ impl From<ApNote> for NewRemoteNote {
             published,
             kind: note.clone().kind.to_string(),
             ap_id: note.clone().id.unwrap(),
-            attributed_to: Some(note.attributed_to),
+            attributed_to: Some(note.attributed_to.to_string()),
             ap_to: Option::from(serde_json::to_value(&note.to).unwrap()),
             cc: Option::from(serde_json::to_value(&note.cc).unwrap()),
             replies: Option::from(serde_json::to_value(&note.replies).unwrap()),
