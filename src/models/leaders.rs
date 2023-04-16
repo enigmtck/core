@@ -22,22 +22,22 @@ pub struct NewLeader {
     pub accepted: Option<bool>,
 }
 
-impl From<ApActivity> for NewLeader {
-    fn from(activity: ApActivity) -> NewLeader {
-        let mut object = Option::<String>::None;
+// impl From<ApActivity> for NewLeader {
+//     fn from(activity: ApActivity) -> NewLeader {
+//         let mut object = Option::<String>::None;
 
-        if let MaybeReference::Reference(x) = activity.object {
-            object = Some(x);
-        };
+//         if let MaybeReference::Reference(x) = activity.object {
+//             object = Some(x);
+//         };
 
-        NewLeader {
-            actor: activity.actor,
-            leader_ap_id: object.unwrap_or_default(),
-            uuid: Uuid::new_v4().to_string(),
-            ..Default::default()
-        }
-    }
-}
+//         NewLeader {
+//             actor: activity.actor,
+//             leader_ap_id: object.unwrap_or_default(),
+//             uuid: Uuid::new_v4().to_string(),
+//             ..Default::default()
+//         }
+//     }
+// }
 
 impl TryFrom<ApAccept> for NewLeader {
     type Error = &'static str;

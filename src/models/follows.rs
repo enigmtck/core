@@ -1,4 +1,4 @@
-use crate::activity_pub::{ApActivity, ApObject};
+use crate::activity_pub::{ApActivity, ApFollow};
 use crate::db::Db;
 use crate::schema::follows;
 use crate::MaybeReference;
@@ -18,10 +18,10 @@ pub struct NewFollow {
     pub profile_id: Option<i32>,
 }
 
-impl TryFrom<ApActivity> for NewFollow {
+impl TryFrom<ApFollow> for NewFollow {
     type Error = &'static str;
 
-    fn try_from(follow: ApActivity) -> Result<Self, Self::Error> {
+    fn try_from(follow: ApFollow) -> Result<Self, Self::Error> {
         if let MaybeReference::Reference(object) = follow.object {
             Ok(NewFollow {
                 ap_object: object,

@@ -1,5 +1,8 @@
 use crate::{
-    activity_pub::{ApActivity, ApObject},
+    activity_pub::{
+        ApAccept, ApActivity, ApAnnounce, ApCreate, ApDelete, ApFollow, ApInvite, ApJoin, ApLike,
+        ApObject, ApUndo, ApUpdate,
+    },
     db::{create_remote_encrypted_session, create_remote_note, Db},
     fairings::{
         events::EventChannels,
@@ -21,7 +24,7 @@ use crate::{
 use log::debug;
 use rocket::http::Status;
 
-pub async fn delete(conn: Db, activity: ApActivity) -> Result<Status, Status> {
+pub async fn delete(conn: Db, activity: ApDelete) -> Result<Status, Status> {
     async fn delete_actor(conn: Db, ap_id: String) -> Result<Status, Status> {
         if delete_remote_actor_by_ap_id(&conn, ap_id).await.is_ok() {
             debug!("REMOTE ACTOR RECORD DELETED");
@@ -104,7 +107,7 @@ pub async fn delete(conn: Db, activity: ApActivity) -> Result<Status, Status> {
 pub async fn create(
     conn: Db,
     faktory: FaktoryConnection,
-    activity: ApActivity,
+    activity: ApCreate,
 ) -> Result<Status, Status> {
     match activity.object {
         MaybeReference::Actual(ApObject::Note(x)) => {
@@ -130,7 +133,7 @@ pub async fn create(
 pub async fn announce(
     conn: Db,
     faktory: FaktoryConnection,
-    activity: ApActivity,
+    activity: ApAnnounce,
 ) -> Result<Status, Status> {
     // this .link won't work if we don't already have the message; we'll need to
     // address that at Faktory
@@ -151,7 +154,7 @@ pub async fn announce(
     }
 }
 
-pub async fn follow(faktory: FaktoryConnection, activity: ApActivity) -> Result<Status, Status> {
+pub async fn follow(faktory: FaktoryConnection, activity: ApFollow) -> Result<Status, Status> {
     if let Some(ap_id) = activity.id {
         match assign_to_faktory(faktory, String::from("acknowledge_followers"), vec![ap_id]) {
             Ok(_) => Ok(Status::Accepted),
@@ -169,7 +172,7 @@ pub async fn undo(
     conn: Db,
     events: EventChannels,
     faktory: FaktoryConnection,
-    activity: ApActivity,
+    activity: ApUndo,
 ) -> Result<Status, Status> {
     match activity.clone().object {
         MaybeReference::Actual(actual) => match actual {
@@ -209,7 +212,7 @@ pub async fn undo(
     }
 }
 
-pub async fn accept(faktory: FaktoryConnection, activity: ApActivity) -> Result<Status, Status> {
+pub async fn accept(faktory: FaktoryConnection, activity: ApAccept) -> Result<Status, Status> {
     if let Some(id) = activity.id {
         match assign_to_faktory(faktory, String::from("process_accept"), vec![id]) {
             Ok(_) => Ok(Status::Accepted),
@@ -227,22 +230,12 @@ pub async fn accept(faktory: FaktoryConnection, activity: ApActivity) -> Result<
 pub async fn invite(
     conn: Db,
     faktory: FaktoryConnection,
-    activity: ApActivity,
+    activity: ApInvite,
 ) -> Result<Status, Status> {
     log::debug!("PROCESSING INVITE\n{activity:#?}");
 
-    let invited: Option<String> = {
-        if let MaybeReference::Reference(to) = activity.clone().object {
-            Some(to)
-        } else if let Some(to) = activity.clone().to {
-            to.single().map(|single| single.to_string())
-        } else {
-            None
-        }
-    };
-
-    if let Some(to) = invited {
-        if let Some(profile) = get_profile_by_ap_id(&conn, to.clone()).await {
+    if let Some(to) = activity.to.single() {
+        if let Some(profile) = get_profile_by_ap_id(&conn, to).await {
             if let Some(session) =
                 create_remote_encrypted_session(&conn, (activity.clone(), profile.id).into()).await
             {
@@ -271,21 +264,11 @@ pub async fn invite(
 pub async fn join(
     conn: Db,
     faktory: FaktoryConnection,
-    activity: ApActivity,
+    activity: ApJoin,
 ) -> Result<Status, Status> {
     log::debug!("PROCESSING JOIN ACTIVITY\n{activity:#?}");
 
-    let joined: Option<String> = {
-        if let MaybeReference::Reference(to) = activity.clone().object {
-            Some(to)
-        } else if let Some(to) = activity.clone().to {
-            to.single().map(|single| single.to_string())
-        } else {
-            None
-        }
-    };
-
-    if let Some(to) = joined {
+    if let Some(to) = activity.to.clone().single() {
         if let Some(profile) = get_profile_by_ap_id(&conn, to.clone()).await {
             if create_remote_encrypted_session(&conn, (activity.clone(), profile.id).into())
                 .await
@@ -321,7 +304,7 @@ pub async fn join(
 pub async fn update(
     conn: Db,
     faktory: FaktoryConnection,
-    activity: ApActivity,
+    activity: ApUpdate,
 ) -> Result<Status, Status> {
     match activity.object {
         MaybeReference::Actual(actual) => match actual {
@@ -374,24 +357,16 @@ pub async fn update(
 
 pub async fn like(
     conn: Db,
-    faktory: FaktoryConnection,
-    activity: ApActivity,
+    _faktory: FaktoryConnection,
+    activity: ApLike,
 ) -> Result<Status, Status> {
-    match activity.object {
-        MaybeReference::Reference(_) => {
-            if create_remote_like(&conn, activity.clone().into())
-                .await
-                .is_some()
-            {
-                Ok(Status::Accepted)
-            } else {
-                log::warn!("FAILED TO CREATE LIKE (DUPLICATE?)\n{:#?}", activity.object);
-                Err(Status::NoContent)
-            }
-        }
-        _ => {
-            log::warn!("UNEXPECTED OBJECT TYPE\n{:#?}", activity.object);
-            Err(Status::NoContent)
-        }
+    if create_remote_like(&conn, activity.clone().into())
+        .await
+        .is_some()
+    {
+        Ok(Status::Accepted)
+    } else {
+        log::warn!("FAILED TO CREATE LIKE (DUPLICATE?)\n{:#?}", activity.object);
+        Err(Status::NoContent)
     }
 }

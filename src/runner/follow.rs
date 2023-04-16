@@ -6,6 +6,7 @@ use tokio::runtime::Runtime;
 use crate::{
     activity_pub::{sender::send_activity, ApAccept, ApActivity, ApFollow, ApObject, ApUndo},
     models::{
+        followers::{Follower, NewFollower},
         follows::Follow,
         leaders::{Leader, NewLeader},
     },
@@ -57,14 +58,20 @@ pub fn process_follow(job: Job) -> io::Result<()> {
 
         if let Some(follow) = get_follow_by_uuid(uuid) {
             if let Some(profile) = get_profile_by_ap_id(follow.actor.clone()) {
-                let activity = ApActivity::from(ApFollow::from(follow));
+                let activity = ApFollow::from(follow);
 
                 if let MaybeReference::Reference(to) = activity.object.clone() {
                     handle.block_on(async {
                         if let Some((actor, _)) = get_actor(profile.clone(), to).await {
                             let inbox = actor.inbox;
 
-                            match send_activity(activity, profile, inbox.clone()).await {
+                            match send_activity(
+                                ApActivity::Follow(activity),
+                                profile,
+                                inbox.clone(),
+                            )
+                            .await
+                            {
                                 Ok(_) => {
                                     log::info!("INVITE SENT: {inbox:#?}");
                                 }
@@ -105,7 +112,7 @@ pub fn process_accept(job: Job) -> io::Result<()> {
         log::debug!("APID: {ap_id}");
 
         if let Some(activity) = get_remote_activity_by_apid(ap_id) {
-            if let Ok(accept) = ApAccept::try_from(ApActivity::from(activity)) {
+            if let Ok(accept) = ApAccept::try_from(activity) {
                 if let MaybeReference::Actual(ApObject::Follow(follow)) = accept.object.clone() {
                     if let Some(profile) = get_profile_by_ap_id(follow.actor) {
                         if let Ok(mut leader) = NewLeader::try_from(accept.clone()) {
@@ -124,7 +131,16 @@ pub fn process_accept(job: Job) -> io::Result<()> {
     Ok(())
 }
 
-pub fn delete_leader_by_ap_id_and_profile_id(ap_id: String, profile_id: i32) -> Result<usize, ()> {
+#[derive(Debug)]
+pub enum DeleteLeaderError {
+    ConnectionError,
+    DatabaseError(diesel::result::Error),
+}
+
+pub fn delete_leader_by_ap_id_and_profile_id(
+    ap_id: String,
+    profile_id: i32,
+) -> Result<usize, DeleteLeaderError> {
     if let Ok(conn) = POOL.get() {
         match diesel::delete(
             leaders::table
@@ -136,11 +152,11 @@ pub fn delete_leader_by_ap_id_and_profile_id(ap_id: String, profile_id: i32) -> 
             Ok(x) => Ok(x),
             Err(e) => {
                 log::error!("FAILED TO DELETE LEADER\n{e:#?}");
-                Err(())
+                Err(DeleteLeaderError::DatabaseError(e))
             }
         }
     } else {
-        Err(())
+        Err(DeleteLeaderError::ConnectionError)
     }
 }
 
@@ -157,7 +173,6 @@ pub fn process_undo_follow(job: Job) -> io::Result<()> {
         if let Some(follow) = get_follow_by_uuid(uuid) {
             let follow: ApFollow = follow.into();
             let undo: ApUndo = follow.clone().into();
-            let activity: ApActivity = undo.clone().into();
 
             log::debug!("UNDO\n{undo:#?}");
 
@@ -167,7 +182,13 @@ pub fn process_undo_follow(job: Job) -> io::Result<()> {
                         if let Some((actor, _)) = get_actor(profile.clone(), to.clone()).await {
                             let inbox = actor.inbox;
 
-                            match send_activity(activity, profile.clone(), inbox.clone()).await {
+                            match send_activity(
+                                ApActivity::Undo(undo),
+                                profile.clone(),
+                                inbox.clone(),
+                            )
+                            .await
+                            {
                                 Ok(_) => {
                                     log::info!("UNDO SENT: {inbox:#?}");
                                     if delete_leader_by_ap_id_and_profile_id(to, profile.id).is_ok()
@@ -220,4 +241,75 @@ pub fn process_remote_undo_follow(job: Job) -> io::Result<()> {
     }
 
     Ok(())
+}
+
+pub fn acknowledge_followers(job: Job) -> io::Result<()> {
+    log::debug!("running acknowledge job");
+
+    let rt = Runtime::new().unwrap();
+    let handle = rt.handle();
+
+    log::debug!("PROCESSING INCOMING ACCEPT REQUEST");
+
+    for ap_id in job.args() {
+        let ap_id = ap_id.as_str().unwrap().to_string();
+        log::debug!("APID: {ap_id}");
+
+        handle.block_on(async {
+            if let Some(activity) = get_remote_activity_by_apid(ap_id) {
+                if let Ok(follow) = ApFollow::try_from(activity) {
+                    if let Ok(accept) = ApAccept::try_from(follow.clone()) {
+                        if let Some(profile) = get_profile_by_ap_id(accept.actor.clone()) {
+                            if let Some((actor, _)) =
+                                get_actor(profile.clone(), follow.actor.clone()).await
+                            {
+                                let inbox = actor.inbox;
+
+                                match send_activity(
+                                    ApActivity::Accept(accept),
+                                    profile.clone(),
+                                    inbox.clone(),
+                                )
+                                .await
+                                {
+                                    Ok(_) => {
+                                        log::info!("ACCEPT SENT: {inbox:#?}");
+
+                                        if let Ok(mut follower) = NewFollower::try_from(follow) {
+                                            follower.link(profile.clone());
+
+                                            log::debug!("NEW FOLLOWER\n{follower:#?}");
+                                            if create_follower(follower).is_some() {
+                                                log::info!("FOLLOWER CREATED");
+                                            }
+                                        }
+                                    }
+                                    Err(e) => log::error!("ERROR SENDING UNDO REQUEST: {e:#?}"),
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        });
+    }
+
+    Ok(())
+}
+
+pub fn create_follower(follower: NewFollower) -> Option<Follower> {
+    if let Ok(conn) = POOL.get() {
+        match diesel::insert_into(followers::table)
+            .values(&follower)
+            .get_result::<Follower>(&conn)
+        {
+            Ok(x) => Some(x),
+            Err(e) => {
+                log::error!("{:#?}", e);
+                Option::None
+            }
+        }
+    } else {
+        Option::None
+    }
 }

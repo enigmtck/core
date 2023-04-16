@@ -8,7 +8,7 @@ use tokio::runtime::Runtime;
 use crate::{
     activity_pub::{
         sender::send_activity, ApActivity, ApActor, ApInstrument, ApInstrumentType, ApInstruments,
-        ApNote, ApSession, JoinData,
+        ApInvite, ApJoin, ApNote, ApSession, JoinData,
     },
     helper::{get_local_identifier, is_local, LocalIdentifierType},
     models::{
@@ -209,15 +209,18 @@ pub fn send_kexinit(job: Job) -> io::Result<()> {
                 }
 
                 if let Some(inbox) = inbox {
-                    let activity = ApActivity::from(session);
-                    handle.block_on(async {
-                        match send_activity(activity, sender, inbox.clone()).await {
-                            Ok(_) => {
-                                log::info!("INVITE SENT: {inbox:#?}");
+                    if let Ok(activity) = ApInvite::try_from(session) {
+                        handle.block_on(async {
+                            match send_activity(ApActivity::Invite(activity), sender, inbox.clone())
+                                .await
+                            {
+                                Ok(_) => {
+                                    log::info!("INVITE SENT: {inbox:#?}");
+                                }
+                                Err(e) => log::error!("error: {:#?}", e),
                             }
-                            Err(e) => log::error!("error: {:#?}", e),
-                        }
-                    });
+                        });
+                    }
                 }
             }
         }
@@ -254,24 +257,30 @@ pub fn provide_one_time_key(job: Job) -> io::Result<()> {
                                 reference: session.ap_id,
                             });
 
-                            let activity = ApActivity::from(session.clone());
-                            let encrypted_session: NewEncryptedSession =
-                                (session.clone(), profile.id).into();
+                            if let Ok(activity) = ApJoin::try_from(session.clone()) {
+                                let encrypted_session: NewEncryptedSession =
+                                    (session.clone(), profile.id).into();
 
-                            if create_encrypted_session(encrypted_session).is_some() {
-                                let rt = Runtime::new().unwrap();
-                                tokio::task::block_in_place(|| {
-                                    match rt.block_on(async {
-                                        send_activity(activity, profile, actor.inbox).await
-                                    }) {
-                                        Ok(_) => {
-                                            log::info!("JOIN SENT");
+                                if create_encrypted_session(encrypted_session).is_some() {
+                                    let rt = Runtime::new().unwrap();
+                                    tokio::task::block_in_place(|| {
+                                        match rt.block_on(async {
+                                            send_activity(
+                                                ApActivity::Join(activity),
+                                                profile,
+                                                actor.inbox,
+                                            )
+                                            .await
+                                        }) {
+                                            Ok(_) => {
+                                                log::info!("JOIN SENT");
+                                            }
+                                            Err(e) => log::error!("ERROR SENDING JOIN: {e:#?}",),
                                         }
-                                        Err(e) => log::error!("ERROR SENDING JOIN: {e:#?}",),
-                                    }
-                                });
-                            } else {
-                                log::error!("FAILED TO SAVE ENCRYPTED SESSION");
+                                    });
+                                } else {
+                                    log::error!("FAILED TO SAVE ENCRYPTED SESSION");
+                                }
                             }
                         }
                     }

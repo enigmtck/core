@@ -1,4 +1,4 @@
-use crate::activity_pub::{ApActivity, ApObject};
+use crate::activity_pub::{ApActivity, ApCreate, ApInvite, ApJoin, ApObject, ApSession};
 use crate::schema::remote_encrypted_sessions;
 use crate::MaybeReference;
 use chrono::{DateTime, Utc};
@@ -19,14 +19,34 @@ pub struct NewRemoteEncryptedSession {
     pub reference: Option<String>,
 }
 
-type IdentifiedApActivity = (ApActivity, i32);
-impl From<IdentifiedApActivity> for NewRemoteEncryptedSession {
-    fn from(activity: IdentifiedApActivity) -> NewRemoteEncryptedSession {
-        if let MaybeReference::Actual(ApObject::Session(session)) = activity.0.object {
+type IdentifiedApInvite = (ApInvite, i32);
+impl From<IdentifiedApInvite> for NewRemoteEncryptedSession {
+    fn from((activity, profile_id): IdentifiedApInvite) -> NewRemoteEncryptedSession {
+        if let MaybeReference::Actual(ApObject::Session(session)) = activity.object {
             NewRemoteEncryptedSession {
-                actor: activity.0.actor,
-                kind: activity.0.kind.to_string(),
-                profile_id: activity.1,
+                actor: activity.actor,
+                kind: activity.kind.to_string(),
+                profile_id,
+                ap_id: session.id.unwrap(),
+                ap_to: session.to,
+                attributed_to: session.attributed_to,
+                reference: session.reference,
+                instrument: serde_json::to_value(session.instrument).unwrap(),
+            }
+        } else {
+            NewRemoteEncryptedSession::default()
+        }
+    }
+}
+
+type IdentifiedApJoin = (ApJoin, i32);
+impl From<IdentifiedApJoin> for NewRemoteEncryptedSession {
+    fn from((activity, profile_id): IdentifiedApJoin) -> NewRemoteEncryptedSession {
+        if let MaybeReference::Actual(ApObject::Session(session)) = activity.object {
+            NewRemoteEncryptedSession {
+                actor: activity.actor,
+                kind: activity.kind.to_string(),
+                profile_id,
                 ap_id: session.id.unwrap(),
                 ap_to: session.to,
                 attributed_to: session.attributed_to,

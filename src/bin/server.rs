@@ -6,8 +6,8 @@ use std::collections::HashMap;
 use enigmatick::{
     activity_pub::{
         retriever::{self, get_actor, get_note, get_remote_webfinger},
-        ActivityPub, ActorsPage, ApActivity, ApActivityType, ApActor, ApCollection, ApNote,
-        ApNoteType, ApObject, ApSession, FollowersPage, IdentifiedVaultItems, LeadersPage,
+        ActivityPub, ActorsPage, ApActivity, ApActor, ApCollection, ApNote, ApNoteType, ApObject,
+        ApSession, FollowersPage, IdentifiedVaultItems, LeadersPage,
     },
     admin::{self, verify_and_generate_password, NewUser},
     api::{instance::InstanceInformation, processing_queue},
@@ -1136,20 +1136,20 @@ pub async fn outbox_post(
         match get_profile_by_username(&conn, username).await {
             Some(profile) => match object {
                 Ok(object) => match object {
-                    Json(ActivityPub::Activity(activity)) => match activity.kind {
-                        ApActivityType::Undo => {
+                    Json(ActivityPub::Activity(activity)) => match activity {
+                        ApActivity::Undo(activity) => {
                             outbox::activity::undo(conn, faktory, activity, profile).await
                         }
-                        ApActivityType::Follow => {
+                        ApActivity::Follow(activity) => {
                             outbox::activity::follow(conn, faktory, activity, profile).await
                         }
-                        ApActivityType::Like => {
+                        ApActivity::Like(activity) => {
                             outbox::activity::like(conn, faktory, activity, profile).await
                         }
-                        ApActivityType::Announce => {
+                        ApActivity::Announce(activity) => {
                             outbox::activity::announce(conn, faktory, activity, profile).await
                         }
-                        ApActivityType::Delete => {
+                        ApActivity::Delete(activity) => {
                             outbox::activity::delete(conn, faktory, activity, profile).await
                         }
                         _ => Err(Status::NoContent),
@@ -1243,49 +1243,49 @@ pub async fn shared_inbox_post(
     if let Signed(true, _) = signed {
         let activity = activity.clone();
 
-        if retriever::get_actor(&conn, activity.actor.clone(), Option::None, true)
+        // if retriever::get_actor(&conn, activity.actor.clone(), Option::None, true)
+        //     .await
+        //     .is_some()
+        // {
+        if create_remote_activity(&conn, activity.clone().into())
             .await
             .is_some()
         {
-            if create_remote_activity(&conn, activity.clone().into())
-                .await
-                .is_some()
-            {
-                log::debug!("ACTIVITY CREATED");
-                match activity.kind {
-                    ApActivityType::Delete => inbox::activity::delete(conn, activity).await,
-                    ApActivityType::Create => {
-                        inbox::activity::create(conn, faktory, activity).await
-                    }
-                    ApActivityType::Follow => inbox::activity::follow(faktory, activity).await,
-                    ApActivityType::Undo => {
-                        inbox::activity::undo(conn, events, faktory, activity).await
-                    }
-                    ApActivityType::Accept => inbox::activity::accept(faktory, activity).await,
-                    ApActivityType::Invite => {
-                        inbox::activity::invite(conn, faktory, activity).await
-                    }
-                    ApActivityType::Join => inbox::activity::join(conn, faktory, activity).await,
-                    ApActivityType::Announce => {
-                        inbox::activity::announce(conn, faktory, activity).await
-                    }
-                    ApActivityType::Update => {
-                        inbox::activity::update(conn, faktory, activity).await
-                    }
-                    ApActivityType::Like => inbox::activity::like(conn, faktory, activity).await,
-                    _ => {
-                        log::warn!("UNIMPLEMENTED ACTIVITY\n{activity:#?}");
-                        Err(Status::NoContent)
-                    }
+            log::debug!("ACTIVITY CREATED");
+            match activity {
+                ApActivity::Delete(activity) => inbox::activity::delete(conn, activity).await,
+                ApActivity::Create(activity) => {
+                    inbox::activity::create(conn, faktory, activity).await
                 }
-            } else {
-                log::debug!("FAILED TO CREATE REMOTE ACTIVITY");
-                Err(Status::NoContent)
+                ApActivity::Follow(activity) => inbox::activity::follow(faktory, activity).await,
+                ApActivity::Undo(activity) => {
+                    inbox::activity::undo(conn, events, faktory, activity).await
+                }
+                ApActivity::Accept(activity) => inbox::activity::accept(faktory, activity).await,
+                ApActivity::Invite(activity) => {
+                    inbox::activity::invite(conn, faktory, activity).await
+                }
+                ApActivity::Join(activity) => inbox::activity::join(conn, faktory, activity).await,
+                ApActivity::Announce(activity) => {
+                    inbox::activity::announce(conn, faktory, activity).await
+                }
+                ApActivity::Update(activity) => {
+                    inbox::activity::update(conn, faktory, activity).await
+                }
+                ApActivity::Like(activity) => inbox::activity::like(conn, faktory, activity).await,
+                _ => {
+                    log::warn!("UNIMPLEMENTED ACTIVITY\n{activity:#?}");
+                    Err(Status::NoContent)
+                }
             }
         } else {
-            log::debug!("FAILED TO RETRIEVE ACTOR");
+            log::debug!("FAILED TO CREATE REMOTE ACTIVITY");
             Err(Status::NoContent)
         }
+        // } else {
+        //     log::debug!("FAILED TO RETRIEVE ACTOR");
+        //     Err(Status::NoContent)
+        // }
     } else {
         log::debug!("REQUEST WAS UNSIGNED OR MALFORMED");
         Err(Status::NoContent)

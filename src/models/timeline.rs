@@ -1,4 +1,4 @@
-use crate::activity_pub::{ApActivity, ApNote};
+use crate::activity_pub::{ApActivity, ApAnnounce, ApNote};
 use crate::db::Db;
 use crate::helper::get_ap_id_from_username;
 use crate::schema::{
@@ -109,7 +109,7 @@ impl From<ApNote> for NewTimelineItem {
     }
 }
 
-type SynthesizedAnnounce = (ApActivity, ApNote);
+type SynthesizedAnnounce = (ApAnnounce, ApNote);
 
 impl From<SynthesizedAnnounce> for NewTimelineItem {
     fn from((activity, note): SynthesizedAnnounce) -> Self {

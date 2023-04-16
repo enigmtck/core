@@ -1,5 +1,5 @@
 use core::fmt;
-use std::{fmt::Debug, time::SystemTime};
+use std::fmt::Debug;
 
 use crate::{
     activity_pub::{types::signature::ApSignatureType, ApAddress, ApContext, ApNote, ApObject},

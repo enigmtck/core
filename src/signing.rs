@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::activity_pub::{retriever, ApActor, ApPublicKey};
+use crate::activity_pub::{retriever, ApActor};
 use crate::db::Db;
 use crate::models::profiles::{get_profile_by_username, Profile};
 use rsa::pkcs1v15::{SigningKey, VerifyingKey};

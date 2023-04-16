@@ -1,4 +1,4 @@
-use crate::activity_pub::{ApAccept, ApActivity, ApFollow, ApObject};
+use crate::activity_pub::{ApActivity, ApFollow};
 use crate::db::Db;
 use crate::helper::{get_local_identifier, LocalIdentifierType};
 use crate::schema::followers;
@@ -22,23 +22,23 @@ pub struct NewFollower {
     pub uuid: String,
 }
 
-impl From<ApActivity> for NewFollower {
-    fn from(activity: ApActivity) -> NewFollower {
-        let mut o = Option::<String>::None;
+// impl From<ApActivity> for NewFollower {
+//     fn from(activity: ApActivity) -> NewFollower {
+//         let mut o = Option::<String>::None;
 
-        if let MaybeReference::Reference(x) = activity.object {
-            o = Some(x);
-        };
+//         if let MaybeReference::Reference(x) = activity.object {
+//             o = Some(x);
+//         };
 
-        NewFollower {
-            ap_id: activity.id.unwrap(),
-            actor: activity.actor,
-            followed_ap_id: o.unwrap_or_default(),
-            uuid: Uuid::new_v4().to_string(),
-            ..Default::default()
-        }
-    }
-}
+//         NewFollower {
+//             ap_id: activity.id.unwrap(),
+//             actor: activity.actor,
+//             followed_ap_id: o.unwrap_or_default(),
+//             uuid: Uuid::new_v4().to_string(),
+//             ..Default::default()
+//         }
+//     }
+// }
 
 impl TryFrom<ApFollow> for NewFollower {
     type Error = &'static str;

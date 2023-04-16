@@ -2,7 +2,8 @@ use core::fmt;
 use std::fmt::Debug;
 
 use crate::{
-    activity_pub::{ApActivity, ApActivityType, ApContext, ApFollow, ApObject},
+    //activity_pub::{ApActivity, ApActivityType, ApContext, ApFollow, ApObject},
+    activity_pub::{ApActivity, ApContext, ApFollow, ApObject},
     MaybeReference,
 };
 use serde::{Deserialize, Serialize};
@@ -32,23 +33,23 @@ pub struct ApUndo {
     pub object: MaybeReference<ApObject>,
 }
 
-impl TryFrom<ApActivity> for ApUndo {
-    type Error = &'static str;
+// impl TryFrom<ApActivity> for ApUndo {
+//     type Error = &'static str;
 
-    fn try_from(activity: ApActivity) -> Result<Self, Self::Error> {
-        if activity.kind == ApActivityType::Undo {
-            Ok(ApUndo {
-                context: activity.context,
-                kind: ApUndoType::default(),
-                actor: activity.actor,
-                id: activity.id,
-                object: activity.object,
-            })
-        } else {
-            Err("ACTIVITY COULD NOT BE CONVERTED TO UNDO")
-        }
-    }
-}
+//     fn try_from(activity: ApActivity) -> Result<Self, Self::Error> {
+//         if activity.kind == ApActivityType::Undo {
+//             Ok(ApUndo {
+//                 context: activity.context,
+//                 kind: ApUndoType::default(),
+//                 actor: activity.actor,
+//                 id: activity.id,
+//                 object: activity.object,
+//             })
+//         } else {
+//             Err("ACTIVITY COULD NOT BE CONVERTED TO UNDO")
+//         }
+//     }
+// }
 
 impl From<ApFollow> for ApUndo {
     fn from(follow: ApFollow) -> Self {

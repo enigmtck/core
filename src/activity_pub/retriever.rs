@@ -3,7 +3,7 @@ use chrono::Utc;
 use reqwest::Client;
 use reqwest::StatusCode;
 
-use crate::activity_pub::{ApActor, ApObject};
+use crate::activity_pub::ApActor;
 use crate::db::create_remote_note;
 use crate::db::Db;
 use crate::models::leaders::get_leader_by_actor_ap_id_and_profile;
@@ -11,7 +11,7 @@ use crate::models::leaders::Leader;
 use crate::models::profiles::get_profile_by_ap_id;
 use crate::models::profiles::Profile;
 use crate::models::remote_actors::get_remote_actor_by_ap_id;
-use crate::models::remote_actors::{create_or_update_remote_actor, NewRemoteActor, RemoteActor};
+use crate::models::remote_actors::{create_or_update_remote_actor, NewRemoteActor};
 use crate::models::remote_notes::get_remote_note_by_ap_id;
 use crate::models::remote_notes::NewRemoteNote;
 use crate::signing::{sign, Method, SignParams};

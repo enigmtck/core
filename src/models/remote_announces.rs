@@ -1,4 +1,4 @@
-use crate::activity_pub::{ApActivity, ApObject};
+use crate::activity_pub::{ApActivity, ApAnnounce, ApObject};
 use crate::db::Db;
 use crate::schema::remote_announces;
 use chrono::{DateTime, Utc};
@@ -60,16 +60,18 @@ pub struct RemoteAnnounce {
     pub revoked: bool,
 }
 
-impl From<ApActivity> for NewRemoteAnnounce {
-    fn from(activity: ApActivity) -> NewRemoteAnnounce {
+impl From<ApAnnounce> for NewRemoteAnnounce {
+    fn from(activity: ApAnnounce) -> NewRemoteAnnounce {
         NewRemoteAnnounce {
-            context: Option::from(serde_json::to_string(&activity.context.unwrap()).unwrap()),
+            context: activity
+                .context
+                .map(|ctx| serde_json::to_string(&ctx).unwrap()),
             kind: activity.kind.to_string(),
             ap_id: activity.id.unwrap(),
-            actor: activity.actor,
-            ap_to: Option::from(serde_json::to_value(activity.to.unwrap()).unwrap()),
-            cc: Option::from(serde_json::to_value(activity.cc.unwrap()).unwrap()),
-            published: activity.published.unwrap(),
+            actor: activity.actor.to_string(),
+            ap_to: Some(serde_json::to_value(activity.to).unwrap()),
+            cc: activity.cc.map(|cc| serde_json::to_value(cc).unwrap()),
+            published: activity.published.unwrap_or_default(),
             ap_object: serde_json::to_value(&activity.object).unwrap(),
             timeline_id: None,
         }

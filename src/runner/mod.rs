@@ -14,8 +14,10 @@ use crate::{
 
 pub mod activity;
 pub mod actor;
+pub mod announce;
 pub mod encrypted;
 pub mod follow;
+pub mod like;
 pub mod note;
 pub mod processing;
 pub mod timeline;

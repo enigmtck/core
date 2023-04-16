@@ -2,7 +2,8 @@ use core::fmt;
 use std::fmt::Debug;
 
 use crate::{
-    activity_pub::{ApActivity, ApActivityType, ApContext, ApObject},
+    // activity_pub::{ApActivity, ApActivityType, ApContext},
+    activity_pub::{ApActivity, ApContext},
     models::likes::Like,
     MaybeReference,
 };
@@ -45,24 +46,24 @@ impl From<Like> for ApLike {
     }
 }
 
-impl TryFrom<ApActivity> for ApLike {
-    type Error = &'static str;
+// impl TryFrom<ApActivity> for ApLike {
+//     type Error = &'static str;
 
-    fn try_from(activity: ApActivity) -> Result<Self, Self::Error> {
-        if let MaybeReference::Reference(object_id) = activity.object {
-            if activity.kind == ApActivityType::Like {
-                Ok(ApLike {
-                    context: Some(ApContext::default()),
-                    kind: ApLikeType::default(),
-                    actor: activity.actor,
-                    id: activity.id,
-                    object: object_id,
-                })
-            } else {
-                Err("ACTIVITY IS NOT A LIKE")
-            }
-        } else {
-            Err("ACTIVITY OBJECT IS NOT PLAIN")
-        }
-    }
-}
+//     fn try_from(activity: ApActivity) -> Result<Self, Self::Error> {
+//         if let MaybeReference::Reference(object_id) = activity.object {
+//             if activity.kind == ApActivityType::Like {
+//                 Ok(ApLike {
+//                     context: Some(ApContext::default()),
+//                     kind: ApLikeType::default(),
+//                     actor: activity.actor,
+//                     id: activity.id,
+//                     object: object_id,
+//                 })
+//             } else {
+//                 Err("ACTIVITY IS NOT A LIKE")
+//             }
+//         } else {
+//             Err("ACTIVITY OBJECT IS NOT PLAIN")
+//         }
+//     }
+// }

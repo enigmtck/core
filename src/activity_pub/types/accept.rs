@@ -2,7 +2,9 @@ use core::fmt;
 use std::fmt::Debug;
 
 use crate::{
-    activity_pub::{ApActivity, ApActivityType, ApContext, ApFollow, ApObject},
+    //activity_pub::{ApActivity, ApActivityType, ApContext, ApFollow, ApObject},
+    activity_pub::{ApActivity, ApContext, ApFollow, ApObject},
+    models::remote_activities::RemoteActivity,
     MaybeReference,
 };
 use serde::{Deserialize, Serialize};
@@ -32,17 +34,19 @@ pub struct ApAccept {
     pub object: MaybeReference<ApObject>,
 }
 
-impl TryFrom<ApActivity> for ApAccept {
+impl TryFrom<RemoteActivity> for ApAccept {
     type Error = &'static str;
 
-    fn try_from(activity: ApActivity) -> Result<Self, Self::Error> {
-        if activity.kind == ApActivityType::Accept {
+    fn try_from(activity: RemoteActivity) -> Result<Self, Self::Error> {
+        if activity.kind == "Accept" {
             Ok(ApAccept {
-                context: activity.context,
+                context: activity
+                    .context
+                    .map(|ctx| serde_json::from_value(ctx).unwrap()),
                 kind: ApAcceptType::default(),
                 actor: activity.actor,
-                id: activity.id,
-                object: activity.object,
+                id: Some(activity.ap_id),
+                object: serde_json::from_value(activity.ap_object.into()).unwrap(),
             })
         } else {
             Err("ACTIVITY COULD NOT BE CONVERTED TO ACCEPT")

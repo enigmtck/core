@@ -4,6 +4,7 @@ extern crate rocket;
 #[macro_use]
 extern crate diesel;
 
+use activity_pub::ApObject;
 use dotenvy::dotenv;
 use lazy_static::lazy_static;
 use serde::{Deserialize, Serialize};
@@ -144,4 +145,10 @@ pub enum MaybeReference<T> {
     Actual(T),
     #[default]
     None,
+}
+
+impl From<ApObject> for MaybeReference<ApObject> {
+    fn from(object: ApObject) -> Self {
+        MaybeReference::Actual(object)
+    }
 }

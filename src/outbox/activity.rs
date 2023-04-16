@@ -1,5 +1,8 @@
 use crate::{
-    activity_pub::{sender, ApActivity, ApIdentifier, ApObject, ApUndo},
+    activity_pub::{
+        sender, ApActivity, ApAddress, ApAnnounce, ApDelete, ApFollow, ApIdentifier, ApLike,
+        ApObject, ApUndo,
+    },
     db::Db,
     fairings::{
         events::EventChannels,
@@ -23,7 +26,7 @@ use rocket::http::Status;
 pub async fn undo_follow(
     conn: Db,
     events: EventChannels,
-    mut activity: ApActivity,
+    mut activity: ApUndo,
     profile: Profile,
     ap_id: String,
 ) -> bool {
@@ -36,9 +39,13 @@ pub async fn undo_follow(
             MaybeReference::Actual(ApObject::Identifier(ApIdentifier { id: locator }));
 
         if let Some(actor) = get_remote_actor_by_ap_id(&conn, ap_id.clone()).await {
-            if sender::send_activity(activity.clone(), profile.clone(), actor.inbox)
-                .await
-                .is_ok()
+            if sender::send_activity(
+                ApActivity::Undo(activity.clone()),
+                profile.clone(),
+                actor.inbox,
+            )
+            .await
+            .is_ok()
             {
                 debug!("UNDO FOLLOW REQUEST SENT");
                 if delete_leader_by_ap_id_and_profile(&conn, ap_id, profile.id)
@@ -68,40 +75,36 @@ pub async fn undo_follow(
 pub async fn undo(
     conn: Db,
     faktory: FaktoryConnection,
-    activity: ApActivity,
+    activity: ApUndo,
     profile: Profile,
 ) -> Result<Status, Status> {
-    if let Ok(undo) = ApUndo::try_from(activity.clone()) {
-        if let MaybeReference::Actual(object) = undo.object {
-            match object {
-                ApObject::Follow(follow) => {
-                    if let MaybeReference::Reference(leader) = follow.object {
-                        if let Some(follow) =
-                            get_follow_by_ap_object_and_profile(&conn, leader, profile.id).await
-                        {
-                            match assign_to_faktory(
-                                faktory,
-                                String::from("process_undo_follow"),
-                                vec![follow.uuid],
-                            ) {
-                                Ok(_) => Ok(Status::Accepted),
-                                Err(_) => Err(Status::NoContent),
-                            }
-                        } else {
-                            Err(Status::NoContent)
+    if let MaybeReference::Actual(object) = activity.object.clone() {
+        match object {
+            ApObject::Follow(follow) => {
+                if let MaybeReference::Reference(leader) = follow.object {
+                    if let Some(follow) =
+                        get_follow_by_ap_object_and_profile(&conn, leader, profile.id).await
+                    {
+                        match assign_to_faktory(
+                            faktory,
+                            String::from("process_undo_follow"),
+                            vec![follow.uuid],
+                        ) {
+                            Ok(_) => Ok(Status::Accepted),
+                            Err(_) => Err(Status::NoContent),
                         }
                     } else {
                         Err(Status::NoContent)
                     }
-                }
-                _ => {
-                    log::warn!("UNDO ACTION MAY BE UNIMPLEMENTED");
-                    log::debug!("ACTIVITY\n{activity:#?}");
+                } else {
                     Err(Status::NoContent)
                 }
             }
-        } else {
-            Err(Status::NoContent)
+            _ => {
+                log::warn!("UNDO ACTION MAY BE UNIMPLEMENTED");
+                log::debug!("ACTIVITY\n{activity:#?}");
+                Err(Status::NoContent)
+            }
         }
     } else {
         Err(Status::NoContent)
@@ -124,7 +127,7 @@ pub async fn undo(
 pub async fn follow(
     conn: Db,
     faktory: FaktoryConnection,
-    mut activity: ApActivity,
+    mut activity: ApFollow,
     profile: Profile,
 ) -> Result<Status, Status> {
     activity.actor = format!("{}/user/{}", *crate::SERVER_URL, profile.username);
@@ -150,7 +153,7 @@ pub async fn follow(
 pub async fn like(
     conn: Db,
     faktory: FaktoryConnection,
-    mut activity: ApActivity,
+    mut activity: ApLike,
     profile: Profile,
 ) -> Result<Status, Status> {
     // we ignore whatever was submitted for the actor value and enforce the correct
@@ -185,12 +188,13 @@ pub async fn like(
 pub async fn announce(
     conn: Db,
     faktory: FaktoryConnection,
-    mut activity: ApActivity,
+    mut activity: ApAnnounce,
     profile: Profile,
 ) -> Result<Status, Status> {
     // we ignore whatever was submitted for the actor value and enforce the correct
     // value here; this will be used in the conversion to an ApAnnounce
-    activity.actor = format!("{}/user/{}", *crate::SERVER_URL, profile.username);
+    activity.actor =
+        ApAddress::Address(format!("{}/user/{}", *crate::SERVER_URL, profile.username));
 
     if let Ok(mut announce) = NewAnnounce::try_from(activity) {
         announce.link(&conn).await;
@@ -215,7 +219,7 @@ pub async fn announce(
 pub async fn delete(
     conn: Db,
     faktory: FaktoryConnection,
-    mut delete: ApActivity,
+    mut delete: ApDelete,
     profile: Profile,
 ) -> Result<Status, Status> {
     // we ignore whatever was submitted for the actor value and enforce the correct

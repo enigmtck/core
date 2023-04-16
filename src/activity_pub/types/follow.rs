@@ -2,8 +2,9 @@ use core::fmt;
 use std::fmt::Debug;
 
 use crate::{
-    activity_pub::{ApActivity, ApActivityType, ApContext, ApObject},
-    models::follows::Follow,
+    // activity_pub::{ApActivity, ApActivityType, ApContext, ApObject},
+    activity_pub::{ApActivity, ApContext, ApObject},
+    models::{follows::Follow, remote_activities::RemoteActivity},
     MaybeReference,
 };
 use serde::{Deserialize, Serialize};
@@ -33,20 +34,40 @@ pub struct ApFollow {
     pub object: MaybeReference<ApObject>,
 }
 
-impl TryFrom<ApActivity> for ApFollow {
+// impl TryFrom<ApActivity> for ApFollow {
+//     type Error = &'static str;
+
+//     fn try_from(activity: ApActivity) -> Result<Self, Self::Error> {
+//         if activity.kind == ApActivityType::Follow {
+//             Ok(ApFollow {
+//                 context: activity.context,
+//                 kind: ApFollowType::default(),
+//                 actor: activity.actor,
+//                 id: activity.id,
+//                 object: activity.object,
+//             })
+//         } else {
+//             Err("ACTIVITY COULD NOT BE CONVERTED TO FOLLOW")
+//         }
+//     }
+// }
+
+impl TryFrom<RemoteActivity> for ApFollow {
     type Error = &'static str;
 
-    fn try_from(activity: ApActivity) -> Result<Self, Self::Error> {
-        if activity.kind == ApActivityType::Follow {
+    fn try_from(activity: RemoteActivity) -> Result<Self, Self::Error> {
+        if activity.kind == "Follow" {
             Ok(ApFollow {
-                context: activity.context,
+                context: activity
+                    .context
+                    .map(|ctx| serde_json::from_value(ctx).unwrap()),
                 kind: ApFollowType::default(),
                 actor: activity.actor,
-                id: activity.id,
-                object: activity.object,
+                id: Some(activity.ap_id),
+                object: serde_json::from_value(activity.ap_object.into()).unwrap(),
             })
         } else {
-            Err("ACTIVITY COULD NOT BE CONVERTED TO FOLLOW")
+            Err("ACTIVITY COULD NOT BE CONVERTED TO ACCEPT")
         }
     }
 }

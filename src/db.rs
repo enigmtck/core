@@ -1,5 +1,4 @@
-use crate::models::followers::{Follower, NewFollower};
-use crate::models::leaders::{Leader, NewLeader};
+use crate::models::leaders::Leader;
 use crate::models::notes::{NewNote, Note};
 use crate::models::profiles::Profile;
 use crate::models::remote_encrypted_sessions::{NewRemoteEncryptedSession, RemoteEncryptedSession};

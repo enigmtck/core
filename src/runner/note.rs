@@ -7,7 +7,9 @@ use tokio::runtime::Runtime;
 use webpage::{Webpage, WebpageOptions};
 
 use crate::{
-    activity_pub::{ApActivity, ApActor, ApAddress, ApDelete, ApNote, ApObject, Metadata},
+    activity_pub::{
+        ApActivity, ApActor, ApAddress, ApCreate, ApDelete, ApNote, ApObject, Metadata,
+    },
     helper::get_note_ap_id_from_uuid,
     models::{notes::Note, profiles::Profile, remote_notes::RemoteNote},
     runner::{
@@ -84,11 +86,11 @@ pub fn process_outbound_note(job: Job) -> io::Result<()> {
 
                 let create = match note.kind.as_str() {
                     "Note" => {
-                        handle_note(&mut note, &mut inboxes, sender.clone()).map(ApActivity::from)
+                        handle_note(&mut note, &mut inboxes, sender.clone()).map(ApCreate::from)
                     }
                     "EncryptedNote" => {
                         handle_encrypted_note(&mut note, &mut inboxes, sender.clone())
-                            .map(ApActivity::from)
+                            .map(ApCreate::from)
                     }
                     _ => None,
                 };

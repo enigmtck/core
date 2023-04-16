@@ -1,6 +1,9 @@
 use diesel::prelude::*;
 
-use crate::{models::remote_activities::RemoteActivity, schema::remote_activities};
+use crate::{
+    models::remote_activities::{NewRemoteActivity, RemoteActivity},
+    schema::remote_activities,
+};
 
 use super::POOL;
 
@@ -15,5 +18,22 @@ pub fn get_remote_activity_by_apid(ap_id: String) -> Option<RemoteActivity> {
         }
     } else {
         None
+    }
+}
+
+pub fn create_remote_activity(remote_activity: NewRemoteActivity) -> Option<RemoteActivity> {
+    if let Ok(conn) = POOL.get() {
+        match diesel::insert_into(remote_activities::table)
+            .values(&remote_activity)
+            .get_result::<RemoteActivity>(&conn)
+        {
+            Ok(x) => Some(x),
+            Err(e) => {
+                log::error!("{:#?}", e);
+                Option::None
+            }
+        }
+    } else {
+        Option::None
     }
 }

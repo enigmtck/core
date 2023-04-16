@@ -1,4 +1,4 @@
-use crate::activity_pub::{ApActivity, ApObject};
+use crate::activity_pub::{ApActivity, ApLike};
 use crate::db::Db;
 use crate::schema::remote_likes;
 use crate::MaybeReference;
@@ -15,18 +15,10 @@ pub struct NewRemoteLike {
     pub ap_id: String,
 }
 
-impl From<ApActivity> for NewRemoteLike {
-    fn from(activity: ApActivity) -> NewRemoteLike {
-        let target = {
-            if let MaybeReference::Reference(x) = activity.object {
-                Some(x)
-            } else {
-                Option::<String>::None
-            }
-        };
-
+impl From<ApLike> for NewRemoteLike {
+    fn from(activity: ApLike) -> NewRemoteLike {
         NewRemoteLike {
-            object_id: target.unwrap_or_default(),
+            object_id: activity.object,
             actor: activity.actor,
             ap_id: activity.id.unwrap_or_default(),
         }
