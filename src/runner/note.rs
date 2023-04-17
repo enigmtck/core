@@ -3,7 +3,7 @@ use diesel::prelude::*;
 use faktory::Job;
 use reqwest::{Client, StatusCode};
 use std::{collections::HashSet, io};
-use tokio::runtime::Runtime;
+use tokio::runtime::{Handle, Runtime};
 use webpage::{Webpage, WebpageOptions};
 
 use crate::{
@@ -44,24 +44,23 @@ pub fn delete_note(job: Job) -> io::Result<()> {
                 let ap_note = ApNote::from(note);
                 log::debug!("AP_NOTE\n{ap_note:#?}");
 
-                match ApDelete::try_from(ap_note) {
-                    Ok(delete) => {
-                        log::debug!("DELETE\n{delete:#?}");
-                        let inboxes = get_follower_inboxes(profile.clone());
+                if let Ok(delete) = ApDelete::try_from(ap_note) {
+                    log::debug!("DELETE\n{delete:#?}");
+                    let inboxes = get_follower_inboxes(profile.clone());
 
-                        send_to_inboxes(inboxes, profile, ApActivity::Delete(Box::new(delete)));
+                    send_to_inboxes(inboxes, profile, ApActivity::Delete(Box::new(delete)));
 
-                        let ap_id = get_note_ap_id_from_uuid(uuid.clone());
+                    let ap_id = get_note_ap_id_from_uuid(uuid.clone());
 
-                        if let Ok(records) = delete_timeline_item_by_ap_id(ap_id) {
-                            log::debug!("TIMELINE RECORDS DELETED: {records}");
+                    if let Ok(records) = delete_timeline_item_by_ap_id(ap_id) {
+                        log::debug!("TIMELINE RECORDS DELETED: {records}");
 
-                            if let Ok(records) = delete_note_by_uuid(uuid) {
-                                log::debug!("NOTE RECORDS DELETED: {records}");
-                            }
+                        if let Ok(records) = delete_note_by_uuid(uuid) {
+                            log::debug!("NOTE RECORDS DELETED: {records}");
                         }
                     }
-                    Err(e) => log::error!("{e}"),
+                } else {
+                    log::error!("FAILED TO BUILD AP_DELETE FROM AP_NOTE");
                 }
             }
         }
@@ -279,82 +278,163 @@ pub fn get_links(text: String) -> Vec<String> {
         .collect()
 }
 
-pub fn process_remote_note(job: Job) -> io::Result<()> {
-    log::debug!("running process_remote_note job");
+fn process_note(remote_note: &RemoteNote, handle: &Handle) -> io::Result<()> {
+    let links = get_links(remote_note.content.clone());
+    log::debug!("{links:#?}");
 
-    let rt = Runtime::new().unwrap();
-    let handle = rt.handle();
+    let metadata: Vec<Metadata> = {
+        links
+            .iter()
+            .map(|link| Webpage::from_url(link, WebpageOptions::default()))
+            .filter(|metadata| metadata.is_ok())
+            .map(|metadata| metadata.unwrap().html.meta.into())
+            .collect()
+    };
 
-    let ap_ids = job.args();
+    let note: ApNote = (remote_note.clone(), Some(metadata)).into();
 
-    match POOL.get() {
-        Ok(conn) => {
-            for ap_id in ap_ids {
-                let ap_id = ap_id.as_str().unwrap().to_string();
-                log::debug!("looking for ap_id: {}", ap_id);
+    if let Some(timeline_item) = create_timeline_item(note.clone().into()) {
+        add_to_timeline(
+            remote_note.clone().ap_to,
+            remote_note.clone().cc,
+            timeline_item,
+        );
 
-                match remote_notes::table
-                    .filter(remote_notes::ap_id.eq(ap_id))
-                    .first::<RemoteNote>(&conn)
-                {
-                    Ok(remote_note) => {
-                        if remote_note.kind == "Note" {
-                            let links = get_links(remote_note.content.clone());
-                            log::debug!("{links:#?}");
-
-                            let metadata: Vec<Metadata> = {
-                                links
-                                    .iter()
-                                    .map(|link| Webpage::from_url(link, WebpageOptions::default()))
-                                    .filter(|metadata| metadata.is_ok())
-                                    .map(|metadata| metadata.unwrap().html.meta.into())
-                                    .collect()
-                            };
-
-                            let note: ApNote = (remote_note.clone(), Some(metadata)).into();
-
-                            if let Some(timeline_item) = create_timeline_item(note.clone().into()) {
-                                add_to_timeline(
-                                    remote_note.clone().ap_to,
-                                    remote_note.clone().cc,
-                                    timeline_item,
-                                );
-
-                                handle.block_on(async {
-                                    send_to_mq(note.clone()).await;
-                                });
-                            }
-                        } else if remote_note.kind == "EncryptedNote" {
-                            // need to resolve ap_to to a profile_id for the command below
-                            log::debug!("adding to processing queue");
-
-                            if let Some(ap_to) = remote_note.clone().ap_to {
-                                let to_vec: Vec<String> = {
-                                    match serde_json::from_value(ap_to) {
-                                        Ok(x) => x,
-                                        Err(_e) => vec![],
-                                    }
-                                };
-
-                                for ap_id in to_vec {
-                                    if let Some(profile) = get_profile_by_ap_id(ap_id) {
-                                        create_processing_item(
-                                            (remote_note.clone(), profile.id).into(),
-                                        );
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    Err(e) => log::error!("error: {:#?}", e),
-                }
-            }
-        }
-        Err(e) => log::error!("error: {:#?}", e),
+        handle.block_on(async {
+            send_to_mq(note.clone()).await;
+        });
     }
 
     Ok(())
 }
+
+fn process_encrypted_note(remote_note: &RemoteNote) -> io::Result<()> {
+    log::debug!("adding to processing queue");
+
+    if let Some(ap_to) = remote_note.clone().ap_to {
+        let to_vec: Vec<String> = match serde_json::from_value(ap_to) {
+            Ok(x) => x,
+            Err(e) => return Err(io::Error::new(io::ErrorKind::Other, e)),
+        };
+
+        to_vec
+            .iter()
+            .filter_map(|ap_id| get_profile_by_ap_id(ap_id.to_string()))
+            .for_each(|profile| {
+                create_processing_item((remote_note.clone(), profile.id).into());
+            });
+    }
+
+    Ok(())
+}
+
+pub fn process_remote_note(job: Job) -> io::Result<()> {
+    log::debug!("running process_remote_note job");
+
+    let ap_ids = job.args();
+    if let Ok(conn) = POOL.get() {
+        let rt = Runtime::new().unwrap();
+        let handle = rt.handle();
+
+        for ap_id in ap_ids {
+            let ap_id = ap_id.as_str().unwrap().to_string();
+            log::debug!("looking for ap_id: {}", ap_id);
+
+            match remote_notes::table
+                .filter(remote_notes::ap_id.eq(ap_id))
+                .first::<RemoteNote>(&conn)
+            {
+                Ok(remote_note) => {
+                    if remote_note.kind == "Note" {
+                        process_note(&remote_note, handle)?;
+                    } else if remote_note.kind == "EncryptedNote" {
+                        process_encrypted_note(&remote_note)?;
+                    }
+                }
+                Err(e) => return Err(io::Error::new(io::ErrorKind::Other, e)),
+            }
+        }
+    }
+
+    Ok(())
+}
+
+// pub fn process_remote_note(job: Job) -> io::Result<()> {
+//     log::debug!("running process_remote_note job");
+
+//     let rt = Runtime::new().unwrap();
+//     let handle = rt.handle();
+
+//     let ap_ids = job.args();
+
+//     match POOL.get() {
+//         Ok(conn) => {
+//             for ap_id in ap_ids {
+//                 let ap_id = ap_id.as_str().unwrap().to_string();
+//                 log::debug!("looking for ap_id: {}", ap_id);
+
+//                 match remote_notes::table
+//                     .filter(remote_notes::ap_id.eq(ap_id))
+//                     .first::<RemoteNote>(&conn)
+//                 {
+//                     Ok(remote_note) => {
+//                         if remote_note.kind == "Note" {
+//                             let links = get_links(remote_note.content.clone());
+//                             log::debug!("{links:#?}");
+
+//                             let metadata: Vec<Metadata> = {
+//                                 links
+//                                     .iter()
+//                                     .map(|link| Webpage::from_url(link, WebpageOptions::default()))
+//                                     .filter(|metadata| metadata.is_ok())
+//                                     .map(|metadata| metadata.unwrap().html.meta.into())
+//                                     .collect()
+//                             };
+
+//                             let note: ApNote = (remote_note.clone(), Some(metadata)).into();
+
+//                             if let Some(timeline_item) = create_timeline_item(note.clone().into()) {
+//                                 add_to_timeline(
+//                                     remote_note.clone().ap_to,
+//                                     remote_note.clone().cc,
+//                                     timeline_item,
+//                                 );
+
+//                                 handle.block_on(async {
+//                                     send_to_mq(note.clone()).await;
+//                                 });
+//                             }
+//                         } else if remote_note.kind == "EncryptedNote" {
+//                             // need to resolve ap_to to a profile_id for the command below
+//                             log::debug!("adding to processing queue");
+
+//                             if let Some(ap_to) = remote_note.clone().ap_to {
+//                                 let to_vec: Vec<String> = {
+//                                     match serde_json::from_value(ap_to) {
+//                                         Ok(x) => x,
+//                                         Err(_e) => vec![],
+//                                     }
+//                                 };
+
+//                                 for ap_id in to_vec {
+//                                     if let Some(profile) = get_profile_by_ap_id(ap_id) {
+//                                         create_processing_item(
+//                                             (remote_note.clone(), profile.id).into(),
+//                                         );
+//                                     }
+//                                 }
+//                             }
+//                         }
+//                     }
+//                     Err(e) => log::error!("error: {:#?}", e),
+//                 }
+//             }
+//         }
+//         Err(e) => log::error!("error: {:#?}", e),
+//     }
+
+//     Ok(())
+// }
 
 pub fn update_note_cc(note: Note) -> Option<Note> {
     if let Ok(conn) = POOL.get() {

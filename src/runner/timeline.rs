@@ -48,25 +48,34 @@ pub fn update_timeline_record(job: Job) -> io::Result<()> {
     Ok(())
 }
 
+fn add_timeline_item_for_recipient<F>(
+    recipient: &str,
+    timeline_item: &TimelineItem,
+    create_timeline_item: F,
+) where
+    F: Fn((TimelineItem, String)) -> bool,
+{
+    if create_timeline_item((timeline_item.clone(), recipient.to_string()))
+        && get_leader_by_endpoint(recipient.to_string()).is_some()
+    {
+        for (_remote_actor, _leader, profile) in
+            get_follower_profiles_by_endpoint(recipient.to_string())
+        {
+            if let Some(follower) = profile {
+                let follower_endpoint =
+                    format!("{}/user/{}", &*crate::SERVER_URL, follower.username);
+                create_timeline_item((timeline_item.clone(), follower_endpoint));
+            }
+        }
+    }
+}
+
 pub fn add_to_timeline(ap_to: Option<Value>, cc: Option<Value>, timeline_item: TimelineItem) {
     if let Some(ap_to) = ap_to {
         if let Ok(to_vec) = serde_json::from_value::<Vec<String>>(ap_to.clone()) {
-            //let to_vec: Vec<String> = serde_json::from_value(ap_to).unwrap();
-
             for to in to_vec {
-                create_timeline_item_to((timeline_item.clone(), to.clone()).into());
-
-                if get_leader_by_endpoint(to.clone()).is_some() {
-                    for follower in get_follower_profiles_by_endpoint(to) {
-                        if let Some(follower) = follower.2 {
-                            log::debug!("adding to for {}", follower.username);
-
-                            let follower =
-                                format!("{}/user/{}", &*crate::SERVER_URL, follower.username);
-                            create_timeline_item_to((timeline_item.clone(), follower).into());
-                        }
-                    }
-                }
+                log::debug!("ADDING TO FOR {to}");
+                add_timeline_item_for_recipient(&to, &timeline_item, create_timeline_item_to);
             }
         } else {
             log::error!("TO VALUE NOT A VEC: {ap_to:#?}");
@@ -75,21 +84,9 @@ pub fn add_to_timeline(ap_to: Option<Value>, cc: Option<Value>, timeline_item: T
 
     if let Some(cc) = cc {
         if let Ok(cc_vec) = serde_json::from_value::<Vec<String>>(cc.clone()) {
-            //if let Ok(cc_vec) = serde_json::from_value::<Vec<String>>(cc) {
             for cc in cc_vec {
-                create_timeline_item_cc((timeline_item.clone(), cc.clone()).into());
-
-                if get_leader_by_endpoint(cc.clone()).is_some() {
-                    for follower in get_follower_profiles_by_endpoint(cc) {
-                        if let Some(follower) = follower.2 {
-                            log::debug!("adding cc for {}", follower.username);
-
-                            let follower =
-                                format!("{}/user/{}", &*crate::SERVER_URL, follower.username);
-                            create_timeline_item_cc((timeline_item.clone(), follower).into());
-                        }
-                    }
-                }
+                log::debug!("ADDING CC FOR {cc}");
+                add_timeline_item_for_recipient(&cc, &timeline_item, create_timeline_item_cc);
             }
         } else {
             log::error!("CC VALUE NOT A VEC: {cc:#?}");
@@ -165,36 +162,26 @@ pub fn create_timeline_item(timeline_item: NewTimelineItem) -> Option<TimelineIt
     }
 }
 
-pub fn create_timeline_item_to(timeline_item_to: NewTimelineItemTo) -> Option<TimelineItemTo> {
+pub fn create_timeline_item_to(timeline_item_to: (TimelineItem, String)) -> bool {
+    let timeline_item_to = NewTimelineItemTo::from(timeline_item_to);
     if let Ok(conn) = POOL.get() {
-        match diesel::insert_into(timeline_to::table)
+        diesel::insert_into(timeline_to::table)
             .values(&timeline_item_to)
             .get_result::<TimelineItemTo>(&conn)
-        {
-            Ok(x) => Some(x),
-            Err(e) => {
-                log::error!("{:#?}", e);
-                Option::None
-            }
-        }
+            .is_ok()
     } else {
-        Option::None
+        false
     }
 }
 
-pub fn create_timeline_item_cc(timeline_item_cc: NewTimelineItemCc) -> Option<TimelineItemCc> {
+pub fn create_timeline_item_cc(timeline_item_cc: (TimelineItem, String)) -> bool {
+    let timeline_item_cc = NewTimelineItemCc::from(timeline_item_cc);
     if let Ok(conn) = POOL.get() {
-        match diesel::insert_into(timeline_cc::table)
+        diesel::insert_into(timeline_cc::table)
             .values(&timeline_item_cc)
             .get_result::<TimelineItemCc>(&conn)
-        {
-            Ok(x) => Some(x),
-            Err(e) => {
-                log::error!("{:#?}", e);
-                Option::None
-            }
-        }
+            .is_ok()
     } else {
-        Option::None
+        false
     }
 }

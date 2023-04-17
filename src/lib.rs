@@ -4,7 +4,7 @@ extern crate rocket;
 #[macro_use]
 extern crate diesel;
 
-use activity_pub::ApObject;
+use activity_pub::{ApActivity, ApObject};
 use dotenvy::dotenv;
 use lazy_static::lazy_static;
 use serde::{Deserialize, Serialize};
@@ -112,6 +112,12 @@ impl From<String> for MaybeMultiple<String> {
     }
 }
 
+impl<T> From<Vec<T>> for MaybeMultiple<T> {
+    fn from(data: Vec<T>) -> Self {
+        MaybeMultiple::Multiple(data)
+    }
+}
+
 impl<T: Clone> MaybeMultiple<T> {
     pub fn single(&self) -> Option<T> {
         match self {
@@ -156,5 +162,17 @@ pub enum MaybeReference<T> {
 impl From<ApObject> for MaybeReference<ApObject> {
     fn from(object: ApObject) -> Self {
         MaybeReference::Actual(object)
+    }
+}
+
+impl From<ApActivity> for MaybeReference<ApActivity> {
+    fn from(activity: ApActivity) -> Self {
+        MaybeReference::Actual(activity)
+    }
+}
+
+impl From<String> for MaybeReference<String> {
+    fn from(reference: String) -> Self {
+        MaybeReference::Reference(reference)
     }
 }
