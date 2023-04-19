@@ -1,5 +1,7 @@
 use crate::activity_pub::{ApActor, ApCollection, ApInstrument, ApNote};
 use crate::{Identifier, MaybeMultiple};
+use image::io::Reader;
+use image::ImageFormat;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::fmt;
@@ -132,6 +134,78 @@ pub struct ApAttachment {
     pub signature_algorithm: Option<String>,
     pub signature_value: Option<String>,
     pub href: Option<String>,
+}
+
+// {
+//     match format {
+//         ImageFormat::Png => Some("image/png".to_string()),
+//         ImageFormat::Gif => Some("image/gif".to_string()),
+//         ImageFormat::Jpeg => Some("image/jpg".to_string()),
+//         ImageFormat::WebP => Some("image/webp".to_string()),
+//         ImageFormat::Pnm => Some("image/pnm".to_string()),
+//         ImageFormat::Tiff => Some("image/tiff".to_string()),
+//         ImageFormat::Tga => Some("image/tga".to_string()),
+//         ImageFormat::Dds => Some("image/dds".to_string()),
+//         ImageFormat::Bmp => Some("image/bmp".to_string()),
+//         ImageFormat::Ico => Some("image/ico".to_string()),
+//         _ => None,
+//     }
+// }
+impl TryFrom<String> for ApAttachment {
+    type Error = &'static str;
+
+    fn try_from(filename: String) -> Result<Self, Self::Error> {
+        let path = &format!("{}/uploads/{}", *crate::MEDIA_DIR, filename);
+
+        if let Ok(meta) = rexiv2::Metadata::new_from_path(path) {
+            meta.clear();
+            meta.save_to_file(path);
+        }
+
+        if let Ok(img) = Reader::open(path) {
+            if let Ok(img) = img.with_guessed_format() {
+                if let Some(format) = img.format() {
+                    if let Ok(decode) = img.decode() {
+                        let decode =
+                            decode.resize(1024, 768, image::imageops::FilterType::Gaussian);
+                        decode.save_with_format(path, ImageFormat::Png).ok();
+                        let blurhash = blurhash::encode(
+                            4,
+                            3,
+                            decode.width(),
+                            decode.height(),
+                            &decode.to_rgba8().into_vec(),
+                        );
+                        Ok(ApAttachment {
+                            kind: ApAttachmentType::Document,
+                            name: None,
+                            summary: None,
+                            media_type: Some("image/png".to_string()),
+                            url: Some(format!("{}/media/uploads/{}", *crate::SERVER_URL, filename)),
+                            blurhash: Some(blurhash),
+                            width: Some(decode.width() as i32),
+                            height: Some(decode.height() as i32),
+                            signature_algorithm: None,
+                            signature_value: None,
+                            href: None,
+                        })
+                    } else {
+                        log::error!("FAILED TO DECODE IMAGE");
+                        Err("FAILED TO DECODE IMAGE")
+                    }
+                } else {
+                    log::error!("FAILED TO DETERMINE FORMAT");
+                    Err("FAILED TO DETERMINE FORMAT")
+                }
+            } else {
+                log::error!("FAILED TO GUESS FORMAT");
+                Err("FAILED TO GUESS FORMAT")
+            }
+        } else {
+            log::error!("FAILED TO OPEN FILE");
+            Err("FAILED TO OPEN FILE")
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]

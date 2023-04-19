@@ -7,7 +7,9 @@ pub use types::accept::{ApAccept, ApAcceptType};
 //pub use types::activity::{ApActivity, ApActivityType};
 pub use types::activity::ApActivity;
 pub use types::actor::{ApActor, ApActorType, ApAddress, ApPublicKey};
+pub use types::add::{ApAdd, ApAddType};
 pub use types::announce::{ApAnnounce, ApAnnounceType};
+pub use types::block::{ApBlock, ApBlockType};
 pub use types::collection::{
     ActorsPage, ApCollection, ApCollectionType, FollowersPage, IdentifiedVaultItems, LeadersPage,
 };

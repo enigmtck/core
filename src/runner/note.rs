@@ -94,6 +94,8 @@ pub fn process_outbound_note(job: Job) -> io::Result<()> {
                     _ => None,
                 };
 
+                log::debug!("SENDING NOTE\n{create:#?}");
+
                 if let Some(create) = create {
                     for url in inboxes {
                         let body = Option::from(serde_json::to_string(&create).unwrap());

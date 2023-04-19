@@ -1,7 +1,9 @@
 pub mod accept;
 pub mod activity;
 pub mod actor;
+pub mod add;
 pub mod announce;
+pub mod block;
 pub mod collection;
 pub mod create;
 pub mod delete;

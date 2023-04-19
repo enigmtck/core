@@ -1,5 +1,6 @@
 use crate::activity_pub::{
-    ApAccept, ApAnnounce, ApCreate, ApDelete, ApInvite, ApJoin, ApLike, ApUndo, ApUpdate,
+    ApAccept, ApAdd, ApAnnounce, ApBlock, ApCreate, ApDelete, ApInvite, ApJoin, ApLike, ApUndo,
+    ApUpdate,
 };
 use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
@@ -19,4 +20,6 @@ pub enum ApActivity {
     Invite(ApInvite),
     Join(ApJoin),
     Update(ApUpdate),
+    Block(ApBlock),
+    Add(ApAdd),
 }

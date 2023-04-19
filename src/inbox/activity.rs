@@ -1,7 +1,7 @@
 use crate::{
     activity_pub::{
-        ApAccept, ApActivity, ApAddress, ApAnnounce, ApCreate, ApDelete, ApFollow, ApInvite,
-        ApJoin, ApLike, ApObject, ApUndo, ApUpdate,
+        ApAccept, ApActivity, ApAdd, ApAddress, ApAnnounce, ApBlock, ApCreate, ApDelete, ApFollow,
+        ApInvite, ApJoin, ApLike, ApObject, ApUndo, ApUpdate,
     },
     db::{create_remote_encrypted_session, create_remote_note, Db},
     fairings::{
@@ -375,4 +375,18 @@ pub async fn like(
         log::warn!("FAILED TO CREATE LIKE (DUPLICATE?)\n{:#?}", activity.object);
         Err(Status::NoContent)
     }
+}
+
+pub async fn block(
+    conn: Db,
+    _faktory: FaktoryConnection,
+    activity: ApBlock,
+) -> Result<Status, Status> {
+    log::warn!("BLOCK ACTIVITY NOT YET IMPLEMENTED");
+    Err(Status::NoContent)
+}
+
+pub async fn add(conn: Db, _faktory: FaktoryConnection, activity: ApAdd) -> Result<Status, Status> {
+    log::warn!("ADD ACTIVITY NOT YET IMPLEMENTED");
+    Err(Status::NoContent)
 }

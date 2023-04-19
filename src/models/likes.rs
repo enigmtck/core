@@ -22,7 +22,7 @@ impl From<ApLike> for NewLike {
     fn from(like: ApLike) -> Self {
         NewLike {
             object_ap_id: like.object,
-            ap_to: "".to_string(),
+            ap_to: like.to.unwrap_or_default().to_string(),
             actor: like.actor.to_string(),
             uuid: uuid::Uuid::new_v4().to_string(),
             profile_id: None,

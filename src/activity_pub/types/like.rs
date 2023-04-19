@@ -29,6 +29,8 @@ pub struct ApLike {
     #[serde(rename = "type")]
     pub kind: ApLikeType,
     pub actor: ApAddress,
+    #[serde(skip_serializing)]
+    pub to: Option<ApAddress>,
     pub id: Option<String>,
     pub object: String,
 }
@@ -39,6 +41,7 @@ impl From<Like> for ApLike {
             context: Some(ApContext::default()),
             kind: ApLikeType::Like,
             actor: ApAddress::Address(like.actor),
+            to: Some(ApAddress::Address(like.ap_to)),
             id: Some(format!("{}/likes/{}", *crate::SERVER_URL, like.uuid)),
             object: like.object_ap_id,
         }

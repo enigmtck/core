@@ -208,12 +208,12 @@ impl From<Profile> for ApActor {
             icon: Some(ApImage {
                 kind: ApImageType::Image,
                 media_type: None,
-                url: format!("{}/{}", server_url, profile.avatar_filename),
+                url: format!("{server_url}/media/avatars/{}", profile.avatar_filename),
             }),
             image: profile.banner_filename.map(|banner| ApImage {
                 kind: ApImageType::Image,
                 media_type: None,
-                url: format!("{}/{}", server_url, banner),
+                url: format!("{server_url}/media/banners/{banner}"),
             }),
             discoverable: Some(true),
             capabilities: Some(ApCapabilities {

@@ -6,8 +6,8 @@ use std::collections::HashMap;
 use enigmatick::{
     activity_pub::{
         retriever::{self, get_actor, get_note, get_remote_webfinger},
-        ActivityPub, ActorsPage, ApActivity, ApActor, ApCollection, ApNote, ApNoteType, ApObject,
-        ApSession, FollowersPage, IdentifiedVaultItems, LeadersPage,
+        ActivityPub, ActorsPage, ApActivity, ApActor, ApAttachment, ApCollection, ApNote,
+        ApNoteType, ApObject, ApSession, FollowersPage, IdentifiedVaultItems, LeadersPage,
     },
     admin::{self, verify_and_generate_password, NewUser},
     api::{instance::InstanceInformation, processing_queue},
@@ -515,6 +515,39 @@ pub async fn vault_get(
     }
 }
 
+#[post("/api/user/<username>/image", data = "<media>")]
+pub async fn upload_image(
+    signed: Signed,
+    conn: Db,
+    username: String,
+    media: Data<'_>,
+) -> Result<Json<ApAttachment>, Status> {
+    if let Signed(true, VerificationType::Local) = signed {
+        if let Some(profile) = get_profile_by_username(&conn, username).await {
+            let filename = uuid::Uuid::new_v4();
+            let path = &format!("{}/uploads/{}", *enigmatick::MEDIA_DIR, filename);
+
+            if let Ok(file) = media.open(10.mebibytes()).into_file(path).await {
+                if file.is_complete() {
+                    if let Ok(attachment) = ApAttachment::try_from(filename.to_string()) {
+                        Ok(Json(attachment))
+                    } else {
+                        Err(Status::NoContent)
+                    }
+                } else {
+                    Err(Status::NoContent)
+                }
+            } else {
+                Err(Status::NoContent)
+            }
+        } else {
+            Err(Status::NoContent)
+        }
+    } else {
+        Err(Status::Forbidden)
+    }
+}
+
 #[post("/api/user/<username>/avatar?<extension>", data = "<media>")]
 pub async fn upload_avatar(
     signed: Signed,
@@ -532,7 +565,7 @@ pub async fn upload_avatar(
 
         if let Ok(file) = media
             .open(2.mebibytes())
-            .into_file(&format!("{}/{}", *enigmatick::MEDIA_DIR, filename))
+            .into_file(&format!("{}/avatars/{}", *enigmatick::MEDIA_DIR, filename))
             .await
         {
             if file.is_complete() {
@@ -572,7 +605,7 @@ pub async fn upload_banner(
 
         if let Ok(file) = media
             .open(2.mebibytes())
-            .into_file(&format!("{}/{}", *enigmatick::MEDIA_DIR, filename))
+            .into_file(&format!("{}/banners/{}", *enigmatick::MEDIA_DIR, filename))
             .await
         {
             if file.is_complete() {
@@ -1269,6 +1302,10 @@ pub async fn shared_inbox_post(
                     inbox::activity::update(conn, faktory, activity).await
                 }
                 ApActivity::Like(activity) => inbox::activity::like(conn, faktory, *activity).await,
+                ApActivity::Block(activity) => {
+                    inbox::activity::block(conn, faktory, activity).await
+                }
+                ApActivity::Add(activity) => inbox::activity::add(conn, faktory, activity).await,
             }
         } else {
             log::debug!("FAILED TO CREATE REMOTE ACTIVITY");
@@ -1331,6 +1368,7 @@ fn rocket() -> _ {
                 update_summary,
                 upload_avatar,
                 upload_banner,
+                upload_image,
                 change_password,
                 note_get,
                 conversation_get,

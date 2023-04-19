@@ -372,6 +372,7 @@ impl From<NewNote> for ApNote {
             },
             in_reply_to: note.in_reply_to,
             conversation: note.conversation,
+            attachment: note.attachment.map(|x| serde_json::from_value(x).unwrap()),
             ..Default::default()
         }
     }
@@ -414,7 +415,7 @@ impl From<Note> for ApNote {
             },
             in_reply_to: note.in_reply_to,
             conversation: note.conversation,
-            attachment: Some(vec![]),
+            attachment: note.attachment.map(|x| serde_json::from_value(x).unwrap()),
             ephemeral_metadata: Some(vec![]),
             ..Default::default()
         }
