@@ -253,8 +253,15 @@ fn handle_note(note: &mut Note, inboxes: &mut HashSet<String>, sender: Profile) 
         }
     }
 
-    if let Some(_actor) = get_remote_actor_by_ap_id(note.clone().attributed_to) {
-        if let Some(timeline_item) = create_timeline_item(ApNote::from(note.clone()).into()) {
+    // Add to local timeline - this checks to be sure that the profile is represented as a remote_actor
+    // locally before adding the Note to the Timeline. This is important as the Timeline only uses the
+    // remote_actor representation (not the profile) for attributed_to data. In this case, the sender
+    // and the note.attributed_to should represent the same person.
+    if handle
+        .block_on(async { get_actor(sender, note.clone().attributed_to).await })
+        .is_some()
+    {
+        if let Some(timeline_item) = create_timeline_item(note.clone().into()) {
             add_to_timeline(
                 Option::from(note.clone().ap_to),
                 note.clone().cc,

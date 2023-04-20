@@ -387,18 +387,15 @@ impl From<Note> for ApNote {
         };
 
         ApNote {
-            tag: match serde_json::from_value(note.tag.into()) {
-                Ok(x) => x,
-                Err(_) => Option::None,
-            },
+            tag: serde_json::from_value(note.tag.into()).ok(),
             attributed_to: ApAddress::Address(note.attributed_to),
-            published: Option::from(note.updated_at.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string()),
-            id: Option::from(format!(
+            published: Some(note.updated_at.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string()),
+            id: Some(format!(
                 "https://{}/notes/{}",
                 *crate::SERVER_NAME,
                 note.uuid
             )),
-            url: Option::from(format!(
+            url: Some(format!(
                 "https://{}/notes/{}",
                 *crate::SERVER_NAME,
                 note.uuid

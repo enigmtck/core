@@ -207,12 +207,12 @@ impl From<Profile> for ApActor {
             url: Some(format!("{}/@{}", server_url, profile.username)),
             icon: Some(ApImage {
                 kind: ApImageType::Image,
-                media_type: None,
+                media_type: Some("image/png".to_string()),
                 url: format!("{server_url}/media/avatars/{}", profile.avatar_filename),
             }),
             image: profile.banner_filename.map(|banner| ApImage {
                 kind: ApImageType::Image,
-                media_type: None,
+                media_type: Some("image/png".to_string()),
                 url: format!("{server_url}/media/banners/{banner}"),
             }),
             discoverable: Some(true),

@@ -19,6 +19,7 @@ pub mod helper;
 pub mod inbox;
 pub mod models;
 pub mod outbox;
+pub mod routes;
 pub mod runner;
 pub mod schema;
 pub mod signing;

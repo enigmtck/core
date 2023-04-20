@@ -130,3 +130,60 @@ pub async fn update_olm_account_by_username(
         Err(_) => Option::None,
     }
 }
+
+pub async fn update_avatar_by_username(
+    conn: &Db,
+    username: String,
+    filename: String,
+) -> Option<Profile> {
+    if let Ok(x) = conn
+        .run(move |c| {
+            diesel::update(profiles::table.filter(profiles::username.eq(username)))
+                .set(profiles::avatar_filename.eq(filename))
+                .get_result::<Profile>(c)
+        })
+        .await
+    {
+        Some(x)
+    } else {
+        Option::None
+    }
+}
+
+pub async fn update_banner_by_username(
+    conn: &Db,
+    username: String,
+    filename: String,
+) -> Option<Profile> {
+    if let Ok(x) = conn
+        .run(move |c| {
+            diesel::update(profiles::table.filter(profiles::username.eq(username)))
+                .set(profiles::banner_filename.eq(filename))
+                .get_result::<Profile>(c)
+        })
+        .await
+    {
+        Some(x)
+    } else {
+        Option::None
+    }
+}
+
+pub async fn update_summary_by_username(
+    conn: &Db,
+    username: String,
+    summary: String,
+) -> Option<Profile> {
+    if let Ok(x) = conn
+        .run(move |c| {
+            diesel::update(profiles::table.filter(profiles::username.eq(username)))
+                .set(profiles::summary.eq(summary))
+                .get_result::<Profile>(c)
+        })
+        .await
+    {
+        Some(x)
+    } else {
+        Option::None
+    }
+}

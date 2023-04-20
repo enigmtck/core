@@ -51,11 +51,11 @@ pub fn update_timeline_record(job: Job) -> io::Result<()> {
 fn add_timeline_item_for_recipient<F>(
     recipient: &str,
     timeline_item: &TimelineItem,
-    create_timeline_item: F,
+    create_directed_timeline_item: F,
 ) where
     F: Fn((TimelineItem, String)) -> bool,
 {
-    if create_timeline_item((timeline_item.clone(), recipient.to_string()))
+    if create_directed_timeline_item((timeline_item.clone(), recipient.to_string()))
         && get_leader_by_endpoint(recipient.to_string()).is_some()
     {
         for (_remote_actor, _leader, profile) in
@@ -64,7 +64,7 @@ fn add_timeline_item_for_recipient<F>(
             if let Some(follower) = profile {
                 let follower_endpoint =
                     format!("{}/user/{}", &*crate::SERVER_URL, follower.username);
-                create_timeline_item((timeline_item.clone(), follower_endpoint));
+                create_directed_timeline_item((timeline_item.clone(), follower_endpoint));
             }
         }
     }

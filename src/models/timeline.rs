@@ -12,6 +12,7 @@ use serde_json::Value;
 
 use super::announces::Announce;
 use super::likes::Like;
+use super::notes::Note;
 use super::profiles::Profile;
 use super::remote_announces::RemoteAnnounce;
 use super::remote_likes::RemoteLike;
@@ -67,18 +68,24 @@ impl From<RemoteNote> for NewTimelineItem {
     }
 }
 
+impl From<Note> for NewTimelineItem {
+    fn from(note: Note) -> Self {
+        NewTimelineItem::from(ApNote::from(note))
+    }
+}
+
 impl From<ApNote> for NewTimelineItem {
     fn from(note: ApNote) -> Self {
         NewTimelineItem {
-            tag: Option::from(serde_json::to_value(&note.tag).unwrap_or_default()),
+            tag: serde_json::to_value(&note.tag).ok(),
             attributed_to: note.clone().attributed_to.to_string(),
             ap_id: note.clone().id.unwrap(),
             kind: note.kind.to_string(),
             url: note.clone().url,
             published: note.clone().published,
-            replies: Option::from(serde_json::to_value(&note.replies).unwrap_or_default()),
+            replies: serde_json::to_value(&note.replies).ok(),
             in_reply_to: note.clone().in_reply_to,
-            content: Option::from(note.clone().content),
+            content: Some(note.clone().content),
             ap_public: {
                 let mut public = false;
 
@@ -99,12 +106,10 @@ impl From<ApNote> for NewTimelineItem {
             atom_uri: note.atom_uri,
             in_reply_to_atom_uri: note.in_reply_to_atom_uri,
             conversation: note.conversation,
-            content_map: Option::from(serde_json::to_value(&note.content_map).unwrap_or_default()),
-            attachment: Option::from(serde_json::to_value(&note.attachment).unwrap_or_default()),
-            ap_object: Option::None,
-            metadata: Option::from(
-                serde_json::to_value(&note.ephemeral_metadata).unwrap_or_default(),
-            ),
+            content_map: serde_json::to_value(&note.content_map).ok(),
+            attachment: serde_json::to_value(&note.attachment).ok(),
+            ap_object: None,
+            metadata: serde_json::to_value(&note.ephemeral_metadata).ok(),
         }
     }
 }

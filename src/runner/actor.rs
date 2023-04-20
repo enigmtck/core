@@ -1,3 +1,4 @@
+use chrono::{Duration, Utc};
 use diesel::prelude::*;
 use reqwest::{Client, StatusCode};
 
@@ -32,16 +33,20 @@ pub fn get_remote_actor_by_ap_id(ap_id: String) -> Option<RemoteActor> {
     }
 }
 
-pub fn create_remote_actor(actor: NewRemoteActor) -> Option<RemoteActor> {
+pub fn create_or_update_remote_actor(actor: NewRemoteActor) -> Option<RemoteActor> {
     if let Ok(conn) = POOL.get() {
         match diesel::insert_into(remote_actors::table)
             .values(&actor)
+            .on_conflict(remote_actors::ap_id)
+            .do_update()
+            .set((&actor, remote_actors::checked_at.eq(Utc::now())))
             .get_result::<RemoteActor>(&conn)
+            .optional()
         {
-            Ok(x) => Some(x),
+            Ok(x) => x,
             Err(e) => {
                 log::debug!("database failure: {:#?}", e);
-                Option::None
+                None
             }
         }
     } else {
@@ -50,59 +55,79 @@ pub fn create_remote_actor(actor: NewRemoteActor) -> Option<RemoteActor> {
 }
 
 pub async fn get_actor(profile: Profile, id: String) -> Option<(RemoteActor, Option<Leader>)> {
-    match get_remote_actor_by_ap_id(id.clone()) {
-        Some(remote_actor) => {
-            log::debug!("actor retrieved from storage");
+    // In the Rocket version of this, there's an option to force it not to make the external
+    // call to update to avoid affecting response time to the browser. But here, that's not relevant.
+    // And in fact, for local outbound Notes we use this call to check that the local user is
+    // represented as a "remote_actor" when adding the Note to the local Timeline.  This function
+    // updates that remote_actor record (or creates it).
+    let remote_actor = {
+        if let Some(remote_actor) = get_remote_actor_by_ap_id(id.clone()) {
+            let now = Utc::now();
+            let updated = remote_actor.updated_at;
 
-            Option::from((
-                remote_actor,
-                get_leader_by_actor_ap_id_and_profile(id, profile.id),
-            ))
+            if now - updated > Duration::days(7) {
+                log::debug!("ACTOR EXISTS BUT IS STALE: {id}");
+                None
+            } else {
+                Some(remote_actor)
+            }
+        } else {
+            None
         }
-        None => {
-            log::debug!("performing remote lookup for actor");
+    };
 
-            let url = id.clone();
-            let body = Option::None;
-            let method = Method::Get;
+    if let Some(remote_actor) = remote_actor {
+        Some((
+            remote_actor,
+            get_leader_by_actor_ap_id_and_profile(id, profile.id),
+        ))
+    } else {
+        log::debug!("PERFORMING REMOTE LOOKUP FOR ACTOR");
 
-            let signature = crate::signing::sign(SignParams {
-                profile,
-                url,
-                body,
-                method,
-            });
+        let url = id.clone();
+        let body = Option::None;
+        let method = Method::Get;
 
-            let client = Client::new();
-            match client
-                .get(&id)
-                .header("Signature", &signature.signature)
-                .header("Date", signature.date)
-                .header(
-                    "Accept",
-                    "application/ld+json; profile=\"http://www.w3.org/ns/activitystreams\"",
-                )
-                .send()
-                .await
-            {
-                Ok(resp) => match resp.status() {
-                    StatusCode::ACCEPTED | StatusCode::OK => {
-                        let actor: ApActor = resp.json().await.unwrap();
-                        create_remote_actor(NewRemoteActor::from(actor)).map(|a| (a, Option::None))
-                    }
-                    StatusCode::GONE => {
-                        log::debug!("GONE: {:#?}", resp.status());
-                        Option::None
-                    }
-                    _ => {
-                        log::debug!("STATUS: {:#?}", resp.status());
-                        Option::None
-                    }
-                },
-                Err(e) => {
-                    log::debug!("{:#?}", e);
+        let signature = crate::signing::sign(SignParams {
+            profile,
+            url,
+            body,
+            method,
+        });
+
+        let client = Client::new();
+        match client
+            .get(&id)
+            .header("Signature", &signature.signature)
+            .header("Date", signature.date)
+            .header(
+                "Accept",
+                "application/ld+json; profile=\"http://www.w3.org/ns/activitystreams\"",
+            )
+            .send()
+            .await
+        {
+            Ok(resp) => match resp.status() {
+                StatusCode::ACCEPTED | StatusCode::OK => {
+                    let actor: ApActor = resp.json().await.unwrap();
+                    create_or_update_remote_actor(NewRemoteActor::from(actor))
+                        .map(|a| (a, Option::None))
+                }
+                StatusCode::GONE => {
+                    log::debug!("REMOTE ACTOR HAS BEEN DELETED AT THE SOURCE");
                     Option::None
                 }
+                _ => {
+                    log::debug!(
+                        "REMOTE ACTOR (NOT UPDATED) LOOKUP STATUS: {}",
+                        resp.status()
+                    );
+                    Option::None
+                }
+            },
+            Err(e) => {
+                log::debug!("REMOTE ACTOR LOOKUP ERROR: {e:#?}");
+                Option::None
             }
         }
     }

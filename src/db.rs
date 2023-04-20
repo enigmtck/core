@@ -54,69 +54,6 @@ pub async fn update_password_by_username(
     }
 }
 
-pub async fn update_avatar_by_username(
-    conn: &Db,
-    username: String,
-    filename: String,
-) -> Option<Profile> {
-    use schema::profiles::dsl::{avatar_filename as a, profiles, username as u};
-
-    if let Ok(x) = conn
-        .run(move |c| {
-            diesel::update(profiles.filter(u.eq(username)))
-                .set(a.eq(filename))
-                .get_result::<Profile>(c)
-        })
-        .await
-    {
-        Some(x)
-    } else {
-        Option::None
-    }
-}
-
-pub async fn update_banner_by_username(
-    conn: &Db,
-    username: String,
-    filename: String,
-) -> Option<Profile> {
-    use schema::profiles::dsl::{banner_filename as b, profiles, username as u};
-
-    if let Ok(x) = conn
-        .run(move |c| {
-            diesel::update(profiles.filter(u.eq(username)))
-                .set(b.eq(filename))
-                .get_result::<Profile>(c)
-        })
-        .await
-    {
-        Some(x)
-    } else {
-        Option::None
-    }
-}
-
-pub async fn update_summary_by_username(
-    conn: &Db,
-    username: String,
-    summary: String,
-) -> Option<Profile> {
-    use schema::profiles::dsl::{profiles, summary as s, username as u};
-
-    if let Ok(x) = conn
-        .run(move |c| {
-            diesel::update(profiles.filter(u.eq(username)))
-                .set(s.eq(summary))
-                .get_result::<Profile>(c)
-        })
-        .await
-    {
-        Some(x)
-    } else {
-        Option::None
-    }
-}
-
 pub async fn update_leader_by_uuid(
     conn: &Db,
     leader_uuid: String,
