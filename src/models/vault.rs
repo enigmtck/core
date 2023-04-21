@@ -42,18 +42,13 @@ pub struct VaultItem {
 }
 
 pub async fn create_vault_item(conn: &Db, vault_item: NewVaultItem) -> Option<VaultItem> {
-    match conn
-        .run(move |c| {
-            diesel::insert_into(vault::table)
-                .values(&vault_item)
-                .get_result::<VaultItem>(c)
-                .optional()
-        })
-        .await
-    {
-        Ok(x) => x,
-        Err(_) => Option::None,
-    }
+    conn.run(move |c| {
+        diesel::insert_into(vault::table)
+            .values(&vault_item)
+            .get_result::<VaultItem>(c)
+    })
+    .await
+    .ok()
 }
 
 pub async fn get_vault_items_by_profile_id_and_remote_actor(
@@ -63,23 +58,19 @@ pub async fn get_vault_items_by_profile_id_and_remote_actor(
     offset: i64,
     actor: String,
 ) -> Vec<VaultItem> {
-    match conn
-        .run(move |c| {
-            let query = vault::table
-                .filter(vault::profile_id.eq(id))
-                .filter(vault::remote_actor.eq(actor))
-                .order(vault::created_at.desc())
-                .limit(limit)
-                .offset(offset)
-                .into_boxed();
+    conn.run(move |c| {
+        let query = vault::table
+            .filter(vault::profile_id.eq(id))
+            .filter(vault::remote_actor.eq(actor))
+            .order(vault::created_at.desc())
+            .limit(limit)
+            .offset(offset)
+            .into_boxed();
 
-            query.get_results::<VaultItem>(c)
-        })
-        .await
-    {
-        Ok(x) => x,
-        Err(_) => vec![],
-    }
+        query.get_results::<VaultItem>(c)
+    })
+    .await
+    .unwrap_or(vec![])
 }
 
 pub async fn get_vault_items_by_profile_id(
@@ -88,34 +79,26 @@ pub async fn get_vault_items_by_profile_id(
     limit: i64,
     offset: i64,
 ) -> Vec<VaultItem> {
-    match conn
-        .run(move |c| {
-            let query = vault::table
-                .filter(vault::profile_id.eq(id))
-                .order(vault::created_at.desc())
-                .limit(limit)
-                .offset(offset)
-                .into_boxed();
+    conn.run(move |c| {
+        let query = vault::table
+            .filter(vault::profile_id.eq(id))
+            .order(vault::created_at.desc())
+            .limit(limit)
+            .offset(offset)
+            .into_boxed();
 
-            query.get_results::<VaultItem>(c)
-        })
-        .await
-    {
-        Ok(x) => x,
-        Err(_) => vec![],
-    }
+        query.get_results::<VaultItem>(c)
+    })
+    .await
+    .unwrap_or(vec![])
 }
 
 pub async fn get_vault_item_by_uuid(conn: &Db, uuid: String) -> Option<VaultItem> {
-    match conn
-        .run(move |c| {
-            let query = vault::table.filter(vault::uuid.eq(uuid));
+    conn.run(move |c| {
+        let query = vault::table.filter(vault::uuid.eq(uuid));
 
-            query.first::<VaultItem>(c).optional()
-        })
-        .await
-    {
-        Ok(x) => x,
-        Err(_) => Option::None,
-    }
+        query.first::<VaultItem>(c)
+    })
+    .await
+    .ok()
 }

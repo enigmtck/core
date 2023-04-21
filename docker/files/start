@@ -1,0 +1,15 @@
+#!/bin/bash
+
+cd /srv/enigmatick
+
+if [[ -z ${ENIGMATICK_ROLE} ]]; then
+    echo "Assuming server role..."
+    RUST_LOG=debug ./server
+else
+    if [ "$ENIGMATICK_ROLE" == "runner" ]; then
+	      RUST_LOG=debug ./runner
+    else
+	      RUST_LOG=debug ./server
+    fi
+fi
+

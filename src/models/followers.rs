@@ -1,7 +1,7 @@
 use crate::activity_pub::ApFollow;
 use crate::db::Db;
 use crate::helper::{get_local_identifier, LocalIdentifierType};
-use crate::schema::followers;
+use crate::schema::{followers, remote_actors};
 use crate::MaybeReference;
 use diesel::prelude::*;
 
@@ -11,6 +11,7 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use super::profiles::Profile;
+use super::remote_actors::RemoteActor;
 
 #[derive(Serialize, Deserialize, Insertable, Default, Debug)]
 #[table_name = "followers"]
@@ -79,33 +80,23 @@ pub struct Follower {
 }
 
 pub async fn create_follower(conn: &Db, follower: NewFollower) -> Option<Follower> {
-    if let Ok(x) = conn
-        .run(move |c| {
-            diesel::insert_into(followers::table)
-                .values(&follower)
-                .get_result::<Follower>(c)
-        })
-        .await
-    {
-        Some(x)
-    } else {
-        Option::None
-    }
+    conn.run(move |c| {
+        diesel::insert_into(followers::table)
+            .values(&follower)
+            .get_result::<Follower>(c)
+    })
+    .await
+    .ok()
 }
 
 pub async fn get_follower_by_uuid(conn: &Db, uuid: String) -> Option<Follower> {
-    if let Ok(x) = conn
-        .run(move |c| {
-            followers::table
-                .filter(followers::uuid.eq(uuid))
-                .first::<Follower>(c)
-        })
-        .await
-    {
-        Option::from(x)
-    } else {
-        Option::None
-    }
+    conn.run(move |c| {
+        followers::table
+            .filter(followers::uuid.eq(uuid))
+            .first::<Follower>(c)
+    })
+    .await
+    .ok()
 }
 
 pub async fn delete_follower_by_ap_id(conn: &Db, ap_id: String) -> bool {
@@ -118,18 +109,17 @@ pub async fn delete_follower_by_ap_id(conn: &Db, ap_id: String) -> bool {
     .is_ok()
 }
 
-pub async fn get_followers_by_profile_id(conn: &Db, profile_id: i32) -> Vec<Follower> {
-    if let Ok(x) = conn
-        .run(move |c| {
-            followers::table
-                .filter(followers::profile_id.eq(profile_id))
-                .order_by(followers::created_at.desc())
-                .get_results::<Follower>(c)
-        })
-        .await
-    {
-        x
-    } else {
-        vec![]
-    }
+pub async fn get_followers_by_profile_id(
+    conn: &Db,
+    profile_id: i32,
+) -> Vec<(Follower, Option<RemoteActor>)> {
+    conn.run(move |c| {
+        followers::table
+            .filter(followers::profile_id.eq(profile_id))
+            .left_join(remote_actors::table.on(followers::actor.eq(remote_actors::ap_id)))
+            .order_by(followers::created_at.desc())
+            .get_results::<(Follower, Option<RemoteActor>)>(c)
+    })
+    .await
+    .unwrap_or(vec![])
 }

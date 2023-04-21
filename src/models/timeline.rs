@@ -256,44 +256,40 @@ pub async fn get_authenticated_timeline_items(
     offset: i64,
     profile: Profile,
 ) -> Vec<AuthenticatedTimelineItem> {
-    match conn
-        .run(move |c| {
-            let ap_id = get_ap_id_from_username(profile.username.clone());
-            let query = timeline::table
-                .left_join(
-                    likes::table.on(likes::object_ap_id
-                        .eq(timeline::ap_id)
-                        .and(likes::profile_id.eq(profile.id))),
-                )
-                .left_join(
-                    announces::table.on(announces::object_ap_id
-                        .eq(timeline::ap_id)
-                        .and(announces::profile_id.eq(profile.id))),
-                )
-                .left_join(
-                    timeline_cc::table.on(timeline_cc::id
-                        .eq(timeline::id)
-                        .and(timeline_cc::ap_id.eq(ap_id.clone()))),
-                )
-                .left_join(
-                    remote_announces::table
-                        .on(remote_announces::timeline_id.eq(timeline::id.nullable())),
-                )
-                .left_join(remote_likes::table.on(remote_likes::object_id.eq(timeline::ap_id)))
-                .filter(timeline::ap_public.eq(true))
-                .or_filter(timeline_cc::ap_id.eq(ap_id))
-                .order(timeline::created_at.desc())
-                .limit(limit)
-                .offset(offset)
-                .into_boxed();
+    conn.run(move |c| {
+        let ap_id = get_ap_id_from_username(profile.username.clone());
+        let query = timeline::table
+            .left_join(
+                likes::table.on(likes::object_ap_id
+                    .eq(timeline::ap_id)
+                    .and(likes::profile_id.eq(profile.id))),
+            )
+            .left_join(
+                announces::table.on(announces::object_ap_id
+                    .eq(timeline::ap_id)
+                    .and(announces::profile_id.eq(profile.id))),
+            )
+            .left_join(
+                timeline_cc::table.on(timeline_cc::id
+                    .eq(timeline::id)
+                    .and(timeline_cc::ap_id.eq(ap_id.clone()))),
+            )
+            .left_join(
+                remote_announces::table
+                    .on(remote_announces::timeline_id.eq(timeline::id.nullable())),
+            )
+            .left_join(remote_likes::table.on(remote_likes::object_id.eq(timeline::ap_id)))
+            .filter(timeline::ap_public.eq(true))
+            .or_filter(timeline_cc::ap_id.eq(ap_id))
+            .order(timeline::created_at.desc())
+            .limit(limit)
+            .offset(offset)
+            .into_boxed();
 
-            query.get_results::<AuthenticatedTimelineItem>(c)
-        })
-        .await
-    {
-        Ok(x) => x,
-        Err(_) => vec![],
-    }
+        query.get_results::<AuthenticatedTimelineItem>(c)
+    })
+    .await
+    .unwrap_or(vec![])
 }
 
 pub async fn get_public_timeline_items(
@@ -301,41 +297,33 @@ pub async fn get_public_timeline_items(
     limit: i64,
     offset: i64,
 ) -> Vec<(TimelineItem, Option<RemoteAnnounce>, Option<RemoteLike>)> {
-    match conn
-        .run(move |c| {
-            let query = timeline::table
-                .left_join(
-                    remote_announces::table
-                        .on(remote_announces::timeline_id.eq(timeline::id.nullable())),
-                )
-                .left_join(remote_likes::table.on(remote_likes::object_id.eq(timeline::ap_id)))
-                .filter(timeline::ap_public.eq(true))
-                .order(timeline::created_at.desc())
-                .limit(limit)
-                .offset(offset)
-                .into_boxed();
+    conn.run(move |c| {
+        let query = timeline::table
+            .left_join(
+                remote_announces::table
+                    .on(remote_announces::timeline_id.eq(timeline::id.nullable())),
+            )
+            .left_join(remote_likes::table.on(remote_likes::object_id.eq(timeline::ap_id)))
+            .filter(timeline::ap_public.eq(true))
+            .order(timeline::created_at.desc())
+            .limit(limit)
+            .offset(offset)
+            .into_boxed();
 
-            query.get_results::<(TimelineItem, Option<RemoteAnnounce>, Option<RemoteLike>)>(c)
-        })
-        .await
-    {
-        Ok(x) => x,
-        Err(_) => vec![],
-    }
+        query.get_results::<(TimelineItem, Option<RemoteAnnounce>, Option<RemoteLike>)>(c)
+    })
+    .await
+    .unwrap_or(vec![])
 }
 
 pub async fn get_timeline_item_by_ap_id(conn: &Db, ap_id: String) -> Option<TimelineItem> {
-    match conn
-        .run(move |c| {
-            timeline::table
-                .filter(timeline::ap_id.eq(ap_id))
-                .first::<TimelineItem>(c)
-        })
-        .await
-    {
-        Ok(x) => Option::from(x),
-        Err(_) => Option::None,
-    }
+    conn.run(move |c| {
+        timeline::table
+            .filter(timeline::ap_id.eq(ap_id))
+            .first::<TimelineItem>(c)
+    })
+    .await
+    .ok()
 }
 
 pub async fn get_timeline_items_by_conversation(
@@ -344,32 +332,22 @@ pub async fn get_timeline_items_by_conversation(
     limit: i64,
     offset: i64,
 ) -> Vec<TimelineItem> {
-    match conn
-        .run(move |c| {
-            let query = timeline::table
-                .filter(timeline::conversation.eq(conversation))
-                .order(timeline::created_at.asc())
-                .limit(limit)
-                .offset(offset)
-                .into_boxed();
+    conn.run(move |c| {
+        let query = timeline::table
+            .filter(timeline::conversation.eq(conversation))
+            .order(timeline::created_at.asc())
+            .limit(limit)
+            .offset(offset)
+            .into_boxed();
 
-            query.get_results::<TimelineItem>(c)
-        })
-        .await
-    {
-        Ok(x) => x,
-        Err(_) => vec![],
-    }
+        query.get_results::<TimelineItem>(c)
+    })
+    .await
+    .unwrap_or(vec![])
 }
 
-pub async fn delete_timeline_item_by_ap_id(conn: &Db, ap_id: String) -> Result<(), ()> {
-    use crate::schema::timeline::dsl::{ap_id as a, timeline};
-
-    match conn
-        .run(move |c| diesel::delete(timeline.filter(a.eq(ap_id))).execute(c))
+pub async fn delete_timeline_item_by_ap_id(conn: &Db, ap_id: String) -> bool {
+    conn.run(move |c| diesel::delete(timeline::table.filter(timeline::ap_id.eq(ap_id))).execute(c))
         .await
-    {
-        Ok(_) => Ok(()),
-        Err(_) => Err(()),
-    }
+        .is_ok()
 }

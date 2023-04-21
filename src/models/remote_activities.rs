@@ -170,34 +170,23 @@ pub async fn create_remote_activity(
     conn: &Db,
     remote_activity: NewRemoteActivity,
 ) -> Option<RemoteActivity> {
-    match conn
-        .run(move |c| {
-            diesel::insert_into(remote_activities::table)
-                .values(&remote_activity)
-                .on_conflict(remote_activities::ap_id)
-                .do_nothing()
-                .get_result::<RemoteActivity>(c)
-        })
-        .await
-    {
-        Ok(x) => Some(x),
-        Err(e) => {
-            log::debug!("failed to create remote_activity (probably a duplicate): {e:#?}");
-            Option::None
-        }
-    }
+    conn.run(move |c| {
+        diesel::insert_into(remote_activities::table)
+            .values(&remote_activity)
+            .on_conflict(remote_activities::ap_id)
+            .do_nothing()
+            .get_result::<RemoteActivity>(c)
+    })
+    .await
+    .ok()
 }
 
 pub async fn get_remote_activity_by_ap_id(conn: &Db, ap_id: String) -> Option<RemoteActivity> {
-    match conn
-        .run(move |c| {
-            remote_activities::table
-                .filter(remote_activities::ap_id.eq(ap_id))
-                .first::<RemoteActivity>(c)
-        })
-        .await
-    {
-        Ok(x) => Option::from(x),
-        Err(_) => Option::None,
-    }
+    conn.run(move |c| {
+        remote_activities::table
+            .filter(remote_activities::ap_id.eq(ap_id))
+            .first::<RemoteActivity>(c)
+    })
+    .await
+    .ok()
 }

@@ -132,11 +132,20 @@ pub struct ApActor {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub capabilities: Option<ApCapabilities>,
 
+    // These facilitate consolidation of joined tables in to this object
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ephemeral_followers: Option<Vec<ApActor>>,
+    pub ephemeral_leaders: Option<Vec<ApActor>>,
+
     // These are ephemeral attributes to facilitate client operations
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ephemeral_following: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ephemeral_leader_ap_id: Option<String>,
+
+    // These are used for user operations on their own profile
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ephemeral_summary_markdown: Option<String>,
 }
 
 impl Default for ApActor {
@@ -171,6 +180,9 @@ impl Default for ApActor {
             capabilities: None,
             ephemeral_following: None,
             ephemeral_leader_ap_id: None,
+            ephemeral_summary_markdown: None,
+            ephemeral_followers: None,
+            ephemeral_leaders: None,
         }
     }
 }
@@ -181,7 +193,8 @@ impl From<Profile> for ApActor {
 
         ApActor {
             name: Some(profile.display_name),
-            summary: Some(profile.summary.unwrap_or_default()),
+            summary: profile.summary,
+            ephemeral_summary_markdown: profile.summary_markdown,
             id: Some(ApAddress::Address(format!(
                 "{}/user/{}",
                 server_url, profile.username
@@ -263,6 +276,9 @@ impl From<RemoteActor> for ApActor {
             capabilities: serde_json::from_value(actor.capabilities.into()).unwrap(),
             ephemeral_following: None,
             ephemeral_leader_ap_id: None,
+            ephemeral_summary_markdown: None,
+            ephemeral_followers: None,
+            ephemeral_leaders: None,
         }
     }
 }

@@ -37,17 +37,13 @@ pub struct RemoteLike {
 }
 
 pub async fn create_remote_like(conn: &Db, remote_like: NewRemoteLike) -> Option<RemoteLike> {
-    match conn
-        .run(move |c| {
-            diesel::insert_into(remote_likes::table)
-                .values(&remote_like)
-                .get_result::<RemoteLike>(c)
-        })
-        .await
-    {
-        Ok(x) => Some(x),
-        Err(_) => None,
-    }
+    conn.run(move |c| {
+        diesel::insert_into(remote_likes::table)
+            .values(&remote_like)
+            .get_result::<RemoteLike>(c)
+    })
+    .await
+    .ok()
 }
 
 pub async fn delete_remote_like_by_actor_and_object_id(

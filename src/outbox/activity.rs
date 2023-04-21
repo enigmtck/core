@@ -44,10 +44,7 @@ pub async fn undo_follow(
             .is_ok()
             {
                 debug!("UNDO FOLLOW REQUEST SENT");
-                if delete_leader_by_ap_id_and_profile(&conn, ap_id, profile.id)
-                    .await
-                    .is_ok()
-                {
+                if delete_leader_by_ap_id_and_profile(&conn, ap_id, profile.id).await {
                     debug!("LEADER RECORD DELETED");
 
                     let mut events = events;

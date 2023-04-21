@@ -14,6 +14,7 @@ pub struct NewProfile {
     pub username: String,
     pub display_name: String,
     pub summary: Option<String>,
+    pub summary_markdown: Option<String>,
     pub public_key: String,
     pub private_key: String,
     pub password: Option<String>,
@@ -49,47 +50,33 @@ pub struct Profile {
     pub olm_pickled_account: Option<String>,
     pub olm_pickled_account_hash: Option<String>,
     pub olm_identity_key: Option<String>,
+    pub summary_markdown: Option<String>,
 }
 
 pub async fn create_profile(conn: &Db, profile: NewProfile) -> Option<Profile> {
-    match conn
-        .run(move |c| {
-            diesel::insert_into(profiles::table)
-                .values(&profile)
-                .get_result::<Profile>(c)
-        })
-        .await
-    {
-        Ok(x) => Some(x),
-        Err(e) => {
-            log::debug!("database failure: {:#?}", e);
-            Option::None
-        }
-    }
+    conn.run(move |c| {
+        diesel::insert_into(profiles::table)
+            .values(&profile)
+            .get_result::<Profile>(c)
+    })
+    .await
+    .ok()
 }
 
 pub async fn get_profile(conn: &Db, id: i32) -> Option<Profile> {
-    match conn
-        .run(move |c| profiles::table.find(id).first::<Profile>(c))
+    conn.run(move |c| profiles::table.find(id).first::<Profile>(c))
         .await
-    {
-        Ok(x) => Option::from(x),
-        Err(_) => Option::None,
-    }
+        .ok()
 }
 
 pub async fn get_profile_by_username(conn: &Db, username: String) -> Option<Profile> {
-    match conn
-        .run(move |c| {
-            profiles::table
-                .filter(profiles::username.eq(username))
-                .first::<Profile>(c)
-        })
-        .await
-    {
-        Ok(x) => Option::from(x),
-        Err(_) => Option::None,
-    }
+    conn.run(move |c| {
+        profiles::table
+            .filter(profiles::username.eq(username))
+            .first::<Profile>(c)
+    })
+    .await
+    .ok()
 }
 
 pub async fn get_profile_by_ap_id(conn: &Db, ap_id: String) -> Option<Profile> {
@@ -114,21 +101,16 @@ pub async fn update_olm_account_by_username(
         olm_pickled_account, olm_pickled_account_hash, profiles, username as u,
     };
 
-    match conn
-        .run(move |c| {
-            diesel::update(profiles.filter(u.eq(username)))
-                .set((
-                    olm_pickled_account.eq(account),
-                    olm_pickled_account_hash.eq(account_hash),
-                ))
-                .get_result::<Profile>(c)
-                .optional()
-        })
-        .await
-    {
-        Ok(x) => x,
-        Err(_) => Option::None,
-    }
+    conn.run(move |c| {
+        diesel::update(profiles.filter(u.eq(username)))
+            .set((
+                olm_pickled_account.eq(account),
+                olm_pickled_account_hash.eq(account_hash),
+            ))
+            .get_result::<Profile>(c)
+    })
+    .await
+    .ok()
 }
 
 pub async fn update_avatar_by_username(
@@ -136,18 +118,13 @@ pub async fn update_avatar_by_username(
     username: String,
     filename: String,
 ) -> Option<Profile> {
-    if let Ok(x) = conn
-        .run(move |c| {
-            diesel::update(profiles::table.filter(profiles::username.eq(username)))
-                .set(profiles::avatar_filename.eq(filename))
-                .get_result::<Profile>(c)
-        })
-        .await
-    {
-        Some(x)
-    } else {
-        Option::None
-    }
+    conn.run(move |c| {
+        diesel::update(profiles::table.filter(profiles::username.eq(username)))
+            .set(profiles::avatar_filename.eq(filename))
+            .get_result::<Profile>(c)
+    })
+    .await
+    .ok()
 }
 
 pub async fn update_banner_by_username(
@@ -155,35 +132,29 @@ pub async fn update_banner_by_username(
     username: String,
     filename: String,
 ) -> Option<Profile> {
-    if let Ok(x) = conn
-        .run(move |c| {
-            diesel::update(profiles::table.filter(profiles::username.eq(username)))
-                .set(profiles::banner_filename.eq(filename))
-                .get_result::<Profile>(c)
-        })
-        .await
-    {
-        Some(x)
-    } else {
-        Option::None
-    }
+    conn.run(move |c| {
+        diesel::update(profiles::table.filter(profiles::username.eq(username)))
+            .set(profiles::banner_filename.eq(filename))
+            .get_result::<Profile>(c)
+    })
+    .await
+    .ok()
 }
 
 pub async fn update_summary_by_username(
     conn: &Db,
     username: String,
     summary: String,
+    summary_markdown: String,
 ) -> Option<Profile> {
-    if let Ok(x) = conn
-        .run(move |c| {
-            diesel::update(profiles::table.filter(profiles::username.eq(username)))
-                .set(profiles::summary.eq(summary))
-                .get_result::<Profile>(c)
-        })
-        .await
-    {
-        Some(x)
-    } else {
-        Option::None
-    }
+    conn.run(move |c| {
+        diesel::update(profiles::table.filter(profiles::username.eq(username)))
+            .set((
+                profiles::summary.eq(summary),
+                profiles::summary_markdown.eq(summary_markdown),
+            ))
+            .get_result::<Profile>(c)
+    })
+    .await
+    .ok()
 }

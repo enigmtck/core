@@ -59,27 +59,19 @@ pub struct Like {
 }
 
 pub async fn get_like_by_uuid(conn: &Db, uuid: String) -> Option<Like> {
-    match conn
-        .run(move |c| likes::table.filter(likes::uuid.eq(uuid)).first::<Like>(c))
+    conn.run(move |c| likes::table.filter(likes::uuid.eq(uuid)).first::<Like>(c))
         .await
-    {
-        Ok(x) => Option::from(x),
-        Err(_) => Option::None,
-    }
+        .ok()
 }
 
 pub async fn create_like(conn: &Db, like: NewLike) -> Option<Like> {
-    match conn
-        .run(move |c| {
-            diesel::insert_into(likes::table)
-                .values(&like)
-                .get_result::<Like>(c)
-        })
-        .await
-    {
-        Ok(x) => Some(x),
-        Err(_) => None,
-    }
+    conn.run(move |c| {
+        diesel::insert_into(likes::table)
+            .values(&like)
+            .get_result::<Like>(c)
+    })
+    .await
+    .ok()
 }
 
 pub async fn delete_like_by_actor_and_object_ap_id(

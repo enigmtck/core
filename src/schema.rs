@@ -161,6 +161,7 @@ diesel::table! {
         olm_pickled_account -> Nullable<Varchar>,
         olm_pickled_account_hash -> Nullable<Varchar>,
         olm_identity_key -> Nullable<Varchar>,
+        summary_markdown -> Nullable<Varchar>,
     }
 }
 

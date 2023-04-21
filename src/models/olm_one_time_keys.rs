@@ -49,18 +49,13 @@ pub async fn create_olm_one_time_key(
     conn: &Db,
     olm_one_time_key: NewOlmOneTimeKey,
 ) -> Option<OlmOneTimeKey> {
-    match conn
-        .run(move |c| {
-            diesel::insert_into(olm_one_time_keys::table)
-                .values(&olm_one_time_key)
-                .get_result::<OlmOneTimeKey>(c)
-                .optional()
-        })
-        .await
-    {
-        Ok(x) => x,
-        Err(_) => Option::None,
-    }
+    conn.run(move |c| {
+        diesel::insert_into(olm_one_time_keys::table)
+            .values(&olm_one_time_key)
+            .get_result::<OlmOneTimeKey>(c)
+    })
+    .await
+    .ok()
 }
 
 pub async fn get_olm_one_time_keys_by_profile_id(
@@ -69,40 +64,32 @@ pub async fn get_olm_one_time_keys_by_profile_id(
     limit: i64,
     offset: i64,
 ) -> Vec<OlmOneTimeKey> {
-    match conn
-        .run(move |c| {
-            let query = olm_one_time_keys::table
-                .filter(olm_one_time_keys::profile_id.eq(id))
-                .order(olm_one_time_keys::created_at.desc())
-                .limit(limit)
-                .offset(offset)
-                .into_boxed();
+    conn.run(move |c| {
+        let query = olm_one_time_keys::table
+            .filter(olm_one_time_keys::profile_id.eq(id))
+            .order(olm_one_time_keys::created_at.desc())
+            .limit(limit)
+            .offset(offset)
+            .into_boxed();
 
-            query.get_results::<OlmOneTimeKey>(c)
-        })
-        .await
-    {
-        Ok(x) => x,
-        Err(_) => vec![],
-    }
+        query.get_results::<OlmOneTimeKey>(c)
+    })
+    .await
+    .unwrap_or(vec![])
 }
 
 pub async fn get_olm_one_time_key_by_profile_id(
     conn: &Db,
     profile_id: i32,
 ) -> Option<OlmOneTimeKey> {
-    match conn
-        .run(move |c| {
-            let query = olm_one_time_keys::table
-                .filter(olm_one_time_keys::profile_id.eq(profile_id))
-                .filter(olm_one_time_keys::distributed.eq(false))
-                .order(olm_one_time_keys::created_at.asc());
+    conn.run(move |c| {
+        let query = olm_one_time_keys::table
+            .filter(olm_one_time_keys::profile_id.eq(profile_id))
+            .filter(olm_one_time_keys::distributed.eq(false))
+            .order(olm_one_time_keys::created_at.asc());
 
-            query.first::<OlmOneTimeKey>(c).optional()
-        })
-        .await
-    {
-        Ok(x) => x,
-        Err(_) => Option::None,
-    }
+        query.first::<OlmOneTimeKey>(c)
+    })
+    .await
+    .ok()
 }

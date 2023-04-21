@@ -46,23 +46,15 @@ pub async fn get_followers(
     ) {
         let followers = get_followers_by_profile_id(&conn, profile.id).await;
 
-        let maybe_actors: Vec<Option<(ApActor, Option<Leader>)>> =
-            join_all(followers.iter().map(|follower| async {
-                get_actor(&conn, follower.actor.clone(), Some(profile.clone()), false).await
-            }))
-            .await;
-
         Ok(Json(ApCollection::from(ActorsPage {
             page: 0,
             profile,
-            actors: maybe_actors
+            actors: followers
                 .iter()
-                .filter_map(|a| {
-                    if let Some((actor, _)) = a {
-                        Some(actor.clone())
-                    } else {
-                        None
-                    }
+                .filter_map(|(_, remote_actor)| {
+                    remote_actor
+                        .as_ref()
+                        .map(|remote_actor| remote_actor.clone().into())
                 })
                 .collect(),
         })))
@@ -72,7 +64,10 @@ pub async fn get_followers(
         Ok(Json(ApCollection::from(FollowersPage {
             page: 0,
             profile,
-            followers,
+            followers: followers
+                .iter()
+                .map(|(follower, _)| follower.clone())
+                .collect(),
         })))
     } else {
         Err(Status::NoContent)

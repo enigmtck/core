@@ -80,62 +80,45 @@ pub async fn get_leader_by_actor_ap_id_and_profile(
 ) -> Option<Leader> {
     use crate::schema::leaders::dsl::{leader_ap_id, leaders, profile_id as pid};
 
-    match conn
-        .run(move |c| {
-            leaders
-                .filter(leader_ap_id.eq(ap_id))
-                .filter(pid.eq(profile_id))
-                .first::<Leader>(c)
-        })
-        .await
-    {
-        Ok(x) => Option::from(x),
-        Err(_) => Option::None,
-    }
+    conn.run(move |c| {
+        leaders
+            .filter(leader_ap_id.eq(ap_id))
+            .filter(pid.eq(profile_id))
+            .first::<Leader>(c)
+    })
+    .await
+    .ok()
 }
 
 pub async fn create_leader(conn: &Db, leader: NewLeader) -> Option<Leader> {
-    if let Ok(x) = conn
-        .run(move |c| {
-            diesel::insert_into(leaders::table)
-                .values(&leader)
-                .get_result::<Leader>(c)
-        })
-        .await
-    {
-        Some(x)
-    } else {
-        Option::None
-    }
+    conn.run(move |c| {
+        diesel::insert_into(leaders::table)
+            .values(&leader)
+            .get_result::<Leader>(c)
+    })
+    .await
+    .ok()
 }
 
-pub async fn delete_leader(conn: &Db, leader_id: i32) -> Result<(), ()> {
-    match conn
-        .run(move |c| diesel::delete(leaders::table.find(leader_id)).execute(c))
+pub async fn delete_leader(conn: &Db, leader_id: i32) -> bool {
+    conn.run(move |c| diesel::delete(leaders::table.find(leader_id)).execute(c))
         .await
-    {
-        Ok(_) => Ok(()),
-        Err(_) => Err(()),
-    }
+        .is_ok()
 }
 
 pub async fn delete_leader_by_ap_id_and_profile(
     conn: &Db,
     leader_ap_id: String,
     profile_id: i32,
-) -> Result<(), ()> {
-    match conn
-        .run(move |c| {
-            diesel::delete(
-                leaders::table
-                    .filter(leaders::profile_id.eq(profile_id))
-                    .filter(leaders::leader_ap_id.eq(leader_ap_id)),
-            )
-            .execute(c)
-        })
-        .await
-    {
-        Ok(_) => Ok(()),
-        Err(_) => Err(()),
-    }
+) -> bool {
+    conn.run(move |c| {
+        diesel::delete(
+            leaders::table
+                .filter(leaders::profile_id.eq(profile_id))
+                .filter(leaders::leader_ap_id.eq(leader_ap_id)),
+        )
+        .execute(c)
+    })
+    .await
+    .is_ok()
 }

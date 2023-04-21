@@ -143,46 +143,32 @@ impl RemoteNote {
 }
 
 pub async fn get_remote_note_by_ap_id(conn: &crate::db::Db, ap_id: String) -> Option<RemoteNote> {
-    use crate::schema::remote_notes::dsl::{ap_id as a, remote_notes};
-
-    match conn
-        .run(move |c| remote_notes.filter(a.eq(ap_id)).first::<RemoteNote>(c))
-        .await
-    {
-        Ok(x) => Option::from(x),
-        Err(_) => Option::None,
-    }
+    conn.run(move |c| {
+        remote_notes::table
+            .filter(remote_notes::ap_id.eq(ap_id))
+            .first::<RemoteNote>(c)
+    })
+    .await
+    .ok()
 }
 
-pub async fn delete_remote_note_by_ap_id(conn: &Db, ap_id: String) -> Result<(), ()> {
-    use crate::schema::remote_notes::dsl::{ap_id as a, remote_notes};
-
-    match conn
-        .run(move |c| diesel::delete(remote_notes.filter(a.eq(ap_id))).execute(c))
-        .await
-    {
-        Ok(_) => Ok(()),
-        Err(_) => Err(()),
-    }
+pub async fn delete_remote_note_by_ap_id(conn: &Db, ap_id: String) -> bool {
+    conn.run(move |c| {
+        diesel::delete(remote_notes::table.filter(remote_notes::ap_id.eq(ap_id))).execute(c)
+    })
+    .await
+    .is_ok()
 }
 
 pub async fn create_or_update_remote_note(conn: &Db, note: NewRemoteNote) -> Option<RemoteNote> {
-    match conn
-        .run(move |c| {
-            diesel::insert_into(remote_notes::table)
-                .values(&note)
-                .on_conflict(remote_notes::ap_id)
-                .do_update()
-                .set(&note)
-                .get_result::<RemoteNote>(c)
-                .optional()
-        })
-        .await
-    {
-        Ok(x) => x,
-        Err(e) => {
-            log::error!("DATABASE UPDATE FAILURE: {e:#?}");
-            Option::None
-        }
-    }
+    conn.run(move |c| {
+        diesel::insert_into(remote_notes::table)
+            .values(&note)
+            .on_conflict(remote_notes::ap_id)
+            .do_update()
+            .set(&note)
+            .get_result::<RemoteNote>(c)
+    })
+    .await
+    .ok()
 }

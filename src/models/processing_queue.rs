@@ -81,35 +81,27 @@ pub async fn create_processing_item(
     conn: &Db,
     processing_item: NewProcessingItem,
 ) -> Option<ProcessingItem> {
-    match conn
-        .run(move |c| {
-            diesel::insert_into(processing_queue::table)
-                .values(&processing_item)
-                .get_result::<ProcessingItem>(c)
-        })
-        .await
-    {
-        Ok(x) => Some(x),
-        Err(_) => Option::None,
-    }
+    conn.run(move |c| {
+        diesel::insert_into(processing_queue::table)
+            .values(&processing_item)
+            .get_result::<ProcessingItem>(c)
+    })
+    .await
+    .ok()
 }
 
 pub async fn get_unprocessed_items_by_profile_id(conn: &Db, id: i32) -> Vec<ProcessingItem> {
-    match conn
-        .run(move |c| {
-            let query = processing_queue::table
-                .filter(processing_queue::profile_id.eq(id))
-                .filter(processing_queue::processed.eq(false))
-                .order(processing_queue::created_at.asc())
-                .into_boxed();
+    conn.run(move |c| {
+        let query = processing_queue::table
+            .filter(processing_queue::profile_id.eq(id))
+            .filter(processing_queue::processed.eq(false))
+            .order(processing_queue::created_at.asc())
+            .into_boxed();
 
-            query.get_results::<ProcessingItem>(c)
-        })
-        .await
-    {
-        Ok(x) => x,
-        Err(_) => vec![],
-    }
+        query.get_results::<ProcessingItem>(c)
+    })
+    .await
+    .unwrap_or(vec![])
 }
 
 pub async fn resolve_processed_item_by_ap_id_and_profile_id(
@@ -117,20 +109,15 @@ pub async fn resolve_processed_item_by_ap_id_and_profile_id(
     profile_id: i32,
     ap_id: String,
 ) -> Option<ProcessingItem> {
-    match conn
-        .run(move |c| {
-            diesel::update(
-                processing_queue::table
-                    .filter(processing_queue::ap_id.eq(ap_id))
-                    .filter(processing_queue::profile_id.eq(profile_id)),
-            )
-            .set(processing_queue::processed.eq(true))
-            .get_result::<ProcessingItem>(c)
-            .optional()
-        })
-        .await
-    {
-        Ok(x) => x,
-        Err(_) => Option::None,
-    }
+    conn.run(move |c| {
+        diesel::update(
+            processing_queue::table
+                .filter(processing_queue::ap_id.eq(ap_id))
+                .filter(processing_queue::profile_id.eq(profile_id)),
+        )
+        .set(processing_queue::processed.eq(true))
+        .get_result::<ProcessingItem>(c)
+    })
+    .await
+    .ok()
 }

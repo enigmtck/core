@@ -59,31 +59,23 @@ pub struct Announce {
 }
 
 pub async fn get_announce_by_uuid(conn: &Db, uuid: String) -> Option<Announce> {
-    match conn
-        .run(move |c| {
-            announces::table
-                .filter(announces::uuid.eq(uuid))
-                .first::<Announce>(c)
-        })
-        .await
-    {
-        Ok(x) => Option::from(x),
-        Err(_) => Option::None,
-    }
+    conn.run(move |c| {
+        announces::table
+            .filter(announces::uuid.eq(uuid))
+            .first::<Announce>(c)
+    })
+    .await
+    .ok()
 }
 
 pub async fn create_announce(conn: &Db, announce: NewAnnounce) -> Option<Announce> {
-    match conn
-        .run(move |c| {
-            diesel::insert_into(announces::table)
-                .values(&announce)
-                .get_result::<Announce>(c)
-        })
-        .await
-    {
-        Ok(x) => Some(x),
-        Err(_) => None,
-    }
+    conn.run(move |c| {
+        diesel::insert_into(announces::table)
+            .values(&announce)
+            .get_result::<Announce>(c)
+    })
+    .await
+    .ok()
 }
 
 pub async fn delete_announce_by_actor_and_object_ap_id(

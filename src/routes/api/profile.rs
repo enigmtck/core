@@ -22,6 +22,7 @@ use crate::{
 #[derive(Deserialize, Debug, Clone)]
 pub struct SummaryUpdate {
     content: String,
+    markdown: String,
 }
 
 #[post(
@@ -40,7 +41,7 @@ pub async fn update_summary(
     if let Signed(true, VerificationType::Local) = signed {
         if let Ok(Json(summary)) = summary {
             if let Some(profile) =
-                update_summary_by_username(&conn, username, summary.content).await
+                update_summary_by_username(&conn, username, summary.content, summary.markdown).await
             {
                 Ok(Json(profile))
             } else {

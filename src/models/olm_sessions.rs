@@ -45,60 +45,46 @@ impl From<LinkedApInstrument> for NewOlmSession {
 }
 
 pub async fn create_olm_session(conn: &Db, olm_session: NewOlmSession) -> Option<OlmSession> {
-    match conn
-        .run(move |c| {
-            diesel::insert_into(olm_sessions::table)
-                .values(&olm_session)
-                .get_result::<OlmSession>(c)
-                .optional()
-        })
-        .await
-    {
-        Ok(x) => x,
-        Err(_) => Option::None,
-    }
+    conn.run(move |c| {
+        diesel::insert_into(olm_sessions::table)
+            .values(&olm_session)
+            .get_result::<OlmSession>(c)
+    })
+    .await
+    .ok()
 }
 
 pub async fn get_olm_session_by_uuid(
     conn: &Db,
     uuid: String,
 ) -> Option<(OlmSession, Option<EncryptedSession>)> {
-    match conn
-        .run(move |c| {
-            olm_sessions::table
-                .left_join(
-                    encrypted_sessions::table
-                        .on(olm_sessions::encrypted_session_id.eq(encrypted_sessions::id)),
-                )
-                .filter(olm_sessions::uuid.eq(uuid))
-                .order(olm_sessions::updated_at.desc())
-                .first::<(OlmSession, Option<EncryptedSession>)>(c)
-                .optional()
-        })
-        .await
-    {
-        Ok(x) => x,
-        Err(_) => None,
-    }
+    conn.run(move |c| {
+        olm_sessions::table
+            .left_join(
+                encrypted_sessions::table
+                    .on(olm_sessions::encrypted_session_id.eq(encrypted_sessions::id)),
+            )
+            .filter(olm_sessions::uuid.eq(uuid))
+            .order(olm_sessions::updated_at.desc())
+            .first::<(OlmSession, Option<EncryptedSession>)>(c)
+    })
+    .await
+    .ok()
 }
 
 pub async fn get_olm_session_by_encrypted_session_id(
     conn: &Db,
     encrypted_session_id: i32,
 ) -> Option<OlmSession> {
-    match conn
-        .run(move |c| {
-            let query = olm_sessions::table
-                .filter(olm_sessions::encrypted_session_id.eq(encrypted_session_id))
-                .order(olm_sessions::updated_at.desc());
+    conn.run(move |c| {
+        let query = olm_sessions::table
+            .filter(olm_sessions::encrypted_session_id.eq(encrypted_session_id))
+            .order(olm_sessions::updated_at.desc());
 
-            query.first::<OlmSession>(c).optional()
-        })
-        .await
-    {
-        Ok(x) => x,
-        Err(_) => None,
-    }
+        query.first::<OlmSession>(c)
+    })
+    .await
+    .ok()
 }
 
 pub async fn update_olm_session_by_encrypted_session_id(
@@ -109,22 +95,16 @@ pub async fn update_olm_session_by_encrypted_session_id(
 ) -> Option<OlmSession> {
     log::debug!("UPDATING OLM SESSION\nencrypted_session_id: {encrypted_session_id}\nsession_data: {session_data}\nsession_hash: {session_hash}");
 
-    match conn
-        .run(move |c| {
-            diesel::update(
-                olm_sessions::table
-                    .filter(olm_sessions::encrypted_session_id.eq(encrypted_session_id)),
-            )
-            .set((
-                olm_sessions::session_data.eq(session_data),
-                olm_sessions::session_hash.eq(session_hash),
-            ))
-            .get_result::<OlmSession>(c)
-            .optional()
-        })
-        .await
-    {
-        Ok(x) => x,
-        Err(_) => Option::None,
-    }
+    conn.run(move |c| {
+        diesel::update(
+            olm_sessions::table.filter(olm_sessions::encrypted_session_id.eq(encrypted_session_id)),
+        )
+        .set((
+            olm_sessions::session_data.eq(session_data),
+            olm_sessions::session_hash.eq(session_hash),
+        ))
+        .get_result::<OlmSession>(c)
+    })
+    .await
+    .ok()
 }

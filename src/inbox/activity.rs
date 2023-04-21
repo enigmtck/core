@@ -26,7 +26,7 @@ use rocket::http::Status;
 
 pub async fn delete(conn: Db, activity: ApDelete) -> Result<Status, Status> {
     async fn delete_actor(conn: Db, ap_id: String) -> Result<Status, Status> {
-        if delete_remote_actor_by_ap_id(&conn, ap_id).await.is_ok() {
+        if delete_remote_actor_by_ap_id(&conn, ap_id).await {
             debug!("REMOTE ACTOR RECORD DELETED");
             Ok(Status::Accepted)
         } else {
@@ -35,7 +35,7 @@ pub async fn delete(conn: Db, activity: ApDelete) -> Result<Status, Status> {
     }
 
     async fn delete_note(conn: &Db, ap_id: String) -> Result<Status, Status> {
-        if delete_remote_note_by_ap_id(conn, ap_id).await.is_ok() {
+        if delete_remote_note_by_ap_id(conn, ap_id).await {
             debug!("REMOTE NOTE RECORD DELETED");
             Ok(Status::Accepted)
         } else {
@@ -44,7 +44,7 @@ pub async fn delete(conn: Db, activity: ApDelete) -> Result<Status, Status> {
     }
 
     async fn delete_timeline(conn: &Db, ap_id: String) -> Result<Status, Status> {
-        if delete_timeline_item_by_ap_id(conn, ap_id).await.is_ok() {
+        if delete_timeline_item_by_ap_id(conn, ap_id).await {
             debug!("TIMELINE RECORD DELETED");
             Ok(Status::Accepted)
         } else {

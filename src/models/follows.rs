@@ -63,17 +63,13 @@ pub struct Follow {
 }
 
 pub async fn get_follow_by_uuid(conn: &Db, uuid: String) -> Option<Follow> {
-    match conn
-        .run(move |c| {
-            follows::table
-                .filter(follows::uuid.eq(uuid))
-                .first::<Follow>(c)
-        })
-        .await
-    {
-        Ok(x) => Option::from(x),
-        Err(_) => Option::None,
-    }
+    conn.run(move |c| {
+        follows::table
+            .filter(follows::uuid.eq(uuid))
+            .first::<Follow>(c)
+    })
+    .await
+    .ok()
 }
 
 pub async fn get_follow_by_ap_object_and_profile(
@@ -81,32 +77,24 @@ pub async fn get_follow_by_ap_object_and_profile(
     ap_object: String,
     profile_id: i32,
 ) -> Option<Follow> {
-    match conn
-        .run(move |c| {
-            follows::table
-                .filter(follows::ap_object.eq(ap_object))
-                .filter(follows::profile_id.eq(profile_id))
-                .first::<Follow>(c)
-        })
-        .await
-    {
-        Ok(x) => Option::from(x),
-        Err(_) => Option::None,
-    }
+    conn.run(move |c| {
+        follows::table
+            .filter(follows::ap_object.eq(ap_object))
+            .filter(follows::profile_id.eq(profile_id))
+            .first::<Follow>(c)
+    })
+    .await
+    .ok()
 }
 
 pub async fn create_follow(conn: &Db, follow: NewFollow) -> Option<Follow> {
-    match conn
-        .run(move |c| {
-            diesel::insert_into(follows::table)
-                .values(&follow)
-                .get_result::<Follow>(c)
-        })
-        .await
-    {
-        Ok(x) => Some(x),
-        Err(_) => None,
-    }
+    conn.run(move |c| {
+        diesel::insert_into(follows::table)
+            .values(&follow)
+            .get_result::<Follow>(c)
+    })
+    .await
+    .ok()
 }
 
 pub async fn delete_follow_by_actor_and_to(conn: &Db, actor: String, object: String) -> bool {

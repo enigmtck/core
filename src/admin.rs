@@ -98,7 +98,8 @@ pub async fn create_user(conn: &Db, user: NewUser) -> Option<Profile> {
                 uuid: Uuid::new_v4().to_string(),
                 username: user.username,
                 display_name: user.display_name,
-                summary: Option::None,
+                summary: None,
+                summary_markdown: None,
                 private_key: key_pair
                     .private_key
                     .to_pkcs8_pem(LineEnding::default())
@@ -108,7 +109,7 @@ pub async fn create_user(conn: &Db, user: NewUser) -> Option<Profile> {
                     .public_key
                     .to_public_key_pem(LineEnding::default())
                     .unwrap(),
-                password: Option::from(hash.unprotected_as_encoded().to_string()),
+                password: Some(hash.unprotected_as_encoded().to_string()),
                 client_public_key: user.client_public_key,
                 client_private_key: user.client_private_key,
                 olm_pickled_account: user.olm_pickled_account,

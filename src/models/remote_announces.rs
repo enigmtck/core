@@ -82,53 +82,34 @@ pub async fn create_remote_announce(
     conn: &Db,
     remote_announce: NewRemoteAnnounce,
 ) -> Option<RemoteAnnounce> {
-    match conn
-        .run(move |c| {
-            diesel::insert_into(remote_announces::table)
-                .values(&remote_announce)
-                .get_result::<RemoteAnnounce>(c)
-        })
-        .await
-    {
-        Ok(x) => Some(x),
-        Err(e) => {
-            log::debug!("database failure: {:#?}", e);
-            Option::None
-        }
-    }
+    conn.run(move |c| {
+        diesel::insert_into(remote_announces::table)
+            .values(&remote_announce)
+            .get_result::<RemoteAnnounce>(c)
+    })
+    .await
+    .ok()
 }
 
 pub async fn get_remote_announce_by_ap_id(
     conn: &crate::db::Db,
     ap_id: String,
 ) -> Option<RemoteAnnounce> {
-    use crate::schema::remote_announces::dsl::{ap_id as a, remote_announces};
-
-    match conn
-        .run(move |c| {
-            remote_announces
-                .filter(a.eq(ap_id))
-                .first::<RemoteAnnounce>(c)
-        })
-        .await
-    {
-        Ok(x) => Option::from(x),
-        Err(_) => Option::None,
-    }
+    conn.run(move |c| {
+        remote_announces::table
+            .filter(remote_announces::ap_id.eq(ap_id))
+            .first::<RemoteAnnounce>(c)
+    })
+    .await
+    .ok()
 }
 
 pub async fn update_revoked_by_ap_id(conn: &Db, ap_id: String) -> Option<RemoteAnnounce> {
-    use crate::schema::remote_announces::dsl::{ap_id as a, remote_announces, revoked};
-
-    match conn
-        .run(move |c| {
-            diesel::update(remote_announces.filter(a.eq(ap_id)))
-                .set(revoked.eq(true))
-                .get_result::<RemoteAnnounce>(c)
-        })
-        .await
-    {
-        Ok(x) => Some(x),
-        Err(_) => Option::None,
-    }
+    conn.run(move |c| {
+        diesel::update(remote_announces::table.filter(remote_announces::ap_id.eq(ap_id)))
+            .set(remote_announces::revoked.eq(true))
+            .get_result::<RemoteAnnounce>(c)
+    })
+    .await
+    .ok()
 }
