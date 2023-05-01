@@ -1,17 +1,29 @@
-use crate::activity_pub::{ActivityPub, ApActivity, ApNoteType, ApObject};
+use crate::activity_pub::{ActivityPub, ApActivity, ApNote, ApNoteType, ApObject};
 use crate::db::Db;
 use crate::fairings::events::EventChannels;
 use crate::fairings::faktory::FaktoryConnection;
 use crate::fairings::signatures::Signed;
+use crate::models::notes::get_notes_by_profile_id;
 use crate::outbox;
 use crate::signing::VerificationType;
 use crate::{activity_pub::ApCollection, models::profiles::get_profile_by_username};
 use rocket::{get, http::Status, post, serde::json::Error, serde::json::Json};
 
-#[get("/user/<username>/outbox")]
-pub async fn outbox_get(conn: Db, username: String) -> Result<Json<ApCollection>, Status> {
-    if let Some(_profile) = get_profile_by_username(&conn, username).await {
-        Ok(Json(ApCollection::default()))
+#[get("/user/<username>/outbox?<offset>&<limit>")]
+pub async fn outbox_get(
+    conn: Db,
+    username: String,
+    offset: u16,
+    limit: u8,
+) -> Result<Json<ApCollection>, Status> {
+    if let Some(profile) = get_profile_by_username(&conn, username).await {
+        let notes: Vec<ApObject> =
+            get_notes_by_profile_id(&conn, profile.id, limit.into(), offset.into(), true)
+                .await
+                .iter()
+                .map(|note| ApObject::Note(ApNote::from(note.clone())))
+                .collect();
+        Ok(Json(ApCollection::from(notes)))
     } else {
         Err(Status::NoContent)
     }

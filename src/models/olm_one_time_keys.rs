@@ -7,7 +7,7 @@ use rocket_sync_db_pools::diesel;
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Insertable, Default, Debug, Clone)]
-#[table_name = "olm_one_time_keys"]
+#[diesel(table_name = olm_one_time_keys)]
 pub struct NewOlmOneTimeKey {
     pub profile_id: i32,
     pub uuid: String,
@@ -32,7 +32,7 @@ impl From<KeyTuple> for NewOlmOneTimeKey {
 }
 
 #[derive(Identifiable, Queryable, AsChangeset, Serialize, Clone, Default, Debug)]
-#[table_name = "olm_one_time_keys"]
+#[diesel(table_name = olm_one_time_keys)]
 pub struct OlmOneTimeKey {
     #[serde(skip_serializing)]
     pub id: i32,

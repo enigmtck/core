@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 #[derive(Serialize, Deserialize, Insertable, Default, Debug)]
-#[table_name = "remote_encrypted_sessions"]
+#[diesel(table_name = remote_encrypted_sessions)]
 pub struct NewRemoteEncryptedSession {
     pub profile_id: i32,
     pub actor: String,
@@ -60,7 +60,7 @@ impl From<IdentifiedApJoin> for NewRemoteEncryptedSession {
 }
 
 #[derive(Identifiable, Queryable, AsChangeset, Serialize, Deserialize, Clone, Default, Debug)]
-#[table_name = "remote_encrypted_sessions"]
+#[diesel(table_name = remote_encrypted_sessions)]
 pub struct RemoteEncryptedSession {
     pub id: i32,
     pub created_at: DateTime<Utc>,

@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 use super::profiles::get_profile_by_ap_id;
 
 #[derive(Serialize, Deserialize, Insertable, Default, Debug, Clone)]
-#[table_name = "follows"]
+#[diesel(table_name = follows)]
 pub struct NewFollow {
     pub ap_object: String,
     pub actor: String,
@@ -50,7 +50,7 @@ impl NewFollow {
 }
 
 #[derive(Identifiable, Queryable, AsChangeset, Serialize, Clone, Default, Debug)]
-#[table_name = "follows"]
+#[diesel(table_name = follows)]
 pub struct Follow {
     #[serde(skip_serializing)]
     pub id: i32,

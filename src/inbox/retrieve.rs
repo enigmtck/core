@@ -99,7 +99,7 @@ fn gather_ap_ids(x: &TimelineItem) -> Vec<String> {
 async fn get_ap_actors(conn: &Db, ap_ids: Vec<String>) -> Vec<ApActor> {
     let mut ap_actors: Vec<ApActor> = vec![];
     for ap_id in ap_ids {
-        if let Some((actor, _)) = get_actor(conn, ap_id.clone(), None, false).await {
+        if let Some(actor) = get_actor(conn, ap_id.clone(), None, false).await {
             ap_actors.push(actor);
         }
     }

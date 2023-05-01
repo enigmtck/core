@@ -7,7 +7,7 @@ use diesel::{AsChangeset, Identifiable, Insertable, Queryable};
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Insertable, Default, Debug)]
-#[table_name = "remote_likes"]
+#[diesel(table_name = remote_likes)]
 pub struct NewRemoteLike {
     pub object_id: String,
     pub actor: String,
@@ -25,7 +25,7 @@ impl From<ApLike> for NewRemoteLike {
 }
 
 #[derive(Identifiable, Queryable, AsChangeset, Serialize, Clone, Default, Debug)]
-#[table_name = "remote_likes"]
+#[diesel(table_name = remote_likes)]
 pub struct RemoteLike {
     #[serde(skip_serializing)]
     pub id: i32,

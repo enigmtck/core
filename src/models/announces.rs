@@ -10,7 +10,7 @@ use serde_json::Value;
 use super::profiles::get_profile_by_ap_id;
 
 #[derive(Serialize, Deserialize, Insertable, Default, Debug, Clone)]
-#[table_name = "announces"]
+#[diesel(table_name = announces)]
 pub struct NewAnnounce {
     pub object_ap_id: String,
     pub ap_to: Value,
@@ -44,7 +44,7 @@ impl NewAnnounce {
 }
 
 #[derive(Identifiable, Queryable, AsChangeset, Serialize, Clone, Default, Debug)]
-#[table_name = "announces"]
+#[diesel(table_name = announces)]
 pub struct Announce {
     #[serde(skip_serializing)]
     pub id: i32,

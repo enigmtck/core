@@ -25,7 +25,7 @@ use crate::{
 };
 
 use super::{
-    actor::{get_actor, get_remote_actor_by_ap_id},
+    actor::get_actor,
     timeline::{add_to_timeline, create_timeline_item},
     POOL,
 };
@@ -168,7 +168,8 @@ pub async fn fetch_remote_note(id: String) -> Option<ApNote> {
         .get(&id)
         .header(
             "Accept",
-            "application/ld+json; profile=\"http://www.w3.org/ns/activitystreams\"",
+            //"application/ld+json; profile=\"http://www.w3.org/ns/activitystreams\"",
+            "application/activity+json",
         )
         .send()
         .await
@@ -199,10 +200,10 @@ pub async fn fetch_remote_note(id: String) -> Option<ApNote> {
 }
 
 pub fn get_note_by_uuid(uuid: String) -> Option<Note> {
-    if let Ok(conn) = POOL.get() {
+    if let Ok(mut conn) = POOL.get() {
         match notes::table
             .filter(notes::uuid.eq(uuid))
-            .first::<Note>(&conn)
+            .first::<Note>(&mut conn)
             .optional()
         {
             Ok(x) => x,
@@ -341,7 +342,7 @@ pub fn process_remote_note(job: Job) -> io::Result<()> {
     log::debug!("running process_remote_note job");
 
     let ap_ids = job.args();
-    if let Ok(conn) = POOL.get() {
+    if let Ok(mut conn) = POOL.get() {
         let rt = Runtime::new().unwrap();
         let handle = rt.handle();
 
@@ -351,7 +352,7 @@ pub fn process_remote_note(job: Job) -> io::Result<()> {
 
             match remote_notes::table
                 .filter(remote_notes::ap_id.eq(ap_id))
-                .first::<RemoteNote>(&conn)
+                .first::<RemoteNote>(&mut conn)
             {
                 Ok(remote_note) => {
                     if remote_note.kind == "Note" {
@@ -377,14 +378,14 @@ pub fn process_remote_note(job: Job) -> io::Result<()> {
 //     let ap_ids = job.args();
 
 //     match POOL.get() {
-//         Ok(conn) => {
+//         Ok(mut conn) => {
 //             for ap_id in ap_ids {
 //                 let ap_id = ap_id.as_str().unwrap().to_string();
 //                 log::debug!("looking for ap_id: {}", ap_id);
 
 //                 match remote_notes::table
 //                     .filter(remote_notes::ap_id.eq(ap_id))
-//                     .first::<RemoteNote>(&conn)
+//                     .first::<RemoteNote>(&mut conn)
 //                 {
 //                     Ok(remote_note) => {
 //                         if remote_note.kind == "Note" {
@@ -446,10 +447,10 @@ pub fn process_remote_note(job: Job) -> io::Result<()> {
 // }
 
 pub fn update_note_cc(note: Note) -> Option<Note> {
-    if let Ok(conn) = POOL.get() {
+    if let Ok(mut conn) = POOL.get() {
         match diesel::update(notes::table.find(note.id))
             .set(notes::cc.eq(note.cc))
-            .get_result::<Note>(&conn)
+            .get_result::<Note>(&mut conn)
         {
             Ok(x) => Some(x),
             Err(e) => {
@@ -469,8 +470,8 @@ pub enum DeleteNoteError {
 }
 
 pub fn delete_note_by_uuid(uuid: String) -> Result<usize, DeleteNoteError> {
-    if let Ok(conn) = POOL.get() {
-        match diesel::delete(notes::table.filter(notes::uuid.eq(uuid))).execute(&conn) {
+    if let Ok(mut conn) = POOL.get() {
+        match diesel::delete(notes::table.filter(notes::uuid.eq(uuid))).execute(&mut conn) {
             Ok(x) => Ok(x),
             Err(e) => {
                 log::error!("FAILED TO DELETE\n{e:#?}");

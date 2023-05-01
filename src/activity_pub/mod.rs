@@ -4,7 +4,6 @@ mod types;
 
 use serde::{Deserialize, Serialize};
 pub use types::accept::{ApAccept, ApAcceptType};
-//pub use types::activity::{ApActivity, ApActivityType};
 pub use types::activity::ApActivity;
 pub use types::actor::{ApActor, ApActorType, ApAddress, ApPublicKey};
 pub use types::add::{ApAdd, ApAddType};
@@ -24,6 +23,7 @@ pub use types::object::{
     ApAttachment, ApAttachmentType, ApBasicContent, ApBasicContentType, ApContext, ApEndpoint,
     ApImage, ApImageType, ApObject, ApTag,
 };
+pub use types::remove::{ApRemove, ApRemoveType};
 pub use types::session::JoinData;
 pub use types::session::{ApInstrument, ApInstrumentType, ApInstruments, ApSession};
 pub use types::undo::{ApUndo, ApUndoType};

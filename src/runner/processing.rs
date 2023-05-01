@@ -8,10 +8,10 @@ use crate::{
 use super::POOL;
 
 pub fn create_processing_item(processing_item: NewProcessingItem) -> Option<ProcessingItem> {
-    if let Ok(conn) = POOL.get() {
+    if let Ok(mut conn) = POOL.get() {
         match diesel::insert_into(processing_queue::table)
             .values(&processing_item)
-            .get_result::<ProcessingItem>(&conn)
+            .get_result::<ProcessingItem>(&mut conn)
         {
             Ok(x) => Some(x),
             Err(e) => {

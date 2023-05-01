@@ -1,9 +1,7 @@
 use rocket::http::Status;
 use rocket::serde::json::Json;
-use rocket::{
-    data::{Data, ToByteUnit},
-    post,
-};
+use rocket::Data;
+use rocket::{data::ToByteUnit, post};
 
 use crate::activity_pub::ApAttachment;
 use crate::db::Db;
@@ -28,18 +26,23 @@ pub async fn upload_image(
                     if let Ok(attachment) = ApAttachment::try_from(filename.to_string()) {
                         Ok(Json(attachment))
                     } else {
-                        Err(Status::NoContent)
+                        log::error!("FAILED TO CREATE ATTACHMENT");
+                        Err(Status::NotAcceptable)
                     }
                 } else {
-                    Err(Status::NoContent)
+                    log::error!("FILE INCOMPLETE");
+                    Err(Status::PayloadTooLarge)
                 }
             } else {
-                Err(Status::NoContent)
+                log::error!("FAILED TO OPEN MEDIA");
+                Err(Status::InternalServerError)
             }
         } else {
-            Err(Status::NoContent)
+            log::error!("FAILED TO RETRIEVE PROFILE");
+            Err(Status::NotFound)
         }
     } else {
+        log::error!("BAD SIGNATURE");
         Err(Status::Forbidden)
     }
 }

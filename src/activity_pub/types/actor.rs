@@ -2,8 +2,10 @@ use core::fmt;
 use std::fmt::Debug;
 
 use crate::activity_pub::{ApAttachment, ApContext, ApEndpoint, ApImage, ApImageType, ApTag};
-use crate::models::leaders::Leader;
-use crate::models::profiles::Profile;
+use crate::db::Db;
+use crate::models::followers::get_followers_by_profile_id;
+use crate::models::leaders::{get_leaders_by_profile_id, Leader};
+use crate::models::profiles::{get_profile_by_ap_id, Profile};
 use crate::models::remote_actors::RemoteActor;
 use serde::{Deserialize, Serialize};
 use serde_with::serde_as;
@@ -135,6 +137,7 @@ pub struct ApActor {
     // These facilitate consolidation of joined tables in to this object
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ephemeral_followers: Option<Vec<ApActor>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub ephemeral_leaders: Option<Vec<ApActor>>,
 
     // These are ephemeral attributes to facilitate client operations
@@ -187,11 +190,82 @@ impl Default for ApActor {
     }
 }
 
+impl ApActor {
+    pub async fn load_ephemeral(&mut self, conn: Db) -> Self {
+        if let Some(ap_id) = self.id.clone() {
+            if let Some(profile) = get_profile_by_ap_id(&conn, ap_id.to_string()).await {
+                self.ephemeral_followers = Some(
+                    get_followers_by_profile_id(&conn, profile.id)
+                        .await
+                        .iter()
+                        .filter_map(|(_, remote_actor)| {
+                            remote_actor
+                                .as_ref()
+                                .map(|remote_actor| remote_actor.clone().into())
+                        })
+                        .collect(),
+                );
+
+                self.ephemeral_leaders = Some(
+                    get_leaders_by_profile_id(&conn, profile.id)
+                        .await
+                        .iter()
+                        .filter_map(|(_, remote_actor)| {
+                            remote_actor
+                                .as_ref()
+                                .map(|remote_actor| remote_actor.clone().into())
+                        })
+                        .collect(),
+                );
+            }
+        }
+
+        self.clone()
+    }
+
+    pub fn get_webfinger(&self) -> Option<String> {
+        if let Some(id) = self.id.clone() {
+            let id_re = regex::Regex::new(r#"https://([a-zA-Z0-9\-\.]+?)/.+"#).unwrap();
+            if let Some(captures) = id_re.captures(&id.to_string()) {
+                if let Some(server_name) = captures.get(1) {
+                    Option::from(format!(
+                        "@{}@{}",
+                        self.preferred_username,
+                        server_name.as_str()
+                    ))
+                } else {
+                    log::error!("INSUFFICIENT REGEX CAPTURES");
+                    None
+                }
+            } else {
+                log::error!("FAILED TO MATCH PATTERN");
+                None
+            }
+        } else {
+            None
+        }
+    }
+}
+
+type ExtendedProfile = (Profile, Option<Leader>);
+
+impl From<ExtendedProfile> for ApActor {
+    fn from((profile, leader): ExtendedProfile) -> Self {
+        let mut actor = ApActor::from(profile);
+        if leader.is_some() {
+            actor.ephemeral_following = Some(true);
+        }
+
+        actor.clone()
+    }
+}
+
 impl From<Profile> for ApActor {
     fn from(profile: Profile) -> Self {
         let server_url = &*crate::SERVER_URL;
 
         ApActor {
+            context: Some(ApContext::default()),
             name: Some(profile.display_name),
             summary: profile.summary,
             ephemeral_summary_markdown: profile.summary_markdown,
@@ -211,6 +285,10 @@ impl From<Profile> for ApActor {
                 "{}/user/{}/following/",
                 server_url, profile.username
             )),
+            featured: None,
+            featured_tags: None,
+            manually_approves_followers: Some(false),
+            published: Some(profile.created_at.to_rfc3339()),
             liked: Some(format!("{}/user/{}/liked/", server_url, profile.username)),
             public_key: ApPublicKey {
                 id: format!("{}/user/{}#main-key", server_url, profile.username),
@@ -239,8 +317,24 @@ impl From<Profile> for ApActor {
             endpoints: Some(ApEndpoint {
                 shared_inbox: format!("{server_url}/inbox"),
             }),
-            ..Default::default()
+            ephemeral_following: None,
+            ephemeral_leader_ap_id: None,
+            ephemeral_followers: None,
+            ephemeral_leaders: None,
         }
+    }
+}
+
+type ExtendedRemoteActor = (RemoteActor, Option<Leader>);
+
+impl From<ExtendedRemoteActor> for ApActor {
+    fn from((remote_actor, leader): ExtendedRemoteActor) -> Self {
+        let mut actor = ApActor::from(remote_actor);
+        if leader.is_some() {
+            actor.ephemeral_following = Some(true);
+        }
+
+        actor.clone()
     }
 }
 

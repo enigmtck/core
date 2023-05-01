@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 #[derive(Serialize, Deserialize, Insertable, Default, Debug, AsChangeset)]
-#[table_name = "remote_notes"]
+#[diesel(table_name = remote_notes)]
 pub struct NewRemoteNote {
     pub kind: String,
     pub ap_id: String,
@@ -98,7 +98,7 @@ impl From<ApNote> for NewRemoteNote {
 }
 
 #[derive(Identifiable, Queryable, AsChangeset, Serialize, Deserialize, Clone, Default, Debug)]
-#[table_name = "remote_notes"]
+#[diesel(table_name = remote_notes)]
 pub struct RemoteNote {
     #[serde(skip_serializing)]
     pub id: i32,

@@ -7,6 +7,7 @@ use serde_json::Value;
 use std::fmt;
 use std::fmt::Debug;
 
+use super::collection::ApCollectionPage;
 use super::delete::ApTombstone;
 use super::session::ApSession;
 
@@ -45,6 +46,7 @@ pub enum ApObject {
     Note(ApNote),
     Actor(ApActor),
     Collection(ApCollection),
+    CollectionPage(ApCollectionPage),
 
     // These members exist to catch unknown object types
     Plain(String),

@@ -7,7 +7,7 @@ use rocket_sync_db_pools::diesel;
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Insertable, Default, Debug, Clone)]
-#[table_name = "vault"]
+#[diesel(table_name = vault)]
 pub struct NewVaultItem {
     pub profile_id: i32,
     pub uuid: String,
@@ -28,7 +28,7 @@ impl From<EncryptedData> for NewVaultItem {
 }
 
 #[derive(Identifiable, Queryable, AsChangeset, Serialize, Clone, Default, Debug)]
-#[table_name = "vault"]
+#[diesel(table_name = vault)]
 pub struct VaultItem {
     #[serde(skip_serializing)]
     pub id: i32,

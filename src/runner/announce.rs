@@ -216,10 +216,10 @@ pub fn process_announce(job: Job) -> io::Result<()> {
 }
 
 pub fn get_remote_announce_by_ap_id(ap_id: String) -> Option<RemoteAnnounce> {
-    if let Ok(conn) = POOL.get() {
+    if let Ok(mut conn) = POOL.get() {
         match remote_announces::table
             .filter(remote_announces::ap_id.eq(ap_id))
-            .first::<RemoteAnnounce>(&conn)
+            .first::<RemoteAnnounce>(&mut conn)
         {
             Ok(x) => Option::from(x),
             Err(_) => Option::None,
@@ -233,12 +233,12 @@ pub fn link_remote_announces_to_timeline(timeline_ap_id: String) {
     if let Some(timeline) = get_timeline_item_by_ap_id(timeline_ap_id) {
         let timeline_ap_id = serde_json::to_value(timeline.ap_id).unwrap();
 
-        if let Ok(conn) = POOL.get() {
+        if let Ok(mut conn) = POOL.get() {
             if let Ok(x) = diesel::update(
                 remote_announces::table.filter(remote_announces::ap_object.eq(timeline_ap_id)),
             )
             .set(remote_announces::timeline_id.eq(timeline.id))
-            .execute(&conn)
+            .execute(&mut conn)
             {
                 log::debug!("{x} ANNOUNCE ROWS UPDATED");
             }
@@ -247,10 +247,10 @@ pub fn link_remote_announces_to_timeline(timeline_ap_id: String) {
 }
 
 pub fn get_announce_by_uuid(uuid: String) -> Option<Announce> {
-    if let Ok(conn) = POOL.get() {
+    if let Ok(mut conn) = POOL.get() {
         match announces::table
             .filter(announces::uuid.eq(uuid))
-            .first::<Announce>(&conn)
+            .first::<Announce>(&mut conn)
         {
             Ok(x) => Option::from(x),
             Err(_) => Option::None,

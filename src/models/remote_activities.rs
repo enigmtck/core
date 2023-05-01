@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 #[derive(Serialize, Deserialize, Insertable, Default, Debug)]
-#[table_name = "remote_activities"]
+#[diesel(table_name = remote_activities)]
 pub struct NewRemoteActivity {
     pub context: Option<Value>,
     pub kind: String,
@@ -145,12 +145,22 @@ impl From<ApActivity> for NewRemoteActivity {
                 published: None,
                 ap_object: Some(serde_json::to_value(&activity.object).unwrap()),
             },
+            ApActivity::Remove(activity) => NewRemoteActivity {
+                context: Some(serde_json::to_value(&activity.context).unwrap()),
+                kind: activity.kind.to_string(),
+                ap_id: uuid::Uuid::new_v4().to_string(),
+                ap_to: None,
+                cc: None,
+                actor: activity.actor.to_string(),
+                published: None,
+                ap_object: Some(serde_json::to_value(&activity.object).unwrap()),
+            },
         }
     }
 }
 
 #[derive(Identifiable, Queryable, AsChangeset, Serialize, Clone, Default, Debug)]
-#[table_name = "remote_activities"]
+#[diesel(table_name = remote_activities)]
 pub struct RemoteActivity {
     #[serde(skip_serializing)]
     pub id: i32,

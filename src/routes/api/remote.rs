@@ -1,9 +1,12 @@
-use crate::activity_pub::retriever::{self, get_note, get_remote_webfinger};
-use crate::activity_pub::{ApActor, ApNote};
+use crate::activity_pub::retriever::{
+    get_actor, get_ap_id_from_webfinger, get_note, get_remote_collection,
+    get_remote_collection_page,
+};
+use crate::activity_pub::{ApActor, ApNote, ApObject};
 use crate::db::Db;
-use crate::helper::{get_local_identifier, is_local, LocalIdentifierType};
+use crate::models::remote_actors::get_remote_actor_by_webfinger;
 use rocket::http::Status;
-use rocket::{post, serde::json::Error, serde::json::Json};
+use rocket::{get, serde::json::Json};
 use serde::Deserialize;
 
 use crate::fairings::signatures::Signed;
@@ -15,21 +18,109 @@ pub struct Lookup {
     id: String,
 }
 
-#[post("/api/user/<username>/remote/note", format = "json", data = "<note>")]
-pub async fn remote_note_lookup(
+/// This accepts an actor in URL form (e.g., https://enigmatick.social/user/justin).
+#[get("/api/remote/webfinger?<id>")]
+pub async fn remote_id(conn: Db, id: String) -> Result<String, Status> {
+    if let Ok(id) = urlencoding::decode(&id) {
+        let id = (*id).to_string();
+        if let Some(actor) = get_actor(&conn, id, None, true).await {
+            if let Some(webfinger) = actor.get_webfinger() {
+                Ok(webfinger)
+            } else {
+                Err(Status::NotFound)
+            }
+        } else {
+            Err(Status::NotFound)
+        }
+    } else {
+        log::error!("FAILED TO URL DECODE ID");
+        Err(Status::BadRequest)
+    }
+}
+
+/// This accepts an actor in webfinger form (e.g., justin@enigmatick.social).
+#[get("/api/remote/actor?<webfinger>")]
+pub async fn remote_actor(conn: Db, webfinger: String) -> Result<Json<ApActor>, Status> {
+    if let Some(actor) = get_remote_actor_by_webfinger(&conn, webfinger.clone()).await {
+        log::debug!("FOUND REMOTE ACTOR LOCALLY");
+        Ok(Json(ApActor::from(actor)))
+    } else if let Some(ap_id) = get_ap_id_from_webfinger(webfinger).await {
+        log::debug!("RETRIEVING ACTOR WEBFINGER FROM REMOTE OR LOCAL PROFILE");
+        if let Some(actor) = get_actor(&conn, ap_id, None, true).await {
+            Ok(Json(actor))
+        } else {
+            log::error!("FAILED TO RETRIEVE ACTOR BY AP_ID");
+            Err(Status::NotFound)
+        }
+    } else {
+        log::error!("FAILED TO RETRIEVE ACTOR FROM DATABASE BY WEBFINGER");
+        Err(Status::BadRequest)
+    }
+}
+
+#[get("/api/user/<username>/remote/actor?<webfinger>")]
+pub async fn remote_actor_authenticated(
     signed: Signed,
     conn: Db,
     username: String,
-    note: Result<Json<Lookup>, Error<'_>>,
-) -> Result<Json<ApNote>, Status> {
+    webfinger: String,
+) -> Result<Json<ApActor>, Status> {
     if let Signed(true, VerificationType::Local) = signed {
-        if let Ok(note) = note {
-            if let Some(profile) = get_profile_by_username(&conn, username).await {
-                if let Some(note) = get_note(&conn, profile, note.id.clone()).await {
-                    Ok(Json(note))
+        if let Some(profile) = get_profile_by_username(&conn, username).await {
+            if let Some(ap_id) = get_ap_id_from_webfinger(webfinger).await {
+                log::debug!("RETRIEVING ACTOR WEBFINGER FROM REMOTE OR LOCAL PROFILE");
+                if let Some(actor) = get_actor(&conn, ap_id, Some(profile), true).await {
+                    Ok(Json(actor))
+                } else {
+                    log::error!("FAILED TO RETRIEVE ACTOR BY AP_ID");
+                    Err(Status::NotFound)
+                }
+            } else {
+                Err(Status::NotFound)
+            }
+        } else {
+            Err(Status::NoContent)
+        }
+    } else {
+        Err(Status::NoContent)
+    }
+}
+
+/// This function returns either an ApCollection or an ApCollectionPage wrapped in
+/// an ApObject. The `followers` attribute in the actor is used either directly (for
+/// the ApCollection) or in tandem with the page to confirm that the page is associated
+/// with the actor for the ApCollectionPage. The `page` parameter is URL encoded because
+/// it's the standard URL ID that ActivityPub uses for such things and includes characters
+/// that would interfere with the match (`?`, `:`, `/`, and `=`);
+#[get("/api/remote/followers?<webfinger>&<page>")]
+pub async fn remote_followers(
+    conn: Db,
+    webfinger: String,
+    page: Option<String>,
+) -> Result<Json<ApObject>, Status> {
+    if let Ok(Json(actor)) = remote_actor(conn, webfinger).await {
+        if let Some(page) = page {
+            if let Ok(url) = urlencoding::decode(&page) {
+                let url = &(*url).to_string();
+                if let Some(followers) = actor.followers.clone() {
+                    if url.contains(&followers) {
+                        if let Some(collection) = get_remote_collection_page(page).await {
+                            Ok(Json(ApObject::CollectionPage(collection)))
+                        } else {
+                            Err(Status::NoContent)
+                        }
+                    } else {
+                        Err(Status::NoContent)
+                    }
                 } else {
                     Err(Status::NoContent)
                 }
+            } else {
+                Err(Status::NoContent)
+            }
+        } else if let Some(followers) = actor.followers {
+            if let Some(collection) = get_remote_collection(followers).await {
+                Ok(Json(ApObject::Collection(collection)))
             } else {
                 Err(Status::NoContent)
             }
@@ -41,99 +132,115 @@ pub async fn remote_note_lookup(
     }
 }
 
-#[post("/api/user/<username>/remote/actor", format = "json", data = "<actor>")]
-pub async fn remote_actor_lookup(
-    signed: Signed,
+/// This function returns either an ApCollection or an ApCollectionPage wrapped in
+/// an ApObject. The `followers` attribute in the actor is used either directly (for
+/// the ApCollection) or in tandem with the page to confirm that the page is associated
+/// with the actor for the ApCollectionPage. The `page` parameter is URL encoded because
+/// it's the standard URL ID that ActivityPub uses for such things and includes characters
+/// that would interfere with the match (`?`, `:`, `/`, and `=`);
+#[get("/api/remote/following?<webfinger>&<page>")]
+pub async fn remote_following(
     conn: Db,
-    username: String,
-    actor: Result<Json<Lookup>, Error<'_>>,
-) -> Result<Json<ApActor>, Status> {
-    if let Signed(true, VerificationType::Local) = signed {
-        if let Ok(actor) = actor {
-            if let Some(profile) = get_profile_by_username(&conn, username.clone()).await {
-                let ap_id = {
-                    let webfinger_re = regex::Regex::new(r#"@(.+?)@(.+)"#).unwrap();
-                    let http_url_re =
-                        regex::Regex::new(r#"https://(.+?)/@([a-zA-Z0-9_]+)"#).unwrap();
-                    let http_id_re = regex::Regex::new(r#"https://.+"#).unwrap();
-
-                    let webfinger = {
-                        if http_url_re.is_match(&actor.id.clone()) {
-                            let id = &actor.id.clone();
-                            let captures = http_url_re.captures(id);
-                            if let Some(captures) = captures {
-                                if captures.len() == 3 {
-                                    if let (Some(_whole), Some(server), Some(user)) =
-                                        (captures.get(0), captures.get(1), captures.get(2))
-                                    {
-                                        Option::from(format!(
-                                            "@{}@{}",
-                                            user.as_str(),
-                                            server.as_str()
-                                        ))
-                                    } else {
-                                        Option::None
-                                    }
-                                } else {
-                                    Option::None
-                                }
-                            } else {
-                                Option::None
-                            }
-                        } else if webfinger_re.is_match(&actor.id.clone()) {
-                            Option::from(actor.id.clone())
-                        } else {
-                            Option::None
-                        }
-                    };
-
-                    if let Some(webfinger) = webfinger {
-                        if let Some(webfinger) = get_remote_webfinger(webfinger).await {
-                            let mut ap_id_int = Option::<String>::None;
-                            for link in webfinger.links {
-                                if let (Some(kind), Some(href)) = (link.kind, link.href) {
-                                    if kind == "application/activity+json" || kind == "application/ld+json; profile=\"https://www.w3.org/ns/activitystreams\"" {
-                                        ap_id_int = Option::from(href);
-                                    }
-                                }
-                            }
-                            ap_id_int
-                        } else {
-                            Option::None
-                        }
-                    } else if http_id_re.is_match(&actor.id.clone()) {
-                        Option::from(actor.id.clone())
-                    } else {
-                        Option::None
-                    }
-                };
-
-                if let Some(ap_id) = ap_id {
-                    if is_local(ap_id.clone()) {
-                        if let Some(x) = get_local_identifier(ap_id.clone()) {
-                            if x.kind == LocalIdentifierType::User {
-                                Ok(Json(
-                                    get_profile_by_username(&conn, x.identifier)
-                                        .await
-                                        .unwrap()
-                                        .into(),
-                                ))
-                            } else {
-                                Err(Status::NoContent)
-                            }
+    webfinger: String,
+    page: Option<String>,
+) -> Result<Json<ApObject>, Status> {
+    if let Ok(Json(actor)) = remote_actor(conn, webfinger).await {
+        if let Some(page) = page {
+            if let Ok(url) = urlencoding::decode(&page) {
+                let url = &(*url).to_string();
+                if let Some(following) = actor.following.clone() {
+                    if url.contains(&following) {
+                        if let Some(collection) = get_remote_collection_page(page).await {
+                            Ok(Json(ApObject::CollectionPage(collection)))
                         } else {
                             Err(Status::NoContent)
                         }
-                    } else if let Some(actor) =
-                        retriever::get_actor(&conn, ap_id, Some(profile), true).await
-                    {
-                        Ok(Json(actor.into()))
                     } else {
                         Err(Status::NoContent)
                     }
                 } else {
                     Err(Status::NoContent)
                 }
+            } else {
+                Err(Status::NoContent)
+            }
+        } else if let Some(following) = actor.following {
+            if let Some(collection) = get_remote_collection(following).await {
+                Ok(Json(ApObject::Collection(collection)))
+            } else {
+                Err(Status::NoContent)
+            }
+        } else {
+            Err(Status::NoContent)
+        }
+    } else {
+        Err(Status::NoContent)
+    }
+}
+
+/// This function returns either an ApCollection or an ApCollectionPage wrapped in
+/// an ApObject. The `followers` attribute in the actor is used either directly (for
+/// the ApCollection) or in tandem with the page to confirm that the page is associated
+/// with the actor for the ApCollectionPage. The `page` parameter is URL encoded because
+/// it's the standard URL ID that ActivityPub uses for such things and includes characters
+/// that would interfere with the match (`?`, `:`, `/`, and `=`);
+#[get("/api/remote/outbox?<webfinger>&<page>")]
+pub async fn remote_outbox(
+    conn: Db,
+    webfinger: String,
+    page: Option<String>,
+) -> Result<Json<ApObject>, Status> {
+    if let Ok(Json(actor)) = remote_actor(conn, webfinger).await {
+        if let Some(page) = page {
+            if let Ok(url) = urlencoding::decode(&page) {
+                let url = &(*url).to_string();
+                if url.contains(&actor.outbox) {
+                    if let Some(collection) = get_remote_collection_page(page).await {
+                        Ok(Json(ApObject::CollectionPage(collection)))
+                    } else {
+                        Err(Status::NoContent)
+                    }
+                } else {
+                    Err(Status::NoContent)
+                }
+            } else {
+                Err(Status::NoContent)
+            }
+        } else if let Some(collection) = get_remote_collection(actor.outbox).await {
+            Ok(Json(ApObject::Collection(collection)))
+        } else {
+            Err(Status::NoContent)
+        }
+    } else {
+        Err(Status::NoContent)
+    }
+}
+
+#[get("/api/remote/note?<id>")]
+pub async fn remote_note(conn: Db, id: String) -> Result<Json<ApNote>, Status> {
+    if let Ok(url) = urlencoding::decode(&id) {
+        let url = &(*url).to_string();
+        if let Some(note) = get_note(&conn, None, url.to_string()).await {
+            Ok(Json(note))
+        } else {
+            Err(Status::NoContent)
+        }
+    } else {
+        Err(Status::NoContent)
+    }
+}
+
+#[get("/api/user/<username>/remote/note?<id>")]
+pub async fn remote_note_authenticated(
+    signed: Signed,
+    conn: Db,
+    username: String,
+    id: String,
+) -> Result<Json<ApNote>, Status> {
+    if let Signed(true, VerificationType::Local) = signed {
+        if let Some(profile) = get_profile_by_username(&conn, username).await {
+            if let Some(note) = get_note(&conn, Some(profile), id).await {
+                Ok(Json(note))
             } else {
                 Err(Status::NoContent)
             }

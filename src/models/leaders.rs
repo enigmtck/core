@@ -1,7 +1,7 @@
 use crate::activity_pub::{ApAccept, ApActivity};
 use crate::db::Db;
 use crate::helper::{get_local_identifier, LocalIdentifierType};
-use crate::schema::leaders;
+use crate::schema::{leaders, remote_actors};
 use crate::MaybeReference;
 use chrono::{DateTime, Utc};
 use diesel::prelude::*;
@@ -10,9 +10,10 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use super::profiles::Profile;
+use super::remote_actors::RemoteActor;
 
 #[derive(Serialize, Deserialize, Insertable, Default, Debug)]
-#[table_name = "leaders"]
+#[diesel(table_name = leaders)]
 pub struct NewLeader {
     pub profile_id: i32,
     pub actor: String,
@@ -59,7 +60,7 @@ impl NewLeader {
 }
 
 #[derive(Identifiable, Queryable, AsChangeset, Serialize, Clone, Default, Debug)]
-#[table_name = "leaders"]
+#[diesel(table_name = leaders)]
 pub struct Leader {
     #[serde(skip_serializing)]
     pub id: i32,
@@ -121,4 +122,54 @@ pub async fn delete_leader_by_ap_id_and_profile(
     })
     .await
     .is_ok()
+}
+
+pub async fn get_leader_by_profile_id_and_ap_id(
+    conn: &Db,
+    profile_id: i32,
+    leader_ap_id: String,
+) -> Option<Leader> {
+    conn.run(move |c| {
+        leaders::table
+            .filter(
+                leaders::profile_id
+                    .eq(profile_id)
+                    .and(leaders::leader_ap_id.eq(leader_ap_id)),
+            )
+            .first::<Leader>(c)
+    })
+    .await
+    .ok()
+}
+
+pub async fn update_leader_by_uuid(
+    conn: &Db,
+    leader_uuid: String,
+    accept_ap_id: String,
+) -> Option<Leader> {
+    conn.run(move |c| {
+        diesel::update(leaders::table.filter(leaders::uuid.eq(leader_uuid)))
+            .set((
+                leaders::accept_ap_id.eq(accept_ap_id),
+                leaders::accepted.eq(true),
+            ))
+            .get_result::<Leader>(c)
+    })
+    .await
+    .ok()
+}
+
+pub async fn get_leaders_by_profile_id(
+    conn: &Db,
+    profile_id: i32,
+) -> Vec<(Leader, Option<RemoteActor>)> {
+    conn.run(move |c| {
+        leaders::table
+            .filter(leaders::profile_id.eq(profile_id))
+            .left_join(remote_actors::table.on(leaders::leader_ap_id.eq(remote_actors::ap_id)))
+            .order_by(leaders::created_at.desc())
+            .get_results::<(Leader, Option<RemoteActor>)>(c)
+    })
+    .await
+    .unwrap_or(vec![])
 }

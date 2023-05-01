@@ -1,6 +1,22 @@
 // @generated automatically by Diesel CLI.
 
 diesel::table! {
+    activities (id) {
+        id -> Int4,
+        created_at -> Timestamptz,
+        updated_at -> Timestamptz,
+        profile_id -> Int4,
+        kind -> Varchar,
+        uuid -> Varchar,
+        ap_to -> Nullable<Jsonb>,
+        cc -> Nullable<Jsonb>,
+        target_note_id -> Nullable<Int4>,
+        target_remote_note_id -> Nullable<Int4>,
+        target_profile_id -> Nullable<Int4>,
+    }
+}
+
+diesel::table! {
     announces (id) {
         id -> Int4,
         created_at -> Timestamptz,
@@ -212,6 +228,7 @@ diesel::table! {
         discoverable -> Nullable<Bool>,
         capabilities -> Nullable<Jsonb>,
         checked_at -> Timestamptz,
+        webfinger -> Nullable<Varchar>,
     }
 }
 
@@ -347,6 +364,7 @@ diesel::table! {
     }
 }
 
+diesel::joinable!(activities -> profiles (profile_id));
 diesel::joinable!(encrypted_sessions -> profiles (profile_id));
 diesel::joinable!(followers -> profiles (profile_id));
 diesel::joinable!(leaders -> profiles (profile_id));
@@ -360,6 +378,7 @@ diesel::joinable!(timeline_to -> timeline (timeline_id));
 diesel::joinable!(vault -> profiles (profile_id));
 
 diesel::allow_tables_to_appear_in_same_query!(
+    activities,
     announces,
     encrypted_sessions,
     followers,

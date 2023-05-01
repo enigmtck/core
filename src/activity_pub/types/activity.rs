@@ -1,6 +1,9 @@
-use crate::activity_pub::{
-    ApAccept, ApAdd, ApAnnounce, ApBlock, ApCreate, ApDelete, ApInvite, ApJoin, ApLike, ApUndo,
-    ApUpdate,
+use crate::{
+    activity_pub::{
+        ApAccept, ApAdd, ApAnnounce, ApBlock, ApCreate, ApDelete, ApInvite, ApJoin, ApLike, ApNote,
+        ApRemove, ApUndo, ApUpdate,
+    },
+    models::activities::ExtendedActivity,
 };
 use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
@@ -22,4 +25,27 @@ pub enum ApActivity {
     Update(ApUpdate),
     Block(ApBlock),
     Add(ApAdd),
+    Remove(ApRemove),
+}
+
+impl TryFrom<ExtendedActivity> for ApActivity {
+    type Error = &'static str;
+
+    fn try_from(
+        (activity, note, remote_note, profile): ExtendedActivity,
+    ) -> Result<Self, Self::Error> {
+        match activity.kind.as_str() {
+            "Create" if note.is_some() => Ok(ApActivity::Create(ApCreate::from(ApNote::from(
+                note.unwrap(),
+            )))),
+            "Delete" if note.is_some() => {
+                if let Ok(delete) = ApDelete::try_from(ApNote::from(note.unwrap())) {
+                    Ok(ApActivity::Delete(Box::new(delete)))
+                } else {
+                    Err("")
+                }
+            }
+            _ => Err(""),
+        }
+    }
 }

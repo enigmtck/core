@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 use super::encrypted_sessions::EncryptedSession;
 
 #[derive(Serialize, Deserialize, Insertable, Default, Debug, Clone)]
-#[table_name = "olm_sessions"]
+#[diesel(table_name = olm_sessions)]
 pub struct NewOlmSession {
     pub uuid: String,
     pub session_data: String,
@@ -19,7 +19,7 @@ pub struct NewOlmSession {
 }
 
 #[derive(Identifiable, Queryable, AsChangeset, Serialize, Clone, Default, Debug)]
-#[table_name = "olm_sessions"]
+#[diesel(table_name = olm_sessions)]
 pub struct OlmSession {
     #[serde(skip_serializing)]
     pub id: i32,

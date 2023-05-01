@@ -10,7 +10,7 @@ use serde_json::Value;
 use super::timeline::get_timeline_item_by_ap_id;
 
 #[derive(Serialize, Deserialize, Insertable, Default, Debug, Clone)]
-#[table_name = "remote_announces"]
+#[diesel(table_name = remote_announces)]
 pub struct NewRemoteAnnounce {
     pub context: Option<String>,
     pub kind: String,
@@ -42,7 +42,7 @@ impl NewRemoteAnnounce {
 }
 
 #[derive(Identifiable, Queryable, AsChangeset, Serialize, Deserialize, Clone, Default, Debug)]
-#[table_name = "remote_announces"]
+#[diesel(table_name = remote_announces)]
 pub struct RemoteAnnounce {
     #[serde(skip_serializing)]
     pub id: i32,

@@ -11,7 +11,7 @@ use uuid::Uuid;
 use super::olm_sessions::OlmSession;
 
 #[derive(Serialize, Deserialize, Insertable, Default, Debug, Clone)]
-#[table_name = "encrypted_sessions"]
+#[diesel(table_name = encrypted_sessions)]
 pub struct NewEncryptedSession {
     pub profile_id: i32,
     pub ap_to: String,
@@ -36,7 +36,7 @@ impl From<IdentifiedEncryptedSession> for NewEncryptedSession {
 }
 
 #[derive(Identifiable, Queryable, AsChangeset, Serialize, Clone, Default, Debug)]
-#[table_name = "encrypted_sessions"]
+#[diesel(table_name = encrypted_sessions)]
 pub struct EncryptedSession {
     #[serde(skip_serializing)]
     pub id: i32,

@@ -1,7 +1,7 @@
 use crate::{
     activity_pub::{
         ApAccept, ApActivity, ApAdd, ApAddress, ApAnnounce, ApBlock, ApCreate, ApDelete, ApFollow,
-        ApInvite, ApJoin, ApLike, ApObject, ApUndo, ApUpdate,
+        ApInvite, ApJoin, ApLike, ApObject, ApRemove, ApUndo, ApUpdate,
     },
     db::{create_remote_encrypted_session, create_remote_note, Db},
     fairings::{
@@ -388,5 +388,14 @@ pub async fn block(
 
 pub async fn add(conn: Db, _faktory: FaktoryConnection, activity: ApAdd) -> Result<Status, Status> {
     log::warn!("ADD ACTIVITY NOT YET IMPLEMENTED");
+    Err(Status::NoContent)
+}
+
+pub async fn remove(
+    conn: Db,
+    _faktory: FaktoryConnection,
+    activity: ApRemove,
+) -> Result<Status, Status> {
+    log::warn!("REMOVE ACTIVITY NOT YET IMPLEMENTED");
     Err(Status::NoContent)
 }

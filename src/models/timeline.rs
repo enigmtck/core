@@ -19,7 +19,7 @@ use super::remote_likes::RemoteLike;
 use super::remote_notes::RemoteNote;
 
 #[derive(Serialize, Deserialize, Insertable, Default, Debug, Clone, AsChangeset)]
-#[table_name = "timeline"]
+#[diesel(table_name = timeline)]
 pub struct NewTimelineItem {
     pub tag: Option<Value>,
     pub attributed_to: String,
@@ -153,7 +153,7 @@ impl From<SynthesizedAnnounce> for NewTimelineItem {
 }
 
 #[derive(Identifiable, Queryable, AsChangeset, Serialize, Clone, Default, Debug)]
-#[table_name = "timeline"]
+#[diesel(table_name = timeline)]
 pub struct TimelineItem {
     #[serde(skip_serializing)]
     pub id: i32,
@@ -181,15 +181,15 @@ pub struct TimelineItem {
 }
 
 #[derive(Serialize, Deserialize, Insertable, Default, Debug, Clone)]
-#[table_name = "timeline_cc"]
+#[diesel(table_name = timeline_cc)]
 pub struct NewTimelineItemCc {
     pub timeline_id: i32,
     pub ap_id: String,
 }
 
 #[derive(Identifiable, Queryable, AsChangeset, Associations, Serialize, Clone, Default, Debug)]
-#[belongs_to(TimelineItem, foreign_key = "timeline_id")]
-#[table_name = "timeline_cc"]
+#[diesel(belongs_to(TimelineItem, foreign_key = timeline_id))]
+#[diesel(table_name = timeline_cc)]
 pub struct TimelineItemCc {
     #[serde(skip_serializing)]
     pub id: i32,
@@ -200,15 +200,15 @@ pub struct TimelineItemCc {
 }
 
 #[derive(Serialize, Deserialize, Insertable, Default, Debug, Clone)]
-#[table_name = "timeline_to"]
+#[diesel(table_name = timeline_to)]
 pub struct NewTimelineItemTo {
     pub timeline_id: i32,
     pub ap_id: String,
 }
 
 #[derive(Identifiable, Queryable, AsChangeset, Associations, Serialize, Clone, Default, Debug)]
-#[belongs_to(TimelineItem, foreign_key = "timeline_id")]
-#[table_name = "timeline_to"]
+#[diesel(belongs_to(TimelineItem, foreign_key = timeline_id))]
+#[diesel(table_name = timeline_to)]
 pub struct TimelineItemTo {
     #[serde(skip_serializing)]
     pub id: i32,

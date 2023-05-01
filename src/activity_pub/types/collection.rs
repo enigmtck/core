@@ -1,7 +1,7 @@
 use core::fmt;
 use std::fmt::Debug;
 
-use crate::activity_pub::{ApActor, ApContext, ApObject};
+use crate::activity_pub::{ActivityPub, ApActor, ApContext, ApObject};
 use crate::models::vault::VaultItem;
 use crate::models::{followers::Follower, leaders::Leader, profiles::Profile};
 use crate::MaybeReference;
@@ -26,6 +26,7 @@ impl fmt::Display for ApCollectionType {
 pub enum ApCollectionPageType {
     #[default]
     CollectionPage,
+    OrderedCollectionPage,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -33,9 +34,20 @@ pub enum ApCollectionPageType {
 pub struct ApCollectionPage {
     #[serde(rename = "type")]
     pub kind: ApCollectionPageType,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub prev: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub next: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub part_of: Option<String>,
-    pub items: Vec<ApObject>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub total_items: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub items: Option<Vec<ActivityPub>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ordered_items: Option<Vec<ActivityPub>>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -50,9 +62,9 @@ pub struct ApCollection {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub total_items: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub items: Option<Vec<ApObject>>,
+    pub items: Option<Vec<ActivityPub>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub ordered_items: Option<Vec<ApObject>>,
+    pub ordered_items: Option<Vec<ActivityPub>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub first: Option<MaybeReference<ApCollectionPage>>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -90,11 +102,26 @@ impl Default for ApCollection {
     }
 }
 
+impl From<Vec<ActivityPub>> for ApCollection {
+    fn from(objects: Vec<ActivityPub>) -> Self {
+        ApCollection {
+            total_items: Some(objects.len() as u32),
+            items: Option::from(objects),
+            ..Default::default()
+        }
+    }
+}
+
 impl From<Vec<ApObject>> for ApCollection {
     fn from(objects: Vec<ApObject>) -> Self {
         ApCollection {
             total_items: Some(objects.len() as u32),
-            items: Option::from(objects),
+            items: Option::from(
+                objects
+                    .iter()
+                    .map(|x| ActivityPub::Object(x.clone()))
+                    .collect::<Vec<ActivityPub>>(),
+            ),
             ..Default::default()
         }
     }
@@ -124,8 +151,8 @@ impl From<ActorsPage> for ApCollection {
                     request
                         .actors
                         .into_iter()
-                        .map(ApObject::Actor)
-                        .collect::<Vec<ApObject>>(),
+                        .map(|x| ActivityPub::Object(ApObject::Actor(x)))
+                        .collect::<Vec<ActivityPub>>(),
                 ),
                 ..Default::default()
             }
@@ -163,8 +190,8 @@ impl From<FollowersPage> for ApCollection {
                     request
                         .followers
                         .into_iter()
-                        .map(|x| ApObject::Plain(x.actor))
-                        .collect::<Vec<ApObject>>(),
+                        .map(|x| ActivityPub::Object(ApObject::Plain(x.actor)))
+                        .collect::<Vec<ActivityPub>>(),
                 ),
                 ..Default::default()
             }
@@ -202,8 +229,8 @@ impl From<LeadersPage> for ApCollection {
                     request
                         .leaders
                         .into_iter()
-                        .map(|x| ApObject::Plain(x.leader_ap_id))
-                        .collect::<Vec<ApObject>>(),
+                        .map(|x| ActivityPub::Object(ApObject::Plain(x.leader_ap_id)))
+                        .collect::<Vec<ActivityPub>>(),
                 ),
                 ..Default::default()
             }
@@ -234,8 +261,8 @@ impl From<IdentifiedVaultItems> for ApCollection {
             ordered_items: Option::from(
                 items
                     .into_iter()
-                    .map(|x| ApObject::Note((x, profile.clone()).into()))
-                    .collect::<Vec<ApObject>>(),
+                    .map(|x| ActivityPub::Object(ApObject::Note((x, profile.clone()).into())))
+                    .collect::<Vec<ActivityPub>>(),
             ),
             ..Default::default()
         }

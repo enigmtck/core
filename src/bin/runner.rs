@@ -11,6 +11,7 @@ use enigmatick::runner::{
     like::send_like,
     note::{delete_note, process_outbound_note, process_remote_note, retrieve_context},
     timeline::update_timeline_record,
+    user::send_profile_update,
 };
 use faktory::ConsumerBuilder;
 
@@ -38,6 +39,7 @@ fn main() {
     consumer.register("process_accept", process_accept);
     consumer.register("process_undo_follow", process_undo_follow);
     consumer.register("process_remote_undo_follow", process_remote_undo_follow);
+    consumer.register("send_profile_update", send_profile_update);
 
     let mut consumer = consumer.connect(Some(faktory_url)).unwrap();
 

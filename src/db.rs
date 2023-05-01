@@ -1,4 +1,3 @@
-use crate::models::leaders::Leader;
 use crate::models::notes::{NewNote, Note};
 use crate::models::profiles::Profile;
 use crate::models::remote_encrypted_sessions::{NewRemoteEncryptedSession, RemoteEncryptedSession};
@@ -12,27 +11,6 @@ use rocket_sync_db_pools::{database, diesel};
 #[database("enigmatick")]
 pub struct Db(diesel::PgConnection);
 
-pub async fn get_leader_by_profile_id_and_ap_id(
-    conn: &Db,
-    profile_id: i32,
-    leader_ap_id: String,
-) -> Option<Leader> {
-    use schema::leaders::dsl::{leader_ap_id as lid, leaders, profile_id as pid};
-
-    if let Ok(x) = conn
-        .run(move |c| {
-            leaders
-                .filter(pid.eq(profile_id).and(lid.eq(leader_ap_id)))
-                .first::<Leader>(c)
-        })
-        .await
-    {
-        Option::from(x)
-    } else {
-        Option::None
-    }
-}
-
 pub async fn update_password_by_username(
     conn: &Db,
     username: String,
@@ -45,27 +23,6 @@ pub async fn update_password_by_username(
             diesel::update(profiles.filter(u.eq(username)))
                 .set(p.eq(password))
                 .get_result::<Profile>(c)
-        })
-        .await
-    {
-        Some(x)
-    } else {
-        Option::None
-    }
-}
-
-pub async fn update_leader_by_uuid(
-    conn: &Db,
-    leader_uuid: String,
-    accept_ap_id: String,
-) -> Option<Leader> {
-    use schema::leaders::dsl::{accept_ap_id as aapid, accepted, leaders, uuid};
-
-    if let Ok(x) = conn
-        .run(move |c| {
-            diesel::update(leaders.filter(uuid.eq(leader_uuid)))
-                .set((aapid.eq(accept_ap_id), accepted.eq(true)))
-                .get_result::<Leader>(c)
         })
         .await
     {
@@ -164,23 +121,5 @@ pub async fn create_remote_note(conn: &Db, remote_note: NewRemoteNote) -> Option
         Some(x)
     } else {
         Option::None
-    }
-}
-
-pub async fn get_leaders_by_profile_id(conn: &Db, profile_id: i32) -> Vec<Leader> {
-    use self::schema::leaders::dsl::{created_at, leaders, profile_id as pid};
-
-    if let Ok(x) = conn
-        .run(move |c| {
-            leaders
-                .filter(pid.eq(profile_id))
-                .order_by(created_at.desc())
-                .get_results::<Leader>(c)
-        })
-        .await
-    {
-        x
-    } else {
-        vec![]
     }
 }

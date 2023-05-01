@@ -12,7 +12,7 @@ use super::remote_encrypted_sessions::RemoteEncryptedSession;
 use super::remote_notes::RemoteNote;
 
 #[derive(Serialize, Deserialize, Insertable, Default, Debug, Clone)]
-#[table_name = "processing_queue"]
+#[diesel(table_name = processing_queue)]
 pub struct NewProcessingItem {
     pub profile_id: i32,
     pub kind: String,
@@ -61,7 +61,7 @@ impl From<RemoteEncryptedSession> for NewProcessingItem {
 }
 
 #[derive(Identifiable, Queryable, AsChangeset, Serialize, Clone, Default, Debug)]
-#[table_name = "processing_queue"]
+#[diesel(table_name = processing_queue)]
 pub struct ProcessingItem {
     #[serde(skip_serializing)]
     pub id: i32,

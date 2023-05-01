@@ -41,12 +41,12 @@ async_once = "0.2"
 webpage = { version = "1.5", features = ["serde"] }
 
 rocket = { version = "0.5.0-rc.3", features = ["json"] }
-diesel = { version = "1.4.8", features = ["postgres", "chrono", "r2d2", "serde_json"] }
+diesel = { version = "2.0.4", features = ["postgres", "chrono", "r2d2", "serde_json"] }
 image = "0.24.6"
 blurhash = "0.1.1"
 rexiv2 = "0.10.0"
 
 [dependencies.rocket_sync_db_pools]
-version = "0.1.0-rc.2"
+version = "0.1.0-rc.3"
 default-features = false
 features = ["diesel_postgres_pool"]

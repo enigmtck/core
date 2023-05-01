@@ -96,6 +96,9 @@ pub async fn shared_inbox_post(
                     inbox::activity::block(conn, faktory, activity).await
                 }
                 ApActivity::Add(activity) => inbox::activity::add(conn, faktory, activity).await,
+                ApActivity::Remove(activity) => {
+                    inbox::activity::remove(conn, faktory, activity).await
+                }
             }
         } else {
             log::debug!("FAILED TO CREATE REMOTE ACTIVITY");

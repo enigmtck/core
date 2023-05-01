@@ -24,14 +24,14 @@ pub fn update_timeline_record(job: Job) -> io::Result<()> {
     let ap_ids = job.args();
 
     match POOL.get() {
-        Ok(conn) => {
+        Ok(mut conn) => {
             for ap_id in ap_ids {
                 let ap_id = ap_id.as_str().unwrap().to_string();
                 log::debug!("looking for ap_id: {}", ap_id);
 
                 match remote_notes::table
                     .filter(remote_notes::ap_id.eq(ap_id))
-                    .first::<RemoteNote>(&conn)
+                    .first::<RemoteNote>(&mut conn)
                 {
                     Ok(remote_note) => {
                         if remote_note.kind == "Note" {
@@ -102,8 +102,10 @@ pub enum TimelineDeleteError {
 
 pub fn delete_timeline_item_by_ap_id(ap_id: String) -> Result<usize, TimelineDeleteError> {
     match POOL.get() {
-        Ok(conn) => {
-            match diesel::delete(timeline::table.filter(timeline::ap_id.eq(ap_id))).execute(&conn) {
+        Ok(mut conn) => {
+            match diesel::delete(timeline::table.filter(timeline::ap_id.eq(ap_id)))
+                .execute(&mut conn)
+            {
                 Ok(x) => Ok(x),
                 Err(e) => {
                     log::error!("FAILED TO DELETE\n{e:#?}");
@@ -116,10 +118,10 @@ pub fn delete_timeline_item_by_ap_id(ap_id: String) -> Result<usize, TimelineDel
 }
 
 pub fn get_timeline_item_by_ap_id(ap_id: String) -> Option<TimelineItem> {
-    if let Ok(conn) = POOL.get() {
+    if let Ok(mut conn) = POOL.get() {
         match timeline::table
             .filter(timeline::ap_id.eq(ap_id))
-            .first::<TimelineItem>(&conn)
+            .first::<TimelineItem>(&mut conn)
         {
             Ok(x) => Option::from(x),
             Err(_) => Option::None,
@@ -130,10 +132,10 @@ pub fn get_timeline_item_by_ap_id(ap_id: String) -> Option<TimelineItem> {
 }
 
 pub fn update_timeline_items(timeline_item: NewTimelineItem) -> Vec<TimelineItem> {
-    if let Ok(conn) = POOL.get() {
+    if let Ok(mut conn) = POOL.get() {
         match diesel::update(timeline::table.filter(timeline::ap_id.eq(timeline_item.ap_id)))
             .set(timeline::content.eq(timeline_item.content))
-            .get_results::<TimelineItem>(&conn)
+            .get_results::<TimelineItem>(&mut conn)
         {
             Ok(x) => x,
             Err(_) => {
@@ -146,10 +148,10 @@ pub fn update_timeline_items(timeline_item: NewTimelineItem) -> Vec<TimelineItem
 }
 
 pub fn create_timeline_item(timeline_item: NewTimelineItem) -> Option<TimelineItem> {
-    if let Ok(conn) = POOL.get() {
+    if let Ok(mut conn) = POOL.get() {
         match diesel::insert_into(timeline::table)
             .values(&timeline_item)
-            .get_result::<TimelineItem>(&conn)
+            .get_result::<TimelineItem>(&mut conn)
         {
             Ok(x) => Some(x),
             Err(e) => {
@@ -164,10 +166,10 @@ pub fn create_timeline_item(timeline_item: NewTimelineItem) -> Option<TimelineIt
 
 pub fn create_timeline_item_to(timeline_item_to: (TimelineItem, String)) -> bool {
     let timeline_item_to = NewTimelineItemTo::from(timeline_item_to);
-    if let Ok(conn) = POOL.get() {
+    if let Ok(mut conn) = POOL.get() {
         diesel::insert_into(timeline_to::table)
             .values(&timeline_item_to)
-            .get_result::<TimelineItemTo>(&conn)
+            .get_result::<TimelineItemTo>(&mut conn)
             .is_ok()
     } else {
         false
@@ -176,10 +178,10 @@ pub fn create_timeline_item_to(timeline_item_to: (TimelineItem, String)) -> bool
 
 pub fn create_timeline_item_cc(timeline_item_cc: (TimelineItem, String)) -> bool {
     let timeline_item_cc = NewTimelineItemCc::from(timeline_item_cc);
-    if let Ok(conn) = POOL.get() {
+    if let Ok(mut conn) = POOL.get() {
         diesel::insert_into(timeline_cc::table)
             .values(&timeline_item_cc)
-            .get_result::<TimelineItemCc>(&conn)
+            .get_result::<TimelineItemCc>(&mut conn)
             .is_ok()
     } else {
         false

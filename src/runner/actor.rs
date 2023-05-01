@@ -17,10 +17,10 @@ use crate::{
 use super::POOL;
 
 pub fn get_remote_actor_by_ap_id(ap_id: String) -> Option<RemoteActor> {
-    if let Ok(conn) = POOL.get() {
+    if let Ok(mut conn) = POOL.get() {
         match remote_actors::table
             .filter(remote_actors::ap_id.eq(ap_id))
-            .first::<RemoteActor>(&conn)
+            .first::<RemoteActor>(&mut conn)
         {
             Ok(x) => Option::from(x),
             Err(e) => {
@@ -34,13 +34,13 @@ pub fn get_remote_actor_by_ap_id(ap_id: String) -> Option<RemoteActor> {
 }
 
 pub fn create_or_update_remote_actor(actor: NewRemoteActor) -> Option<RemoteActor> {
-    if let Ok(conn) = POOL.get() {
+    if let Ok(mut conn) = POOL.get() {
         match diesel::insert_into(remote_actors::table)
             .values(&actor)
             .on_conflict(remote_actors::ap_id)
             .do_update()
             .set((&actor, remote_actors::checked_at.eq(Utc::now())))
-            .get_result::<RemoteActor>(&conn)
+            .get_result::<RemoteActor>(&mut conn)
             .optional()
         {
             Ok(x) => x,
@@ -134,11 +134,11 @@ pub async fn get_actor(profile: Profile, id: String) -> Option<(RemoteActor, Opt
 }
 
 pub fn get_leader_by_endpoint(endpoint: String) -> Option<(RemoteActor, Leader)> {
-    if let Ok(conn) = POOL.get() {
+    if let Ok(mut conn) = POOL.get() {
         match remote_actors::table
             .inner_join(leaders::table.on(leaders::leader_ap_id.eq(remote_actors::ap_id)))
             .filter(remote_actors::followers.eq(endpoint))
-            .first::<(RemoteActor, Leader)>(&conn)
+            .first::<(RemoteActor, Leader)>(&mut conn)
         {
             Ok(x) => Option::from(x),
             Err(_) => Option::None,
@@ -151,12 +151,12 @@ pub fn get_leader_by_endpoint(endpoint: String) -> Option<(RemoteActor, Leader)>
 pub fn get_follower_profiles_by_endpoint(
     endpoint: String,
 ) -> Vec<(RemoteActor, Leader, Option<Profile>)> {
-    if let Ok(conn) = POOL.get() {
+    if let Ok(mut conn) = POOL.get() {
         match remote_actors::table
             .inner_join(leaders::table.on(leaders::leader_ap_id.eq(remote_actors::ap_id)))
             .left_join(profiles::table.on(leaders::profile_id.eq(profiles::id)))
             .filter(remote_actors::followers.eq(endpoint))
-            .get_results::<(RemoteActor, Leader, Option<Profile>)>(&conn)
+            .get_results::<(RemoteActor, Leader, Option<Profile>)>(&mut conn)
         {
             Ok(x) => x,
             Err(_) => {

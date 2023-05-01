@@ -9,11 +9,12 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 #[derive(Serialize, Deserialize, Insertable, AsChangeset)]
-#[table_name = "remote_actors"]
+#[diesel(table_name = remote_actors)]
 pub struct NewRemoteActor {
     pub context: Value,
     pub kind: String,
     pub ap_id: String,
+    pub webfinger: Option<String>,
     pub name: String,
     pub preferred_username: String,
     pub summary: String,
@@ -42,14 +43,15 @@ impl From<ApActor> for NewRemoteActor {
     fn from(actor: ApActor) -> NewRemoteActor {
         NewRemoteActor {
             context: {
-                if let Some(context) = actor.context {
+                if let Some(context) = actor.context.clone() {
                     serde_json::to_value(context).unwrap()
                 } else {
                     serde_json::to_value(ApContext::default()).unwrap()
                 }
             },
             kind: actor.kind.to_string(),
-            ap_id: actor.id.unwrap().to_string(),
+            ap_id: actor.id.as_ref().unwrap().to_string(),
+            webfinger: actor.clone().get_webfinger(),
             name: actor.name.unwrap(),
             preferred_username: actor.preferred_username,
             summary: actor.summary.unwrap_or_default(),
@@ -77,7 +79,7 @@ impl From<ApActor> for NewRemoteActor {
 }
 
 #[derive(Identifiable, Queryable, AsChangeset, Serialize, Clone, Debug)]
-#[table_name = "remote_actors"]
+#[diesel(table_name = remote_actors)]
 pub struct RemoteActor {
     #[serde(skip_serializing)]
     pub id: i32,
@@ -109,6 +111,7 @@ pub struct RemoteActor {
     pub discoverable: Option<bool>,
     pub capabilities: Option<Value>,
     pub checked_at: DateTime<Utc>,
+    pub webfinger: Option<String>,
 }
 
 pub async fn get_remote_actor_by_url(conn: &Db, url: String) -> Option<RemoteActor> {
@@ -150,6 +153,16 @@ pub async fn get_remote_actor_by_ap_id(conn: &Db, apid: String) -> Option<Remote
     conn.run(move |c| {
         remote_actors::table
             .filter(remote_actors::ap_id.eq(apid))
+            .first::<RemoteActor>(c)
+    })
+    .await
+    .ok()
+}
+
+pub async fn get_remote_actor_by_webfinger(conn: &Db, webfinger: String) -> Option<RemoteActor> {
+    conn.run(move |c| {
+        remote_actors::table
+            .filter(remote_actors::webfinger.eq(webfinger))
             .first::<RemoteActor>(c)
     })
     .await

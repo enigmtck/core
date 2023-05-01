@@ -1,3 +1,4 @@
+pub mod activities;
 pub mod announces;
 pub mod encrypted_sessions;
 pub mod followers;

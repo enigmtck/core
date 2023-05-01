@@ -1,9 +1,13 @@
 use std::collections::HashSet;
 
 use diesel::prelude::*;
+use faktory::Job;
+use std::io;
 
 use crate::{
+    activity_pub::{ApActivity, ApActor, ApUpdate},
     models::{followers::Follower, profiles::Profile},
+    runner::send_to_inboxes,
     schema::{followers, profiles},
 };
 
@@ -31,29 +35,31 @@ pub fn get_profile_by_ap_id(ap_id: String) -> Option<Profile> {
     }
 }
 
+pub fn get_profile_by_uuid(uuid: String) -> Option<Profile> {
+    if let Ok(mut conn) = POOL.get() {
+        profiles::table
+            .filter(profiles::uuid.eq(uuid))
+            .first::<Profile>(&mut conn)
+            .ok()
+    } else {
+        Option::None
+    }
+}
+
 pub fn get_profile_by_username(username: String) -> Option<Profile> {
-    if let Ok(conn) = POOL.get() {
-        match profiles::table
+    if let Ok(mut conn) = POOL.get() {
+        profiles::table
             .filter(profiles::username.eq(username))
-            .first::<Profile>(&conn)
-        {
-            Ok(x) => Option::from(x),
-            Err(e) => {
-                log::error!("{:#?}", e);
-                Option::None
-            }
-        }
+            .first::<Profile>(&mut conn)
+            .ok()
     } else {
         Option::None
     }
 }
 
 pub fn get_profile(id: i32) -> Option<Profile> {
-    if let Ok(conn) = POOL.get() {
-        match profiles::table.find(id).first::<Profile>(&conn) {
-            Ok(x) => Option::from(x),
-            Err(_) => Option::None,
-        }
+    if let Ok(mut conn) = POOL.get() {
+        profiles::table.find(id).first::<Profile>(&mut conn).ok()
     } else {
         Option::None
     }
@@ -72,11 +78,11 @@ pub fn get_follower_inboxes(profile: Profile) -> HashSet<String> {
 }
 
 pub fn get_followers_by_profile_id(profile_id: i32) -> Vec<Follower> {
-    if let Ok(conn) = POOL.get() {
+    if let Ok(mut conn) = POOL.get() {
         match followers::table
             .filter(followers::profile_id.eq(profile_id))
             .order_by(followers::created_at.desc())
-            .get_results::<Follower>(&conn)
+            .get_results::<Follower>(&mut conn)
         {
             Ok(x) => x,
             Err(_) => vec![],
@@ -84,4 +90,32 @@ pub fn get_followers_by_profile_id(profile_id: i32) -> Vec<Follower> {
     } else {
         vec![]
     }
+}
+
+pub fn send_profile_update(job: Job) -> io::Result<()> {
+    log::debug!("RUNNING SEND_PROFILE_UPDATE JOB");
+
+    let uuids = job.args();
+
+    log::debug!("UUIDS\n{uuids:#?}");
+
+    for uuid in uuids {
+        log::debug!("LOOKING UP {uuid}");
+        if let Some(profile) = get_profile_by_uuid(uuid.as_str().unwrap().to_string()) {
+            log::debug!("FOUND PROFILE");
+            if let Ok(actor) = ApActor::try_from(profile.clone()) {
+                log::debug!("ACTOR\n{actor:#?}");
+                if let Ok(update) = ApUpdate::try_from(actor) {
+                    log::debug!("UPDATE\n{update:#?}");
+                    send_to_inboxes(
+                        get_follower_inboxes(profile.clone()),
+                        profile,
+                        ApActivity::Update(update),
+                    );
+                }
+            }
+        }
+    }
+
+    Ok(())
 }

@@ -18,11 +18,11 @@ use crate::{
 use super::POOL;
 
 pub fn get_leader_by_actor_ap_id_and_profile(ap_id: String, profile_id: i32) -> Option<Leader> {
-    if let Ok(conn) = POOL.get() {
+    if let Ok(mut conn) = POOL.get() {
         match leaders::table
             .filter(leaders::leader_ap_id.eq(ap_id))
             .filter(leaders::profile_id.eq(profile_id))
-            .first::<Leader>(&conn)
+            .first::<Leader>(&mut conn)
         {
             Ok(x) => Option::from(x),
             Err(_) => Option::None,
@@ -33,10 +33,10 @@ pub fn get_leader_by_actor_ap_id_and_profile(ap_id: String, profile_id: i32) -> 
 }
 
 pub fn get_follow_by_uuid(uuid: String) -> Option<Follow> {
-    if let Ok(conn) = POOL.get() {
+    if let Ok(mut conn) = POOL.get() {
         match follows::table
             .filter(follows::uuid.eq(uuid))
-            .first::<Follow>(&conn)
+            .first::<Follow>(&mut conn)
         {
             Ok(x) => Option::from(x),
             Err(_) => Option::None,
@@ -88,10 +88,10 @@ pub fn process_follow(job: Job) -> io::Result<()> {
 }
 
 pub fn create_leader(leader: NewLeader) -> Option<Leader> {
-    if let Ok(conn) = POOL.get() {
+    if let Ok(mut conn) = POOL.get() {
         match diesel::insert_into(leaders::table)
             .values(&leader)
-            .get_result::<Leader>(&conn)
+            .get_result::<Leader>(&mut conn)
         {
             Ok(x) => Some(x),
             Err(e) => {
@@ -141,13 +141,13 @@ pub fn delete_leader_by_ap_id_and_profile_id(
     ap_id: String,
     profile_id: i32,
 ) -> Result<usize, DeleteLeaderError> {
-    if let Ok(conn) = POOL.get() {
+    if let Ok(mut conn) = POOL.get() {
         match diesel::delete(
             leaders::table
                 .filter(leaders::leader_ap_id.eq(ap_id))
                 .filter(leaders::profile_id.eq(profile_id)),
         )
-        .execute(&conn)
+        .execute(&mut conn)
         {
             Ok(x) => Ok(x),
             Err(e) => {
@@ -215,8 +215,9 @@ pub enum DeleteFollowerError {
 }
 
 pub fn delete_follower_by_ap_id(ap_id: String) -> Result<usize, DeleteFollowerError> {
-    if let Ok(conn) = POOL.get() {
-        match diesel::delete(followers::table.filter(followers::ap_id.eq(ap_id))).execute(&conn) {
+    if let Ok(mut conn) = POOL.get() {
+        match diesel::delete(followers::table.filter(followers::ap_id.eq(ap_id))).execute(&mut conn)
+        {
             Ok(x) => Ok(x),
             Err(e) => {
                 log::error!("FAILED TO DELETE FOLLOWER\n{e:#?}");
@@ -300,10 +301,10 @@ pub fn acknowledge_followers(job: Job) -> io::Result<()> {
 }
 
 pub fn create_follower(follower: NewFollower) -> Option<Follower> {
-    if let Ok(conn) = POOL.get() {
+    if let Ok(mut conn) = POOL.get() {
         match diesel::insert_into(followers::table)
             .values(&follower)
-            .get_result::<Follower>(&conn)
+            .get_result::<Follower>(&mut conn)
         {
             Ok(x) => Some(x),
             Err(e) => {

@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 #[derive(Serialize, Deserialize, Insertable, Default, Debug, Clone)]
-#[table_name = "notes"]
+#[diesel(table_name = notes)]
 pub struct NewNote {
     pub uuid: String,
     pub profile_id: i32,
@@ -58,7 +58,7 @@ impl From<IdentifiedApNote> for NewNote {
 }
 
 #[derive(Identifiable, Queryable, AsChangeset, Serialize, Clone, Default, Debug)]
-#[table_name = "notes"]
+#[diesel(table_name = notes)]
 pub struct Note {
     #[serde(skip_serializing)]
     pub id: i32,
@@ -78,14 +78,36 @@ pub struct Note {
     pub instrument: Option<Value>,
 }
 
+pub async fn get_notes_by_profile_id(
+    conn: &Db,
+    profile_id: i32,
+    limit: i64,
+    offset: i64,
+    exclude_replies: bool,
+) -> Vec<Note> {
+    conn.run(move |c| {
+        let mut query = notes::table
+            .filter(notes::profile_id.eq(profile_id))
+            .filter(notes::kind.eq("Note"))
+            .order(notes::created_at.desc())
+            .limit(limit)
+            .offset(offset)
+            .into_boxed();
+
+        if exclude_replies {
+            query = query.filter(notes::in_reply_to.is_null());
+        }
+
+        query.get_results::<Note>(c)
+    })
+    .await
+    .unwrap_or(vec![])
+}
+
 pub async fn get_note_by_uuid(conn: &Db, uuid: String) -> Option<Note> {
-    match conn
-        .run(move |c| notes::table.filter(notes::uuid.eq(uuid)).first::<Note>(c))
+    conn.run(move |c| notes::table.filter(notes::uuid.eq(uuid)).first::<Note>(c))
         .await
-    {
-        Ok(x) => Option::from(x),
-        Err(_) => Option::None,
-    }
+        .ok()
 }
 
 impl Note {

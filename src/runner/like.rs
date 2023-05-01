@@ -15,10 +15,10 @@ use crate::{
 use super::POOL;
 
 pub fn get_like_by_uuid(uuid: String) -> Option<Like> {
-    if let Ok(conn) = POOL.get() {
+    if let Ok(mut conn) = POOL.get() {
         match likes::table
             .filter(likes::uuid.eq(uuid))
-            .first::<Like>(&conn)
+            .first::<Like>(&mut conn)
         {
             Ok(x) => Option::from(x),
             Err(_) => Option::None,

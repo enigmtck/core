@@ -2,7 +2,7 @@ use core::fmt;
 use std::fmt::Debug;
 
 use crate::{
-    activity_pub::{ApAddress, ApContext, ApNote, ApObject},
+    activity_pub::{ApActor, ApAddress, ApContext, ApNote, ApObject},
     MaybeMultiple, MaybeReference,
 };
 use serde::{Deserialize, Serialize};
@@ -52,6 +52,26 @@ impl TryFrom<ApNote> for ApUpdate {
             })
         } else {
             Err("ApNote must have an ID")
+        }
+    }
+}
+
+impl TryFrom<ApActor> for ApUpdate {
+    type Error = &'static str;
+
+    fn try_from(actor: ApActor) -> Result<Self, Self::Error> {
+        if let Some(id) = actor.id.clone() {
+            Ok(ApUpdate {
+                context: Some(ApContext::default()),
+                actor: id.clone(),
+                kind: ApUpdateType::default(),
+                id: Some(format!("{id}#update")),
+                object: MaybeReference::Actual(ApObject::Actor(actor)),
+                signature: None,
+                to: vec![ApAddress::get_public()].into(),
+            })
+        } else {
+            Err("ApActor must have an ID")
         }
     }
 }

@@ -14,7 +14,7 @@ use super::profiles::Profile;
 use super::remote_actors::RemoteActor;
 
 #[derive(Serialize, Deserialize, Insertable, Default, Debug)]
-#[table_name = "followers"]
+#[diesel(table_name = followers)]
 pub struct NewFollower {
     pub profile_id: i32,
     pub ap_id: String,
@@ -66,7 +66,7 @@ impl NewFollower {
 }
 
 #[derive(Identifiable, Queryable, AsChangeset, Serialize, Clone, Default, Debug)]
-#[table_name = "followers"]
+#[diesel(table_name = followers)]
 pub struct Follower {
     #[serde(skip_serializing)]
     pub id: i32,

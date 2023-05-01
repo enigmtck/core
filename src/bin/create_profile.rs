@@ -45,6 +45,7 @@ pub fn create_profile(
         username,
         display_name,
         summary,
+        summary_markdown: None,
         private_key: key_pair
             .private_key
             .to_pkcs8_pem(LineEnding::default())

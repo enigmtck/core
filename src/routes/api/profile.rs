@@ -1,6 +1,7 @@
 use crate::{
     activity_pub::{ApImage, ApImageType},
     db::Db,
+    fairings::faktory::{assign_to_faktory, FaktoryConnection},
     models::profiles::{update_avatar_by_username, update_banner_by_username},
 };
 use image::{imageops::FilterType, io::Reader, DynamicImage, ImageFormat};
@@ -33,6 +34,7 @@ pub struct SummaryUpdate {
 pub async fn update_summary(
     signed: Signed,
     conn: Db,
+    faktory: FaktoryConnection,
     username: String,
     summary: Result<Json<SummaryUpdate>, Error<'_>>,
 ) -> Result<Json<Profile>, Status> {
@@ -43,7 +45,17 @@ pub async fn update_summary(
             if let Some(profile) =
                 update_summary_by_username(&conn, username, summary.content, summary.markdown).await
             {
-                Ok(Json(profile))
+                if assign_to_faktory(
+                    faktory,
+                    String::from("send_profile_update"),
+                    vec![profile.uuid.clone()],
+                )
+                .is_ok()
+                {
+                    Ok(Json(profile))
+                } else {
+                    Err(Status::NoContent)
+                }
             } else {
                 Err(Status::NoContent)
             }

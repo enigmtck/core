@@ -107,10 +107,10 @@ pub fn handle_encrypted_note(
 }
 
 pub fn create_olm_session(session: NewOlmSession) -> Option<OlmSession> {
-    if let Ok(conn) = POOL.get() {
+    if let Ok(mut conn) = POOL.get() {
         match diesel::insert_into(olm_sessions::table)
             .values(&session)
-            .get_result::<OlmSession>(&conn)
+            .get_result::<OlmSession>(&mut conn)
             .optional()
         {
             Ok(x) => x,
@@ -126,13 +126,13 @@ pub fn update_olm_session(
     session_data: String,
     session_hash: String,
 ) -> Option<OlmSession> {
-    if let Ok(conn) = POOL.get() {
+    if let Ok(mut conn) = POOL.get() {
         match diesel::update(olm_sessions::table.filter(olm_sessions::uuid.eq(uuid)))
             .set((
                 olm_sessions::session_data.eq(session_data),
                 olm_sessions::session_hash.eq(session_hash),
             ))
-            .get_result::<OlmSession>(&conn)
+            .get_result::<OlmSession>(&mut conn)
             .optional()
         {
             Ok(x) => x,
@@ -364,10 +364,10 @@ pub fn provide_one_time_key(job: Job) -> io::Result<()> {
 pub fn create_encrypted_session(
     encrypted_session: NewEncryptedSession,
 ) -> Option<EncryptedSession> {
-    if let Ok(conn) = POOL.get() {
+    if let Ok(mut conn) = POOL.get() {
         match diesel::insert_into(encrypted_sessions::table)
             .values(&encrypted_session)
-            .get_result::<EncryptedSession>(&conn)
+            .get_result::<EncryptedSession>(&mut conn)
         {
             Ok(x) => Some(x),
             Err(e) => {
@@ -384,12 +384,12 @@ pub fn get_encrypted_session_by_profile_id_and_ap_to(
     profile_id: i32,
     ap_to: String,
 ) -> Option<EncryptedSession> {
-    if let Ok(conn) = POOL.get() {
+    if let Ok(mut conn) = POOL.get() {
         match encrypted_sessions::table
             .filter(encrypted_sessions::profile_id.eq(profile_id))
             .filter(encrypted_sessions::ap_to.eq(ap_to))
             .order(encrypted_sessions::updated_at.desc())
-            .first::<EncryptedSession>(&conn)
+            .first::<EncryptedSession>(&mut conn)
         {
             Ok(x) => Option::from(x),
             Err(e) => {
@@ -404,10 +404,10 @@ pub fn get_encrypted_session_by_profile_id_and_ap_to(
 
 pub fn get_encrypted_session_by_uuid(uuid: String) -> Option<EncryptedSession> {
     log::debug!("looking for encrypted_session_by_uuid: {:#?}", uuid);
-    if let Ok(conn) = POOL.get() {
+    if let Ok(mut conn) = POOL.get() {
         match encrypted_sessions::table
             .filter(encrypted_sessions::uuid.eq(uuid))
-            .first::<EncryptedSession>(&conn)
+            .first::<EncryptedSession>(&mut conn)
         {
             Ok(x) => Option::from(x),
             Err(e) => {
@@ -422,17 +422,17 @@ pub fn get_encrypted_session_by_uuid(uuid: String) -> Option<EncryptedSession> {
 
 pub fn get_one_time_key(profile_id: i32) -> Option<OlmOneTimeKey> {
     log::debug!("IN get_one_time_key");
-    if let Ok(conn) = POOL.get() {
+    if let Ok(mut conn) = POOL.get() {
         if let Ok(Some(otk)) = olm_one_time_keys::table
             .filter(olm_one_time_keys::profile_id.eq(profile_id))
             .filter(olm_one_time_keys::distributed.eq(false))
-            .first::<OlmOneTimeKey>(&conn)
+            .first::<OlmOneTimeKey>(&mut conn)
             .optional()
         {
             log::debug!("OTK\n{otk:#?}");
             match diesel::update(olm_one_time_keys::table.find(otk.id))
                 .set(olm_one_time_keys::distributed.eq(true))
-                .get_results::<OlmOneTimeKey>(&conn)
+                .get_results::<OlmOneTimeKey>(&mut conn)
             {
                 Ok(mut x) => x.pop(),
                 Err(e) => {
@@ -450,10 +450,10 @@ pub fn get_one_time_key(profile_id: i32) -> Option<OlmOneTimeKey> {
 
 pub fn get_remote_encrypted_session_by_ap_id(apid: String) -> Option<RemoteEncryptedSession> {
     log::debug!("looking for remote_encrypted_session_by_ap_id: {:#?}", apid);
-    if let Ok(conn) = POOL.get() {
+    if let Ok(mut conn) = POOL.get() {
         match remote_encrypted_sessions::table
             .filter(remote_encrypted_sessions::ap_id.eq(apid))
-            .first::<RemoteEncryptedSession>(&conn)
+            .first::<RemoteEncryptedSession>(&mut conn)
         {
             Ok(x) => Option::from(x),
             Err(e) => {

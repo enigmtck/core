@@ -75,7 +75,11 @@ pub fn send_to_inboxes(inboxes: HashSet<String>, profile: Profile, message: ApAc
     let rt = Runtime::new().unwrap();
     let handle = rt.handle();
 
+    log::debug!("INBOXES\n{inboxes:#?}");
+
     for url in inboxes {
+        log::debug!("SENDING TO {url}");
+
         let body = Option::from(serde_json::to_string(&message).unwrap());
         let method = Method::Post;
 

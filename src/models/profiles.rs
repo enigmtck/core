@@ -8,7 +8,7 @@ use rocket_sync_db_pools::diesel;
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Insertable, Default)]
-#[table_name = "profiles"]
+#[diesel(table_name = profiles)]
 pub struct NewProfile {
     pub uuid: String,
     pub username: String,
@@ -27,7 +27,7 @@ pub struct NewProfile {
 }
 
 #[derive(Identifiable, Queryable, AsChangeset, Serialize, Clone, Debug, Default)]
-#[table_name = "profiles"]
+#[diesel(table_name = profiles)]
 pub struct Profile {
     #[serde(skip_serializing)]
     pub id: i32,

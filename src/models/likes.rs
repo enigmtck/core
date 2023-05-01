@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use super::profiles::get_profile_by_ap_id;
 
 #[derive(Serialize, Deserialize, Insertable, Default, Debug, Clone)]
-#[table_name = "likes"]
+#[diesel(table_name = likes)]
 pub struct NewLike {
     pub object_ap_id: String,
     pub ap_to: String,
@@ -45,7 +45,7 @@ impl NewLike {
 }
 
 #[derive(Identifiable, Queryable, AsChangeset, Serialize, Clone, Default, Debug)]
-#[table_name = "likes"]
+#[diesel(table_name = likes)]
 pub struct Like {
     #[serde(skip_serializing)]
     pub id: i32,
