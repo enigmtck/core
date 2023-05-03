@@ -2,9 +2,13 @@ use core::fmt;
 use std::fmt::Debug;
 
 use crate::{
-    activity_pub::{ApAddress, ApContext},
-    models::{announces::Announce, remote_announces::RemoteAnnounce},
-    MaybeMultiple,
+    activity_pub::{ApAddress, ApContext, ApNote, ApObject},
+    models::{
+        activities::{ActivityType, ExtendedActivity},
+        announces::Announce,
+        remote_announces::RemoteAnnounce,
+    },
+    MaybeMultiple, MaybeReference,
 };
 use serde::{Deserialize, Serialize};
 
@@ -33,7 +37,7 @@ pub struct ApAnnounce {
     pub to: MaybeMultiple<ApAddress>,
     pub cc: Option<MaybeMultiple<ApAddress>>,
     pub published: Option<String>,
-    pub object: String,
+    pub object: MaybeReference<ApObject>,
 }
 
 impl From<Announce> for ApAnnounce {
@@ -48,9 +52,57 @@ impl From<Announce> for ApAnnounce {
                 announce.uuid
             )),
             published: None,
-            object: announce.object_ap_id,
+            object: MaybeReference::Reference(announce.object_ap_id),
             to: serde_json::from_value(announce.ap_to).unwrap(),
             cc: announce.cc.map(|cc| serde_json::from_value(cc).unwrap()),
+        }
+    }
+}
+
+impl TryFrom<ExtendedActivity> for ApAnnounce {
+    type Error = &'static str;
+
+    fn try_from(
+        (activity, note, remote_note, _profile, _remote_actor): ExtendedActivity,
+    ) -> Result<Self, Self::Error> {
+        if activity.kind == ActivityType::Announce {
+            match (note, remote_note, activity.ap_to) {
+                (Some(note), None, Some(ap_to)) => Ok(ApAnnounce {
+                    context: Some(ApContext::default()),
+                    kind: ApAnnounceType::default(),
+                    actor: activity.actor.into(),
+                    id: Some(format!(
+                        "{}/announces/{}",
+                        *crate::SERVER_URL,
+                        activity.uuid
+                    )),
+                    to: serde_json::from_value(ap_to).unwrap(),
+                    cc: activity.cc.map(|cc| serde_json::from_value(cc).unwrap()),
+                    published: Some(activity.created_at.to_rfc3339()),
+                    object: MaybeReference::Reference(ApNote::from(note).id.unwrap()),
+                }),
+                (None, Some(remote_note), Some(ap_to)) => Ok(ApAnnounce {
+                    context: Some(ApContext::default()),
+                    kind: ApAnnounceType::default(),
+                    actor: activity.actor.into(),
+                    id: Some(format!(
+                        "{}/announces/{}",
+                        *crate::SERVER_URL,
+                        activity.uuid
+                    )),
+                    to: serde_json::from_value(ap_to).unwrap(),
+                    cc: activity.cc.map(|cc| serde_json::from_value(cc).unwrap()),
+                    published: Some(activity.created_at.to_rfc3339()),
+                    object: MaybeReference::Reference(remote_note.ap_id),
+                }),
+                _ => {
+                    log::error!("INVALID ACTIVITY TYPE");
+                    Err("INVALID ACTIVITY TYPE")
+                }
+            }
+        } else {
+            log::error!("NOT AN ANNOUNCE ACTIVITY");
+            Err("NOT AN ANNOUNCE ACTIVITY")
         }
     }
 }

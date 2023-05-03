@@ -2,7 +2,8 @@ use crate::activity_pub::{ApAnnounce, ApNote};
 use crate::db::Db;
 use crate::helper::get_ap_id_from_username;
 use crate::schema::{
-    announces, likes, remote_announces, remote_likes, timeline, timeline_cc, timeline_to,
+    activities, announces, likes, remote_announces, remote_likes, timeline, timeline_cc,
+    timeline_to,
 };
 use chrono::{DateTime, Utc};
 use diesel::prelude::*;
@@ -10,6 +11,7 @@ use diesel::{AsChangeset, Identifiable, Insertable, Queryable};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+use super::activities::Activity;
 use super::announces::Announce;
 use super::likes::Like;
 use super::notes::Note;
@@ -243,8 +245,7 @@ impl From<IdentifiedTimelineItem> for NewTimelineItemTo {
 // a post)
 pub type AuthenticatedTimelineItem = (
     TimelineItem,
-    Option<Like>,
-    Option<Announce>,
+    Option<Activity>,
     Option<TimelineItemCc>,
     Option<RemoteAnnounce>,
     Option<RemoteLike>,
@@ -260,14 +261,9 @@ pub async fn get_authenticated_timeline_items(
         let ap_id = get_ap_id_from_username(profile.username.clone());
         let query = timeline::table
             .left_join(
-                likes::table.on(likes::object_ap_id
-                    .eq(timeline::ap_id)
-                    .and(likes::profile_id.eq(profile.id))),
-            )
-            .left_join(
-                announces::table.on(announces::object_ap_id
-                    .eq(timeline::ap_id)
-                    .and(announces::profile_id.eq(profile.id))),
+                activities::table.on(activities::target_ap_id
+                    .eq(timeline::ap_id.nullable())
+                    .and(activities::profile_id.eq(profile.id))),
             )
             .left_join(
                 timeline_cc::table.on(timeline_cc::id

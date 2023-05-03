@@ -3,6 +3,7 @@ use std::fmt::Debug;
 
 use crate::{
     activity_pub::{ApAddress, ApContext, ApNote, ApObject},
+    models::activities::ExtendedActivity,
     MaybeMultiple, MaybeReference,
 };
 use serde::{Deserialize, Serialize};
@@ -36,6 +37,38 @@ pub struct ApCreate {
     pub object: MaybeReference<ApObject>,
     pub published: Option<String>,
     pub signature: Option<ApSignature>,
+}
+
+impl TryFrom<ExtendedActivity> for ApCreate {
+    type Error = &'static str;
+
+    fn try_from(
+        (activity, note, _remote_note, _profile, _remote_actor): ExtendedActivity,
+    ) -> Result<Self, Self::Error> {
+        if let Some(note) = note {
+            if let Some(ap_to) = activity.ap_to {
+                Ok(ApCreate {
+                    context: Some(ApContext::default()),
+                    kind: ApCreateType::default(),
+                    actor: ApAddress::Address(activity.actor.clone()),
+                    id: Some(format!(
+                        "{}/activities/{}",
+                        *crate::SERVER_URL,
+                        activity.uuid
+                    )),
+                    object: ApObject::Note(ApNote::from(note)).into(),
+                    to: serde_json::from_value(ap_to).unwrap(),
+                    cc: activity.cc.map(|cc| serde_json::from_value(cc).unwrap()),
+                    signature: None,
+                    published: Some(activity.created_at.to_rfc3339()),
+                })
+            } else {
+                Err("")
+            }
+        } else {
+            Err("")
+        }
+    }
 }
 
 impl From<ApNote> for ApCreate {

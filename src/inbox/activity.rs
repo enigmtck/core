@@ -180,7 +180,7 @@ pub async fn undo(
                 if delete_remote_like_by_actor_and_object_id(
                     &conn,
                     like.actor.to_string(),
-                    like.object,
+                    like.object.to_string(),
                 )
                 .await
                 {

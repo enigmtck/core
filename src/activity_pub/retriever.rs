@@ -7,7 +7,6 @@ use crate::activity_pub::ApActor;
 use crate::db::create_remote_note;
 use crate::db::Db;
 use crate::models::leaders::get_leader_by_actor_ap_id_and_profile;
-use crate::models::leaders::Leader;
 use crate::models::profiles::get_profile_by_ap_id;
 use crate::models::profiles::Profile;
 use crate::models::remote_actors::get_remote_actor_by_ap_id;
@@ -270,14 +269,9 @@ pub async fn get_actor(
                 StatusCode::ACCEPTED | StatusCode::OK => {
                     if let Ok(text) = resp.text().await {
                         if let Ok(actor) = serde_json::from_str::<ApActor>(&text) {
-                            if let Some(remote) =
-                                create_or_update_remote_actor(conn, NewRemoteActor::from(actor))
-                                    .await
-                            {
-                                Some(ApActor::from(remote))
-                            } else {
-                                None
-                            }
+                            create_or_update_remote_actor(conn, NewRemoteActor::from(actor))
+                                .await
+                                .map(ApActor::from)
                         } else {
                             log::error!("UNABLE TO DECODE ACTOR\n{text}");
                             None

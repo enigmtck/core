@@ -21,8 +21,9 @@ pub struct NewLike {
 impl From<ApLike> for NewLike {
     fn from(like: ApLike) -> Self {
         NewLike {
-            object_ap_id: like.object,
-            ap_to: like.to.unwrap_or_default().to_string(),
+            object_ap_id: like.object.to_string(),
+            // GROSS
+            ap_to: like.to.unwrap_or_default().single().unwrap().to_string(),
             actor: like.actor.to_string(),
             uuid: uuid::Uuid::new_v4().to_string(),
             profile_id: None,

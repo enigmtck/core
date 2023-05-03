@@ -1,18 +1,35 @@
 // @generated automatically by Diesel CLI.
 
+pub mod sql_types {
+    #[derive(diesel::sql_types::SqlType)]
+    #[diesel(postgres_type(name = "activity_type"))]
+    pub struct ActivityType;
+
+    #[derive(diesel::sql_types::SqlType)]
+    #[diesel(postgres_type(name = "note_type"))]
+    pub struct NoteType;
+}
+
 diesel::table! {
+    use diesel::sql_types::*;
+    use super::sql_types::ActivityType;
+
     activities (id) {
         id -> Int4,
         created_at -> Timestamptz,
         updated_at -> Timestamptz,
         profile_id -> Int4,
-        kind -> Varchar,
+        kind -> ActivityType,
         uuid -> Varchar,
+        actor -> Varchar,
         ap_to -> Nullable<Jsonb>,
         cc -> Nullable<Jsonb>,
         target_note_id -> Nullable<Int4>,
         target_remote_note_id -> Nullable<Int4>,
         target_profile_id -> Nullable<Int4>,
+        target_activity_id -> Nullable<Int4>,
+        target_ap_id -> Nullable<Varchar>,
+        target_remote_actor_id -> Nullable<Int4>,
     }
 }
 
@@ -97,13 +114,16 @@ diesel::table! {
 }
 
 diesel::table! {
+    use diesel::sql_types::*;
+    use super::sql_types::NoteType;
+
     notes (id) {
         id -> Int4,
         created_at -> Timestamptz,
         updated_at -> Timestamptz,
         uuid -> Varchar,
         profile_id -> Int4,
-        kind -> Varchar,
+        kind -> NoteType,
         ap_to -> Jsonb,
         cc -> Nullable<Jsonb>,
         tag -> Nullable<Jsonb>,

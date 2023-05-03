@@ -4,13 +4,18 @@ use std::io;
 use tokio::runtime::Runtime;
 
 use crate::{
-    activity_pub::{sender::send_activity, ApAccept, ApActivity, ApFollow, ApUndo},
+    activity_pub::{sender::send_activity, ApAccept, ApActivity, ApAddress, ApFollow, ApUndo},
     models::{
         followers::{Follower, NewFollower},
         follows::Follow,
         leaders::{Leader, NewLeader},
     },
-    runner::{activity::get_remote_activity_by_apid, actor::get_actor, user::get_profile_by_ap_id},
+    runner::{
+        activity::{get_activity_by_uuid, get_remote_activity_by_apid},
+        actor::get_actor,
+        get_inboxes, send_to_inboxes,
+        user::{get_profile, get_profile_by_ap_id},
+    },
     schema::{followers, follows, leaders},
     MaybeReference,
 };
@@ -49,36 +54,29 @@ pub fn get_follow_by_uuid(uuid: String) -> Option<Follow> {
 pub fn process_follow(job: Job) -> io::Result<()> {
     log::debug!("PROCESSING OUTGOING FOLLOW REQUEST");
 
-    let rt = Runtime::new().unwrap();
-    let handle = rt.handle();
-
     for uuid in job.args() {
         let uuid = uuid.as_str().unwrap().to_string();
-        log::debug!("UUID: {uuid}");
+        log::debug!("LOOKING FOR UUID {uuid}");
 
-        if let Some(follow) = get_follow_by_uuid(uuid) {
-            if let Some(profile) = get_profile_by_ap_id(follow.actor.clone()) {
-                let activity = ApFollow::from(follow);
-
-                if let MaybeReference::Reference(to) = activity.object.clone() {
-                    handle.block_on(async {
-                        if let Some((actor, _)) = get_actor(profile.clone(), to).await {
-                            let inbox = actor.inbox;
-
-                            match send_activity(
-                                ApActivity::Follow(activity),
-                                profile,
-                                inbox.clone(),
-                            )
-                            .await
-                            {
-                                Ok(_) => {
-                                    log::info!("INVITE SENT: {inbox:#?}");
-                                }
-                                Err(e) => log::error!("ERROR SENDING FOLLOW REQUEST: {e:#?}"),
-                            }
-                        }
-                    })
+        if let Some((
+            activity,
+            target_note,
+            target_remote_note,
+            target_profile,
+            target_remote_actor,
+        )) = get_activity_by_uuid(uuid.clone())
+        {
+            log::debug!("FOUND ACTIVITY\n{activity:#?}");
+            if let Some(sender) = get_profile(activity.profile_id) {
+                if let Ok(activity) = ApActivity::try_from((
+                    activity,
+                    target_note,
+                    target_remote_note,
+                    target_profile,
+                    target_remote_actor,
+                )) {
+                    let inboxes: Vec<ApAddress> = get_inboxes(activity.clone(), sender.clone());
+                    send_to_inboxes(inboxes, sender, activity.clone());
                 }
             }
         }

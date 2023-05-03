@@ -1,3 +1,6 @@
+use std::collections::HashSet;
+
+use crate::activity_pub::ApAddress;
 use crate::db::Db;
 use crate::helper::{get_local_identifier, LocalIdentifierType};
 use crate::schema::{self, profiles};
@@ -6,6 +9,8 @@ use diesel::prelude::*;
 use diesel::{AsChangeset, Identifiable, Insertable, Queryable};
 use rocket_sync_db_pools::diesel;
 use serde::{Deserialize, Serialize};
+
+use super::followers::get_followers_by_profile_id;
 
 #[derive(Serialize, Deserialize, Insertable, Default)]
 #[diesel(table_name = profiles)]
@@ -89,6 +94,18 @@ pub async fn get_profile_by_ap_id(conn: &Db, ap_id: String) -> Option<Profile> {
     } else {
         Option::None
     }
+}
+
+pub async fn get_follower_inboxes(conn: &Db, profile: Profile) -> Vec<ApAddress> {
+    let mut inboxes: HashSet<ApAddress> = HashSet::new();
+
+    for (follower, remote_actor) in get_followers_by_profile_id(conn, profile.id).await {
+        if let Some(remote_actor) = remote_actor {
+            inboxes.insert(ApAddress::Address(remote_actor.inbox));
+        }
+    }
+
+    Vec::from_iter(inboxes)
 }
 
 pub async fn update_olm_account_by_username(

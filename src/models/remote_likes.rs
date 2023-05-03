@@ -17,7 +17,7 @@ pub struct NewRemoteLike {
 impl From<ApLike> for NewRemoteLike {
     fn from(activity: ApLike) -> NewRemoteLike {
         NewRemoteLike {
-            object_id: activity.object,
+            object_id: activity.object.to_string(),
             actor: activity.actor.to_string(),
             ap_id: activity.id.unwrap_or_default(),
         }

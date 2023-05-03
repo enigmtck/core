@@ -23,7 +23,7 @@ pub struct NewAnnounce {
 impl From<ApAnnounce> for NewAnnounce {
     fn from(activity: ApAnnounce) -> Self {
         NewAnnounce {
-            object_ap_id: activity.object,
+            object_ap_id: activity.object.to_string(),
             ap_to: serde_json::to_value(activity.to.multiple()).unwrap(),
             cc: activity.cc.map(|cc| serde_json::to_value(cc).unwrap()),
             actor: activity.actor.to_string(),

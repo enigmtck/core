@@ -2,22 +2,26 @@ use diesel::prelude::*;
 
 use faktory::Job;
 use reqwest::{Client, StatusCode};
-use std::{collections::HashSet, io};
+use std::io;
 use tokio::runtime::{Handle, Runtime};
 use webpage::{Webpage, WebpageOptions};
 
 use crate::{
-    activity_pub::{
-        ApActivity, ApActor, ApAddress, ApCreate, ApDelete, ApNote, ApObject, Metadata,
-    },
+    activity_pub::{ApActivity, ApAddress, ApNote, ApObject, Metadata},
     helper::get_note_ap_id_from_uuid,
-    models::{notes::Note, profiles::Profile, remote_notes::RemoteNote},
+    models::{
+        notes::{Note, NoteType},
+        profiles::Profile,
+        remote_notes::RemoteNote,
+    },
     runner::{
+        activity::get_activity_by_uuid,
         encrypted::handle_encrypted_note,
+        get_inboxes,
         processing::create_processing_item,
         send_to_inboxes, send_to_mq,
         timeline::delete_timeline_item_by_ap_id,
-        user::{get_follower_inboxes, get_profile, get_profile_by_ap_id},
+        user::{get_profile, get_profile_by_ap_id},
     },
     schema::{notes, remote_notes},
     signing::{Method, SignParams},
@@ -35,32 +39,39 @@ pub fn delete_note(job: Job) -> io::Result<()> {
 
     for uuid in job.args() {
         let uuid = uuid.as_str().unwrap().to_string();
-        log::debug!("UUID: {uuid}");
+        log::debug!("LOOKING FOR UUID {uuid}");
 
-        if let Some(note) = get_note_by_uuid(uuid.to_string()) {
-            if let Some(profile) = get_profile(note.profile_id) {
-                log::debug!("NOTE\n{note:#?}");
+        if let Some((
+            activity,
+            target_note,
+            target_remote_note,
+            target_profile,
+            target_remote_actor,
+        )) = get_activity_by_uuid(uuid.clone())
+        {
+            log::debug!("FOUND ACTIVITY\n{activity:#?}");
+            if let (Some(sender), Some(note)) =
+                (get_profile(activity.profile_id), target_note.clone())
+            {
+                if let Ok(activity) = ApActivity::try_from((
+                    activity,
+                    target_note,
+                    target_remote_note,
+                    target_profile,
+                    target_remote_actor,
+                )) {
+                    let inboxes: Vec<ApAddress> = get_inboxes(activity.clone(), sender.clone());
+                    send_to_inboxes(inboxes, sender, activity.clone());
 
-                let ap_note = ApNote::from(note);
-                log::debug!("AP_NOTE\n{ap_note:#?}");
-
-                if let Ok(delete) = ApDelete::try_from(ap_note) {
-                    log::debug!("DELETE\n{delete:#?}");
-                    let inboxes = get_follower_inboxes(profile.clone());
-
-                    send_to_inboxes(inboxes, profile, ApActivity::Delete(Box::new(delete)));
-
-                    let ap_id = get_note_ap_id_from_uuid(uuid.clone());
+                    let ap_id = get_note_ap_id_from_uuid(note.uuid.clone());
 
                     if let Ok(records) = delete_timeline_item_by_ap_id(ap_id) {
                         log::debug!("TIMELINE RECORDS DELETED: {records}");
 
-                        if let Ok(records) = delete_note_by_uuid(uuid) {
+                        if let Ok(records) = delete_note_by_uuid(note.uuid) {
                             log::debug!("NOTE RECORDS DELETED: {records}");
                         }
                     }
-                } else {
-                    log::error!("FAILED TO BUILD AP_DELETE FROM AP_NOTE");
                 }
             }
         }
@@ -78,51 +89,72 @@ pub fn process_outbound_note(job: Job) -> io::Result<()> {
     for uuid in job.args() {
         let uuid = uuid.as_str().unwrap().to_string();
 
-        if let Some(mut note) = get_note_by_uuid(uuid) {
-            // this is the profile where the note was posted to the outbox
-            if let Some(sender) = get_profile(note.profile_id) {
-                let mut inboxes: HashSet<String> = HashSet::new();
-
-                let create = match note.kind.as_str() {
-                    "Note" => {
-                        handle_note(&mut note, &mut inboxes, sender.clone()).map(ApCreate::from)
+        if let Some((
+            activity,
+            target_note,
+            target_remote_note,
+            target_profile,
+            target_remote_actor,
+        )) = get_activity_by_uuid(uuid)
+        {
+            if let (Some(sender), Some(note)) =
+                (get_profile(activity.profile_id), target_note.clone())
+            {
+                let activity = match note.kind {
+                    NoteType::Note => {
+                        if let Ok(activity) = ApActivity::try_from((
+                            activity,
+                            target_note,
+                            target_remote_note,
+                            target_profile,
+                            target_remote_actor,
+                        )) {
+                            Some(activity)
+                        } else {
+                            None
+                        }
                     }
-                    "EncryptedNote" => {
-                        handle_encrypted_note(&mut note, &mut inboxes, sender.clone())
-                            .map(ApCreate::from)
-                    }
+                    // NoteType::EncryptedNote => {
+                    //     handle_encrypted_note(&mut note, sender.clone())
+                    //         .map(ApActivity::Create(ApCreate::from))
+                    // }
                     _ => None,
                 };
 
-                log::debug!("SENDING NOTE\n{create:#?}");
+                add_note_to_timeline(note, sender.clone());
 
-                if let Some(create) = create {
+                if let Some(activity) = activity {
+                    let inboxes: Vec<ApAddress> = get_inboxes(activity.clone(), sender.clone());
+
+                    log::debug!("SENDING ACTIVITY\n{activity:#?}");
+                    log::debug!("INBOXES\n{inboxes:#?}");
+
                     for url in inboxes {
-                        let body = Option::from(serde_json::to_string(&create).unwrap());
+                        let body = Option::from(serde_json::to_string(&activity).unwrap());
                         let method = Method::Post;
 
                         let signature = crate::signing::sign(SignParams {
                             profile: sender.clone(),
-                            url: url.clone(),
+                            url: url.to_string().clone(),
                             body: body.clone(),
                             method,
                         });
 
                         let client = Client::new()
-                            .post(&url)
+                            .post(&url.to_string())
                             .header("Date", signature.date)
                             .header("Digest", signature.digest.unwrap())
                             .header("Signature", &signature.signature)
-                            .header(
-                                "Content-Type",
-                                "application/ld+json; profile=\"http://www.w3.org/ns/activitystreams\"",
-                            )
+                            .header("Content-Type", "application/activity+json")
                             .body(body.unwrap());
 
                         handle.block_on(async {
                             if let Ok(resp) = client.send().await {
-                                if let Ok(text) = resp.text().await {
-                                    log::debug!("send successful to: {}\n{}", url, text);
+                                match resp.status() {
+                                    StatusCode::ACCEPTED | StatusCode::OK => {
+                                        log::debug!("SENT TO {url}")
+                                    }
+                                    _ => log::error!("ERROR SENDING TO {url}"),
                                 }
                             }
                         })
@@ -214,46 +246,9 @@ pub fn get_note_by_uuid(uuid: String) -> Option<Note> {
     }
 }
 
-fn handle_note(note: &mut Note, inboxes: &mut HashSet<String>, sender: Profile) -> Option<ApNote> {
+fn add_note_to_timeline(note: Note, sender: Profile) {
     let rt = Runtime::new().unwrap();
     let handle = rt.handle();
-
-    if let (Ok(mut recipients), Ok(mut cc_recipients)) = (
-        serde_json::from_value::<Vec<ApAddress>>(note.clone().ap_to),
-        serde_json::from_value::<Vec<ApAddress>>(note.clone().cc.into()),
-    ) {
-        recipients.append(&mut cc_recipients);
-
-        for recipient in recipients {
-            // check if this is the special Public recipient
-            if recipient.clone().is_public() {
-                // if it is, get all the inboxes for this sender's followers
-                inboxes.extend(get_follower_inboxes(sender.clone()));
-
-                // add the special followers address for the sending profile to the
-                // note's cc field
-                if let Some(cc) = note.clone().cc {
-                    let mut cc: Vec<String> = serde_json::from_value(cc).unwrap();
-                    if let Some(followers) = ApActor::from(sender.clone()).followers {
-                        cc.push(followers)
-                    };
-                    note.cc = Option::from(serde_json::to_value(cc).unwrap());
-                } else {
-                    note.cc = Option::from(
-                        serde_json::to_value(vec![ApActor::from(sender.clone()).followers])
-                            .unwrap(),
-                    );
-                }
-
-                update_note_cc(note.clone());
-            } else if let Some((receiver, _)) = handle
-                .block_on(async { get_actor(sender.clone(), recipient.clone().to_string()).await })
-            {
-                inboxes.insert(receiver.inbox);
-            }
-        }
-    }
-
     // Add to local timeline - this checks to be sure that the profile is represented as a remote_actor
     // locally before adding the Note to the Timeline. This is important as the Timeline only uses the
     // remote_actor representation (not the profile) for attributed_to data. In this case, the sender
@@ -263,15 +258,9 @@ fn handle_note(note: &mut Note, inboxes: &mut HashSet<String>, sender: Profile) 
         .is_some()
     {
         if let Some(timeline_item) = create_timeline_item(note.clone().into()) {
-            add_to_timeline(
-                Option::from(note.clone().ap_to),
-                note.clone().cc,
-                timeline_item,
-            );
+            add_to_timeline(Option::from(note.clone().ap_to), note.cc, timeline_item);
         }
     }
-
-    Some(note.clone().into())
 }
 
 pub fn get_links(text: String) -> Vec<String> {
@@ -367,100 +356,6 @@ pub fn process_remote_note(job: Job) -> io::Result<()> {
     }
 
     Ok(())
-}
-
-// pub fn process_remote_note(job: Job) -> io::Result<()> {
-//     log::debug!("running process_remote_note job");
-
-//     let rt = Runtime::new().unwrap();
-//     let handle = rt.handle();
-
-//     let ap_ids = job.args();
-
-//     match POOL.get() {
-//         Ok(mut conn) => {
-//             for ap_id in ap_ids {
-//                 let ap_id = ap_id.as_str().unwrap().to_string();
-//                 log::debug!("looking for ap_id: {}", ap_id);
-
-//                 match remote_notes::table
-//                     .filter(remote_notes::ap_id.eq(ap_id))
-//                     .first::<RemoteNote>(&mut conn)
-//                 {
-//                     Ok(remote_note) => {
-//                         if remote_note.kind == "Note" {
-//                             let links = get_links(remote_note.content.clone());
-//                             log::debug!("{links:#?}");
-
-//                             let metadata: Vec<Metadata> = {
-//                                 links
-//                                     .iter()
-//                                     .map(|link| Webpage::from_url(link, WebpageOptions::default()))
-//                                     .filter(|metadata| metadata.is_ok())
-//                                     .map(|metadata| metadata.unwrap().html.meta.into())
-//                                     .collect()
-//                             };
-
-//                             let note: ApNote = (remote_note.clone(), Some(metadata)).into();
-
-//                             if let Some(timeline_item) = create_timeline_item(note.clone().into()) {
-//                                 add_to_timeline(
-//                                     remote_note.clone().ap_to,
-//                                     remote_note.clone().cc,
-//                                     timeline_item,
-//                                 );
-
-//                                 handle.block_on(async {
-//                                     send_to_mq(note.clone()).await;
-//                                 });
-//                             }
-//                         } else if remote_note.kind == "EncryptedNote" {
-//                             // need to resolve ap_to to a profile_id for the command below
-//                             log::debug!("adding to processing queue");
-
-//                             if let Some(ap_to) = remote_note.clone().ap_to {
-//                                 let to_vec: Vec<String> = {
-//                                     match serde_json::from_value(ap_to) {
-//                                         Ok(x) => x,
-//                                         Err(_e) => vec![],
-//                                     }
-//                                 };
-
-//                                 for ap_id in to_vec {
-//                                     if let Some(profile) = get_profile_by_ap_id(ap_id) {
-//                                         create_processing_item(
-//                                             (remote_note.clone(), profile.id).into(),
-//                                         );
-//                                     }
-//                                 }
-//                             }
-//                         }
-//                     }
-//                     Err(e) => log::error!("error: {:#?}", e),
-//                 }
-//             }
-//         }
-//         Err(e) => log::error!("error: {:#?}", e),
-//     }
-
-//     Ok(())
-// }
-
-pub fn update_note_cc(note: Note) -> Option<Note> {
-    if let Ok(mut conn) = POOL.get() {
-        match diesel::update(notes::table.find(note.id))
-            .set(notes::cc.eq(note.cc))
-            .get_result::<Note>(&mut conn)
-        {
-            Ok(x) => Some(x),
-            Err(e) => {
-                log::error!("{:#?}", e);
-                Option::None
-            }
-        }
-    } else {
-        Option::None
-    }
 }
 
 #[derive(Debug)]

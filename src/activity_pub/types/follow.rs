@@ -2,8 +2,12 @@ use core::fmt;
 use std::fmt::Debug;
 
 use crate::{
-    activity_pub::{ApAddress, ApContext, ApObject},
-    models::{follows::Follow, remote_activities::RemoteActivity},
+    activity_pub::{ApActor, ApAddress, ApContext, ApObject},
+    models::{
+        activities::{ActivityType, ExtendedActivity},
+        follows::Follow,
+        remote_activities::RemoteActivity,
+    },
     MaybeReference,
 };
 use serde::{Deserialize, Serialize};
@@ -61,6 +65,42 @@ impl From<Follow> for ApFollow {
             actor: ApAddress::Address(follow.actor),
             id: Some(format!("{}/follows/{}", *crate::SERVER_URL, follow.uuid)),
             object: MaybeReference::Reference(follow.ap_object),
+        }
+    }
+}
+
+impl TryFrom<ExtendedActivity> for ApFollow {
+    type Error = &'static str;
+
+    fn try_from(
+        (activity, _note, _remote_note, profile, remote_actor): ExtendedActivity,
+    ) -> Result<Self, Self::Error> {
+        if activity.kind == ActivityType::Follow {
+            match (profile, remote_actor) {
+                (Some(profile), None) => Ok(ApFollow {
+                    context: Some(ApContext::default()),
+                    kind: ApFollowType::default(),
+                    actor: activity.actor.into(),
+                    id: Some(format!("{}/follows/{}", *crate::SERVER_URL, activity.uuid)),
+                    object: MaybeReference::Reference(
+                        ApActor::from(profile).id.unwrap().to_string(),
+                    ),
+                }),
+                (None, Some(remote_actor)) => Ok(ApFollow {
+                    context: Some(ApContext::default()),
+                    kind: ApFollowType::default(),
+                    actor: activity.actor.into(),
+                    id: Some(format!("{}/follows/{}", *crate::SERVER_URL, activity.uuid)),
+                    object: MaybeReference::Reference(remote_actor.ap_id),
+                }),
+                _ => {
+                    log::error!("INVALID ACTIVITY TYPE");
+                    Err("INVALID ACTIVITY TYPE")
+                }
+            }
+        } else {
+            log::error!("NOT A FOLLOW ACTIVITY");
+            Err("NOT A FOLLOW ACTIVITY")
         }
     }
 }

@@ -7,10 +7,13 @@ use reqwest::Client;
 use tokio::runtime::Runtime;
 
 use crate::{
-    activity_pub::{ApActivity, ApNote},
+    activity_pub::{ApActivity, ApActor, ApAddress, ApNote},
     models::profiles::Profile,
     signing::{Method, SignParams},
+    MaybeMultiple, MaybeReference,
 };
+
+use self::{actor::get_actor, user::get_follower_inboxes};
 
 pub mod activity;
 pub mod actor;
@@ -71,7 +74,7 @@ pub async fn send_to_mq(note: ApNote) {
         .unwrap();
 }
 
-pub fn send_to_inboxes(inboxes: HashSet<String>, profile: Profile, message: ApActivity) {
+pub fn send_to_inboxes(inboxes: Vec<ApAddress>, profile: Profile, message: ApActivity) {
     let rt = Runtime::new().unwrap();
     let handle = rt.handle();
 
@@ -85,13 +88,13 @@ pub fn send_to_inboxes(inboxes: HashSet<String>, profile: Profile, message: ApAc
 
         let signature = crate::signing::sign(SignParams {
             profile: profile.clone(),
-            url: url.clone(),
+            url: url.clone().to_string(),
             body: body.clone(),
             method,
         });
 
         let client = Client::new()
-            .post(url.clone())
+            .post(url.clone().to_string())
             .header("Date", signature.date)
             .header("Digest", signature.digest.unwrap())
             .header("Signature", &signature.signature)
@@ -108,4 +111,77 @@ pub fn send_to_inboxes(inboxes: HashSet<String>, profile: Profile, message: ApAc
             }
         });
     }
+}
+
+fn handle_recipients(inboxes: &mut HashSet<ApAddress>, sender: &Profile, address: &ApAddress) {
+    let rt = Runtime::new().unwrap();
+    let handle = rt.handle();
+
+    let actor = ApActor::from(sender.clone());
+
+    if address.is_public() {
+        inboxes.extend(get_follower_inboxes(sender.clone()));
+        // instead of the above, consider sending to shared inboxes of known instances
+        // the duplicate code is temporary because some operations (e.g., Delete) do not have
+        // the followers in cc, so until there's logic to send more broadly to all instances,
+        // this will need to suffice
+    } else if let Some(followers) = actor.followers {
+        if address.to_string() == followers {
+            inboxes.extend(get_follower_inboxes(sender.clone()));
+        } else if let Some((actor, _)) =
+            handle.block_on(async { get_actor(sender.clone(), address.clone().to_string()).await })
+        {
+            inboxes.insert(ApAddress::Address(actor.inbox));
+        }
+    }
+}
+
+pub fn get_inboxes(activity: ApActivity, sender: Profile) -> Vec<ApAddress> {
+    let mut inboxes = HashSet::<ApAddress>::new();
+    //let note = ApNote::from(note);
+
+    let (to, cc) = match activity {
+        ApActivity::Create(activity) => (Some(activity.to), activity.cc),
+        ApActivity::Delete(activity) => (Some(activity.to), None),
+        ApActivity::Announce(activity) => (Some(activity.to), activity.cc),
+        ApActivity::Like(activity) => (activity.to, None),
+        ApActivity::Follow(activity) => {
+            if let MaybeReference::Reference(id) = activity.object {
+                (Some(MaybeMultiple::Single(ApAddress::Address(id))), None)
+            } else {
+                (None, None)
+            }
+        }
+        _ => (None, None),
+    };
+
+    if let Some(to) = to {
+        match to {
+            MaybeMultiple::Single(to) => {
+                handle_recipients(&mut inboxes, &sender, &to);
+            }
+            MaybeMultiple::Multiple(to) => {
+                for address in to.iter() {
+                    handle_recipients(&mut inboxes, &sender, address);
+                }
+            }
+            MaybeMultiple::None => {}
+        }
+    }
+
+    if let Some(cc) = cc {
+        match cc {
+            MaybeMultiple::Single(to) => {
+                handle_recipients(&mut inboxes, &sender, &to);
+            }
+            MaybeMultiple::Multiple(to) => {
+                for address in to.iter() {
+                    handle_recipients(&mut inboxes, &sender, address);
+                }
+            }
+            MaybeMultiple::None => {}
+        }
+    }
+
+    inboxes.into_iter().collect()
 }

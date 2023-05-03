@@ -161,12 +161,12 @@ impl TryFrom<String> for ApAttachment {
 
         if let Ok(meta) = rexiv2::Metadata::new_from_path(path) {
             meta.clear();
-            meta.save_to_file(path);
+            meta.save_to_file(path).ok();
         }
 
         if let Ok(img) = Reader::open(path) {
             if let Ok(img) = img.with_guessed_format() {
-                if let Some(format) = img.format() {
+                if let Some(_format) = img.format() {
                     if let Ok(decode) = img.decode() {
                         let decode =
                             decode.resize(1024, 768, image::imageops::FilterType::Gaussian);

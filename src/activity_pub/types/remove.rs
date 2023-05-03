@@ -1,7 +1,10 @@
 use core::fmt;
 use std::fmt::Debug;
 
-use crate::activity_pub::{ApAddress, ApContext};
+use crate::{
+    activity_pub::{ApAddress, ApContext, ApObject},
+    MaybeReference,
+};
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
@@ -26,5 +29,5 @@ pub struct ApRemove {
     pub kind: ApRemoveType,
     pub actor: ApAddress,
     pub target: Option<String>,
-    pub object: String,
+    pub object: MaybeReference<ApObject>,
 }

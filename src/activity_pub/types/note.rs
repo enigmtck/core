@@ -5,9 +5,8 @@ use crate::{
     activity_pub::{ApActor, ApAttachment, ApCollection, ApContext, ApInstruments, ApTag},
     helper::get_ap_id_from_username,
     models::{
-        announces::Announce,
-        likes::Like,
-        notes::{NewNote, Note},
+        activities::{Activity, ActivityType},
+        notes::{NewNote, Note, NoteType},
         profiles::Profile,
         remote_announces::RemoteAnnounce,
         remote_likes::RemoteLike,
@@ -24,16 +23,25 @@ use super::actor::ApAddress;
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub enum ApNoteType {
+    #[default]
     Note,
     EncryptedNote,
     VaultNote,
-    #[default]
-    Unknown,
 }
 
 impl fmt::Display for ApNoteType {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         Debug::fmt(self, f)
+    }
+}
+
+impl From<NoteType> for ApNoteType {
+    fn from(kind: NoteType) -> Self {
+        match kind {
+            NoteType::Note => ApNoteType::Note,
+            NoteType::EncryptedNote => ApNoteType::EncryptedNote,
+            NoteType::VaultNote => ApNoteType::VaultNote,
+        }
     }
 }
 
@@ -225,7 +233,7 @@ impl From<IdentifiedVaultItem> for ApNote {
 
 impl From<TimelineItem> for ApNote {
     fn from(timeline: TimelineItem) -> Self {
-        ApNote::from(((timeline, None, None, None, None, None), None))
+        ApNote::from(((timeline, None, None, None, None), None))
     }
 }
 
@@ -237,15 +245,14 @@ pub type QualifiedTimelineItem = (TimelineItem, Option<Vec<ApActor>>);
 
 impl From<QualifiedTimelineItem> for ApNote {
     fn from((timeline, actors): QualifiedTimelineItem) -> Self {
-        ApNote::from(((timeline, None, None, None, None, None), actors))
+        ApNote::from(((timeline, None, None, None, None), actors))
     }
 }
 
 pub type FullyQualifiedTimelineItem = (
     (
         TimelineItem,
-        Option<Like>,
-        Option<Announce>,
+        Option<Activity>,
         Option<TimelineItemCc>,
         Option<RemoteAnnounce>,
         Option<RemoteLike>,
@@ -255,7 +262,7 @@ pub type FullyQualifiedTimelineItem = (
 
 impl From<FullyQualifiedTimelineItem> for ApNote {
     fn from(
-        ((timeline, like, announce, cc, remote_announce, remote_like), actors): FullyQualifiedTimelineItem,
+        ((timeline, activity, cc, remote_announce, remote_like), actors): FullyQualifiedTimelineItem,
     ) -> Self {
         ApNote {
             context: Some(ApContext::default()),
@@ -306,9 +313,9 @@ impl From<FullyQualifiedTimelineItem> for ApNote {
                 }
             },
             ephemeral_announces: remote_announce.map(|announce| vec![announce.actor]),
-            ephemeral_announced: Some(announce.is_some()),
+            ephemeral_announced: activity.clone().map(|x| x.kind == ActivityType::Announce),
             ephemeral_actors: actors,
-            ephemeral_liked: Some(like.is_some()),
+            ephemeral_liked: activity.map(|x| x.kind == ActivityType::Like),
             ephemeral_likes: remote_like.map(|like| vec![like.actor]),
             ephemeral_targeted: Some(cc.is_some()),
             ephemeral_timestamp: Some(timeline.created_at),
@@ -342,12 +349,6 @@ impl From<ApActor> for ApNote {
 
 impl From<NewNote> for ApNote {
     fn from(note: NewNote) -> Self {
-        let kind = match note.kind.as_str() {
-            "Note" => ApNoteType::Note,
-            "EncryptedNote" => ApNoteType::EncryptedNote,
-            _ => ApNoteType::default(),
-        };
-
         ApNote {
             tag: match serde_json::from_value(note.tag.into()) {
                 Ok(x) => x,
@@ -360,7 +361,7 @@ impl From<NewNote> for ApNote {
                 *crate::SERVER_NAME,
                 note.uuid
             )),
-            kind,
+            kind: note.kind.into(),
             to: match serde_json::from_value(note.ap_to) {
                 Ok(x) => x,
                 Err(_) => MaybeMultiple::Multiple(vec![]),
@@ -380,12 +381,6 @@ impl From<NewNote> for ApNote {
 
 impl From<Note> for ApNote {
     fn from(note: Note) -> Self {
-        let kind = match note.kind.as_str() {
-            "Note" => ApNoteType::Note,
-            "EncryptedNote" => ApNoteType::EncryptedNote,
-            _ => ApNoteType::default(),
-        };
-
         ApNote {
             tag: serde_json::from_value(note.tag.into()).ok(),
             attributed_to: ApAddress::Address(note.attributed_to),
@@ -400,7 +395,7 @@ impl From<Note> for ApNote {
                 *crate::SERVER_NAME,
                 note.uuid
             )),
-            kind,
+            kind: note.kind.into(),
             to: match serde_json::from_value(note.ap_to) {
                 Ok(x) => x,
                 Err(_) => MaybeMultiple::Multiple(vec![]),

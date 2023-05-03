@@ -1,4 +1,4 @@
-use crate::activity_pub::ApNote;
+use crate::activity_pub::{ApNote, ApNoteType};
 use crate::db::Db;
 use crate::helper::handle_option;
 use crate::schema::notes;
@@ -9,13 +9,34 @@ use diesel::{AsChangeset, Identifiable, Insertable, Queryable};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+#[derive(
+    diesel_derive_enum::DbEnum, Debug, Serialize, Deserialize, Default, Clone, Eq, PartialEq,
+)]
+#[ExistingTypePath = "crate::schema::sql_types::NoteType"]
+pub enum NoteType {
+    #[default]
+    Note,
+    EncryptedNote,
+    VaultNote,
+}
+
+impl From<ApNoteType> for NoteType {
+    fn from(kind: ApNoteType) -> Self {
+        match kind {
+            ApNoteType::EncryptedNote => NoteType::EncryptedNote,
+            ApNoteType::Note => NoteType::Note,
+            ApNoteType::VaultNote => NoteType::VaultNote,
+        }
+    }
+}
+
 #[derive(Serialize, Deserialize, Insertable, Default, Debug, Clone)]
 #[diesel(table_name = notes)]
 pub struct NewNote {
     pub uuid: String,
     pub profile_id: i32,
     pub content: String,
-    pub kind: String,
+    pub kind: NoteType,
     pub ap_to: Value,
     pub attributed_to: String,
     pub in_reply_to: Option<String>,
@@ -33,7 +54,7 @@ impl From<IdentifiedApNote> for NewNote {
         NewNote {
             profile_id,
             uuid: uuid::Uuid::new_v4().to_string(),
-            kind: note.kind.to_string(),
+            kind: note.kind.into(),
             ap_to: serde_json::to_value(&note.to).unwrap(),
             attributed_to: note.attributed_to.to_string(),
             tag: handle_option(serde_json::to_value(&note.tag).unwrap()),
@@ -66,7 +87,7 @@ pub struct Note {
     pub updated_at: DateTime<Utc>,
     pub uuid: String,
     pub profile_id: i32,
-    pub kind: String,
+    pub kind: NoteType,
     pub ap_to: Value,
     pub cc: Option<Value>,
     pub tag: Option<Value>,
@@ -88,7 +109,7 @@ pub async fn get_notes_by_profile_id(
     conn.run(move |c| {
         let mut query = notes::table
             .filter(notes::profile_id.eq(profile_id))
-            .filter(notes::kind.eq("Note"))
+            .filter(notes::kind.eq(NoteType::Note))
             .order(notes::created_at.desc())
             .limit(limit)
             .offset(offset)

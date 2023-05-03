@@ -5,7 +5,7 @@ use faktory::Job;
 use std::io;
 
 use crate::{
-    activity_pub::{ApActivity, ApActor, ApUpdate},
+    activity_pub::{ApActivity, ApActor, ApAddress, ApUpdate},
     models::{followers::Follower, profiles::Profile},
     runner::send_to_inboxes,
     schema::{followers, profiles},
@@ -65,16 +65,21 @@ pub fn get_profile(id: i32) -> Option<Profile> {
     }
 }
 
-pub fn get_follower_inboxes(profile: Profile) -> HashSet<String> {
-    let mut inboxes: HashSet<String> = HashSet::new();
+pub fn get_follower_inboxes(profile: Profile) -> Vec<ApAddress> {
+    let mut inboxes: HashSet<ApAddress> = HashSet::new();
 
     for follower in get_followers_by_profile_id(profile.id) {
         if let Some(actor) = get_remote_actor_by_ap_id(follower.actor) {
-            inboxes.insert(actor.inbox);
+            let actor = ApActor::from(actor);
+            if let Some(endpoints) = actor.endpoints {
+                inboxes.insert(ApAddress::Address(endpoints.shared_inbox));
+            } else {
+                inboxes.insert(ApAddress::Address(actor.inbox));
+            }
         }
     }
 
-    inboxes
+    Vec::from_iter(inboxes)
 }
 
 pub fn get_followers_by_profile_id(profile_id: i32) -> Vec<Follower> {

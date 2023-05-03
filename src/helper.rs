@@ -50,7 +50,7 @@ pub struct LocalIdentifier {
 
 pub fn get_local_identifier(ap_id: String) -> Option<LocalIdentifier> {
     let pattern = format!(
-        r#"^{}/(user|notes|session|announces|collections)/(.+)$"#,
+        r#"^{}/(user|notes|session|announces|collections|activities)/(.+)$"#,
         *crate::SERVER_URL
     );
 

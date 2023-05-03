@@ -82,7 +82,7 @@ pub async fn get_actor(profile: Profile, id: String) -> Option<(RemoteActor, Opt
             get_leader_by_actor_ap_id_and_profile(id, profile.id),
         ))
     } else {
-        log::debug!("PERFORMING REMOTE LOOKUP FOR ACTOR");
+        log::debug!("PERFORMING REMOTE LOOKUP FOR ACTOR: {id}");
 
         let url = id.clone();
         let body = Option::None;
@@ -109,25 +109,29 @@ pub async fn get_actor(profile: Profile, id: String) -> Option<(RemoteActor, Opt
         {
             Ok(resp) => match resp.status() {
                 StatusCode::ACCEPTED | StatusCode::OK => {
-                    let actor: ApActor = resp.json().await.unwrap();
-                    create_or_update_remote_actor(NewRemoteActor::from(actor))
-                        .map(|a| (a, Option::None))
+                    if let Ok(actor) = resp.json::<ApActor>().await {
+                        create_or_update_remote_actor(NewRemoteActor::from(actor))
+                            .map(|a| (a, Option::None))
+                    } else {
+                        log::debug!("FAILED TO DECODE REMOTE ACTOR");
+                        None
+                    }
                 }
                 StatusCode::GONE => {
                     log::debug!("REMOTE ACTOR HAS BEEN DELETED AT THE SOURCE");
-                    Option::None
+                    None
                 }
                 _ => {
                     log::debug!(
                         "REMOTE ACTOR (NOT UPDATED) LOOKUP STATUS: {}",
                         resp.status()
                     );
-                    Option::None
+                    None
                 }
             },
             Err(e) => {
                 log::debug!("REMOTE ACTOR LOOKUP ERROR: {e:#?}");
-                Option::None
+                None
             }
         }
     }

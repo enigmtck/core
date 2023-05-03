@@ -10,7 +10,7 @@ use crate::models::remote_actors::RemoteActor;
 use serde::{Deserialize, Serialize};
 use serde_with::serde_as;
 
-#[derive(Serialize, Deserialize, Clone, PartialEq, Eq, Debug, Default)]
+#[derive(Serialize, Deserialize, Clone, PartialEq, Eq, Debug, Default, Hash)]
 #[serde(untagged)]
 pub enum ApAddress {
     Address(String),
@@ -256,7 +256,7 @@ impl From<ExtendedProfile> for ApActor {
             actor.ephemeral_following = Some(true);
         }
 
-        actor.clone()
+        actor
     }
 }
 
@@ -334,7 +334,7 @@ impl From<ExtendedRemoteActor> for ApActor {
             actor.ephemeral_following = Some(true);
         }
 
-        actor.clone()
+        actor
     }
 }
 

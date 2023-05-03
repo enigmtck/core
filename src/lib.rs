@@ -9,6 +9,7 @@ use dotenvy::dotenv;
 use lazy_static::lazy_static;
 use serde::{Deserialize, Serialize};
 use std::env;
+use std::fmt;
 
 pub mod activity_pub;
 pub mod admin;
@@ -158,6 +159,16 @@ pub enum MaybeReference<T> {
     Identifier(Identifier),
     #[default]
     None,
+}
+
+impl<T> fmt::Display for MaybeReference<T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            MaybeReference::Reference(reference) => f.write_str(reference),
+            MaybeReference::Identifier(identifier) => f.write_str(&identifier.id),
+            _ => f.write_str("UNDEFINED"),
+        }
+    }
 }
 
 impl From<ApObject> for MaybeReference<ApObject> {
