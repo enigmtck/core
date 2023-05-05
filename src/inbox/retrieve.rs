@@ -98,6 +98,9 @@ async fn get_ap_actors(conn: &Db, ap_ids: Vec<String>) -> Vec<ApActor> {
     ap_actors
 }
 
+// This function takes the output from a joined database query that includes duplicate
+// entries as a result of the join, and merges them together in to a more streamlined
+// Vec
 fn consolidate_notes(notes: Vec<ApNote>) -> Vec<ApNote> {
     let mut consolidated_notes: HashMap<String, ApNote> = HashMap::new();
     for note in notes {
@@ -106,6 +109,9 @@ fn consolidate_notes(notes: Vec<ApNote>) -> Vec<ApNote> {
                 Entry::Occupied(mut entry) => {
                     let consolidated = entry.get_mut();
 
+                    // Each entry may contain a single-member vec with an announce
+                    // This block checks to see if the entry already exists, and then
+                    // merges the announce in to the existing vec
                     if let (Some(existing), Some(announces)) = (
                         consolidated.ephemeral_announces.as_mut(),
                         note.ephemeral_announces,
@@ -113,10 +119,29 @@ fn consolidate_notes(notes: Vec<ApNote>) -> Vec<ApNote> {
                         existing.extend(announces);
                     }
 
+                    // Each entry may contain a single-member vec with a like
+                    // This block checks to see if the entry already exists, and then
+                    // merges the announce in to the existing vec
                     if let (Some(existing), Some(likes)) =
                         (consolidated.ephemeral_likes.as_mut(), note.ephemeral_likes)
                     {
                         existing.extend(likes);
+                    }
+
+                    // This block looks for a record with a Some liked UUID and
+                    // updates the consolidated record with it if one exists
+                    // The query excludes any records that are revoked, so the presence
+                    // of a single Some is indication that this should be updated
+                    if let Some(liked) = note.ephemeral_liked {
+                        consolidated.ephemeral_liked = Some(liked);
+                    }
+
+                    // This block looks for a record with a Some announced UUID and
+                    // updates the consolidated record with it if one exists
+                    // The query excludes any records that are revoked, so the presence
+                    // of a single Some is indication that this should be updated
+                    if let Some(announced) = note.ephemeral_announced {
+                        consolidated.ephemeral_announced = Some(announced);
                     }
                 }
                 Entry::Vacant(entry) => {

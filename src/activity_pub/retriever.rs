@@ -4,13 +4,13 @@ use reqwest::Client;
 use reqwest::StatusCode;
 
 use crate::activity_pub::ApActor;
-use crate::db::create_remote_note;
 use crate::db::Db;
 use crate::models::leaders::get_leader_by_actor_ap_id_and_profile;
 use crate::models::profiles::get_profile_by_ap_id;
 use crate::models::profiles::Profile;
 use crate::models::remote_actors::get_remote_actor_by_ap_id;
 use crate::models::remote_actors::{create_or_update_remote_actor, NewRemoteActor};
+use crate::models::remote_notes::create_or_update_remote_note;
 use crate::models::remote_notes::get_remote_note_by_ap_id;
 use crate::models::remote_notes::NewRemoteNote;
 use crate::signing::{sign, Method, SignParams};
@@ -153,7 +153,11 @@ pub async fn get_note(conn: &Db, profile: Option<Profile>, id: String) -> Option
                             };
 
                             if let Some(note) = note {
-                                create_remote_note(conn, NewRemoteNote::from(note.clone())).await;
+                                create_or_update_remote_note(
+                                    conn,
+                                    NewRemoteNote::from(note.clone()),
+                                )
+                                .await;
                                 note.into()
                             } else {
                                 log::error!("FAILED TO CREATE REMOTE NOTE: {n:#?}");

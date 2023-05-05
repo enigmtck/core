@@ -2,8 +2,7 @@ use crate::activity_pub::{ApAnnounce, ApNote};
 use crate::db::Db;
 use crate::helper::get_ap_id_from_username;
 use crate::schema::{
-    activities, announces, likes, remote_announces, remote_likes, timeline, timeline_cc,
-    timeline_to,
+    activities, remote_announces, remote_likes, timeline, timeline_cc, timeline_to,
 };
 use chrono::{DateTime, Utc};
 use diesel::prelude::*;
@@ -12,8 +11,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use super::activities::Activity;
-use super::announces::Announce;
-use super::likes::Like;
+// use super::announces::Announce;
+// use super::likes::Like;
 use super::notes::Note;
 use super::profiles::Profile;
 use super::remote_announces::RemoteAnnounce;
@@ -263,7 +262,8 @@ pub async fn get_authenticated_timeline_items(
             .left_join(
                 activities::table.on(activities::target_ap_id
                     .eq(timeline::ap_id.nullable())
-                    .and(activities::profile_id.eq(profile.id))),
+                    .and(activities::profile_id.eq(profile.id))
+                    .and(activities::revoked.eq(false))),
             )
             .left_join(
                 timeline_cc::table.on(timeline_cc::id

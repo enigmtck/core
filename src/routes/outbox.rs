@@ -37,7 +37,7 @@ pub async fn outbox_post(
     events: EventChannels,
     username: String,
     object: Result<Json<ActivityPub>, Error<'_>>,
-) -> Result<Status, Status> {
+) -> Result<String, Status> {
     log::debug!("POSTING TO OUTBOX\n{object:#?}");
 
     if let Signed(true, VerificationType::Local) = signed {

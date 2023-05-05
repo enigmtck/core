@@ -22,8 +22,8 @@ pub enum LocalIdentifierType {
     User,
     Note,
     Session,
-    Announce,
     Collection,
+    Activity,
     #[default]
     None,
 }
@@ -34,8 +34,8 @@ impl From<&str> for LocalIdentifierType {
             "user" => LocalIdentifierType::User,
             "notes" => LocalIdentifierType::Note,
             "session" => LocalIdentifierType::Session,
-            "announces" => LocalIdentifierType::Announce,
             "collections" => LocalIdentifierType::Collection,
+            "activities" => LocalIdentifierType::Activity,
             _ => LocalIdentifierType::None,
         }
     }
@@ -50,7 +50,7 @@ pub struct LocalIdentifier {
 
 pub fn get_local_identifier(ap_id: String) -> Option<LocalIdentifier> {
     let pattern = format!(
-        r#"^{}/(user|notes|session|announces|collections|activities)/(.+)$"#,
+        r#"^{}/(user|notes|session|collections|activities)/(.+)$"#,
         *crate::SERVER_URL
     );
 
@@ -75,6 +75,10 @@ pub fn get_ap_id_from_username(username: String) -> String {
 
 pub fn get_note_ap_id_from_uuid(uuid: String) -> String {
     format!("https://{}/notes/{}", *crate::SERVER_NAME, uuid)
+}
+
+pub fn get_activity_ap_id_from_uuid(uuid: String) -> String {
+    format!("https://{}/activities/{}", *crate::SERVER_NAME, uuid)
 }
 
 pub fn handle_option(v: Value) -> Option<Value> {

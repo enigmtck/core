@@ -21,7 +21,7 @@ pub async fn note(
     _events: EventChannels,
     note: ApNote,
     profile: Profile,
-) -> Result<Status, Status> {
+) -> Result<String, Status> {
     // ApNote -> NewNote -> ApNote -> ApActivity
     // UUID is set in NewNote
     let mut new_note = NewNote::from((note.clone(), profile.id));
@@ -48,13 +48,16 @@ pub async fn note(
         )
         .await
         {
-            match assign_to_faktory(
+            if assign_to_faktory(
                 faktory,
                 String::from("process_outbound_note"),
-                vec![activity.uuid],
-            ) {
-                Ok(_) => Ok(Status::Accepted),
-                Err(_) => Err(Status::NoContent),
+                vec![activity.uuid.clone()],
+            )
+            .is_ok()
+            {
+                Ok(activity.uuid)
+            } else {
+                Err(Status::NoContent)
             }
         } else {
             Err(Status::NoContent)
@@ -70,7 +73,7 @@ pub async fn encrypted_note(
     _events: EventChannels,
     note: ApNote,
     profile: Profile,
-) -> Result<Status, Status> {
+) -> Result<String, Status> {
     // ApNote -> NewNote -> ApNote -> ApActivity
     // UUID is set in NewNote
     let n = NewNote::from((note.clone(), profile.id));
@@ -82,13 +85,16 @@ pub async fn encrypted_note(
         // let mut events = events;
         // events.send(serde_json::to_string(&ap_note).unwrap());
 
-        match assign_to_faktory(
+        if assign_to_faktory(
             faktory,
             String::from("process_outbound_note"),
-            vec![created_note.uuid],
-        ) {
-            Ok(_) => Ok(Status::Accepted),
-            Err(_) => Err(Status::NoContent),
+            vec![created_note.uuid.clone()],
+        )
+        .is_ok()
+        {
+            Ok(created_note.uuid)
+        } else {
+            Err(Status::NoContent)
         }
     } else {
         Err(Status::NoContent)
@@ -100,13 +106,20 @@ pub async fn session(
     faktory: FaktoryConnection,
     session: ApSession,
     profile: Profile,
-) -> Result<Status, Status> {
+) -> Result<String, Status> {
     let encrypted_session: NewEncryptedSession = (session.clone(), profile.id).into();
 
     if let Some(session) = create_encrypted_session(&conn, encrypted_session.clone()).await {
-        match assign_to_faktory(faktory, String::from("send_kexinit"), vec![session.uuid]) {
-            Ok(_) => Ok(Status::Accepted),
-            Err(_) => Err(Status::NoContent),
+        if assign_to_faktory(
+            faktory,
+            String::from("send_kexinit"),
+            vec![session.uuid.clone()],
+        )
+        .is_ok()
+        {
+            Ok(session.uuid)
+        } else {
+            Err(Status::NoContent)
         }
     } else {
         Err(Status::NoContent)

@@ -5,7 +5,7 @@ use crate::{
     activity_pub::{ApAddress, ApContext, ApNote, ApObject},
     models::{
         activities::{ActivityType, ExtendedActivity},
-        announces::Announce,
+        //announces::Announce,
         remote_announces::RemoteAnnounce,
     },
     MaybeMultiple, MaybeReference,
@@ -40,24 +40,24 @@ pub struct ApAnnounce {
     pub object: MaybeReference<ApObject>,
 }
 
-impl From<Announce> for ApAnnounce {
-    fn from(announce: Announce) -> Self {
-        ApAnnounce {
-            context: Some(ApContext::default()),
-            kind: ApAnnounceType::default(),
-            actor: announce.actor.into(),
-            id: Some(format!(
-                "{}/announces/{}",
-                *crate::SERVER_URL,
-                announce.uuid
-            )),
-            published: None,
-            object: MaybeReference::Reference(announce.object_ap_id),
-            to: serde_json::from_value(announce.ap_to).unwrap(),
-            cc: announce.cc.map(|cc| serde_json::from_value(cc).unwrap()),
-        }
-    }
-}
+// impl From<Announce> for ApAnnounce {
+//     fn from(announce: Announce) -> Self {
+//         ApAnnounce {
+//             context: Some(ApContext::default()),
+//             kind: ApAnnounceType::default(),
+//             actor: announce.actor.into(),
+//             id: Some(format!(
+//                 "{}/announces/{}",
+//                 *crate::SERVER_URL,
+//                 announce.uuid
+//             )),
+//             published: None,
+//             object: MaybeReference::Reference(announce.object_ap_id),
+//             to: serde_json::from_value(announce.ap_to).unwrap(),
+//             cc: announce.cc.map(|cc| serde_json::from_value(cc).unwrap()),
+//         }
+//     }
+// }
 
 impl TryFrom<ExtendedActivity> for ApAnnounce {
     type Error = &'static str;
@@ -72,7 +72,7 @@ impl TryFrom<ExtendedActivity> for ApAnnounce {
                     kind: ApAnnounceType::default(),
                     actor: activity.actor.into(),
                     id: Some(format!(
-                        "{}/announces/{}",
+                        "{}/activities/{}",
                         *crate::SERVER_URL,
                         activity.uuid
                     )),
@@ -86,7 +86,7 @@ impl TryFrom<ExtendedActivity> for ApAnnounce {
                     kind: ApAnnounceType::default(),
                     actor: activity.actor.into(),
                     id: Some(format!(
-                        "{}/announces/{}",
+                        "{}/activities/{}",
                         *crate::SERVER_URL,
                         activity.uuid
                     )),

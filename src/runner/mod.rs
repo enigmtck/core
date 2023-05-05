@@ -24,6 +24,7 @@ pub mod like;
 pub mod note;
 pub mod processing;
 pub mod timeline;
+pub mod undo;
 pub mod user;
 
 type Pool = r2d2::Pool<ConnectionManager<PgConnection>>;
@@ -138,7 +139,6 @@ fn handle_recipients(inboxes: &mut HashSet<ApAddress>, sender: &Profile, address
 
 pub fn get_inboxes(activity: ApActivity, sender: Profile) -> Vec<ApAddress> {
     let mut inboxes = HashSet::<ApAddress>::new();
-    //let note = ApNote::from(note);
 
     let (to, cc) = match activity {
         ApActivity::Create(activity) => (Some(activity.to), activity.cc),
@@ -148,6 +148,30 @@ pub fn get_inboxes(activity: ApActivity, sender: Profile) -> Vec<ApAddress> {
         ApActivity::Follow(activity) => {
             if let MaybeReference::Reference(id) = activity.object {
                 (Some(MaybeMultiple::Single(ApAddress::Address(id))), None)
+            } else {
+                (None, None)
+            }
+        }
+        ApActivity::Undo(activity) => {
+            if let MaybeReference::Actual(target_activity) = activity.object {
+                match target_activity {
+                    ApActivity::Follow(follow) => {
+                        if let MaybeReference::Reference(target) = follow.object {
+                            (
+                                Some(MaybeMultiple::Single(ApAddress::Address(target))),
+                                None,
+                            )
+                        } else {
+                            (None, None)
+                        }
+                    }
+                    ApActivity::Like(like) => (like.to, None),
+                    ApActivity::Announce(announce) => (
+                        announce.cc,
+                        Some(MaybeMultiple::Single(ApAddress::get_public())),
+                    ),
+                    _ => (None, None),
+                }
             } else {
                 (None, None)
             }

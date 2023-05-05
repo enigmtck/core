@@ -12,14 +12,15 @@ use crate::{
     models::{
         notes::{Note, NoteType},
         profiles::Profile,
-        remote_notes::RemoteNote,
+        remote_notes::{NewRemoteNote, RemoteNote},
     },
     runner::{
         activity::get_activity_by_uuid,
-        encrypted::handle_encrypted_note,
+        //encrypted::handle_encrypted_note,
         get_inboxes,
         processing::create_processing_item,
-        send_to_inboxes, send_to_mq,
+        send_to_inboxes,
+        send_to_mq,
         timeline::delete_timeline_item_by_ap_id,
         user::{get_profile, get_profile_by_ap_id},
     },
@@ -33,6 +34,20 @@ use super::{
     timeline::{add_to_timeline, create_timeline_item},
     POOL,
 };
+
+pub fn create_or_update_remote_note(note: NewRemoteNote) -> Option<RemoteNote> {
+    if let Ok(mut conn) = POOL.get() {
+        diesel::insert_into(remote_notes::table)
+            .values(&note)
+            .on_conflict(remote_notes::ap_id)
+            .do_update()
+            .set(&note)
+            .get_result::<RemoteNote>(&mut conn)
+            .ok()
+    } else {
+        None
+    }
+}
 
 pub fn delete_note(job: Job) -> io::Result<()> {
     log::debug!("DELETING NOTE");
@@ -54,11 +69,14 @@ pub fn delete_note(job: Job) -> io::Result<()> {
                 (get_profile(activity.profile_id), target_note.clone())
             {
                 if let Ok(activity) = ApActivity::try_from((
-                    activity,
-                    target_note,
-                    target_remote_note,
-                    target_profile,
-                    target_remote_actor,
+                    (
+                        activity,
+                        target_note,
+                        target_remote_note,
+                        target_profile,
+                        target_remote_actor,
+                    ),
+                    None,
                 )) {
                     let inboxes: Vec<ApAddress> = get_inboxes(activity.clone(), sender.clone());
                     send_to_inboxes(inboxes, sender, activity.clone());
@@ -103,11 +121,14 @@ pub fn process_outbound_note(job: Job) -> io::Result<()> {
                 let activity = match note.kind {
                     NoteType::Note => {
                         if let Ok(activity) = ApActivity::try_from((
-                            activity,
-                            target_note,
-                            target_remote_note,
-                            target_profile,
-                            target_remote_actor,
+                            (
+                                activity,
+                                target_note,
+                                target_remote_note,
+                                target_profile,
+                                target_remote_actor,
+                            ),
+                            None,
                         )) {
                             Some(activity)
                         } else {
@@ -208,24 +229,29 @@ pub async fn fetch_remote_note(id: String) -> Option<ApNote> {
     {
         Ok(resp) => match resp.status() {
             StatusCode::ACCEPTED | StatusCode::OK => match resp.json().await {
-                Ok(ApObject::Note(note)) => Option::from(note),
+                Ok(ApObject::Note(note)) => {
+                    if create_or_update_remote_note(note.clone().into()).is_some() {
+                        log::debug!("REMOTE NOTE CREATED OR UPDATED");
+                    }
+                    Option::from(note)
+                }
                 Err(e) => {
-                    log::error!("remote note decode error: {e:#?}");
+                    log::error!("FAILED TO DECODE REMOTE NOTE\n{e:#?}");
                     Option::None
                 }
                 _ => Option::None,
             },
             StatusCode::GONE => {
-                log::debug!("GONE: {:#?}", resp.status());
+                log::debug!("REMOTE NOTE NO LONGER EXISTS AT SOURCE");
                 Option::None
             }
             _ => {
-                log::debug!("STATUS: {:#?}", resp.status());
+                log::debug!("REMOTE NOTE FETCH STATUS {:#?}", resp.status());
                 Option::None
             }
         },
         Err(e) => {
-            log::debug!("{:#?}", e);
+            log::debug!("REMOTE NOTE FETCH ERROR\n{e:#?}");
             Option::None
         }
     }

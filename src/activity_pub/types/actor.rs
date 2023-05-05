@@ -145,6 +145,8 @@ pub struct ApActor {
     pub ephemeral_following: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ephemeral_leader_ap_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ephemeral_follow_activity_ap_id: Option<String>,
 
     // These are used for user operations on their own profile
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -186,6 +188,7 @@ impl Default for ApActor {
             ephemeral_summary_markdown: None,
             ephemeral_followers: None,
             ephemeral_leaders: None,
+            ephemeral_follow_activity_ap_id: None,
         }
     }
 }
@@ -321,6 +324,7 @@ impl From<Profile> for ApActor {
             ephemeral_leader_ap_id: None,
             ephemeral_followers: None,
             ephemeral_leaders: None,
+            ephemeral_follow_activity_ap_id: None,
         }
     }
 }
@@ -330,9 +334,14 @@ type ExtendedRemoteActor = (RemoteActor, Option<Leader>);
 impl From<ExtendedRemoteActor> for ApActor {
     fn from((remote_actor, leader): ExtendedRemoteActor) -> Self {
         let mut actor = ApActor::from(remote_actor);
-        if leader.is_some() {
-            actor.ephemeral_following = Some(true);
-        }
+
+        actor.ephemeral_following = leader.clone().and_then(|x| x.accepted);
+
+        actor.ephemeral_leader_ap_id = leader
+            .clone()
+            .and_then(|x| format!("{}/leader/{}", *crate::SERVER_URL, x.uuid).into());
+
+        actor.ephemeral_follow_activity_ap_id = leader.and_then(|x| x.follow_ap_id);
 
         actor
     }
@@ -373,6 +382,7 @@ impl From<RemoteActor> for ApActor {
             ephemeral_summary_markdown: None,
             ephemeral_followers: None,
             ephemeral_leaders: None,
+            ephemeral_follow_activity_ap_id: None,
         }
     }
 }
@@ -380,24 +390,14 @@ impl From<RemoteActor> for ApActor {
 type ActorAndLeader = (ApActor, Option<Leader>);
 
 impl From<ActorAndLeader> for ApActor {
-    fn from(actor_and_leader: ActorAndLeader) -> Self {
-        let mut actor: ApActor = actor_and_leader.0;
+    fn from((mut actor, leader): ActorAndLeader) -> Self {
+        actor.ephemeral_following = leader.clone().and_then(|x| x.accepted);
 
-        actor.ephemeral_following = {
-            if let Some(leader) = actor_and_leader.1.clone() {
-                leader.accepted
-            } else {
-                None
-            }
-        };
+        actor.ephemeral_leader_ap_id = leader
+            .clone()
+            .and_then(|x| format!("{}/leader/{}", *crate::SERVER_URL, x.uuid).into());
 
-        actor.ephemeral_leader_ap_id = {
-            if let Some(leader) = actor_and_leader.1 {
-                format!("{}/leader/{}", *crate::SERVER_URL, leader.uuid).into()
-            } else {
-                None
-            }
-        };
+        actor.ephemeral_follow_activity_ap_id = leader.and_then(|x| x.follow_ap_id);
 
         actor
     }

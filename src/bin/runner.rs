@@ -4,13 +4,11 @@ extern crate log;
 use enigmatick::runner::{
     announce::{process_announce, send_announce},
     encrypted::{process_join, provide_one_time_key, send_kexinit},
-    follow::{
-        acknowledge_followers, process_accept, process_follow, process_remote_undo_follow,
-        process_undo_follow,
-    },
+    follow::{acknowledge_followers, process_accept, process_follow, process_remote_undo_follow},
     like::send_like,
     note::{delete_note, process_outbound_note, process_remote_note, retrieve_context},
     timeline::update_timeline_record,
+    undo::process_undo,
     user::send_profile_update,
 };
 use faktory::ConsumerBuilder;
@@ -37,9 +35,9 @@ fn main() {
     consumer.register("delete_note", delete_note);
     consumer.register("process_follow", process_follow);
     consumer.register("process_accept", process_accept);
-    consumer.register("process_undo_follow", process_undo_follow);
     consumer.register("process_remote_undo_follow", process_remote_undo_follow);
     consumer.register("send_profile_update", send_profile_update);
+    consumer.register("process_undo", process_undo);
 
     let mut consumer = consumer.connect(Some(faktory_url)).unwrap();
 

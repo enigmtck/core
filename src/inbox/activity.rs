@@ -3,7 +3,7 @@ use crate::{
         ApAccept, ApActivity, ApAdd, ApAddress, ApAnnounce, ApBlock, ApCreate, ApDelete, ApFollow,
         ApInvite, ApJoin, ApLike, ApObject, ApRemove, ApUndo, ApUpdate,
     },
-    db::{create_remote_encrypted_session, create_remote_note, Db},
+    db::{create_remote_encrypted_session, Db},
     fairings::{
         events::EventChannels,
         faktory::{assign_to_faktory, FaktoryConnection},
@@ -113,7 +113,7 @@ pub async fn create(
         MaybeReference::Actual(ApObject::Note(x)) => {
             let n = NewRemoteNote::from(x.clone());
 
-            if let Some(created_note) = create_remote_note(&conn, n).await {
+            if let Some(created_note) = create_or_update_remote_note(&conn, n).await {
                 match assign_to_faktory(
                     faktory,
                     String::from("process_remote_note"),

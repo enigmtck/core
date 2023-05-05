@@ -4,10 +4,10 @@ use std::io;
 use tokio::runtime::Runtime;
 
 use crate::{
-    activity_pub::{sender::send_activity, ApAccept, ApActivity, ApAddress, ApFollow, ApUndo},
+    activity_pub::{sender::send_activity, ApAccept, ApActivity, ApAddress, ApFollow},
     models::{
         followers::{Follower, NewFollower},
-        follows::Follow,
+        //follows::Follow,
         leaders::{Leader, NewLeader},
     },
     runner::{
@@ -16,7 +16,7 @@ use crate::{
         get_inboxes, send_to_inboxes,
         user::{get_profile, get_profile_by_ap_id},
     },
-    schema::{followers, follows, leaders},
+    schema::{followers, leaders},
     MaybeReference,
 };
 
@@ -37,19 +37,19 @@ pub fn get_leader_by_actor_ap_id_and_profile(ap_id: String, profile_id: i32) -> 
     }
 }
 
-pub fn get_follow_by_uuid(uuid: String) -> Option<Follow> {
-    if let Ok(mut conn) = POOL.get() {
-        match follows::table
-            .filter(follows::uuid.eq(uuid))
-            .first::<Follow>(&mut conn)
-        {
-            Ok(x) => Option::from(x),
-            Err(_) => Option::None,
-        }
-    } else {
-        None
-    }
-}
+// pub fn get_follow_by_uuid(uuid: String) -> Option<Follow> {
+//     if let Ok(mut conn) = POOL.get() {
+//         match follows::table
+//             .filter(follows::uuid.eq(uuid))
+//             .first::<Follow>(&mut conn)
+//         {
+//             Ok(x) => Option::from(x),
+//             Err(_) => Option::None,
+//         }
+//     } else {
+//         None
+//     }
+// }
 
 pub fn process_follow(job: Job) -> io::Result<()> {
     log::debug!("PROCESSING OUTGOING FOLLOW REQUEST");
@@ -69,11 +69,14 @@ pub fn process_follow(job: Job) -> io::Result<()> {
             log::debug!("FOUND ACTIVITY\n{activity:#?}");
             if let Some(sender) = get_profile(activity.profile_id) {
                 if let Ok(activity) = ApActivity::try_from((
-                    activity,
-                    target_note,
-                    target_remote_note,
-                    target_profile,
-                    target_remote_actor,
+                    (
+                        activity,
+                        target_note,
+                        target_remote_note,
+                        target_profile,
+                        target_remote_actor,
+                    ),
+                    None,
                 )) {
                     let inboxes: Vec<ApAddress> = get_inboxes(activity.clone(), sender.clone());
                     send_to_inboxes(inboxes, sender, activity.clone());
@@ -156,54 +159,6 @@ pub fn delete_leader_by_ap_id_and_profile_id(
     } else {
         Err(DeleteLeaderError::ConnectionError)
     }
-}
-
-pub fn process_undo_follow(job: Job) -> io::Result<()> {
-    log::debug!("PROCESSING FOLLOW UNDO REQUEST");
-
-    let rt = Runtime::new().unwrap();
-    let handle = rt.handle();
-
-    for uuid in job.args() {
-        let uuid = uuid.as_str().unwrap().to_string();
-        log::debug!("UUID: {uuid}");
-
-        if let Some(follow) = get_follow_by_uuid(uuid) {
-            let follow: ApFollow = follow.into();
-            let undo: ApUndo = follow.clone().into();
-
-            log::debug!("UNDO\n{undo:#?}");
-
-            if let Some(profile) = get_profile_by_ap_id(follow.actor.to_string()) {
-                if let MaybeReference::Reference(to) = follow.object.clone() {
-                    handle.block_on(async {
-                        if let Some((actor, _)) = get_actor(profile.clone(), to.clone()).await {
-                            let inbox = actor.inbox;
-
-                            match send_activity(
-                                ApActivity::Undo(Box::new(undo)),
-                                profile.clone(),
-                                inbox.clone(),
-                            )
-                            .await
-                            {
-                                Ok(_) => {
-                                    log::info!("UNDO SENT: {inbox:#?}");
-                                    if delete_leader_by_ap_id_and_profile_id(to, profile.id).is_ok()
-                                    {
-                                        log::info!("LEADER DELETED");
-                                    }
-                                }
-                                Err(e) => log::error!("ERROR SENDING UNDO REQUEST: {e:#?}"),
-                            }
-                        }
-                    })
-                }
-            }
-        }
-    }
-
-    Ok(())
 }
 
 #[derive(Debug)]

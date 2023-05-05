@@ -31,7 +31,7 @@ fn get_key_pair() -> KeyPair {
 }
 
 pub fn create_profile(
-    conn: &PgConnection,
+    mut conn: PgConnection,
     username: String,
     display_name: String,
     summary: Option<String>,
@@ -66,7 +66,7 @@ pub fn create_profile(
 
     match diesel::insert_into(profiles::table)
         .values(&new_profile)
-        .get_result::<Profile>(conn)
+        .get_result::<Profile>(&mut conn)
     {
         Ok(x) => Some(x),
         Err(_) => Option::None,
@@ -74,7 +74,7 @@ pub fn create_profile(
 }
 
 fn main() {
-    let connection = &mut establish_connection();
+    let connection = establish_connection();
 
     let p = create_profile(
         connection,

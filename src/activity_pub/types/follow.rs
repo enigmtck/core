@@ -5,7 +5,7 @@ use crate::{
     activity_pub::{ApActor, ApAddress, ApContext, ApObject},
     models::{
         activities::{ActivityType, ExtendedActivity},
-        follows::Follow,
+        //follows::Follow,
         remote_activities::RemoteActivity,
     },
     MaybeReference,
@@ -57,17 +57,17 @@ impl TryFrom<RemoteActivity> for ApFollow {
     }
 }
 
-impl From<Follow> for ApFollow {
-    fn from(follow: Follow) -> Self {
-        ApFollow {
-            context: Some(ApContext::default()),
-            kind: ApFollowType::default(),
-            actor: ApAddress::Address(follow.actor),
-            id: Some(format!("{}/follows/{}", *crate::SERVER_URL, follow.uuid)),
-            object: MaybeReference::Reference(follow.ap_object),
-        }
-    }
-}
+// impl From<Follow> for ApFollow {
+//     fn from(follow: Follow) -> Self {
+//         ApFollow {
+//             context: Some(ApContext::default()),
+//             kind: ApFollowType::default(),
+//             actor: ApAddress::Address(follow.actor),
+//             id: Some(format!("{}/activities/{}", *crate::SERVER_URL, follow.uuid)),
+//             object: MaybeReference::Reference(follow.ap_object),
+//         }
+//     }
+// }
 
 impl TryFrom<ExtendedActivity> for ApFollow {
     type Error = &'static str;
@@ -81,7 +81,11 @@ impl TryFrom<ExtendedActivity> for ApFollow {
                     context: Some(ApContext::default()),
                     kind: ApFollowType::default(),
                     actor: activity.actor.into(),
-                    id: Some(format!("{}/follows/{}", *crate::SERVER_URL, activity.uuid)),
+                    id: Some(format!(
+                        "{}/activities/{}",
+                        *crate::SERVER_URL,
+                        activity.uuid
+                    )),
                     object: MaybeReference::Reference(
                         ApActor::from(profile).id.unwrap().to_string(),
                     ),
@@ -90,7 +94,11 @@ impl TryFrom<ExtendedActivity> for ApFollow {
                     context: Some(ApContext::default()),
                     kind: ApFollowType::default(),
                     actor: activity.actor.into(),
-                    id: Some(format!("{}/follows/{}", *crate::SERVER_URL, activity.uuid)),
+                    id: Some(format!(
+                        "{}/activities/{}",
+                        *crate::SERVER_URL,
+                        activity.uuid
+                    )),
                     object: MaybeReference::Reference(remote_actor.ap_id),
                 }),
                 _ => {

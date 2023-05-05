@@ -3,7 +3,7 @@ use std::{collections::HashMap, fmt::Debug};
 
 use crate::{
     activity_pub::{ApActor, ApAttachment, ApCollection, ApContext, ApInstruments, ApTag},
-    helper::get_ap_id_from_username,
+    helper::{get_activity_ap_id_from_uuid, get_ap_id_from_username},
     models::{
         activities::{Activity, ActivityType},
         notes::{NewNote, Note, NoteType},
@@ -128,9 +128,9 @@ pub struct ApNote {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ephemeral_actors: Option<Vec<ApActor>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub ephemeral_liked: Option<bool>,
+    pub ephemeral_liked: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub ephemeral_announced: Option<bool>,
+    pub ephemeral_announced: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ephemeral_targeted: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -313,9 +313,21 @@ impl From<FullyQualifiedTimelineItem> for ApNote {
                 }
             },
             ephemeral_announces: remote_announce.map(|announce| vec![announce.actor]),
-            ephemeral_announced: activity.clone().map(|x| x.kind == ActivityType::Announce),
+            ephemeral_announced: activity.clone().and_then(|x| {
+                if x.kind == ActivityType::Announce && !x.revoked {
+                    Some(get_activity_ap_id_from_uuid(x.uuid))
+                } else {
+                    None
+                }
+            }),
             ephemeral_actors: actors,
-            ephemeral_liked: activity.map(|x| x.kind == ActivityType::Like),
+            ephemeral_liked: activity.and_then(|x| {
+                if x.kind == ActivityType::Like && !x.revoked {
+                    Some(get_activity_ap_id_from_uuid(x.uuid))
+                } else {
+                    None
+                }
+            }),
             ephemeral_likes: remote_like.map(|like| vec![like.actor]),
             ephemeral_targeted: Some(cc.is_some()),
             ephemeral_timestamp: Some(timeline.created_at),

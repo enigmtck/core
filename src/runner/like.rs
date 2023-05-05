@@ -24,11 +24,14 @@ pub fn send_like(job: Job) -> io::Result<()> {
             log::debug!("FOUND ACTIVITY\n{activity:#?}");
             if let Some(sender) = get_profile(activity.profile_id) {
                 if let Ok(activity) = ApActivity::try_from((
-                    activity,
-                    target_note,
-                    target_remote_note,
-                    target_profile,
-                    target_remote_actor,
+                    (
+                        activity,
+                        target_note,
+                        target_remote_note,
+                        target_profile,
+                        target_remote_actor,
+                    ),
+                    None,
                 )) {
                     let inboxes: Vec<ApAddress> = get_inboxes(activity.clone(), sender.clone());
                     send_to_inboxes(inboxes, sender, activity.clone());

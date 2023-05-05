@@ -26,12 +26,12 @@ pub fn get_leader_by_followers_endpoint(
     use enigmatick::schema::profiles::dsl::{id as pid, profiles};
     use enigmatick::schema::remote_actors::dsl::{ap_id as ra_apid, followers, remote_actors};
 
-    if let Ok(conn) = POOL.get() {
+    if let Ok(mut conn) = POOL.get() {
         match remote_actors
             .inner_join(leaders.on(leader_ap_id.eq(ra_apid)))
             .left_join(profiles.on(profile_id.eq(pid)))
             .filter(followers.eq(endpoint))
-            .get_results::<(RemoteActor, Leader, Option<Profile>)>(&conn)
+            .get_results::<(RemoteActor, Leader, Option<Profile>)>(&mut conn)
         {
             Ok(x) => x,
             Err(e) => {
@@ -48,11 +48,11 @@ pub fn get_leader_by_endpoint(endpoint: String) -> Option<(RemoteActor, Leader)>
     use enigmatick::schema::leaders::dsl::{leader_ap_id, leaders};
     use enigmatick::schema::remote_actors::dsl::{ap_id as ra_apid, followers, remote_actors};
 
-    if let Ok(conn) = POOL.get() {
+    if let Ok(mut conn) = POOL.get() {
         match remote_actors
             .inner_join(leaders.on(leader_ap_id.eq(ra_apid)))
             .filter(followers.eq(endpoint))
-            .first::<(RemoteActor, Leader)>(&conn)
+            .first::<(RemoteActor, Leader)>(&mut conn)
         {
             Ok(x) => Option::from(x),
             Err(e) => {

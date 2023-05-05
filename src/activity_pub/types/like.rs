@@ -4,10 +4,7 @@ use std::fmt::Debug;
 use crate::{
     // activity_pub::{ApActivity, ApActivityType, ApContext},
     activity_pub::{ApAddress, ApContext, ApNote, ApObject},
-    models::{
-        activities::{ActivityType, ExtendedActivity},
-        likes::Like,
-    },
+    models::activities::{ActivityType, ExtendedActivity},
     MaybeMultiple,
     MaybeReference,
 };
@@ -52,7 +49,11 @@ impl TryFrom<ExtendedActivity> for ApLike {
                     context: Some(ApContext::default()),
                     kind: ApLikeType::default(),
                     actor: activity.actor.into(),
-                    id: Some(format!("{}/likes/{}", *crate::SERVER_URL, activity.uuid)),
+                    id: Some(format!(
+                        "{}/activities/{}",
+                        *crate::SERVER_URL,
+                        activity.uuid
+                    )),
                     to: Some(MaybeMultiple::Single(ApAddress::Address(
                         note.attributed_to.clone(),
                     ))),
@@ -62,7 +63,11 @@ impl TryFrom<ExtendedActivity> for ApLike {
                     context: Some(ApContext::default()),
                     kind: ApLikeType::default(),
                     actor: activity.actor.into(),
-                    id: Some(format!("{}/likes/{}", *crate::SERVER_URL, activity.uuid)),
+                    id: Some(format!(
+                        "{}/activities/{}",
+                        *crate::SERVER_URL,
+                        activity.uuid
+                    )),
                     to: Some(MaybeMultiple::Single(ApAddress::Address(
                         remote_note.attributed_to,
                     ))),
@@ -80,15 +85,15 @@ impl TryFrom<ExtendedActivity> for ApLike {
     }
 }
 
-impl From<Like> for ApLike {
-    fn from(like: Like) -> Self {
-        ApLike {
-            context: Some(ApContext::default()),
-            kind: ApLikeType::Like,
-            actor: ApAddress::Address(like.actor),
-            to: Some(MaybeMultiple::Single(ApAddress::Address(like.ap_to))),
-            id: Some(format!("{}/likes/{}", *crate::SERVER_URL, like.uuid)),
-            object: MaybeReference::Reference(like.object_ap_id),
-        }
-    }
-}
+// impl From<Like> for ApLike {
+//     fn from(like: Like) -> Self {
+//         ApLike {
+//             context: Some(ApContext::default()),
+//             kind: ApLikeType::Like,
+//             actor: ApAddress::Address(like.actor),
+//             to: Some(MaybeMultiple::Single(ApAddress::Address(like.ap_to))),
+//             id: Some(format!("{}/likes/{}", *crate::SERVER_URL, like.uuid)),
+//             object: MaybeReference::Reference(like.object_ap_id),
+//         }
+//     }
+// }

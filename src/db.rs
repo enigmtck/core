@@ -1,7 +1,6 @@
 use crate::models::notes::{NewNote, Note};
 use crate::models::profiles::Profile;
 use crate::models::remote_encrypted_sessions::{NewRemoteEncryptedSession, RemoteEncryptedSession};
-use crate::models::remote_notes::{NewRemoteNote, RemoteNote};
 use crate::schema;
 use diesel::prelude::*;
 use rocket_sync_db_pools::{database, diesel};
@@ -105,21 +104,21 @@ pub async fn create_note(conn: &Db, note: NewNote) -> Option<Note> {
     }
 }
 
-pub async fn create_remote_note(conn: &Db, remote_note: NewRemoteNote) -> Option<RemoteNote> {
-    use schema::remote_notes;
+// pub async fn create_remote_note(conn: &Db, remote_note: NewRemoteNote) -> Option<RemoteNote> {
+//     use schema::remote_notes;
 
-    if let Ok(x) = conn
-        .run(move |c| {
-            diesel::insert_into(remote_notes::table)
-                .values(&remote_note)
-                .on_conflict(remote_notes::ap_id)
-                .do_nothing()
-                .get_result::<RemoteNote>(c)
-        })
-        .await
-    {
-        Some(x)
-    } else {
-        Option::None
-    }
-}
+//     if let Ok(x) = conn
+//         .run(move |c| {
+//             diesel::insert_into(remote_notes::table)
+//                 .values(&remote_note)
+//                 .on_conflict(remote_notes::ap_id)
+//                 .do_nothing()
+//                 .get_result::<RemoteNote>(c)
+//         })
+//         .await
+//     {
+//         Some(x)
+//     } else {
+//         Option::None
+//     }
+// }

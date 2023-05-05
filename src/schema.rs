@@ -30,6 +30,7 @@ diesel::table! {
         target_activity_id -> Nullable<Int4>,
         target_ap_id -> Nullable<Varchar>,
         target_remote_actor_id -> Nullable<Int4>,
+        revoked -> Bool,
     }
 }
 
@@ -97,6 +98,7 @@ diesel::table! {
         uuid -> Varchar,
         accept_ap_id -> Nullable<Varchar>,
         accepted -> Nullable<Bool>,
+        follow_ap_id -> Nullable<Varchar>,
     }
 }
 

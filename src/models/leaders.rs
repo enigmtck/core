@@ -21,6 +21,7 @@ pub struct NewLeader {
     pub uuid: String,
     pub accept_ap_id: Option<String>,
     pub accepted: Option<bool>,
+    pub follow_ap_id: Option<String>,
 }
 
 impl TryFrom<ApAccept> for NewLeader {
@@ -35,6 +36,7 @@ impl TryFrom<ApAccept> for NewLeader {
                 accept_ap_id: accept.id,
                 accepted: Some(true),
                 profile_id: -1,
+                follow_ap_id: follow.id,
             })
         } else {
             Err("ACCEPT DOES NOT CONTAIN A VALID FOLLOW OBJECT")
@@ -72,6 +74,7 @@ pub struct Leader {
     pub uuid: String,
     pub accept_ap_id: Option<String>,
     pub accepted: Option<bool>,
+    pub follow_ap_id: Option<String>,
 }
 
 pub async fn get_leader_by_actor_ap_id_and_profile(

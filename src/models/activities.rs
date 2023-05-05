@@ -1,6 +1,8 @@
 use crate::activity_pub::ApAddress;
 use crate::db::Db;
-use crate::helper::{get_ap_id_from_username, get_note_ap_id_from_uuid};
+use crate::helper::{
+    get_activity_ap_id_from_uuid, get_ap_id_from_username, get_note_ap_id_from_uuid,
+};
 use crate::schema::{activities, notes, profiles, remote_actors, remote_notes};
 use chrono::{DateTime, Utc};
 use diesel::prelude::*;
@@ -47,6 +49,7 @@ pub struct NewActivity {
     pub target_activity_id: Option<i32>,
     pub target_ap_id: Option<String>,
     pub target_remote_actor_id: Option<i32>,
+    pub revoked: bool,
 }
 
 impl NewActivity {
@@ -101,6 +104,7 @@ impl From<ActorActivity> for NewActivity {
             target_activity_id: None,
             target_ap_id,
             target_remote_actor_id: remote_actor.map(|x| x.id),
+            revoked: false,
         }
     }
 }
@@ -112,11 +116,15 @@ impl From<NoteActivity> for NewActivity {
             if let Some(note) = note.clone() {
                 (
                     Some(note.ap_to),
-                    note.cc,
+                    Some(serde_json::to_value(vec![note.attributed_to]).unwrap()),
                     Some(get_note_ap_id_from_uuid(note.uuid)),
                 )
             } else if let Some(remote_note) = remote_note.clone() {
-                (remote_note.ap_to, remote_note.cc, Some(remote_note.ap_id))
+                (
+                    remote_note.ap_to,
+                    Some(serde_json::to_value(vec![remote_note.attributed_to]).unwrap()),
+                    Some(remote_note.ap_id),
+                )
             } else {
                 (None, None, None)
             }
@@ -135,6 +143,28 @@ impl From<NoteActivity> for NewActivity {
             target_activity_id: None,
             target_ap_id,
             target_remote_actor_id: None,
+            revoked: false,
+        }
+    }
+}
+
+pub type UndoActivity = (Activity, ActivityType, ApAddress);
+impl From<UndoActivity> for NewActivity {
+    fn from((activity, kind, actor): UndoActivity) -> Self {
+        NewActivity {
+            kind,
+            uuid: uuid::Uuid::new_v4().to_string(),
+            actor: actor.to_string(),
+            ap_to: None,
+            cc: None,
+            profile_id: None,
+            target_note_id: None,
+            target_remote_note_id: None,
+            target_profile_id: None,
+            target_activity_id: Some(activity.id),
+            target_ap_id: Some(get_activity_ap_id_from_uuid(activity.uuid)),
+            target_remote_actor_id: None,
+            revoked: false,
         }
     }
 }
@@ -158,6 +188,7 @@ pub struct Activity {
     pub target_activity_id: Option<i32>,
     pub target_ap_id: Option<String>,
     pub target_remote_actor_id: Option<i32>,
+    pub revoked: bool,
 }
 
 pub async fn create_activity(conn: &Db, activity: NewActivity) -> Option<Activity> {
@@ -203,6 +234,36 @@ pub async fn get_activity(conn: &Db, id: i32) -> Option<ExtendedActivity> {
     conn.run(move |c| {
         activities::table
             .find(id)
+            .left_join(notes::table.on(activities::target_note_id.eq(notes::id.nullable())))
+            .left_join(
+                remote_notes::table
+                    .on(activities::target_remote_note_id.eq(remote_notes::id.nullable())),
+            )
+            .left_join(
+                profiles::table.on(activities::target_profile_id.eq(profiles::id.nullable())),
+            )
+            .left_join(
+                remote_actors::table
+                    .on(activities::target_remote_actor_id.eq(remote_actors::id.nullable())),
+            )
+            .first::<ExtendedActivity>(c)
+    })
+    .await
+    .ok()
+}
+
+pub async fn get_activity_by_kind_profile_id_and_target_ap_id(
+    conn: &Db,
+    kind: ActivityType,
+    profile_id: i32,
+    target_ap_id: String,
+) -> Option<ExtendedActivity> {
+    conn.run(move |c| {
+        activities::table
+            .filter(activities::revoked.eq(false))
+            .filter(activities::kind.eq(kind))
+            .filter(activities::profile_id.eq(profile_id))
+            .filter(activities::target_ap_id.eq(target_ap_id))
             .left_join(notes::table.on(activities::target_note_id.eq(notes::id.nullable())))
             .left_join(
                 remote_notes::table
