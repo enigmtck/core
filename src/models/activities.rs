@@ -4,7 +4,7 @@ use crate::helper::{
     get_activity_ap_id_from_uuid, get_ap_id_from_username, get_note_ap_id_from_uuid,
 };
 use crate::schema::{activities, notes, profiles, remote_actors, remote_notes};
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, NaiveDateTime, Utc};
 use diesel::prelude::*;
 use diesel::{AsChangeset, Identifiable, Insertable, Queryable};
 use serde::{Deserialize, Serialize};
@@ -280,4 +280,77 @@ pub async fn get_activity_by_kind_profile_id_and_target_ap_id(
     })
     .await
     .ok()
+}
+
+pub async fn get_outbox_count_by_profile_id(conn: &Db, profile_id: i32) -> Option<i64> {
+    conn.run(move |c| {
+        activities::table
+            .filter(activities::revoked.eq(false))
+            .filter(activities::profile_id.eq(profile_id))
+            .filter(activities::kind.eq(ActivityType::Create))
+            .or_filter(activities::kind.eq(ActivityType::Announce))
+            .count()
+            .get_result::<i64>(c)
+    })
+    .await
+    .ok()
+}
+
+pub async fn get_outbox_activities_by_profile_id(
+    conn: &Db,
+    profile_id: i32,
+    min: Option<i64>,
+    max: Option<i64>,
+    limit: Option<u8>,
+) -> Vec<ExtendedActivity> {
+    conn.run(move |c| {
+        let mut query = activities::table
+            .filter(activities::revoked.eq(false))
+            .filter(activities::profile_id.eq(profile_id))
+            .filter(activities::kind.eq(ActivityType::Create))
+            .or_filter(activities::kind.eq(ActivityType::Announce))
+            .left_join(notes::table.on(activities::target_note_id.eq(notes::id.nullable())))
+            .left_join(
+                remote_notes::table
+                    .on(activities::target_remote_note_id.eq(remote_notes::id.nullable())),
+            )
+            .left_join(
+                profiles::table.on(activities::target_profile_id.eq(profiles::id.nullable())),
+            )
+            .left_join(
+                remote_actors::table
+                    .on(activities::target_remote_actor_id.eq(remote_actors::id.nullable())),
+            )
+            .into_boxed();
+
+        if let Some(limit) = limit {
+            query = query.limit(limit.into());
+        }
+
+        if let Some(min) = min {
+            let date: DateTime<Utc> =
+                DateTime::from_utc(NaiveDateTime::from_timestamp_millis(min).unwrap(), Utc);
+
+            log::debug!("MINIMUM {date:#?}");
+
+            query = query
+                .filter(activities::created_at.gt(date))
+                .order(activities::created_at.asc());
+        } else if let Some(max) = max {
+            let date: DateTime<Utc> =
+                DateTime::from_utc(NaiveDateTime::from_timestamp_millis(max).unwrap(), Utc);
+
+            log::debug!("MAXIMUM {date:#?}");
+
+            query = query
+                .filter(activities::created_at.lt(date))
+                .order(activities::created_at.desc());
+        } else {
+            query = query.order(activities::created_at.desc());
+        }
+
+        query.get_results::<ExtendedActivity>(c)
+    })
+    .await
+    .unwrap_or(vec![])
 }

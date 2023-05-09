@@ -130,20 +130,3 @@ pub async fn get_note_by_uuid(conn: &Db, uuid: String) -> Option<Note> {
         .await
         .ok()
 }
-
-impl Note {
-    // TODO: This should probably be handled by ApAddress
-    pub fn is_public(&self) -> bool {
-        if let Ok(to) = serde_json::from_value::<MaybeMultiple<String>>(self.ap_to.clone()) {
-            match to {
-                MaybeMultiple::Multiple(n) => {
-                    n.contains(&"https://www.w3.org/ns/activitystreams#Public".to_string())
-                }
-                MaybeMultiple::Single(n) => n == *"https://www.w3.org/ns/activitystreams#Public",
-                MaybeMultiple::None => false,
-            }
-        } else {
-            false
-        }
-    }
-}

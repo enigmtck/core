@@ -63,10 +63,12 @@ impl TryFrom<ExtendedActivity> for ApCreate {
                     published: Some(activity.created_at.to_rfc3339()),
                 })
             } else {
-                Err("")
+                log::error!("ACTIVITY DOES NOT HAVE A TO FIELD");
+                Err("ACTIVITY DOES NOT HAVE A TO FIELD")
             }
         } else {
-            Err("")
+            log::error!("ACTIVITY MUST INCLUDE A LOCALLY CREATED NOTE");
+            Err("ACTIVITY MUST INCLUDE A LOCALLY CREATED NOTE")
         }
     }
 }

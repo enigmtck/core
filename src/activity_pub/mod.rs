@@ -10,7 +10,8 @@ pub use types::add::{ApAdd, ApAddType};
 pub use types::announce::{ApAnnounce, ApAnnounceType};
 pub use types::block::{ApBlock, ApBlockType};
 pub use types::collection::{
-    ActorsPage, ApCollection, ApCollectionType, FollowersPage, IdentifiedVaultItems, LeadersPage,
+    ActivitiesPage, ActorsPage, ApCollection, ApCollectionPage, ApCollectionPageType,
+    ApCollectionType, FollowersPage, IdentifiedVaultItems, LeadersPage,
 };
 pub use types::create::{ApCreate, ApCreateType};
 pub use types::delete::{ApDelete, ApDeleteType};
