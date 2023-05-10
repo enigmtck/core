@@ -2,10 +2,11 @@ use core::fmt;
 use std::fmt::Debug;
 
 use crate::{
-    activity_pub::{ApAddress, ApContext, ApNote, ApObject},
+    activity_pub::{ApAddress, ApContext, ApNote, ApObject, Temporal},
     models::activities::ExtendedActivity,
     MaybeMultiple, MaybeReference,
 };
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
 use super::signature::ApSignature;
@@ -35,8 +36,14 @@ pub struct ApCreate {
     pub cc: Option<MaybeMultiple<ApAddress>>,
     pub id: Option<String>,
     pub object: MaybeReference<ApObject>,
-    pub published: Option<String>,
+    pub published: String,
     pub signature: Option<ApSignature>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ephemeral_created_at: Option<DateTime<Utc>>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ephemeral_updated_at: Option<DateTime<Utc>>,
 }
 
 impl TryFrom<ExtendedActivity> for ApCreate {
@@ -60,7 +67,9 @@ impl TryFrom<ExtendedActivity> for ApCreate {
                     to: serde_json::from_value(ap_to).unwrap(),
                     cc: activity.cc.map(|cc| serde_json::from_value(cc).unwrap()),
                     signature: None,
-                    published: Some(activity.created_at.to_rfc3339()),
+                    published: activity.created_at.to_rfc3339(),
+                    ephemeral_created_at: Some(activity.created_at),
+                    ephemeral_updated_at: Some(activity.updated_at),
                 })
             } else {
                 log::error!("ACTIVITY DOES NOT HAVE A TO FIELD");
@@ -73,18 +82,34 @@ impl TryFrom<ExtendedActivity> for ApCreate {
     }
 }
 
-impl From<ApNote> for ApCreate {
-    fn from(note: ApNote) -> Self {
-        ApCreate {
-            context: Some(ApContext::default()),
-            kind: ApCreateType::default(),
-            actor: note.attributed_to.clone(),
-            id: note.id.clone().map(|id| format!("{id}#create")),
-            object: ApObject::Note(note.clone()).into(),
-            to: note.to.clone(),
-            cc: note.cc.clone(),
-            signature: None,
-            published: note.published,
-        }
+// impl From<ApNote> for ApCreate {
+//     fn from(note: ApNote) -> Self {
+//         ApCreate {
+//             context: Some(ApContext::default()),
+//             kind: ApCreateType::default(),
+//             actor: note.attributed_to.clone(),
+//             id: note.id.clone().map(|id| format!("{id}#create")),
+//             object: ApObject::Note(note.clone()).into(),
+//             to: note.to.clone(),
+//             cc: note.cc.clone(),
+//             signature: None,
+//             published: note.published,
+//             ephemeral_created_at: None,
+//             ephemeral_updated_at: None,
+//         }
+//     }
+// }
+
+impl Temporal for ApCreate {
+    fn published(&self) -> &str {
+        &self.published
+    }
+
+    fn created_at(&self) -> Option<DateTime<Utc>> {
+        self.ephemeral_created_at
+    }
+
+    fn updated_at(&self) -> Option<DateTime<Utc>> {
+        self.ephemeral_updated_at
     }
 }

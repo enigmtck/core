@@ -2,7 +2,7 @@ use core::fmt;
 use std::fmt::Debug;
 
 use crate::{
-    activity_pub::{ApAddress, ApContext, ApNote, ApObject},
+    activity_pub::{ApAddress, ApContext, ApNote, ApObject, Temporal},
     models::{
         activities::{ActivityType, ExtendedActivity},
         //announces::Announce,
@@ -10,6 +10,7 @@ use crate::{
     },
     MaybeMultiple, MaybeReference,
 };
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
@@ -36,8 +37,28 @@ pub struct ApAnnounce {
     pub id: Option<String>,
     pub to: MaybeMultiple<ApAddress>,
     pub cc: Option<MaybeMultiple<ApAddress>>,
-    pub published: Option<String>,
+    pub published: String,
     pub object: MaybeReference<ApObject>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ephemeral_created_at: Option<DateTime<Utc>>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ephemeral_updated_at: Option<DateTime<Utc>>,
+}
+
+impl Temporal for ApAnnounce {
+    fn published(&self) -> &str {
+        &self.published
+    }
+
+    fn created_at(&self) -> Option<DateTime<Utc>> {
+        self.ephemeral_created_at
+    }
+
+    fn updated_at(&self) -> Option<DateTime<Utc>> {
+        self.ephemeral_updated_at
+    }
 }
 
 // impl From<Announce> for ApAnnounce {
@@ -78,8 +99,10 @@ impl TryFrom<ExtendedActivity> for ApAnnounce {
                     )),
                     to: serde_json::from_value(ap_to).unwrap(),
                     cc: activity.cc.map(|cc| serde_json::from_value(cc).unwrap()),
-                    published: Some(activity.created_at.to_rfc3339()),
+                    published: activity.created_at.to_rfc3339(),
                     object: MaybeReference::Reference(ApNote::from(note).id.unwrap()),
+                    ephemeral_created_at: Some(activity.created_at),
+                    ephemeral_updated_at: Some(activity.updated_at),
                 }),
                 (None, Some(remote_note), Some(ap_to)) => Ok(ApAnnounce {
                     context: Some(ApContext::default()),
@@ -92,8 +115,10 @@ impl TryFrom<ExtendedActivity> for ApAnnounce {
                     )),
                     to: serde_json::from_value(ap_to).unwrap(),
                     cc: activity.cc.map(|cc| serde_json::from_value(cc).unwrap()),
-                    published: Some(activity.created_at.to_rfc3339()),
+                    published: activity.created_at.to_rfc3339(),
                     object: MaybeReference::Reference(remote_note.ap_id),
+                    ephemeral_created_at: Some(activity.created_at),
+                    ephemeral_updated_at: Some(activity.updated_at),
                 }),
                 _ => {
                     log::error!("INVALID ACTIVITY TYPE");
@@ -117,12 +142,14 @@ impl TryFrom<RemoteAnnounce> for ApAnnounce {
                 kind: ApAnnounceType::default(),
                 id: Some(announce.ap_id),
                 actor: ApAddress::Address(announce.actor.clone()),
-                published: Some(announce.published),
+                published: announce.published,
                 to: serde_json::from_value::<MaybeMultiple<ApAddress>>(ap_to).unwrap(),
                 cc: announce
                     .cc
                     .map(|cc| serde_json::from_value::<MaybeMultiple<ApAddress>>(cc).unwrap()),
                 object: serde_json::from_value(announce.ap_object).unwrap(),
+                ephemeral_created_at: Some(announce.created_at),
+                ephemeral_updated_at: Some(announce.updated_at),
             })
         } else {
             Err("MISSING REQUIRED 'TO' VALUE ON REMOTE ANNOUNCE")

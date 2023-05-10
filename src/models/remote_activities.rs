@@ -82,7 +82,7 @@ impl From<ApActivity> for NewRemoteActivity {
                 ap_to: Some(serde_json::to_value(activity.to).unwrap()),
                 cc: activity.cc.map(|cc| serde_json::to_value(cc).unwrap()),
                 actor: activity.actor.to_string(),
-                published: activity.published,
+                published: Some(activity.published),
                 ap_object: Some(serde_json::to_value(&activity.object).unwrap()),
             },
             ApActivity::Invite(activity) => NewRemoteActivity {

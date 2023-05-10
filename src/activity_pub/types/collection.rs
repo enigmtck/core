@@ -10,10 +10,9 @@ use uuid::Uuid;
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub enum ApCollectionType {
+    #[default]
     Collection,
     OrderedCollection,
-    #[default]
-    Unknown,
 }
 
 impl fmt::Display for ApCollectionType {

@@ -2,6 +2,7 @@ pub mod retriever;
 pub mod sender;
 mod types;
 
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 pub use types::accept::{ApAccept, ApAcceptType};
 pub use types::activity::ApActivity;
@@ -36,4 +37,10 @@ pub enum ActivityPub {
     Activity(ApActivity),
     Actor(ApActor),
     Object(ApObject),
+}
+
+pub trait Temporal {
+    fn published(&self) -> &str;
+    fn created_at(&self) -> Option<DateTime<Utc>>;
+    fn updated_at(&self) -> Option<DateTime<Utc>>;
 }

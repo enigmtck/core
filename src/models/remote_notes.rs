@@ -51,10 +51,7 @@ impl From<ApNote> for NewRemoteNote {
                 ],
             ]);
 
-        let published = match note.clone().published {
-            Some(x) => Option::from(x),
-            _ => Option::None,
-        };
+        let published = Some(note.clone().published);
 
         let clean_content_map = {
             let mut content_map = HashMap::<String, String>::new();

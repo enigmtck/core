@@ -287,8 +287,11 @@ pub async fn get_outbox_count_by_profile_id(conn: &Db, profile_id: i32) -> Optio
         activities::table
             .filter(activities::revoked.eq(false))
             .filter(activities::profile_id.eq(profile_id))
-            .filter(activities::kind.eq(ActivityType::Create))
-            .or_filter(activities::kind.eq(ActivityType::Announce))
+            .filter(
+                activities::kind
+                    .eq(ActivityType::Create)
+                    .or(activities::kind.eq(ActivityType::Announce)),
+            )
             .count()
             .get_result::<i64>(c)
     })
@@ -307,8 +310,11 @@ pub async fn get_outbox_activities_by_profile_id(
         let mut query = activities::table
             .filter(activities::revoked.eq(false))
             .filter(activities::profile_id.eq(profile_id))
-            .filter(activities::kind.eq(ActivityType::Create))
-            .or_filter(activities::kind.eq(ActivityType::Announce))
+            .filter(
+                activities::kind
+                    .eq(ActivityType::Create)
+                    .or(activities::kind.eq(ActivityType::Announce)),
+            )
             .left_join(notes::table.on(activities::target_note_id.eq(notes::id.nullable())))
             .left_join(
                 remote_notes::table
@@ -329,7 +335,7 @@ pub async fn get_outbox_activities_by_profile_id(
 
         if let Some(min) = min {
             let date: DateTime<Utc> =
-                DateTime::from_utc(NaiveDateTime::from_timestamp_millis(min).unwrap(), Utc);
+                DateTime::from_utc(NaiveDateTime::from_timestamp_micros(min).unwrap(), Utc);
 
             log::debug!("MINIMUM {date:#?}");
 
@@ -338,7 +344,7 @@ pub async fn get_outbox_activities_by_profile_id(
                 .order(activities::created_at.asc());
         } else if let Some(max) = max {
             let date: DateTime<Utc> =
-                DateTime::from_utc(NaiveDateTime::from_timestamp_millis(max).unwrap(), Utc);
+                DateTime::from_utc(NaiveDateTime::from_timestamp_micros(max).unwrap(), Utc);
 
             log::debug!("MAXIMUM {date:#?}");
 

@@ -42,7 +42,6 @@ fn rocket() -> _ {
                 webfinger_xml,
                 outbox_post,
                 outbox_get,
-                outbox_getn,
                 inbox_post,
                 shared_inbox_post,
                 timeline,

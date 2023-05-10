@@ -71,7 +71,7 @@ impl From<ApAnnounce> for NewRemoteAnnounce {
             actor: activity.actor.to_string(),
             ap_to: Some(serde_json::to_value(activity.to).unwrap()),
             cc: activity.cc.map(|cc| serde_json::to_value(cc).unwrap()),
-            published: activity.published.unwrap_or_default(),
+            published: activity.published,
             ap_object: serde_json::to_value(&activity.object).unwrap(),
             timeline_id: None,
         }

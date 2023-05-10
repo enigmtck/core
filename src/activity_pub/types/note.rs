@@ -96,8 +96,7 @@ pub struct ApNote {
     pub to: MaybeMultiple<ApAddress>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub url: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub published: Option<String>,
+    pub published: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cc: Option<MaybeMultiple<ApAddress>>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -172,7 +171,7 @@ impl Default for ApNote {
             kind: ApNoteType::Note,
             to: MaybeMultiple::Multiple(vec![]),
             url: None,
-            published: None,
+            published: Utc::now().format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string(),
             cc: None,
             replies: None,
             attachment: None,
@@ -225,7 +224,7 @@ impl From<IdentifiedVaultItem> for ApNote {
                 vault.uuid
             )),
             content: vault.encrypted_data,
-            published: Some(vault.created_at.to_rfc2822()),
+            published: vault.created_at.to_rfc3339(),
             ..Default::default()
         }
     }
@@ -283,7 +282,7 @@ impl From<FullyQualifiedTimelineItem> for ApNote {
             attributed_to: ApAddress::Address(timeline.attributed_to),
             id: Some(timeline.ap_id),
             url: timeline.url,
-            published: timeline.published,
+            published: timeline.published.unwrap_or("".to_string()),
             replies: Option::None,
             in_reply_to: timeline.in_reply_to,
             content: timeline.content.unwrap_or_default(),
@@ -367,7 +366,7 @@ impl From<NewNote> for ApNote {
                 Err(_) => Option::None,
             },
             attributed_to: ApAddress::Address(note.attributed_to),
-            published: Option::from(Utc::now().format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string()),
+            published: Utc::now().format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string(),
             id: Option::from(format!(
                 "https://{}/notes/{}",
                 *crate::SERVER_NAME,
@@ -396,7 +395,7 @@ impl From<Note> for ApNote {
         ApNote {
             tag: serde_json::from_value(note.tag.into()).ok(),
             attributed_to: ApAddress::Address(note.attributed_to),
-            published: Some(note.updated_at.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string()),
+            published: note.updated_at.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string(),
             id: Some(format!(
                 "https://{}/notes/{}",
                 *crate::SERVER_NAME,
@@ -445,7 +444,7 @@ impl From<RemoteNoteAndMetadata> for ApNote {
         ApNote {
             id: Some(remote_note.ap_id),
             kind,
-            published: remote_note.published,
+            published: remote_note.published.unwrap_or("".to_string()),
             url: remote_note.url,
             to: match serde_json::from_value(remote_note.ap_to.into()) {
                 Ok(x) => x,
