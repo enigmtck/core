@@ -18,7 +18,7 @@ diesel::table! {
         id -> Int4,
         created_at -> Timestamptz,
         updated_at -> Timestamptz,
-        profile_id -> Int4,
+        profile_id -> Nullable<Int4>,
         kind -> ActivityType,
         uuid -> Varchar,
         actor -> Varchar,
@@ -31,6 +31,7 @@ diesel::table! {
         target_ap_id -> Nullable<Varchar>,
         target_remote_actor_id -> Nullable<Int4>,
         revoked -> Bool,
+        ap_id -> Nullable<Varchar>,
     }
 }
 
@@ -386,7 +387,6 @@ diesel::table! {
     }
 }
 
-diesel::joinable!(activities -> profiles (profile_id));
 diesel::joinable!(encrypted_sessions -> profiles (profile_id));
 diesel::joinable!(followers -> profiles (profile_id));
 diesel::joinable!(leaders -> profiles (profile_id));

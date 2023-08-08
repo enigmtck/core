@@ -9,6 +9,7 @@ use crate::fairings::events::EventChannels;
 use crate::fairings::faktory::FaktoryConnection;
 use crate::fairings::signatures::Signed;
 use crate::inbox;
+use crate::models::activities::{create_activity, NewActivity};
 use crate::models::profiles::get_profile_by_username;
 use crate::models::remote_activities::create_remote_activity;
 use crate::signing::VerificationType;
@@ -76,7 +77,9 @@ pub async fn shared_inbox_post(
                 ApActivity::Create(activity) => {
                     inbox::activity::create(conn, faktory, activity).await
                 }
-                ApActivity::Follow(activity) => inbox::activity::follow(faktory, activity).await,
+                ApActivity::Follow(activity) => {
+                    inbox::activity::follow(conn, faktory, activity).await
+                }
                 ApActivity::Undo(activity) => {
                     inbox::activity::undo(conn, events, faktory, *activity).await
                 }

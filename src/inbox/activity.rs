@@ -9,6 +9,7 @@ use crate::{
         faktory::{assign_to_faktory, FaktoryConnection},
     },
     models::{
+        activities::{create_activity, NewActivity},
         profiles::get_profile_by_ap_id,
         remote_actors::{create_or_update_remote_actor, delete_remote_actor_by_ap_id},
         remote_announces::{create_remote_announce, NewRemoteAnnounce},
@@ -109,18 +110,33 @@ pub async fn create(
     faktory: FaktoryConnection,
     activity: ApCreate,
 ) -> Result<Status, Status> {
-    match activity.object {
+    match activity.clone().object {
         MaybeReference::Actual(ApObject::Note(x)) => {
             let n = NewRemoteNote::from(x.clone());
 
+            // creating Activity after RemoteNote is weird, but currently necessary
+            // see comment in models/activities.rs on TryFrom<ApActivity>
             if let Some(created_note) = create_or_update_remote_note(&conn, n).await {
-                match assign_to_faktory(
-                    faktory,
-                    String::from("process_remote_note"),
-                    vec![created_note.ap_id],
-                ) {
-                    Ok(_) => Ok(Status::Accepted),
-                    Err(_) => Err(Status::NoContent),
+                if let Some(activity) = NewActivity::try_from(ApActivity::Create(activity))
+                    .ok()
+                    .map(|mut x| x.link_target(created_note.clone().into()).clone())
+                {
+                    log::debug!("ACTIVITY\n{activity:#?}");
+                    if create_activity(&conn, activity).await.is_some() {
+                        match assign_to_faktory(
+                            faktory,
+                            String::from("process_remote_note"),
+                            vec![created_note.ap_id],
+                        ) {
+                            Ok(_) => Ok(Status::Accepted),
+                            Err(_) => Err(Status::NoContent),
+                        }
+                    } else {
+                        log::error!("FAILED TO INSERT ACTIVITY");
+                        Err(Status::NoContent)
+                    }
+                } else {
+                    Err(Status::NoContent)
                 }
             } else {
                 Err(Status::NoContent)
@@ -140,13 +156,22 @@ pub async fn announce(
     let n = NewRemoteAnnounce::from(activity.clone()).link(&conn).await;
 
     if let Some(created_announce) = create_remote_announce(&conn, n).await {
-        match assign_to_faktory(
-            faktory,
-            String::from("process_announce"),
-            vec![created_announce.ap_id],
-        ) {
-            Ok(_) => Ok(Status::Accepted),
-            Err(_) => Err(Status::NoContent),
+        if let Ok(activity) = NewActivity::try_from(ApActivity::Announce(activity)) {
+            log::debug!("ACTIVITY\n{activity:#?}");
+            if create_activity(&conn, activity).await.is_some() {
+                match assign_to_faktory(
+                    faktory,
+                    String::from("process_announce"),
+                    vec![created_announce.ap_id],
+                ) {
+                    Ok(_) => Ok(Status::Accepted),
+                    Err(_) => Err(Status::NoContent),
+                }
+            } else {
+                Err(Status::NoContent)
+            }
+        } else {
+            Err(Status::NoContent)
         }
     } else {
         log::debug!("create_remote_announce failed");
@@ -154,14 +179,40 @@ pub async fn announce(
     }
 }
 
-pub async fn follow(faktory: FaktoryConnection, activity: ApFollow) -> Result<Status, Status> {
-    if let Some(ap_id) = activity.id {
-        match assign_to_faktory(faktory, String::from("acknowledge_followers"), vec![ap_id]) {
-            Ok(_) => Ok(Status::Accepted),
-            Err(e) => {
-                log::error!("FAILED TO ASSIGN TO FAKTORY\n{e:#?}");
+pub async fn follow(
+    conn: Db,
+    faktory: FaktoryConnection,
+    activity: ApFollow,
+) -> Result<Status, Status> {
+    if let (Some(ap_id), Some(profile_ap_id)) =
+        (activity.id.clone(), activity.object.clone().reference())
+    {
+        if let Some(profile) = get_profile_by_ap_id(&conn, profile_ap_id.clone()).await {
+            if let Some(activity) = NewActivity::try_from(ApActivity::Follow(activity))
+                .ok()
+                .map(|mut x| x.link_target(profile.clone().into()).clone())
+            {
+                log::debug!("ACTIVITY\n{activity:#?}");
+                if create_activity(&conn, activity).await.is_some() {
+                    match assign_to_faktory(
+                        faktory,
+                        String::from("acknowledge_followers"),
+                        vec![ap_id],
+                    ) {
+                        Ok(_) => Ok(Status::Accepted),
+                        Err(e) => {
+                            log::error!("FAILED TO ASSIGN TO FAKTORY\n{e:#?}");
+                            Err(Status::NoContent)
+                        }
+                    }
+                } else {
+                    Err(Status::NoContent)
+                }
+            } else {
                 Err(Status::NoContent)
             }
+        } else {
+            Err(Status::NoContent)
         }
     } else {
         Err(Status::NoContent)

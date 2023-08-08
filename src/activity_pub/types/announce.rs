@@ -48,8 +48,8 @@ pub struct ApAnnounce {
 }
 
 impl Temporal for ApAnnounce {
-    fn published(&self) -> &str {
-        &self.published
+    fn published(&self) -> String {
+        self.published.clone()
     }
 
     fn created_at(&self) -> Option<DateTime<Utc>> {

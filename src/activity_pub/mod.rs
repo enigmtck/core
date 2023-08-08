@@ -40,7 +40,7 @@ pub enum ActivityPub {
 }
 
 pub trait Temporal {
-    fn published(&self) -> &str;
+    fn published(&self) -> String;
     fn created_at(&self) -> Option<DateTime<Utc>>;
     fn updated_at(&self) -> Option<DateTime<Utc>>;
 }

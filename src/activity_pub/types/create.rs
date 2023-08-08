@@ -36,7 +36,7 @@ pub struct ApCreate {
     pub cc: Option<MaybeMultiple<ApAddress>>,
     pub id: Option<String>,
     pub object: MaybeReference<ApObject>,
-    pub published: String,
+    pub published: Option<String>,
     pub signature: Option<ApSignature>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -67,7 +67,7 @@ impl TryFrom<ExtendedActivity> for ApCreate {
                     to: serde_json::from_value(ap_to).unwrap(),
                     cc: activity.cc.map(|cc| serde_json::from_value(cc).unwrap()),
                     signature: None,
-                    published: activity.created_at.to_rfc3339(),
+                    published: Some(activity.created_at.to_rfc3339()),
                     ephemeral_created_at: Some(activity.created_at),
                     ephemeral_updated_at: Some(activity.updated_at),
                 })
@@ -101,8 +101,14 @@ impl TryFrom<ExtendedActivity> for ApCreate {
 // }
 
 impl Temporal for ApCreate {
-    fn published(&self) -> &str {
-        &self.published
+    fn published(&self) -> String {
+        if let Some(published) = &self.published {
+            published.to_string()
+        } else if let MaybeReference::Actual(ApObject::Note(note)) = &self.object {
+            note.published.clone()
+        } else {
+            Utc::now().to_rfc3339()
+        }
     }
 
     fn created_at(&self) -> Option<DateTime<Utc>> {

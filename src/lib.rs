@@ -161,6 +161,23 @@ pub enum MaybeReference<T> {
     None,
 }
 
+impl<T> MaybeReference<T> {
+    pub fn reference(&self) -> Option<String> {
+        match self {
+            MaybeReference::Reference(reference) => Some(reference.clone()),
+            MaybeReference::Identifier(identifier) => Some(identifier.id.clone()),
+            _ => None,
+        }
+    }
+
+    pub fn actual(&self) -> Option<&T> {
+        match self {
+            MaybeReference::Actual(actual) => Some(actual),
+            _ => None,
+        }
+    }
+}
+
 impl<T> fmt::Display for MaybeReference<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {

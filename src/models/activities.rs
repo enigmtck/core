@@ -1,4 +1,4 @@
-use crate::activity_pub::ApAddress;
+use crate::activity_pub::{ApActivity, ApAddress, ApAnnounceType, ApCreateType, ApFollowType};
 use crate::db::Db;
 use crate::helper::{
     get_activity_ap_id_from_uuid, get_ap_id_from_username, get_note_ap_id_from_uuid,
@@ -34,6 +34,44 @@ pub enum ActivityType {
     Remove,
 }
 
+impl From<ApCreateType> for ActivityType {
+    fn from(_: ApCreateType) -> Self {
+        ActivityType::Create
+    }
+}
+
+impl From<ApAnnounceType> for ActivityType {
+    fn from(_: ApAnnounceType) -> Self {
+        ActivityType::Announce
+    }
+}
+
+impl From<ApFollowType> for ActivityType {
+    fn from(_: ApFollowType) -> Self {
+        ActivityType::Follow
+    }
+}
+
+pub enum ActivityTarget {
+    Note(Note),
+    RemoteNote(RemoteNote),
+    Profile(Profile),
+    Activity(Activity),
+    RemoteActor(RemoteActor),
+}
+
+impl From<RemoteNote> for ActivityTarget {
+    fn from(remote_note: RemoteNote) -> Self {
+        ActivityTarget::RemoteNote(remote_note)
+    }
+}
+
+impl From<Profile> for ActivityTarget {
+    fn from(profile: Profile) -> Self {
+        ActivityTarget::Profile(profile)
+    }
+}
+
 #[derive(Serialize, Deserialize, Insertable, Default, Debug, Clone)]
 #[diesel(table_name = activities)]
 pub struct NewActivity {
@@ -59,6 +97,91 @@ impl NewActivity {
         };
 
         self.clone()
+    }
+
+    pub fn link_target(&mut self, target: ActivityTarget) -> &Self {
+        match target {
+            ActivityTarget::Note(note) => {
+                self.target_note_id = Some(note.id);
+                self.target_ap_id = Some(get_note_ap_id_from_uuid(note.uuid));
+            }
+            ActivityTarget::RemoteNote(remote_note) => {
+                self.target_remote_note_id = Some(remote_note.id);
+                self.target_ap_id = Some(remote_note.ap_id);
+            }
+            ActivityTarget::Profile(profile) => {
+                self.target_profile_id = Some(profile.id);
+                self.target_ap_id = Some(get_ap_id_from_username(profile.username));
+            }
+            ActivityTarget::Activity(activity) => {
+                self.target_activity_id = Some(activity.id);
+                self.target_ap_id = Some(get_activity_ap_id_from_uuid(activity.uuid));
+            }
+            ActivityTarget::RemoteActor(remote_actor) => {
+                self.target_remote_actor_id = Some(remote_actor.id);
+                self.target_ap_id = Some(remote_actor.ap_id);
+            }
+        }
+        self
+    }
+}
+
+impl TryFrom<ApActivity> for NewActivity {
+    type Error = &'static str;
+
+    // eventually I may be able to move decomposition logic here (e.g., create target_remote_note, etc.)
+    // that will require the ability to `await` on database calls
+    //
+    // https://blog.rust-lang.org/inside-rust/2023/05/03/stabilizing-async-fn-in-trait.html
+    fn try_from(activity: ApActivity) -> Result<Self, Self::Error> {
+        match activity {
+            ApActivity::Create(create) => Ok(NewActivity {
+                kind: create.kind.into(),
+                uuid: uuid::Uuid::new_v4().to_string(),
+                actor: create.actor.to_string(),
+                ap_to: serde_json::to_value(create.to).ok(),
+                cc: serde_json::to_value(create.cc).ok(),
+                profile_id: None,
+                target_note_id: None,
+                target_remote_note_id: None,
+                target_profile_id: None,
+                target_activity_id: None,
+                target_ap_id: None,
+                target_remote_actor_id: None,
+                revoked: false,
+            }),
+            ApActivity::Announce(announce) => Ok(NewActivity {
+                kind: announce.kind.into(),
+                uuid: uuid::Uuid::new_v4().to_string(),
+                actor: announce.actor.to_string(),
+                ap_to: serde_json::to_value(announce.to).ok(),
+                cc: serde_json::to_value(announce.cc).ok(),
+                profile_id: None,
+                target_note_id: None,
+                target_remote_note_id: None,
+                target_profile_id: None,
+                target_activity_id: None,
+                target_ap_id: announce.object.reference(),
+                target_remote_actor_id: None,
+                revoked: false,
+            }),
+            ApActivity::Follow(follow) => Ok(NewActivity {
+                kind: follow.kind.into(),
+                uuid: uuid::Uuid::new_v4().to_string(),
+                actor: follow.actor.to_string(),
+                ap_to: None,
+                cc: None,
+                profile_id: None,
+                target_note_id: None,
+                target_remote_note_id: None,
+                target_profile_id: None,
+                target_activity_id: None,
+                target_ap_id: follow.object.reference(),
+                target_remote_actor_id: None,
+                revoked: false,
+            }),
+            _ => Err("UNIMPLEMENTED ACTIVITY TYPE"),
+        }
     }
 }
 
@@ -176,7 +299,7 @@ pub struct Activity {
     pub id: i32,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
-    pub profile_id: i32,
+    pub profile_id: Option<i32>,
     pub kind: ActivityType,
     pub uuid: String,
     pub actor: String,
@@ -189,6 +312,7 @@ pub struct Activity {
     pub target_ap_id: Option<String>,
     pub target_remote_actor_id: Option<i32>,
     pub revoked: bool,
+    pub ap_id: Option<String>,
 }
 
 pub async fn create_activity(conn: &Db, activity: NewActivity) -> Option<Activity> {

@@ -65,29 +65,29 @@ pub fn delete_note(job: Job) -> io::Result<()> {
         )) = get_activity_by_uuid(uuid.clone())
         {
             log::debug!("FOUND ACTIVITY\n{activity:#?}");
-            if let (Some(sender), Some(note)) =
-                (get_profile(activity.profile_id), target_note.clone())
-            {
-                if let Ok(activity) = ApActivity::try_from((
-                    (
-                        activity,
-                        target_note,
-                        target_remote_note,
-                        target_profile,
-                        target_remote_actor,
-                    ),
-                    None,
-                )) {
-                    let inboxes: Vec<ApAddress> = get_inboxes(activity.clone(), sender.clone());
-                    send_to_inboxes(inboxes, sender, activity.clone());
+            if let Some(profile_id) = activity.profile_id {
+                if let (Some(sender), Some(note)) = (get_profile(profile_id), target_note.clone()) {
+                    if let Ok(activity) = ApActivity::try_from((
+                        (
+                            activity,
+                            target_note,
+                            target_remote_note,
+                            target_profile,
+                            target_remote_actor,
+                        ),
+                        None,
+                    )) {
+                        let inboxes: Vec<ApAddress> = get_inboxes(activity.clone(), sender.clone());
+                        send_to_inboxes(inboxes, sender, activity.clone());
 
-                    let ap_id = get_note_ap_id_from_uuid(note.uuid.clone());
+                        let ap_id = get_note_ap_id_from_uuid(note.uuid.clone());
 
-                    if let Ok(records) = delete_timeline_item_by_ap_id(ap_id) {
-                        log::debug!("TIMELINE RECORDS DELETED: {records}");
+                        if let Ok(records) = delete_timeline_item_by_ap_id(ap_id) {
+                            log::debug!("TIMELINE RECORDS DELETED: {records}");
 
-                        if let Ok(records) = delete_note_by_uuid(note.uuid) {
-                            log::debug!("NOTE RECORDS DELETED: {records}");
+                            if let Ok(records) = delete_note_by_uuid(note.uuid) {
+                                log::debug!("NOTE RECORDS DELETED: {records}");
+                            }
                         }
                     }
                 }
@@ -115,70 +115,70 @@ pub fn process_outbound_note(job: Job) -> io::Result<()> {
             target_remote_actor,
         )) = get_activity_by_uuid(uuid)
         {
-            if let (Some(sender), Some(note)) =
-                (get_profile(activity.profile_id), target_note.clone())
-            {
-                let activity = match note.kind {
-                    NoteType::Note => {
-                        if let Ok(activity) = ApActivity::try_from((
-                            (
-                                activity,
-                                target_note,
-                                target_remote_note,
-                                target_profile,
-                                target_remote_actor,
-                            ),
-                            None,
-                        )) {
-                            Some(activity)
-                        } else {
-                            None
-                        }
-                    }
-                    // NoteType::EncryptedNote => {
-                    //     handle_encrypted_note(&mut note, sender.clone())
-                    //         .map(ApActivity::Create(ApCreate::from))
-                    // }
-                    _ => None,
-                };
-
-                add_note_to_timeline(note, sender.clone());
-
-                if let Some(activity) = activity {
-                    let inboxes: Vec<ApAddress> = get_inboxes(activity.clone(), sender.clone());
-
-                    log::debug!("SENDING ACTIVITY\n{activity:#?}");
-                    log::debug!("INBOXES\n{inboxes:#?}");
-
-                    for url in inboxes {
-                        let body = Option::from(serde_json::to_string(&activity).unwrap());
-                        let method = Method::Post;
-
-                        let signature = crate::signing::sign(SignParams {
-                            profile: sender.clone(),
-                            url: url.to_string().clone(),
-                            body: body.clone(),
-                            method,
-                        });
-
-                        let client = Client::new()
-                            .post(&url.to_string())
-                            .header("Date", signature.date)
-                            .header("Digest", signature.digest.unwrap())
-                            .header("Signature", &signature.signature)
-                            .header("Content-Type", "application/activity+json")
-                            .body(body.unwrap());
-
-                        handle.block_on(async {
-                            if let Ok(resp) = client.send().await {
-                                match resp.status() {
-                                    StatusCode::ACCEPTED | StatusCode::OK => {
-                                        log::debug!("SENT TO {url}")
-                                    }
-                                    _ => log::error!("ERROR SENDING TO {url}"),
-                                }
+            if let Some(profile_id) = activity.profile_id {
+                if let (Some(sender), Some(note)) = (get_profile(profile_id), target_note.clone()) {
+                    let activity = match note.kind {
+                        NoteType::Note => {
+                            if let Ok(activity) = ApActivity::try_from((
+                                (
+                                    activity,
+                                    target_note,
+                                    target_remote_note,
+                                    target_profile,
+                                    target_remote_actor,
+                                ),
+                                None,
+                            )) {
+                                Some(activity)
+                            } else {
+                                None
                             }
-                        })
+                        }
+                        // NoteType::EncryptedNote => {
+                        //     handle_encrypted_note(&mut note, sender.clone())
+                        //         .map(ApActivity::Create(ApCreate::from))
+                        // }
+                        _ => None,
+                    };
+
+                    add_note_to_timeline(note, sender.clone());
+
+                    if let Some(activity) = activity {
+                        let inboxes: Vec<ApAddress> = get_inboxes(activity.clone(), sender.clone());
+
+                        log::debug!("SENDING ACTIVITY\n{activity:#?}");
+                        log::debug!("INBOXES\n{inboxes:#?}");
+
+                        for url in inboxes {
+                            let body = Option::from(serde_json::to_string(&activity).unwrap());
+                            let method = Method::Post;
+
+                            let signature = crate::signing::sign(SignParams {
+                                profile: sender.clone(),
+                                url: url.to_string().clone(),
+                                body: body.clone(),
+                                method,
+                            });
+
+                            let client = Client::new()
+                                .post(&url.to_string())
+                                .header("Date", signature.date)
+                                .header("Digest", signature.digest.unwrap())
+                                .header("Signature", &signature.signature)
+                                .header("Content-Type", "application/activity+json")
+                                .body(body.unwrap());
+
+                            handle.block_on(async {
+                                if let Ok(resp) = client.send().await {
+                                    match resp.status() {
+                                        StatusCode::ACCEPTED | StatusCode::OK => {
+                                            log::debug!("SENT TO {url}")
+                                        }
+                                        _ => log::error!("ERROR SENDING TO {url}"),
+                                    }
+                                }
+                            })
+                        }
                     }
                 }
             }
@@ -289,14 +289,19 @@ fn add_note_to_timeline(note: Note, sender: Profile) {
     }
 }
 
+// TODO: This is problematic for links that point to large files; the filter tries
+// to account for some of that, but that's not really a solution. Maybe a whitelist?
+// That would suck. I wish the Webpage crate had a size limit (i.e., load pages with
+// a maximum size of 10MB or whatever a reasonable amount would be).
 pub fn get_links(text: String) -> Vec<String> {
     let re = regex::Regex::new(r#"<a href="(.+?)".*?>"#).unwrap();
 
     re.captures_iter(&text)
         .filter(|cap| {
-            !cap[0].to_string().contains("mention")
-                && !cap[0].to_string().contains("u-url")
-                && !cap[0].contains("hashtag")
+            !cap[0].to_lowercase().contains("mention")
+                && !cap[0].to_lowercase().contains("u-url")
+                && !cap[0].to_lowercase().contains("hashtag")
+                && !cap[0].to_lowercase().contains("download")
                 && !cap[1].to_lowercase().contains(".pdf")
         })
         .map(|cap| cap[1].to_string())
