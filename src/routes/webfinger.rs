@@ -4,7 +4,7 @@ use rocket::{get, http::Status, serde::json::Json};
 #[get(
     "/.well-known/webfinger?<resource>",
     format = "application/xrd+xml",
-    rank = 2
+    rank = 4
 )]
 pub async fn webfinger_xml(conn: Db, resource: String) -> Result<String, Status> {
     if resource.starts_with("acct:") {
@@ -32,8 +32,25 @@ pub async fn webfinger_xml(conn: Db, resource: String) -> Result<String, Status>
 #[get(
     "/.well-known/webfinger?<resource>",
     format = "application/jrd+json",
-    rank = 1
+    rank = 3
 )]
+pub async fn webfinger_jrd_json(conn: Db, resource: String) -> Result<Json<WebFinger>, Status> {
+    webfinger_json(conn, resource).await
+}
+
+#[get(
+    "/.well-known/webfinger?<resource>",
+    format = "application/activity+json",
+    rank = 2
+)]
+pub async fn webfinger_activity_json(
+    conn: Db,
+    resource: String,
+) -> Result<Json<WebFinger>, Status> {
+    webfinger_json(conn, resource).await
+}
+
+#[get("/.well-known/webfinger?<resource>", format = "json", rank = 1)]
 pub async fn webfinger_json(conn: Db, resource: String) -> Result<Json<WebFinger>, Status> {
     if resource.starts_with("acct:") {
         let parts = resource.split(':').collect::<Vec<&str>>();

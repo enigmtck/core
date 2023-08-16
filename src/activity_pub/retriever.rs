@@ -1,6 +1,8 @@
 use chrono::Duration;
 use chrono::Utc;
+use faktory::Error;
 use reqwest::Client;
+use reqwest::Response;
 use reqwest::StatusCode;
 
 use crate::activity_pub::ApActor;
@@ -20,43 +22,20 @@ use super::types::collection::ApCollectionPage;
 use super::ApCollection;
 use super::ApNote;
 
-pub async fn get_remote_collection_page(page: String) -> Option<ApCollectionPage> {
-    let client = Client::new();
-
-    if let Ok(response) = client
-        .get(page)
-        .header("Accept", "application/activity+json")
-        .send()
-        .await
-    {
-        if let Ok(response) = response.json::<ApCollectionPage>().await {
-            Some(response)
-        } else {
-            log::error!("FAILED TO PARSE RESPONSE AS ApCollectionPage");
-            None
-        }
-    } else {
-        log::error!("FAILED TO MAKE REMOTE REQUEST");
-        None
+pub async fn get_remote_collection_page(
+    profile: Option<Profile>,
+    url: String,
+) -> Option<ApCollectionPage> {
+    match maybe_signed_get(profile, url).await {
+        Ok(response) => response.json::<ApCollectionPage>().await.ok(),
+        _ => None,
     }
 }
 
-pub async fn get_remote_collection(url: String) -> Option<ApCollection> {
-    let client = Client::new();
-
-    if let Ok(response) = client
-        .get(&url)
-        .header("Accept", "application/activity+json")
-        .send()
-        .await
-    {
-        if let Ok(response) = response.json::<ApCollection>().await {
-            Some(response)
-        } else {
-            None
-        }
-    } else {
-        None
+pub async fn get_remote_collection(profile: Option<Profile>, url: String) -> Option<ApCollection> {
+    match maybe_signed_get(profile, url).await {
+        Ok(response) => response.json::<ApCollection>().await.ok(),
+        _ => None,
     }
 }
 
@@ -112,74 +91,42 @@ pub async fn get_remote_webfinger(acct: String) -> Option<WebFinger> {
 pub async fn get_note(conn: &Db, profile: Option<Profile>, id: String) -> Option<ApNote> {
     match get_remote_note_by_ap_id(conn, id.clone()).await {
         Some(remote_note) => Some(remote_note.into()),
-        None => {
-            let client = Client::new();
-            let client = client.get(&id).header(
-                "Accept",
-                "application/ld+json; profile=\"http://www.w3.org/ns/activitystreams\"",
-            );
-
-            let client = {
-                if let Some(profile) = profile {
-                    let url = id.clone();
-                    let body = Option::None;
-                    let method = Method::Get;
-
-                    let signature = sign(SignParams {
-                        profile,
-                        url,
-                        body,
-                        method,
-                    });
-
-                    client
-                        .header("Signature", &signature.signature)
-                        .header("Date", signature.date)
-                } else {
-                    client
-                }
-            };
-
-            match client.send().await {
-                Ok(resp) => match resp.status() {
-                    StatusCode::ACCEPTED | StatusCode::OK => match resp.text().await {
-                        Ok(n) => {
-                            let note = match serde_json::from_str::<ApNote>(&n) {
-                                Ok(note) => Option::from(note),
-                                Err(_) => {
-                                    log::error!("FAILED TO DECODE REMOTE NOTE: {n:#?}");
-                                    Option::None
-                                }
-                            };
-
-                            if let Some(note) = note {
-                                create_or_update_remote_note(
-                                    conn,
-                                    NewRemoteNote::from(note.clone()),
-                                )
-                                .await;
-                                note.into()
-                            } else {
-                                log::error!("FAILED TO CREATE REMOTE NOTE: {n:#?}");
+        None => match maybe_signed_get(profile, id).await {
+            Ok(resp) => match resp.status() {
+                StatusCode::ACCEPTED | StatusCode::OK => match resp.text().await {
+                    Ok(n) => {
+                        let note = match serde_json::from_str::<ApNote>(&n) {
+                            Ok(note) => Option::from(note),
+                            Err(_) => {
+                                log::error!("FAILED TO DECODE REMOTE NOTE: {n:#?}");
                                 Option::None
                             }
-                        }
-                        Err(e) => {
-                            log::error!("FAILED TO UNPACK REMOTE NOTE: {e:#?}");
+                        };
+
+                        if let Some(note) = note {
+                            create_or_update_remote_note(conn, NewRemoteNote::from(note.clone()))
+                                .await;
+                            note.into()
+                        } else {
+                            log::error!("FAILED TO CREATE REMOTE NOTE: {n:#?}");
                             Option::None
                         }
-                    },
-                    _ => {
-                        log::debug!("REMOTE NOTE STATUS: {:#?}", resp.status());
+                    }
+                    Err(e) => {
+                        log::error!("FAILED TO UNPACK REMOTE NOTE: {e:#?}");
                         Option::None
                     }
                 },
-                Err(e) => {
-                    log::error!("FAILED TO RETRIEVE REMOTE NOTE: {e:#?}");
+                _ => {
+                    log::debug!("REMOTE NOTE STATUS: {:#?}", resp.status());
                     Option::None
                 }
+            },
+            Err(e) => {
+                log::error!("FAILED TO RETRIEVE REMOTE NOTE: {e:#?}");
+                Option::None
             }
-        }
+        },
     }
 }
 
@@ -240,35 +187,7 @@ pub async fn get_actor(
         update_webfinger(conn, actor.id.clone().unwrap().to_string()).await;
         Some(actor)
     } else if update {
-        let client = Client::builder();
-        let client = client.user_agent("Enigmatick/0.1").build().unwrap();
-
-        let client = {
-            if let Some(profile) = profile {
-                let url = id.clone();
-                let body = Option::None;
-                let method = Method::Get;
-
-                let signature = sign(SignParams {
-                    profile,
-                    url,
-                    body,
-                    method,
-                });
-
-                client
-                    .get(&id)
-                    .header("Signature", &signature.signature)
-                    .header("Date", signature.date)
-                    .header("Accept", "application/activity+json")
-            } else {
-                client
-                    .get(&id)
-                    .header("Accept", "application/activity+json")
-            }
-        };
-
-        match client.send().await {
+        match maybe_signed_get(profile, id).await {
             Ok(resp) => match resp.status() {
                 StatusCode::ACCEPTED | StatusCode::OK => {
                     if let Ok(text) = resp.text().await {
@@ -286,7 +205,7 @@ pub async fn get_actor(
                     }
                 }
                 _ => {
-                    log::debug!("REMOTE ACTOR RETRIEVAL STATUS: {:#?}", resp.status());
+                    log::debug!("REMOTE ACTOR RETRIEVAL FAILED\n{:#?}", resp.text().await);
                     None
                 }
             },
@@ -298,4 +217,39 @@ pub async fn get_actor(
     } else {
         None
     }
+}
+
+async fn maybe_signed_get(
+    profile: Option<Profile>,
+    url: String,
+) -> Result<Response, reqwest::Error> {
+    let client = Client::builder();
+    let client = client.user_agent("Enigmatick/0.1").build().unwrap();
+
+    let client = {
+        if let Some(profile) = profile {
+            let body = Option::None;
+            let method = Method::Get;
+
+            log::debug!("SIGNING REQUEST FOR REMOTE ACTOR");
+            let signature = sign(SignParams {
+                profile,
+                url: url.clone(),
+                body,
+                method,
+            });
+
+            client
+                .get(&url)
+                .header("Signature", &signature.signature)
+                .header("Date", signature.date)
+                .header("Accept", "application/activity+json")
+        } else {
+            client
+                .get(&url)
+                .header("Accept", "application/activity+json")
+        }
+    };
+
+    client.send().await
 }

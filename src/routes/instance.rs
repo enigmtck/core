@@ -21,7 +21,7 @@ impl<'r> FromParam<'r> for ApiVersion<'r> {
     }
 }
 
-#[get("/.well-known/host-meta", format = "application/xrd+xml")]
+#[get("/.well-known/host-meta")]
 pub async fn host_meta() -> Result<String, Status> {
     Ok(r#"<?xml version="1.0" encoding="UTF-8"?><XRD xmlns="http://docs.oasis-open.org/ns/xri/xrd-1.0"><Link rel="lrdd" template="https://enigmatick.jdt.dev/.well-known/webfinger?resource={uri}" type="application/json" /></XRD>"#.to_string())
 }

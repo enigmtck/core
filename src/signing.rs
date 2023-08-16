@@ -242,7 +242,7 @@ pub fn sign(params: SignParams) -> SignResponse {
         }
     } else {
         let structured_data = format!(
-            "(request-target): {}\nhost: {}\ndate: {}\n",
+            "(request-target): {}\nhost: {}\ndate: {}",
             request_target, host, date
         );
 

@@ -16,7 +16,15 @@ use super::remote_actors::RemoteActor;
 use super::remote_notes::RemoteNote;
 
 #[derive(
-    diesel_derive_enum::DbEnum, Debug, Serialize, Deserialize, Default, Clone, Eq, PartialEq,
+    diesel_derive_enum::DbEnum,
+    Debug,
+    Serialize,
+    Deserialize,
+    Default,
+    Clone,
+    Eq,
+    PartialEq,
+    QueryId,
 )]
 #[ExistingTypePath = "crate::schema::sql_types::ActivityType"]
 pub enum ActivityType {
