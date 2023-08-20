@@ -87,46 +87,70 @@ pub struct ApActor {
     #[serde(rename = "@context")]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub context: Option<ApContext>,
+
     #[serde(rename = "type")]
     pub kind: ApActorType,
+
     #[serde(skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
+
     #[serde(skip_serializing_if = "Option::is_none")]
     pub summary: Option<String>,
+
     #[serde(skip_serializing_if = "Option::is_none")]
     pub id: Option<ApAddress>,
+
     pub preferred_username: String,
     pub inbox: String,
     pub outbox: String,
+
     #[serde(skip_serializing_if = "Option::is_none")]
     pub followers: Option<String>,
+
     #[serde(skip_serializing_if = "Option::is_none")]
     pub following: Option<String>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub subscribers: Option<String>,
+
     #[serde(skip_serializing_if = "Option::is_none")]
     pub liked: Option<String>,
+
     pub public_key: ApPublicKey,
+
     #[serde(skip_serializing_if = "Option::is_none")]
     pub featured: Option<String>,
+
     #[serde(skip_serializing_if = "Option::is_none")]
     pub featured_tags: Option<String>,
+
     #[serde(skip_serializing_if = "Option::is_none")]
     pub url: Option<String>,
+
     #[serde(skip_serializing_if = "Option::is_none")]
     pub manually_approves_followers: Option<bool>,
+
     #[serde(skip_serializing_if = "Option::is_none")]
     pub published: Option<String>,
+
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tag: Option<Vec<ApTag>>,
+
     #[serde(skip_serializing_if = "Option::is_none")]
     pub attachment: Option<Vec<ApAttachment>>,
+
     #[serde(skip_serializing_if = "Option::is_none")]
     pub endpoints: Option<ApEndpoint>,
+
     #[serde(skip_serializing_if = "Option::is_none")]
     pub icon: Option<ApImage>,
+
     #[serde(skip_serializing_if = "Option::is_none")]
     pub image: Option<ApImage>,
+
     #[serde(skip_serializing_if = "Option::is_none")]
     pub also_known_as: Option<Vec<String>>,
+
     #[serde(skip_serializing_if = "Option::is_none")]
     pub discoverable: Option<bool>,
 
@@ -137,14 +161,17 @@ pub struct ApActor {
     // These facilitate consolidation of joined tables in to this object
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ephemeral_followers: Option<Vec<ApActor>>,
+
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ephemeral_leaders: Option<Vec<ApActor>>,
 
     // These are ephemeral attributes to facilitate client operations
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ephemeral_following: Option<bool>,
+
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ephemeral_leader_ap_id: Option<String>,
+
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ephemeral_follow_activity_ap_id: Option<String>,
 
@@ -168,6 +195,7 @@ impl Default for ApActor {
             outbox: String::new(),
             followers: None,
             following: None,
+            subscribers: None,
             liked: None,
             public_key: ApPublicKey::default(),
             featured: None,
@@ -288,6 +316,7 @@ impl From<Profile> for ApActor {
                 "{}/user/{}/following/",
                 server_url, profile.username
             )),
+            subscribers: None,
             featured: None,
             featured_tags: None,
             manually_approves_followers: Some(false),
@@ -362,6 +391,7 @@ impl From<RemoteActor> for ApActor {
             outbox: actor.outbox,
             followers: actor.followers,
             following: actor.following,
+            subscribers: None,
             liked: actor.liked,
             public_key: serde_json::from_value(actor.public_key.into()).unwrap(),
             featured: actor.featured,

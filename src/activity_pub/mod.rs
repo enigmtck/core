@@ -22,9 +22,14 @@ pub use types::join::{ApJoin, ApJoinType};
 pub use types::like::{ApLike, ApLikeType};
 pub use types::note::{ApNote, ApNoteType, FullyQualifiedTimelineItem, Metadata};
 pub use types::object::{
-    ApAttachment, ApAttachmentType, ApBasicContent, ApBasicContentType, ApContext, ApEndpoint,
-    ApImage, ApImageType, ApObject, ApTag,
+    ApBasicContent, ApBasicContentType, ApContext, ApEndpoint, ApImage, ApImageType, ApObject,
+    ApTag,
 };
+
+pub use types::attachment::{
+    ApAttachment, ApDocument, ApLink, ApProof, ApVerifiableIdentityStatement,
+};
+
 pub use types::remove::{ApRemove, ApRemoveType};
 pub use types::session::JoinData;
 pub use types::session::{ApInstrument, ApInstrumentType, ApInstruments, ApSession};
