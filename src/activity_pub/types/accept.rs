@@ -3,10 +3,12 @@ use std::fmt::Debug;
 
 use crate::{
     activity_pub::{ApActivity, ApAddress, ApContext, ApFollow, ApObject},
-    models::remote_activities::RemoteActivity,
+    //    models::remote_activities::RemoteActivity,
     MaybeReference,
 };
 use serde::{Deserialize, Serialize};
+
+use super::activity::RecursiveActivity;
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub enum ApAcceptType {
@@ -33,25 +35,61 @@ pub struct ApAccept {
     pub object: MaybeReference<ApActivity>,
 }
 
-impl TryFrom<RemoteActivity> for ApAccept {
+impl TryFrom<RecursiveActivity> for ApAccept {
     type Error = &'static str;
 
-    fn try_from(activity: RemoteActivity) -> Result<Self, Self::Error> {
-        if activity.kind == "Accept" {
-            Ok(ApAccept {
-                context: activity
-                    .context
-                    .map(|ctx| serde_json::from_value(ctx).unwrap()),
-                kind: ApAcceptType::default(),
-                actor: ApAddress::Address(activity.actor),
-                id: Some(activity.ap_id),
-                object: serde_json::from_value(activity.ap_object.into()).unwrap(),
-            })
+    fn try_from(
+        ((activity, _note, _remote_note, _profile, _remote_actor), recursive): RecursiveActivity,
+    ) -> Result<Self, Self::Error> {
+        if let Some(recursive) = recursive {
+            if let Ok(recursive_activity) = ApActivity::try_from((recursive.clone(), None)) {
+                match recursive_activity {
+                    ApActivity::Follow(follow) => Ok(ApAccept {
+                        context: Some(ApContext::default()),
+                        kind: ApAcceptType::default(),
+                        actor: activity.actor.clone().into(),
+                        id: Some(format!(
+                            "{}/activities/{}",
+                            *crate::SERVER_URL,
+                            activity.uuid
+                        )),
+                        object: MaybeReference::Actual(ApActivity::Follow(follow)),
+                    }),
+                    _ => {
+                        log::error!("FAILED TO MATCH IMPLEMENTED ACCEPT: {activity:#?}");
+                        Err("FAILED TO MATCH IMPLEMENTED ACCEPT")
+                    }
+                }
+            } else {
+                log::error!("FAILED TO CONVERT ACTIVITY: {recursive:#?}");
+                Err("FAILED TO CONVERT ACTIVITY")
+            }
         } else {
-            Err("ACTIVITY COULD NOT BE CONVERTED TO ACCEPT")
+            log::error!("RECURSIVE CANNOT BE NONE");
+            Err("RECURSIVE CANNOT BE NONE")
         }
     }
 }
+
+// impl TryFrom<RemoteActivity> for ApAccept {
+//     type Error = &'static str;
+
+//     fn try_from(activity: RemoteActivity) -> Result<Self, Self::Error> {
+//         if activity.kind == "Accept" {
+//             Ok(ApAccept {
+//                 context: activity
+//                     .context
+//                     .map(|ctx| serde_json::from_value(ctx).unwrap()),
+//                 kind: ApAcceptType::default(),
+//                 actor: ApAddress::Address(activity.actor),
+//                 id: Some(activity.ap_id),
+//                 object: serde_json::from_value(activity.ap_object.into()).unwrap(),
+//             })
+//         } else {
+//             Err("ACTIVITY COULD NOT BE CONVERTED TO ACCEPT")
+//         }
+//     }
+// }
 
 impl TryFrom<ApFollow> for ApAccept {
     type Error = &'static str;

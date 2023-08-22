@@ -1,9 +1,12 @@
-use crate::activity_pub::{ApActivity, ApAddress, ApAnnounceType, ApCreateType, ApFollowType};
+use crate::activity_pub::{
+    ApAcceptType, ApActivity, ApAddress, ApAnnounceType, ApCreateType, ApFollowType, ApUndoType,
+};
 use crate::db::Db;
 use crate::helper::{
     get_activity_ap_id_from_uuid, get_ap_id_from_username, get_note_ap_id_from_uuid,
 };
 use crate::schema::{activities, notes, profiles, remote_actors, remote_notes};
+use crate::MaybeReference;
 use chrono::{DateTime, NaiveDateTime, Utc};
 use diesel::prelude::*;
 use diesel::{AsChangeset, Identifiable, Insertable, Queryable};
@@ -60,6 +63,18 @@ impl From<ApFollowType> for ActivityType {
     }
 }
 
+impl From<ApAcceptType> for ActivityType {
+    fn from(_: ApAcceptType) -> Self {
+        ActivityType::Accept
+    }
+}
+
+impl From<ApUndoType> for ActivityType {
+    fn from(_: ApUndoType) -> Self {
+        ActivityType::Undo
+    }
+}
+
 pub enum ActivityTarget {
     Note(Note),
     RemoteNote(RemoteNote),
@@ -80,6 +95,12 @@ impl From<Profile> for ActivityTarget {
     }
 }
 
+impl From<Activity> for ActivityTarget {
+    fn from(activity: Activity) -> Self {
+        ActivityTarget::Activity(activity)
+    }
+}
+
 #[derive(Serialize, Deserialize, Insertable, Default, Debug, Clone)]
 #[diesel(table_name = activities)]
 pub struct NewActivity {
@@ -96,6 +117,7 @@ pub struct NewActivity {
     pub target_ap_id: Option<String>,
     pub target_remote_actor_id: Option<i32>,
     pub revoked: bool,
+    pub ap_id: Option<String>,
 }
 
 impl NewActivity {
@@ -123,7 +145,9 @@ impl NewActivity {
             }
             ActivityTarget::Activity(activity) => {
                 self.target_activity_id = Some(activity.id);
-                self.target_ap_id = Some(get_activity_ap_id_from_uuid(activity.uuid));
+                self.target_ap_id = activity
+                    .ap_id
+                    .map_or(Some(get_activity_ap_id_from_uuid(activity.uuid)), Some);
             }
             ActivityTarget::RemoteActor(remote_actor) => {
                 self.target_remote_actor_id = Some(remote_actor.id);
@@ -157,6 +181,7 @@ impl TryFrom<ApActivity> for NewActivity {
                 target_ap_id: None,
                 target_remote_actor_id: None,
                 revoked: false,
+                ap_id: create.id,
             }),
             ApActivity::Announce(announce) => Ok(NewActivity {
                 kind: announce.kind.into(),
@@ -172,6 +197,7 @@ impl TryFrom<ApActivity> for NewActivity {
                 target_ap_id: announce.object.reference(),
                 target_remote_actor_id: None,
                 revoked: false,
+                ap_id: announce.id,
             }),
             ApActivity::Follow(follow) => Ok(NewActivity {
                 kind: follow.kind.into(),
@@ -187,7 +213,52 @@ impl TryFrom<ApActivity> for NewActivity {
                 target_ap_id: follow.object.reference(),
                 target_remote_actor_id: None,
                 revoked: false,
+                ap_id: follow.id,
             }),
+            ApActivity::Accept(accept) => {
+                if let MaybeReference::Actual(ApActivity::Follow(follow)) = accept.object {
+                    Ok(NewActivity {
+                        kind: accept.kind.into(),
+                        uuid: uuid::Uuid::new_v4().to_string(),
+                        actor: accept.actor.to_string(),
+                        ap_to: None,
+                        cc: None,
+                        profile_id: None,
+                        target_note_id: None,
+                        target_remote_note_id: None,
+                        target_profile_id: None,
+                        target_activity_id: None,
+                        target_ap_id: follow.id,
+                        target_remote_actor_id: None,
+                        revoked: false,
+                        ap_id: accept.id,
+                    })
+                } else {
+                    Err("ACCEPT OBJECT NOT AN ACTUAL")
+                }
+            }
+            ApActivity::Undo(undo) => {
+                if let MaybeReference::Actual(ApActivity::Follow(follow)) = undo.object {
+                    Ok(NewActivity {
+                        kind: undo.kind.into(),
+                        uuid: uuid::Uuid::new_v4().to_string(),
+                        actor: undo.actor.to_string(),
+                        ap_to: None,
+                        cc: None,
+                        profile_id: None,
+                        target_note_id: None,
+                        target_remote_note_id: None,
+                        target_profile_id: None,
+                        target_activity_id: None,
+                        target_ap_id: follow.id,
+                        target_remote_actor_id: None,
+                        revoked: false,
+                        ap_id: undo.id,
+                    })
+                } else {
+                    Err("UNDO OBJECT NOT AN ACTUAL")
+                }
+            }
             _ => Err("UNIMPLEMENTED ACTIVITY TYPE"),
         }
     }
@@ -199,6 +270,7 @@ pub type ActorActivity = (
     ActivityType,
     ApAddress,
 );
+
 impl From<ActorActivity> for NewActivity {
     fn from((profile, remote_actor, kind, actor): ActorActivity) -> Self {
         let (ap_to, target_ap_id) = {
@@ -236,6 +308,7 @@ impl From<ActorActivity> for NewActivity {
             target_ap_id,
             target_remote_actor_id: remote_actor.map(|x| x.id),
             revoked: false,
+            ap_id: None,
         }
     }
 }
@@ -275,6 +348,7 @@ impl From<NoteActivity> for NewActivity {
             target_ap_id,
             target_remote_actor_id: None,
             revoked: false,
+            ap_id: None,
         }
     }
 }
@@ -296,6 +370,7 @@ impl From<UndoActivity> for NewActivity {
             target_ap_id: Some(get_activity_ap_id_from_uuid(activity.uuid)),
             target_remote_actor_id: None,
             revoked: false,
+            ap_id: None,
         }
     }
 }
@@ -340,10 +415,33 @@ pub type ExtendedActivity = (
     Option<Profile>,
     Option<RemoteActor>,
 );
+
 pub async fn get_activity_by_uuid(conn: &Db, uuid: String) -> Option<ExtendedActivity> {
     conn.run(move |c| {
         activities::table
             .filter(activities::uuid.eq(uuid))
+            .left_join(notes::table.on(activities::target_note_id.eq(notes::id.nullable())))
+            .left_join(
+                remote_notes::table
+                    .on(activities::target_remote_note_id.eq(remote_notes::id.nullable())),
+            )
+            .left_join(
+                profiles::table.on(activities::target_profile_id.eq(profiles::id.nullable())),
+            )
+            .left_join(
+                remote_actors::table
+                    .on(activities::target_remote_actor_id.eq(remote_actors::id.nullable())),
+            )
+            .first::<ExtendedActivity>(c)
+    })
+    .await
+    .ok()
+}
+
+pub async fn get_activity_by_apid(conn: &Db, ap_id: String) -> Option<ExtendedActivity> {
+    conn.run(move |c| {
+        activities::table
+            .filter(activities::ap_id.eq(ap_id))
             .left_join(notes::table.on(activities::target_note_id.eq(notes::id.nullable())))
             .left_join(
                 remote_notes::table

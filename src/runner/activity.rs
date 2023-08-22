@@ -1,36 +1,33 @@
 use diesel::prelude::*;
 
 use crate::{
-    models::{
-        activities::{Activity, ExtendedActivity},
-        remote_activities::{NewRemoteActivity, RemoteActivity},
-    },
+    models::activities::{Activity, ExtendedActivity},
     schema::{activities, notes, profiles, remote_activities, remote_actors, remote_notes},
 };
 
 use super::POOL;
 
-pub fn get_remote_activity_by_apid(ap_id: String) -> Option<RemoteActivity> {
-    if let Ok(mut conn) = POOL.get() {
-        remote_activities::table
-            .filter(remote_activities::ap_id.eq(ap_id))
-            .first::<RemoteActivity>(&mut conn)
-            .ok()
-    } else {
-        None
-    }
-}
+// pub fn get_remote_activity_by_apid(ap_id: String) -> Option<RemoteActivity> {
+//     if let Ok(mut conn) = POOL.get() {
+//         remote_activities::table
+//             .filter(remote_activities::ap_id.eq(ap_id))
+//             .first::<RemoteActivity>(&mut conn)
+//             .ok()
+//     } else {
+//         None
+//     }
+// }
 
-pub fn create_remote_activity(remote_activity: NewRemoteActivity) -> Option<RemoteActivity> {
-    if let Ok(mut conn) = POOL.get() {
-        diesel::insert_into(remote_activities::table)
-            .values(&remote_activity)
-            .get_result::<RemoteActivity>(&mut conn)
-            .ok()
-    } else {
-        None
-    }
-}
+// pub fn create_remote_activity(remote_activity: NewRemoteActivity) -> Option<RemoteActivity> {
+//     if let Ok(mut conn) = POOL.get() {
+//         diesel::insert_into(remote_activities::table)
+//             .values(&remote_activity)
+//             .get_result::<RemoteActivity>(&mut conn)
+//             .ok()
+//     } else {
+//         None
+//     }
+// }
 
 //pub type ExtendedActivity = (Activity, Option<Note>, Option<RemoteNote>, Option<Profile>, Option<RemoteActor>);
 pub fn get_activity_by_uuid(uuid: String) -> Option<ExtendedActivity> {

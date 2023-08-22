@@ -3,11 +3,7 @@ use std::fmt::Debug;
 
 use crate::{
     activity_pub::{ApActor, ApAddress, ApContext, ApObject},
-    models::{
-        activities::{ActivityType, ExtendedActivity},
-        //follows::Follow,
-        remote_activities::RemoteActivity,
-    },
+    models::activities::{ActivityType, ExtendedActivity},
     MaybeReference,
 };
 use serde::{Deserialize, Serialize};
@@ -37,25 +33,25 @@ pub struct ApFollow {
     pub object: MaybeReference<ApObject>,
 }
 
-impl TryFrom<RemoteActivity> for ApFollow {
-    type Error = &'static str;
+// impl TryFrom<RemoteActivity> for ApFollow {
+//     type Error = &'static str;
 
-    fn try_from(activity: RemoteActivity) -> Result<Self, Self::Error> {
-        if activity.kind == "Follow" {
-            Ok(ApFollow {
-                context: activity
-                    .context
-                    .map(|ctx| serde_json::from_value(ctx).unwrap()),
-                kind: ApFollowType::default(),
-                actor: ApAddress::Address(activity.actor),
-                id: Some(activity.ap_id),
-                object: serde_json::from_value(activity.ap_object.into()).unwrap(),
-            })
-        } else {
-            Err("ACTIVITY COULD NOT BE CONVERTED TO ACCEPT")
-        }
-    }
-}
+//     fn try_from(activity: RemoteActivity) -> Result<Self, Self::Error> {
+//         if activity.kind == "Follow" {
+//             Ok(ApFollow {
+//                 context: activity
+//                     .context
+//                     .map(|ctx| serde_json::from_value(ctx).unwrap()),
+//                 kind: ApFollowType::default(),
+//                 actor: ApAddress::Address(activity.actor),
+//                 id: Some(activity.ap_id),
+//                 object: serde_json::from_value(activity.ap_object.into()).unwrap(),
+//             })
+//         } else {
+//             Err("ACTIVITY COULD NOT BE CONVERTED TO ACCEPT")
+//         }
+//     }
+// }
 
 // impl From<Follow> for ApFollow {
 //     fn from(follow: Follow) -> Self {
@@ -81,11 +77,14 @@ impl TryFrom<ExtendedActivity> for ApFollow {
                     context: Some(ApContext::default()),
                     kind: ApFollowType::default(),
                     actor: activity.actor.into(),
-                    id: Some(format!(
-                        "{}/activities/{}",
-                        *crate::SERVER_URL,
-                        activity.uuid
-                    )),
+                    id: activity.ap_id.map_or(
+                        Some(format!(
+                            "{}/activities/{}",
+                            *crate::SERVER_URL,
+                            activity.uuid
+                        )),
+                        Some,
+                    ),
                     object: MaybeReference::Reference(
                         ApActor::from(profile).id.unwrap().to_string(),
                     ),
@@ -94,11 +93,14 @@ impl TryFrom<ExtendedActivity> for ApFollow {
                     context: Some(ApContext::default()),
                     kind: ApFollowType::default(),
                     actor: activity.actor.into(),
-                    id: Some(format!(
-                        "{}/activities/{}",
-                        *crate::SERVER_URL,
-                        activity.uuid
-                    )),
+                    id: activity.ap_id.map_or(
+                        Some(format!(
+                            "{}/activities/{}",
+                            *crate::SERVER_URL,
+                            activity.uuid
+                        )),
+                        Some,
+                    ),
                     object: MaybeReference::Reference(remote_actor.ap_id),
                 }),
                 _ => {

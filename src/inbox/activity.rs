@@ -9,7 +9,7 @@ use crate::{
         faktory::{assign_to_faktory, FaktoryConnection},
     },
     models::{
-        activities::{create_activity, NewActivity},
+        activities::{create_activity, get_activity_by_apid, get_activity_by_uuid, NewActivity},
         profiles::get_profile_by_ap_id,
         remote_actors::{create_or_update_remote_actor, delete_remote_actor_by_ap_id},
         remote_announces::{create_remote_announce, NewRemoteAnnounce},
@@ -193,11 +193,11 @@ pub async fn follow(
                 .map(|mut x| x.link_target(profile.clone().into()).clone())
             {
                 log::debug!("ACTIVITY\n{activity:#?}");
-                if create_activity(&conn, activity).await.is_some() {
+                if let Some(activity) = create_activity(&conn, activity).await {
                     match assign_to_faktory(
                         faktory,
                         String::from("acknowledge_followers"),
-                        vec![ap_id],
+                        vec![activity.uuid],
                     ) {
                         Ok(_) => Ok(Status::Accepted),
                         Err(e) => {
@@ -244,17 +244,34 @@ pub async fn undo(
                 }
             }
             ApActivity::Follow(follow) => {
-                if let Some(id) = follow.id {
-                    match assign_to_faktory(
-                        faktory,
-                        String::from("process_remote_undo_follow"),
-                        vec![id],
-                    ) {
-                        Ok(_) => Ok(Status::Accepted),
-                        Err(e) => {
-                            log::error!("FAILED TO ASSIGN TO FAKTORY\n{e:#?}");
+                if let Some(follow_apid) = follow.id {
+                    if let Some(target) = get_activity_by_apid(&conn, follow_apid.clone()).await {
+                        if let Some(activity) =
+                            NewActivity::try_from(ApActivity::Undo(Box::new(activity)))
+                                .ok()
+                                .map(|mut x| x.link_target(target.0.into()).clone())
+                        {
+                            log::debug!("ACTIVITY\n{activity:#?}");
+                            if create_activity(&conn, activity).await.is_some() {
+                                match assign_to_faktory(
+                                    faktory,
+                                    String::from("process_remote_undo_follow"),
+                                    vec![follow_apid],
+                                ) {
+                                    Ok(_) => Ok(Status::Accepted),
+                                    Err(e) => {
+                                        log::error!("FAILED TO ASSIGN TO FAKTORY\n{e:#?}");
+                                        Err(Status::NoContent)
+                                    }
+                                }
+                            } else {
+                                Err(Status::NoContent)
+                            }
+                        } else {
                             Err(Status::NoContent)
                         }
+                    } else {
+                        Err(Status::NoContent)
                     }
                 } else {
                     Err(Status::NoContent)
@@ -269,17 +286,38 @@ pub async fn undo(
     }
 }
 
-pub async fn accept(faktory: FaktoryConnection, activity: ApAccept) -> Result<Status, Status> {
-    if let Some(id) = activity.id {
-        match assign_to_faktory(faktory, String::from("process_accept"), vec![id]) {
-            Ok(_) => Ok(Status::Accepted),
-            Err(e) => {
-                log::error!("FAILED TO ASSIGN TO FAKTORY\n{e:#?}");
+pub async fn accept(
+    conn: Db,
+    faktory: FaktoryConnection,
+    activity: ApAccept,
+) -> Result<Status, Status> {
+    if let Some(follow_apid) = activity.object.reference() {
+        if let Some(target) = get_activity_by_apid(&conn, follow_apid).await {
+            if let Some(activity) = NewActivity::try_from(ApActivity::Accept(Box::new(activity)))
+                .ok()
+                .map(|mut x| x.link_target(target.0.into()).clone())
+            {
+                match assign_to_faktory(
+                    faktory,
+                    String::from("process_accept"),
+                    vec![activity.uuid],
+                ) {
+                    Ok(_) => Ok(Status::Accepted),
+                    Err(e) => {
+                        log::error!("FAILED TO ASSIGN TO FAKTORY\n{e:#?}");
+                        Err(Status::NoContent)
+                    }
+                }
+            } else {
+                log::error!("FAILED TO CREATE ACTIVITY RECORD");
                 Err(Status::NoContent)
             }
+        } else {
+            log::error!("FAILED TO LOCATE FOLLOW ACTIVITY");
+            Err(Status::NoContent)
         }
     } else {
-        log::error!("COULD NOT LOCATE ID");
+        log::error!("FAILED TO DECODE OBJECT REFERENCE");
         Err(Status::NoContent)
     }
 }

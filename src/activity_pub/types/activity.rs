@@ -61,6 +61,11 @@ impl TryFrom<RecursiveActivity> for ApActivity {
                 recursive,
             ))
             .map(|undo| ApActivity::Undo(Box::new(undo))),
+            ActivityType::Accept if recursive.is_some() => ApAccept::try_from((
+                (activity, note, remote_note, profile, remote_actor),
+                recursive,
+            ))
+            .map(|accept| ApActivity::Accept(Box::new(accept))),
             _ => {
                 log::error!("FAILED TO MATCH IMPLEMENTED ACTIVITY\n{activity:#?}");
                 Err("FAILED TO MATCH IMPLEMENTED ACTIVITY")

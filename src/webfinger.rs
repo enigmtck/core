@@ -44,15 +44,15 @@ impl From<Profile> for WebFinger {
                     href: Option::from(format!("{}/user/{}", server_url, profile.username)),
                     ..Default::default()
                 },
-                WebFingerLink {
-                    rel: "self".to_string(),
-                    kind: Option::from(
-                        "application/ld+json; profile=\"https://www.w3.org/ns/activitystreams\""
-                            .to_string(),
-                    ),
-                    href: Option::from(format!("{}/user/{}", server_url, profile.username)),
-                    ..Default::default()
-                },
+                // WebFingerLink {
+                //     rel: "self".to_string(),
+                //     kind: Option::from(
+                //         "application/ld+json; profile=\"https://www.w3.org/ns/activitystreams\""
+                //             .to_string(),
+                //     ),
+                //     href: Option::from(format!("{}/user/{}", server_url, profile.username)),
+                //     ..Default::default()
+                // },
                 // WebFingerLink {
                 //     rel: "http://ostatus.org/schema/1.0/subscribe".to_string(),
                 //     kind: Option::None,

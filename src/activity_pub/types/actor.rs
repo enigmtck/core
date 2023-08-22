@@ -306,14 +306,14 @@ impl From<Profile> for ApActor {
             ))),
             kind: ApActorType::Person,
             preferred_username: profile.username.clone(),
-            inbox: format!("{}/user/{}/inbox/", server_url, profile.username),
-            outbox: format!("{}/user/{}/outbox/", server_url, profile.username),
+            inbox: format!("{}/user/{}/inbox", server_url, profile.username),
+            outbox: format!("{}/user/{}/outbox", server_url, profile.username),
             followers: Some(format!(
-                "{}/user/{}/followers/",
+                "{}/user/{}/followers",
                 server_url, profile.username
             )),
             following: Some(format!(
-                "{}/user/{}/following/",
+                "{}/user/{}/following",
                 server_url, profile.username
             )),
             subscribers: None,
@@ -321,7 +321,7 @@ impl From<Profile> for ApActor {
             featured_tags: None,
             manually_approves_followers: Some(false),
             published: Some(profile.created_at.to_rfc3339()),
-            liked: Some(format!("{}/user/{}/liked/", server_url, profile.username)),
+            liked: Some(format!("{}/user/{}/liked", server_url, profile.username)),
             public_key: ApPublicKey {
                 id: format!("{}/user/{}#main-key", server_url, profile.username),
                 owner: format!("{}/user/{}", server_url, profile.username),
