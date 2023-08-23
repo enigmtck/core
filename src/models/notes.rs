@@ -1,6 +1,6 @@
 use crate::activity_pub::{ApNote, ApNoteType};
 use crate::db::Db;
-use crate::helper::handle_option;
+use crate::helper::{get_note_ap_id_from_uuid, handle_option};
 use crate::schema::notes;
 use crate::MaybeMultiple;
 use chrono::{DateTime, Utc};
@@ -45,15 +45,18 @@ pub struct NewNote {
     pub cc: Option<Value>,
     pub conversation: Option<String>,
     pub instrument: Option<Value>,
+    pub ap_id: Option<String>,
 }
 
 pub type IdentifiedApNote = (ApNote, i32);
 
 impl From<IdentifiedApNote> for NewNote {
     fn from((note, profile_id): IdentifiedApNote) -> Self {
+        let uuid = uuid::Uuid::new_v4().to_string();
+
         NewNote {
             profile_id,
-            uuid: uuid::Uuid::new_v4().to_string(),
+            uuid: uuid.clone(),
             kind: note.kind.into(),
             ap_to: serde_json::to_value(&note.to).unwrap(),
             attributed_to: note.attributed_to.to_string(),
@@ -74,6 +77,10 @@ impl From<IdentifiedApNote> for NewNote {
                     note.conversation
                 }
             },
+            // I think this fn will only be used when submitting a new ApNote via an outbox call by
+            // the client - in that case we'd never want to accept an id from the client; this logic
+            // would better be to just always use the UUID as the basis for the ap_id
+            ap_id: note.id.map_or(Some(get_note_ap_id_from_uuid(uuid)), Some),
         }
     }
 }
@@ -97,6 +104,7 @@ pub struct Note {
     pub conversation: Option<String>,
     pub attachment: Option<Value>,
     pub instrument: Option<Value>,
+    pub ap_id: Option<String>,
 }
 
 pub async fn get_notes_by_profile_id(
@@ -127,6 +135,12 @@ pub async fn get_notes_by_profile_id(
 
 pub async fn get_note_by_uuid(conn: &Db, uuid: String) -> Option<Note> {
     conn.run(move |c| notes::table.filter(notes::uuid.eq(uuid)).first::<Note>(c))
+        .await
+        .ok()
+}
+
+pub async fn get_note_by_apid(conn: &Db, ap_id: String) -> Option<Note> {
+    conn.run(move |c| notes::table.filter(notes::ap_id.eq(ap_id)).first::<Note>(c))
         .await
         .ok()
 }

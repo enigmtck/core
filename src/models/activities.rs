@@ -1,5 +1,6 @@
 use crate::activity_pub::{
-    ApAcceptType, ApActivity, ApAddress, ApAnnounceType, ApCreateType, ApFollowType, ApUndoType,
+    ApAcceptType, ApActivity, ApAddress, ApAnnounceType, ApCreateType, ApFollowType, ApLikeType,
+    ApUndoType,
 };
 use crate::db::Db;
 use crate::helper::{
@@ -75,6 +76,12 @@ impl From<ApUndoType> for ActivityType {
     }
 }
 
+impl From<ApLikeType> for ActivityType {
+    fn from(_: ApLikeType) -> Self {
+        ActivityType::Like
+    }
+}
+
 pub enum ActivityTarget {
     Note(Note),
     RemoteNote(RemoteNote),
@@ -98,6 +105,12 @@ impl From<Profile> for ActivityTarget {
 impl From<Activity> for ActivityTarget {
     fn from(activity: Activity) -> Self {
         ActivityTarget::Activity(activity)
+    }
+}
+
+impl From<Note> for ActivityTarget {
+    fn from(note: Note) -> Self {
+        ActivityTarget::Note(note)
     }
 }
 
@@ -166,10 +179,12 @@ impl TryFrom<ApActivity> for NewActivity {
     //
     // https://blog.rust-lang.org/inside-rust/2023/05/03/stabilizing-async-fn-in-trait.html
     fn try_from(activity: ApActivity) -> Result<Self, Self::Error> {
+        let uuid = uuid::Uuid::new_v4().to_string();
+
         match activity {
             ApActivity::Create(create) => Ok(NewActivity {
                 kind: create.kind.into(),
-                uuid: uuid::Uuid::new_v4().to_string(),
+                uuid: uuid.clone(),
                 actor: create.actor.to_string(),
                 ap_to: serde_json::to_value(create.to).ok(),
                 cc: serde_json::to_value(create.cc).ok(),
@@ -181,11 +196,13 @@ impl TryFrom<ApActivity> for NewActivity {
                 target_ap_id: None,
                 target_remote_actor_id: None,
                 revoked: false,
-                ap_id: create.id,
+                ap_id: create
+                    .id
+                    .map_or(Some(get_activity_ap_id_from_uuid(uuid)), Some),
             }),
             ApActivity::Announce(announce) => Ok(NewActivity {
                 kind: announce.kind.into(),
-                uuid: uuid::Uuid::new_v4().to_string(),
+                uuid: uuid.clone(),
                 actor: announce.actor.to_string(),
                 ap_to: serde_json::to_value(announce.to).ok(),
                 cc: serde_json::to_value(announce.cc).ok(),
@@ -197,11 +214,13 @@ impl TryFrom<ApActivity> for NewActivity {
                 target_ap_id: announce.object.reference(),
                 target_remote_actor_id: None,
                 revoked: false,
-                ap_id: announce.id,
+                ap_id: announce
+                    .id
+                    .map_or(Some(get_activity_ap_id_from_uuid(uuid)), Some),
             }),
             ApActivity::Follow(follow) => Ok(NewActivity {
                 kind: follow.kind.into(),
-                uuid: uuid::Uuid::new_v4().to_string(),
+                uuid: uuid.clone(),
                 actor: follow.actor.to_string(),
                 ap_to: None,
                 cc: None,
@@ -213,13 +232,15 @@ impl TryFrom<ApActivity> for NewActivity {
                 target_ap_id: follow.object.reference(),
                 target_remote_actor_id: None,
                 revoked: false,
-                ap_id: follow.id,
+                ap_id: follow
+                    .id
+                    .map_or(Some(get_activity_ap_id_from_uuid(uuid)), Some),
             }),
             ApActivity::Accept(accept) => {
                 if let MaybeReference::Actual(ApActivity::Follow(follow)) = accept.object {
                     Ok(NewActivity {
                         kind: accept.kind.into(),
-                        uuid: uuid::Uuid::new_v4().to_string(),
+                        uuid: uuid.clone(),
                         actor: accept.actor.to_string(),
                         ap_to: None,
                         cc: None,
@@ -231,7 +252,9 @@ impl TryFrom<ApActivity> for NewActivity {
                         target_ap_id: follow.id,
                         target_remote_actor_id: None,
                         revoked: false,
-                        ap_id: accept.id,
+                        ap_id: accept
+                            .id
+                            .map_or(Some(get_activity_ap_id_from_uuid(uuid)), Some),
                     })
                 } else {
                     Err("ACCEPT OBJECT NOT AN ACTUAL")
@@ -241,7 +264,7 @@ impl TryFrom<ApActivity> for NewActivity {
                 if let MaybeReference::Actual(ApActivity::Follow(follow)) = undo.object {
                     Ok(NewActivity {
                         kind: undo.kind.into(),
-                        uuid: uuid::Uuid::new_v4().to_string(),
+                        uuid: uuid.clone(),
                         actor: undo.actor.to_string(),
                         ap_to: None,
                         cc: None,
@@ -253,12 +276,33 @@ impl TryFrom<ApActivity> for NewActivity {
                         target_ap_id: follow.id,
                         target_remote_actor_id: None,
                         revoked: false,
-                        ap_id: undo.id,
+                        ap_id: undo
+                            .id
+                            .map_or(Some(get_activity_ap_id_from_uuid(uuid)), Some),
                     })
                 } else {
                     Err("UNDO OBJECT NOT AN ACTUAL")
                 }
             }
+            ApActivity::Like(like) => Ok(NewActivity {
+                kind: like.kind.into(),
+                uuid: uuid.clone(),
+                actor: like.actor.to_string(),
+                ap_to: None,
+                cc: None,
+                profile_id: None,
+                target_note_id: None,
+                target_remote_note_id: None,
+                target_profile_id: None,
+                target_activity_id: None,
+                target_ap_id: like.object.reference(),
+                target_remote_actor_id: None,
+                revoked: false,
+                ap_id: like
+                    .id
+                    .map_or(Some(get_activity_ap_id_from_uuid(uuid)), Some),
+            }),
+
             _ => Err("UNIMPLEMENTED ACTIVITY TYPE"),
         }
     }
@@ -294,9 +338,11 @@ impl From<ActorActivity> for NewActivity {
             }
         };
 
+        let uuid = uuid::Uuid::new_v4().to_string();
+
         NewActivity {
             kind,
-            uuid: uuid::Uuid::new_v4().to_string(),
+            uuid: uuid.clone(),
             actor: actor.to_string(),
             ap_to,
             cc: None,
@@ -308,7 +354,7 @@ impl From<ActorActivity> for NewActivity {
             target_ap_id,
             target_remote_actor_id: remote_actor.map(|x| x.id),
             revoked: false,
-            ap_id: None,
+            ap_id: Some(get_activity_ap_id_from_uuid(uuid)),
         }
     }
 }

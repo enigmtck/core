@@ -10,6 +10,7 @@ use crate::{
     },
     models::{
         activities::{create_activity, get_activity_by_apid, get_activity_by_uuid, NewActivity},
+        notes::get_note_by_apid,
         profiles::get_profile_by_ap_id,
         remote_actors::{create_or_update_remote_actor, delete_remote_actor_by_ap_id},
         remote_announces::{create_remote_announce, NewRemoteAnnounce},
@@ -291,25 +292,37 @@ pub async fn accept(
     faktory: FaktoryConnection,
     activity: ApAccept,
 ) -> Result<Status, Status> {
-    if let Some(follow_apid) = activity.object.reference() {
+    let follow_apid = match activity.clone().object {
+        MaybeReference::Reference(reference) => Some(reference),
+        MaybeReference::Actual(ApActivity::Follow(actual)) => actual.id,
+        _ => None,
+    };
+
+    if let Some(follow_apid) = follow_apid {
         if let Some(target) = get_activity_by_apid(&conn, follow_apid).await {
             if let Some(activity) = NewActivity::try_from(ApActivity::Accept(Box::new(activity)))
                 .ok()
                 .map(|mut x| x.link_target(target.0.into()).clone())
             {
-                match assign_to_faktory(
-                    faktory,
-                    String::from("process_accept"),
-                    vec![activity.uuid],
-                ) {
-                    Ok(_) => Ok(Status::Accepted),
-                    Err(e) => {
-                        log::error!("FAILED TO ASSIGN TO FAKTORY\n{e:#?}");
-                        Err(Status::NoContent)
+                log::debug!("ACTIVITY\n{activity:#?}");
+                if create_activity(&conn, activity.clone()).await.is_some() {
+                    match assign_to_faktory(
+                        faktory,
+                        String::from("process_accept"),
+                        vec![activity.uuid],
+                    ) {
+                        Ok(_) => Ok(Status::Accepted),
+                        Err(e) => {
+                            log::error!("FAILED TO ASSIGN TO FAKTORY\n{e:#?}");
+                            Err(Status::NoContent)
+                        }
                     }
+                } else {
+                    log::error!("FAILED TO CREATE ACTIVITY RECORD");
+                    Err(Status::NoContent)
                 }
             } else {
-                log::error!("FAILED TO CREATE ACTIVITY RECORD");
+                log::error!("FAILED TO CONVERT ACTIVITY RECORD");
                 Err(Status::NoContent)
             }
         } else {
@@ -450,18 +463,42 @@ pub async fn update(
     }
 }
 
-pub async fn like(
-    conn: Db,
-    _faktory: FaktoryConnection,
-    activity: ApLike,
-) -> Result<Status, Status> {
-    if create_remote_like(&conn, activity.clone().into())
-        .await
-        .is_some()
-    {
-        Ok(Status::Accepted)
+pub async fn like(conn: Db, _faktory: FaktoryConnection, like: ApLike) -> Result<Status, Status> {
+    let note_apid = match like.object.clone() {
+        MaybeReference::Reference(reference) => Some(reference),
+        MaybeReference::Actual(ApObject::Note(actual)) => actual.id,
+        _ => None,
+    };
+
+    if let Some(note_apid) = note_apid {
+        log::debug!("NOTE AP_ID\n{note_apid:#?}");
+        if let Some(target) = get_note_by_apid(&conn, note_apid).await {
+            log::debug!("TARGET\n{target:#?}");
+            if let Some(activity) = NewActivity::try_from(ApActivity::Like(Box::new(like.clone())))
+                .ok()
+                .map(|mut x| x.link_target(target.into()).clone())
+            {
+                log::debug!("ACTIVITY\n{activity:#?}");
+                if create_activity(&conn, activity.clone()).await.is_some() {
+                    if create_remote_like(&conn, like.clone().into())
+                        .await
+                        .is_some()
+                    {
+                        Ok(Status::Accepted)
+                    } else {
+                        log::warn!("FAILED TO CREATE LIKE (DUPLICATE?)\n{:#?}", like.object);
+                        Err(Status::NoContent)
+                    }
+                } else {
+                    Err(Status::NoContent)
+                }
+            } else {
+                Err(Status::NoContent)
+            }
+        } else {
+            Err(Status::NoContent)
+        }
     } else {
-        log::warn!("FAILED TO CREATE LIKE (DUPLICATE?)\n{:#?}", activity.object);
         Err(Status::NoContent)
     }
 }

@@ -3,7 +3,7 @@ use std::{collections::HashMap, fmt::Debug};
 
 use crate::{
     activity_pub::{ApActor, ApAttachment, ApCollection, ApContext, ApInstruments, ApTag},
-    helper::{get_activity_ap_id_from_uuid, get_ap_id_from_username},
+    helper::{get_activity_ap_id_from_uuid, get_ap_id_from_username, get_note_ap_id_from_uuid},
     models::{
         activities::{Activity, ActivityType},
         notes::{NewNote, Note, NoteType},
@@ -396,16 +396,13 @@ impl From<Note> for ApNote {
             tag: serde_json::from_value(note.tag.into()).ok(),
             attributed_to: ApAddress::Address(note.attributed_to),
             published: note.updated_at.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string(),
-            id: Some(format!(
-                "https://{}/notes/{}",
-                *crate::SERVER_NAME,
-                note.uuid
-            )),
-            url: Some(format!(
-                "https://{}/notes/{}",
-                *crate::SERVER_NAME,
-                note.uuid
-            )),
+            id: note
+                .ap_id
+                .clone()
+                .map_or(Some(get_note_ap_id_from_uuid(note.uuid.clone())), Some),
+            url: note
+                .ap_id
+                .map_or(Some(get_note_ap_id_from_uuid(note.uuid)), Some),
             kind: note.kind.into(),
             to: match serde_json::from_value(note.ap_to) {
                 Ok(x) => x,

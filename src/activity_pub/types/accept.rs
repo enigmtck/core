@@ -48,11 +48,14 @@ impl TryFrom<RecursiveActivity> for ApAccept {
                         context: Some(ApContext::default()),
                         kind: ApAcceptType::default(),
                         actor: activity.actor.clone().into(),
-                        id: Some(format!(
-                            "{}/activities/{}",
-                            *crate::SERVER_URL,
-                            activity.uuid
-                        )),
+                        id: activity.ap_id.map_or(
+                            Some(format!(
+                                "{}/activities/{}",
+                                *crate::SERVER_URL,
+                                activity.uuid
+                            )),
+                            Some,
+                        ),
                         object: MaybeReference::Actual(ApActivity::Follow(follow)),
                     }),
                     _ => {

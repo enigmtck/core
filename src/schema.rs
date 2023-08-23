@@ -1,7 +1,7 @@
 // @generated automatically by Diesel CLI.
 
 pub mod sql_types {
-    #[derive(diesel::sql_types::SqlType, diesel::QueryId)]
+    #[derive(diesel::sql_types::SqlType, QueryId)]
     #[diesel(postgres_type(name = "activity_type"))]
     pub struct ActivityType;
 
@@ -136,6 +136,7 @@ diesel::table! {
         conversation -> Nullable<Varchar>,
         attachment -> Nullable<Jsonb>,
         instrument -> Nullable<Jsonb>,
+        ap_id -> Nullable<Varchar>,
     }
 }
 
