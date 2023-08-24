@@ -7,7 +7,7 @@ use crate::{
     },
     helper::get_ap_id_from_username,
     models::{
-        activities::{create_activity, ActivityType, NewActivity, NoteActivity},
+        activities::{create_activity, ActivityType, NewActivity},
         encrypted_sessions::{create_encrypted_session, NewEncryptedSession},
         notes::NewNote,
         profiles::Profile,
@@ -43,7 +43,7 @@ pub async fn note(
                 ActivityType::Create,
                 ApAddress::Address(get_ap_id_from_username(profile.username.clone())),
             ))
-            .link(&conn)
+            .link_profile(&conn)
             .await,
         )
         .await

@@ -34,7 +34,7 @@ impl From<ApAnnounce> for NewAnnounce {
 }
 
 impl NewAnnounce {
-    pub async fn link(&mut self, conn: &Db) -> Self {
+    pub async fn link_profile(&mut self, conn: &Db) -> Self {
         if let Some(profile) = get_profile_by_ap_id(conn, self.clone().actor).await {
             self.profile_id = Some(profile.id);
         };

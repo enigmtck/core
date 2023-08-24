@@ -92,7 +92,7 @@ pub async fn undo(
                     ActivityType::Undo,
                     ApAddress::Address(get_ap_id_from_username(profile.username.clone())),
                 ))
-                .link(&conn)
+                .link_profile(&conn)
                 .await,
             )
             .await
@@ -141,7 +141,7 @@ pub async fn follow(
                     ActivityType::Follow,
                     ApAddress::Address(get_ap_id_from_username(profile.username.clone())),
                 ))
-                .link(&conn)
+                .link_profile(&conn)
                 .await,
             )
             .await
@@ -190,7 +190,7 @@ pub async fn like(
                     ActivityType::Like,
                     ApAddress::Address(get_ap_id_from_username(profile.username.clone())),
                 ))
-                .link(&conn)
+                .link_profile(&conn)
                 .await,
             )
             .await
@@ -239,7 +239,7 @@ pub async fn announce(
                     ActivityType::Announce,
                     ApAddress::Address(get_ap_id_from_username(profile.username.clone())),
                 ))
-                .link(&conn)
+                .link_profile(&conn)
                 .await,
             )
             .await
@@ -286,7 +286,7 @@ pub async fn delete(
                     ActivityType::Delete,
                     ApAddress::Address(get_ap_id_from_username(profile.username.clone())),
                 ))
-                .link(&conn)
+                .link_profile(&conn)
                 .await,
             )
             .await

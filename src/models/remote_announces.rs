@@ -24,16 +24,10 @@ pub struct NewRemoteAnnounce {
 }
 
 impl NewRemoteAnnounce {
-    pub async fn link(&mut self, conn: &Db) -> Self {
-        self.timeline_id = {
-            if let Ok(ApObject::Plain(id)) = serde_json::from_value(self.ap_object.clone()) {
-                if let Some(timeline) = get_timeline_item_by_ap_id(conn, id).await {
-                    Some(timeline.id)
-                } else {
-                    None
-                }
-            } else {
-                None
+    pub async fn link_timeline_item(&mut self, conn: &Db) -> Self {
+        if let Ok(ApObject::Plain(id)) = serde_json::from_value(self.ap_object.clone()) {
+            if let Some(timeline) = get_timeline_item_by_ap_id(conn, id).await {
+                self.timeline_id = Some(timeline.id);
             }
         };
 

@@ -134,7 +134,7 @@ pub struct NewActivity {
 }
 
 impl NewActivity {
-    pub async fn link(&mut self, conn: &Db) -> Self {
+    pub async fn link_profile(&mut self, conn: &Db) -> Self {
         if let Some(profile) = get_profile_by_ap_id(conn, self.clone().actor).await {
             self.profile_id = Some(profile.id);
         };
@@ -142,43 +142,48 @@ impl NewActivity {
         self.clone()
     }
 
-    pub fn link_target(&mut self, target: ActivityTarget) -> &Self {
-        match target {
-            ActivityTarget::Note(note) => {
-                self.target_note_id = Some(note.id);
-                self.target_ap_id = Some(get_note_ap_id_from_uuid(note.uuid));
+    fn link_target(&mut self, target: Option<ActivityTarget>) -> &Self {
+        if let Some(target) = target {
+            match target {
+                ActivityTarget::Note(note) => {
+                    self.target_note_id = Some(note.id);
+                    self.target_ap_id = Some(get_note_ap_id_from_uuid(note.uuid));
+                }
+                ActivityTarget::RemoteNote(remote_note) => {
+                    self.target_remote_note_id = Some(remote_note.id);
+                    self.target_ap_id = Some(remote_note.ap_id);
+                }
+                ActivityTarget::Profile(profile) => {
+                    self.target_profile_id = Some(profile.id);
+                    self.target_ap_id = Some(get_ap_id_from_username(profile.username));
+                }
+                ActivityTarget::Activity(activity) => {
+                    self.target_activity_id = Some(activity.id);
+                    self.target_ap_id = activity
+                        .ap_id
+                        .map_or(Some(get_activity_ap_id_from_uuid(activity.uuid)), Some);
+                }
+                ActivityTarget::RemoteActor(remote_actor) => {
+                    self.target_remote_actor_id = Some(remote_actor.id);
+                    self.target_ap_id = Some(remote_actor.ap_id);
+                }
             }
-            ActivityTarget::RemoteNote(remote_note) => {
-                self.target_remote_note_id = Some(remote_note.id);
-                self.target_ap_id = Some(remote_note.ap_id);
-            }
-            ActivityTarget::Profile(profile) => {
-                self.target_profile_id = Some(profile.id);
-                self.target_ap_id = Some(get_ap_id_from_username(profile.username));
-            }
-            ActivityTarget::Activity(activity) => {
-                self.target_activity_id = Some(activity.id);
-                self.target_ap_id = activity
-                    .ap_id
-                    .map_or(Some(get_activity_ap_id_from_uuid(activity.uuid)), Some);
-            }
-            ActivityTarget::RemoteActor(remote_actor) => {
-                self.target_remote_actor_id = Some(remote_actor.id);
-                self.target_ap_id = Some(remote_actor.ap_id);
-            }
-        }
+        };
+
         self
     }
 }
 
-impl TryFrom<ApActivity> for NewActivity {
+pub type ApActivityTarget = (ApActivity, Option<ActivityTarget>);
+
+impl TryFrom<ApActivityTarget> for NewActivity {
     type Error = &'static str;
 
     // eventually I may be able to move decomposition logic here (e.g., create target_remote_note, etc.)
     // that will require the ability to `await` on database calls
     //
     // https://blog.rust-lang.org/inside-rust/2023/05/03/stabilizing-async-fn-in-trait.html
-    fn try_from(activity: ApActivity) -> Result<Self, Self::Error> {
+    fn try_from((activity, target): ApActivityTarget) -> Result<Self, Self::Error> {
         let uuid = uuid::Uuid::new_v4().to_string();
 
         match activity {
@@ -199,7 +204,9 @@ impl TryFrom<ApActivity> for NewActivity {
                 ap_id: create
                     .id
                     .map_or(Some(get_activity_ap_id_from_uuid(uuid)), Some),
-            }),
+            }
+            .link_target(target)
+            .clone()),
             ApActivity::Announce(announce) => Ok(NewActivity {
                 kind: announce.kind.into(),
                 uuid: uuid.clone(),
@@ -217,7 +224,9 @@ impl TryFrom<ApActivity> for NewActivity {
                 ap_id: announce
                     .id
                     .map_or(Some(get_activity_ap_id_from_uuid(uuid)), Some),
-            }),
+            }
+            .link_target(target)
+            .clone()),
             ApActivity::Follow(follow) => Ok(NewActivity {
                 kind: follow.kind.into(),
                 uuid: uuid.clone(),
@@ -235,7 +244,9 @@ impl TryFrom<ApActivity> for NewActivity {
                 ap_id: follow
                     .id
                     .map_or(Some(get_activity_ap_id_from_uuid(uuid)), Some),
-            }),
+            }
+            .link_target(target)
+            .clone()),
             ApActivity::Accept(accept) => {
                 if let MaybeReference::Actual(ApActivity::Follow(follow)) = accept.object {
                     Ok(NewActivity {
@@ -255,35 +266,76 @@ impl TryFrom<ApActivity> for NewActivity {
                         ap_id: accept
                             .id
                             .map_or(Some(get_activity_ap_id_from_uuid(uuid)), Some),
-                    })
+                    }
+                    .link_target(target)
+                    .clone())
                 } else {
                     Err("ACCEPT OBJECT NOT AN ACTUAL")
                 }
             }
-            ApActivity::Undo(undo) => {
-                if let MaybeReference::Actual(ApActivity::Follow(follow)) = undo.object {
-                    Ok(NewActivity {
-                        kind: undo.kind.into(),
-                        uuid: uuid.clone(),
-                        actor: undo.actor.to_string(),
-                        ap_to: None,
-                        cc: None,
-                        profile_id: None,
-                        target_note_id: None,
-                        target_remote_note_id: None,
-                        target_profile_id: None,
-                        target_activity_id: None,
-                        target_ap_id: follow.id,
-                        target_remote_actor_id: None,
-                        revoked: false,
-                        ap_id: undo
-                            .id
-                            .map_or(Some(get_activity_ap_id_from_uuid(uuid)), Some),
-                    })
-                } else {
-                    Err("UNDO OBJECT NOT AN ACTUAL")
+            ApActivity::Undo(undo) => match undo.object {
+                MaybeReference::Actual(ApActivity::Follow(follow)) => Ok(NewActivity {
+                    kind: undo.kind.into(),
+                    uuid: uuid.clone(),
+                    actor: undo.actor.to_string(),
+                    ap_to: None,
+                    cc: None,
+                    profile_id: None,
+                    target_note_id: None,
+                    target_remote_note_id: None,
+                    target_profile_id: None,
+                    target_activity_id: None,
+                    target_ap_id: follow.id,
+                    target_remote_actor_id: None,
+                    revoked: false,
+                    ap_id: undo
+                        .id
+                        .map_or(Some(get_activity_ap_id_from_uuid(uuid)), Some),
                 }
-            }
+                .link_target(target)
+                .clone()),
+                MaybeReference::Actual(ApActivity::Like(like)) => Ok(NewActivity {
+                    kind: undo.kind.into(),
+                    uuid: uuid.clone(),
+                    actor: undo.actor.to_string(),
+                    ap_to: None,
+                    cc: None,
+                    profile_id: None,
+                    target_note_id: None,
+                    target_remote_note_id: None,
+                    target_profile_id: None,
+                    target_activity_id: None,
+                    target_ap_id: like.id,
+                    target_remote_actor_id: None,
+                    revoked: false,
+                    ap_id: undo
+                        .id
+                        .map_or(Some(get_activity_ap_id_from_uuid(uuid)), Some),
+                }
+                .link_target(target)
+                .clone()),
+                MaybeReference::Actual(ApActivity::Announce(announce)) => Ok(NewActivity {
+                    kind: undo.kind.into(),
+                    uuid: uuid.clone(),
+                    actor: undo.actor.to_string(),
+                    ap_to: None,
+                    cc: None,
+                    profile_id: None,
+                    target_note_id: None,
+                    target_remote_note_id: None,
+                    target_profile_id: None,
+                    target_activity_id: None,
+                    target_ap_id: announce.id,
+                    target_remote_actor_id: None,
+                    revoked: false,
+                    ap_id: undo
+                        .id
+                        .map_or(Some(get_activity_ap_id_from_uuid(uuid)), Some),
+                }
+                .link_target(target)
+                .clone()),
+                _ => Err("UNDO OBJECT NOT IMPLEMENTED"),
+            },
             ApActivity::Like(like) => Ok(NewActivity {
                 kind: like.kind.into(),
                 uuid: uuid.clone(),
@@ -301,7 +353,9 @@ impl TryFrom<ApActivity> for NewActivity {
                 ap_id: like
                     .id
                     .map_or(Some(get_activity_ap_id_from_uuid(uuid)), Some),
-            }),
+            }
+            .link_target(target)
+            .clone()),
 
             _ => Err("UNIMPLEMENTED ACTIVITY TYPE"),
         }
