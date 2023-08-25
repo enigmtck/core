@@ -311,7 +311,9 @@ impl From<FullyQualifiedTimelineItem> for ApNote {
                     None
                 }
             },
-            ephemeral_announces: remote_announce.map(|announce| vec![announce.actor]),
+            ephemeral_announces: remote_announce
+                .filter(|announce| !announce.revoked)
+                .map(|announce| vec![announce.actor]),
             ephemeral_announced: activity.clone().and_then(|x| {
                 if x.kind == ActivityType::Announce && !x.revoked {
                     Some(get_activity_ap_id_from_uuid(x.uuid))

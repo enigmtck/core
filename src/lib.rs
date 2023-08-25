@@ -6,7 +6,10 @@ extern crate diesel;
 
 use activity_pub::{ApActivity, ApObject};
 use dotenvy::dotenv;
+use fairings::faktory::assign_to_faktory;
+use fairings::faktory::FaktoryConnection;
 use lazy_static::lazy_static;
+use rocket::http::Status;
 use serde::{Deserialize, Serialize};
 use std::env;
 use std::fmt;
@@ -203,5 +206,19 @@ impl From<ApActivity> for MaybeReference<ApActivity> {
 impl From<String> for MaybeReference<String> {
     fn from(reference: String) -> Self {
         MaybeReference::Reference(reference)
+    }
+}
+
+pub fn to_faktory(
+    faktory: FaktoryConnection,
+    operation: &str,
+    id: String,
+) -> Result<Status, Status> {
+    match assign_to_faktory(faktory, String::from(operation), vec![id]) {
+        Ok(_) => Ok(Status::Accepted),
+        Err(e) => {
+            log::error!("FAILED TO ASSIGN TO FAKTORY\n{e:#?}");
+            Err(Status::NoContent)
+        }
     }
 }

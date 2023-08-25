@@ -13,7 +13,7 @@ use crate::{
     MaybeReference,
 };
 
-pub fn process_undo(job: Job) -> io::Result<()> {
+pub fn process_outbound_undo(job: Job) -> io::Result<()> {
     log::debug!("PROCESSING OUTGOING UNDO REQUEST");
 
     for uuid in job.args() {

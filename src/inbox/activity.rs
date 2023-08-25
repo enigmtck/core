@@ -4,10 +4,7 @@ use crate::{
         ApInvite, ApJoin, ApLike, ApObject, ApRemove, ApUndo, ApUpdate,
     },
     db::{create_remote_encrypted_session, Db},
-    fairings::{
-        events::EventChannels,
-        faktory::{assign_to_faktory, FaktoryConnection},
-    },
+    fairings::faktory::{assign_to_faktory, FaktoryConnection},
     models::{
         activities::{
             create_activity, get_activity_by_apid, ActivityTarget, ApActivityTarget, NewActivity,
@@ -16,14 +13,14 @@ use crate::{
         profiles::get_profile_by_ap_id,
         remote_actors::{create_or_update_remote_actor, delete_remote_actor_by_ap_id},
         remote_announces::{create_remote_announce, NewRemoteAnnounce},
-        remote_likes::{create_remote_like, delete_remote_like_by_actor_and_object_id},
+        remote_likes::create_remote_like,
         remote_notes::{
             create_or_update_remote_note, delete_remote_note_by_ap_id, get_remote_note_by_ap_id,
             NewRemoteNote,
         },
         timeline::delete_timeline_item_by_ap_id,
     },
-    MaybeReference,
+    to_faktory, MaybeReference,
 };
 use log::debug;
 use rocket::http::Status;
@@ -127,14 +124,7 @@ pub async fn create(
                 {
                     log::debug!("ACTIVITY\n{activity:#?}");
                     if create_activity(&conn, activity).await.is_some() {
-                        match assign_to_faktory(
-                            faktory,
-                            String::from("process_remote_note"),
-                            vec![created_note.ap_id],
-                        ) {
-                            Ok(_) => Ok(Status::Accepted),
-                            Err(_) => Err(Status::NoContent),
-                        }
+                        to_faktory(faktory, "process_remote_note", created_note.ap_id)
                     } else {
                         log::error!("FAILED TO INSERT ACTIVITY");
                         Err(Status::NoContent)
@@ -165,14 +155,7 @@ pub async fn announce(
         if let Ok(activity) = NewActivity::try_from((ApActivity::Announce(activity), None)) {
             log::debug!("ACTIVITY\n{activity:#?}");
             if create_activity(&conn, activity).await.is_some() {
-                match assign_to_faktory(
-                    faktory,
-                    String::from("process_announce"),
-                    vec![created_announce.ap_id],
-                ) {
-                    Ok(_) => Ok(Status::Accepted),
-                    Err(_) => Err(Status::NoContent),
-                }
+                to_faktory(faktory, "process_remote_announce", created_announce.ap_id)
             } else {
                 Err(Status::NoContent)
             }
@@ -201,17 +184,7 @@ pub async fn follow(
             {
                 log::debug!("ACTIVITY\n{activity:#?}");
                 if let Some(activity) = create_activity(&conn, activity).await {
-                    match assign_to_faktory(
-                        faktory,
-                        String::from("acknowledge_followers"),
-                        vec![activity.uuid],
-                    ) {
-                        Ok(_) => Ok(Status::Accepted),
-                        Err(e) => {
-                            log::error!("FAILED TO ASSIGN TO FAKTORY\n{e:#?}");
-                            Err(Status::NoContent)
-                        }
-                    }
+                    to_faktory(faktory, "acknowledge_followers", activity.uuid)
                 } else {
                     Err(Status::NoContent)
                 }
@@ -226,111 +199,22 @@ pub async fn follow(
     }
 }
 
-// pub async fn undo(
-//     conn: Db,
-//     events: EventChannels,
-//     faktory: FaktoryConnection,
-//     activity: ApUndo,
-// ) -> Result<Status, Status> {
-//     match activity.clone().object {
-//         MaybeReference::Actual(actual) => match actual {
-//             ApActivity::Like(like) => {
-//                 if let Some(like_apid) = like.id {
-//                     if let Some(target) = get_activity_by_apid(&conn, like_apid.clone()).await {
-//                         if let Ok(activity) = NewActivity::try_from((
-//                             ApActivity::Undo(Box::new(activity)),
-//                             Some(ActivityTarget::from(target.0)),
-//                         )
-//                             as ApActivityTarget)
-//                         {
-//                             log::debug!("ACTIVITY\n{activity:#?}");
-//                             if create_activity(&conn, activity.clone()).await.is_some() {
-//                                 if delete_remote_like_by_actor_and_object_id(
-//                                     &conn,
-//                                     like.actor.to_string(),
-//                                     like.object.to_string(),
-//                                 )
-//                                 .await
-//                                 {
-//                                     let mut events = events;
-//                                     events.send(serde_json::to_string(&activity).unwrap());
-
-//                                     Ok(Status::Accepted)
-//                                 } else {
-//                                     Err(Status::NoContent)
-//                                 }
-//                             } else {
-//                                 Err(Status::NoContent)
-//                             }
-//                         } else {
-//                             Err(Status::NoContent)
-//                         }
-//                     } else {
-//                         Err(Status::NoContent)
-//                     }
-//                 } else {
-//                     Err(Status::NoContent)
-//                 }
-//             }
-//             ApActivity::Follow(follow) => {
-//                 if let Some(follow_apid) = follow.id {
-//                     if let Some(target) = get_activity_by_apid(&conn, follow_apid.clone()).await {
-//                         if let Ok(activity) = NewActivity::try_from((
-//                             ApActivity::Undo(Box::new(activity)),
-//                             Some(ActivityTarget::from(target.0)),
-//                         )
-//                             as ApActivityTarget)
-//                         {
-//                             log::debug!("ACTIVITY\n{activity:#?}");
-//                             if create_activity(&conn, activity).await.is_some() {
-//                                 match assign_to_faktory(
-//                                     faktory,
-//                                     String::from("process_remote_undo_follow"),
-//                                     vec![follow_apid],
-//                                 ) {
-//                                     Ok(_) => Ok(Status::Accepted),
-//                                     Err(e) => {
-//                                         log::error!("FAILED TO ASSIGN TO FAKTORY\n{e:#?}");
-//                                         Err(Status::NoContent)
-//                                     }
-//                                 }
-//                             } else {
-//                                 Err(Status::NoContent)
-//                             }
-//                         } else {
-//                             Err(Status::NoContent)
-//                         }
-//                     } else {
-//                         Err(Status::NoContent)
-//                     }
-//                 } else {
-//                     Err(Status::NoContent)
-//                 }
-//             }
-//             _ => {
-//                 log::debug!("UNIMPLEMENTED UNDO TYPE\n{:#?}", activity.clone().object);
-//                 Err(Status::NoContent)
-//             }
-//         },
-//         _ => Err(Status::NoContent),
-//     }
-// }
+fn undo_target_apid(activity: &ApActivity) -> Option<String> {
+    match activity {
+        ApActivity::Like(like) => like.id.clone(),
+        ApActivity::Follow(follow) => follow.id.clone(),
+        ApActivity::Announce(announce) => announce.id.clone(),
+        _ => None,
+    }
+}
 
 async fn process_undo_activity(
     conn: &Db,
-    events: &mut EventChannels,
     faktory: FaktoryConnection,
     ap_target: &ApActivity,
     undo: &ApUndo,
 ) -> Result<Status, Status> {
-    // Find the ActivityPub ID for the activity to undo
-    let apid = match ap_target {
-        ApActivity::Like(like) => like.id.clone(),
-        ApActivity::Follow(follow) => follow.id.clone(),
-        _ => None,
-    };
-
-    if let Some(ref apid) = apid {
+    if let Some(ref apid) = undo_target_apid(ap_target) {
         log::debug!("APID: {apid}");
         // retrieve the activity to undo from the database (models/activities)
         if let Some(target) = get_activity_by_apid(conn, apid.clone()).await {
@@ -338,44 +222,26 @@ async fn process_undo_activity(
             // set up the parameters necessary to create an Activity in the database with linked
             // target activity; NewActivity::try_from creates the link given the appropriate database
             // in the parameterized enum
-            let activity_target = (
+            let activity_and_target = (
                 ApActivity::Undo(Box::new(undo.clone())),
                 Some(ActivityTarget::from(target.0)),
             ) as ApActivityTarget;
 
-            if let Ok(activity) = NewActivity::try_from(activity_target) {
+            if let Ok(activity) = NewActivity::try_from(activity_and_target) {
                 log::debug!("ACTIVITY\n{activity:#?}");
                 if create_activity(conn, activity.clone()).await.is_some() {
-                    return match ap_target {
-                        ApActivity::Like(like) => {
-                            if delete_remote_like_by_actor_and_object_id(
-                                conn,
-                                like.actor.to_string(),
-                                like.object.to_string(),
-                            )
-                            .await
-                            {
-                                events.send(serde_json::to_string(&activity).unwrap());
-                                Ok(Status::Accepted)
-                            } else {
-                                Err(Status::NoContent)
-                            }
+                    match ap_target {
+                        ApActivity::Like(_) => {
+                            to_faktory(faktory, "process_remote_undo_like", apid.clone())
                         }
                         ApActivity::Follow(_) => {
-                            match assign_to_faktory(
-                                faktory,
-                                String::from("process_remote_undo_follow"),
-                                vec![apid.clone()],
-                            ) {
-                                Ok(_) => Ok(Status::Accepted),
-                                Err(e) => {
-                                    log::error!("FAILED TO ASSIGN TO FAKTORY\n{e:#?}");
-                                    Err(Status::NoContent)
-                                }
-                            }
+                            to_faktory(faktory, "process_remote_undo_follow", apid.clone())
+                        }
+                        ApActivity::Announce(_) => {
+                            to_faktory(faktory, "process_remote_undo_announce", apid.clone())
                         }
                         _ => Err(Status::NoContent),
-                    };
+                    }
                 } else {
                     Err(Status::NoContent)
                 }
@@ -392,13 +258,12 @@ async fn process_undo_activity(
 
 pub async fn undo(
     conn: Db,
-    mut events: EventChannels,
     faktory: FaktoryConnection,
     activity: ApUndo,
 ) -> Result<Status, Status> {
     match &activity.object {
         MaybeReference::Actual(actual) => {
-            process_undo_activity(&conn, &mut events, faktory, actual, &activity).await
+            process_undo_activity(&conn, faktory, actual, &activity).await
         }
         MaybeReference::Reference(_) => {
             log::warn!(

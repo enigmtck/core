@@ -246,7 +246,8 @@ pub async fn fetch_remote_note(id: String) -> Option<ApNote> {
                 Option::None
             }
             _ => {
-                log::debug!("REMOTE NOTE FETCH STATUS {:#?}", resp.status());
+                log::error!("REMOTE NOTE FETCH STATUS {:#?}", resp.status());
+                log::error!("{:#?}", resp.text().await);
                 Option::None
             }
         },

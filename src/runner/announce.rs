@@ -59,8 +59,23 @@ pub fn send_announce(job: Job) -> io::Result<()> {
     Ok(())
 }
 
-pub fn process_announce(job: Job) -> io::Result<()> {
-    log::debug!("running process_announce job");
+pub fn process_remote_undo_announce(job: Job) -> io::Result<()> {
+    log::debug!("running process_remote_undo_announce job");
+
+    for ap_id in job.args() {
+        let ap_id = ap_id.as_str().unwrap().to_string();
+        log::debug!("looking for ap_id: {}", ap_id);
+
+        if update_revoked_by_ap_id(&ap_id).is_some() {
+            log::debug!("ANNOUNCE REVOKED: {ap_id}");
+        }
+    }
+
+    Ok(())
+}
+
+pub fn process_remote_announce(job: Job) -> io::Result<()> {
+    log::debug!("running process_remote_announce job");
 
     let rt = Runtime::new().unwrap();
     let handle = rt.handle();
@@ -69,7 +84,7 @@ pub fn process_announce(job: Job) -> io::Result<()> {
         let ap_id = ap_id.as_str().unwrap().to_string();
         log::debug!("looking for ap_id: {}", ap_id);
 
-        let announce = get_remote_announce_by_ap_id(ap_id);
+        let announce = get_remote_announce_by_ap_id(&ap_id);
 
         if let Some(announce) = announce {
             if let Ok(activity) = ApAnnounce::try_from(announce.clone()) {
@@ -123,7 +138,7 @@ pub fn process_announce(job: Job) -> io::Result<()> {
     Ok(())
 }
 
-pub fn get_remote_announce_by_ap_id(ap_id: String) -> Option<RemoteAnnounce> {
+pub fn get_remote_announce_by_ap_id(ap_id: &str) -> Option<RemoteAnnounce> {
     if let Ok(mut conn) = POOL.get() {
         match remote_announces::table
             .filter(remote_announces::ap_id.eq(ap_id))
@@ -151,5 +166,16 @@ pub fn link_remote_announces_to_timeline(timeline_ap_id: String) {
                 log::debug!("{x} ANNOUNCE ROWS UPDATED");
             }
         }
+    }
+}
+
+pub fn update_revoked_by_ap_id(ap_id: &str) -> Option<usize> {
+    if let Ok(mut conn) = POOL.get() {
+        diesel::update(remote_announces::table.filter(remote_announces::ap_id.eq(ap_id)))
+            .set(remote_announces::revoked.eq(true))
+            .execute(&mut conn)
+            .ok()
+    } else {
+        None
     }
 }

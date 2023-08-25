@@ -5,11 +5,9 @@ use serde_json::Value;
 
 use crate::activity_pub::{ApActivity, ApObject};
 use crate::db::Db;
-use crate::fairings::events::EventChannels;
 use crate::fairings::faktory::FaktoryConnection;
 use crate::fairings::signatures::Signed;
 use crate::inbox;
-use crate::models::activities::{create_activity, NewActivity};
 use crate::models::profiles::get_profile_by_username;
 //use crate::models::remote_activities::create_remote_activity;
 use crate::signing::VerificationType;
@@ -44,11 +42,10 @@ pub async fn inbox_post(
     signed: Signed,
     conn: Db,
     faktory: FaktoryConnection,
-    events: EventChannels,
     _username: String,
     activity: String,
 ) -> Result<Status, Status> {
-    shared_inbox_post(signed, conn, faktory, events, activity).await
+    shared_inbox_post(signed, conn, faktory, activity).await
 }
 
 #[post("/inbox", data = "<activity>")]
@@ -56,29 +53,22 @@ pub async fn shared_inbox_post(
     signed: Signed,
     conn: Db,
     faktory: FaktoryConnection,
-    events: EventChannels,
     activity: String,
 ) -> Result<Status, Status> {
+    // Log all activities to suss out those that are unknown or unusual.
     let v: Value = serde_json::from_str(&activity).unwrap();
     log::debug!("POSTING TO INBOX\n{v:#?}");
 
     let activity: ApActivity = serde_json::from_str(&activity).unwrap();
 
     if let Signed(true, _) = signed {
-        //let activity = activity.clone();
-
-        // if create_remote_activity(&conn, activity.clone().into())
-        //     .await
-        //     .is_some()
-        // {
-        //     log::debug!("ACTIVITY CREATED");
+        // The dereferencing for activities below (e.g., *activity) is necessary for Boxed structures.
+        // Boxing is necessary for recursive structure types (e.g., ApActivity in an ApActivity).
         match activity.clone() {
             ApActivity::Delete(activity) => inbox::activity::delete(conn, *activity).await,
             ApActivity::Create(activity) => inbox::activity::create(conn, faktory, activity).await,
             ApActivity::Follow(activity) => inbox::activity::follow(conn, faktory, activity).await,
-            ApActivity::Undo(activity) => {
-                inbox::activity::undo(conn, events, faktory, *activity).await
-            }
+            ApActivity::Undo(activity) => inbox::activity::undo(conn, faktory, *activity).await,
             ApActivity::Accept(activity) => inbox::activity::accept(conn, faktory, *activity).await,
             ApActivity::Invite(activity) => inbox::activity::invite(conn, faktory, activity).await,
             ApActivity::Join(activity) => inbox::activity::join(conn, faktory, activity).await,
@@ -91,10 +81,6 @@ pub async fn shared_inbox_post(
             ApActivity::Add(activity) => inbox::activity::add(conn, faktory, activity).await,
             ApActivity::Remove(activity) => inbox::activity::remove(conn, faktory, activity).await,
         }
-        // } else {
-        //     log::debug!("FAILED TO CREATE REMOTE ACTIVITY");
-        //     Err(Status::NoContent)
-        // }
     } else {
         log::debug!("REQUEST WAS UNSIGNED OR MALFORMED");
         Err(Status::NoContent)
