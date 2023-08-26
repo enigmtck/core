@@ -3,7 +3,9 @@ pub mod sender;
 mod types;
 
 use crate::db::Db;
+use crate::fairings::events::EventChannels;
 use crate::fairings::faktory::FaktoryConnection;
+use crate::models::profiles::Profile;
 use chrono::{DateTime, Utc};
 use rocket::http::Status;
 use serde::{Deserialize, Serialize};
@@ -55,4 +57,14 @@ pub trait Temporal {
 
 pub trait Inbox {
     async fn inbox(&self, conn: Db, faktory: FaktoryConnection) -> Result<Status, Status>;
+}
+
+pub trait Outbox {
+    async fn outbox(
+        &self,
+        conn: Db,
+        faktory: FaktoryConnection,
+        events: EventChannels,
+        profile: Profile,
+    ) -> Result<String, Status>;
 }

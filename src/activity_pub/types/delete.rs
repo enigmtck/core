@@ -3,13 +3,13 @@ use std::fmt::Debug;
 
 use crate::{
     activity_pub::{
-        types::signature::ApSignatureType, ApAddress, ApContext, ApNote, ApObject, Inbox,
+        types::signature::ApSignatureType, ApAddress, ApContext, ApNote, ApObject, Inbox, Outbox,
     },
     db::Db,
-    fairings::faktory::FaktoryConnection,
+    fairings::{events::EventChannels, faktory::FaktoryConnection},
     inbox,
     models::profiles::Profile,
-    MaybeMultiple, MaybeReference,
+    outbox, MaybeMultiple, MaybeReference,
 };
 use rocket::http::Status;
 use rsa::pkcs8::DecodePrivateKey;
@@ -50,6 +50,18 @@ pub struct ApDelete {
 impl Inbox for ApDelete {
     async fn inbox(&self, conn: Db, _faktory: FaktoryConnection) -> Result<Status, Status> {
         inbox::activity::delete(conn, self.clone()).await
+    }
+}
+
+impl Outbox for ApDelete {
+    async fn outbox(
+        &self,
+        conn: Db,
+        faktory: FaktoryConnection,
+        _events: EventChannels,
+        profile: Profile,
+    ) -> Result<String, Status> {
+        outbox::activity::delete(conn, faktory, self.clone(), profile).await
     }
 }
 

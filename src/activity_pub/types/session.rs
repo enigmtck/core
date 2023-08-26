@@ -1,10 +1,14 @@
 use crate::{
-    activity_pub::{ApAddress, ApContext},
+    activity_pub::{ApAddress, ApContext, Outbox},
+    db::Db,
+    fairings::{events::EventChannels, faktory::FaktoryConnection},
     models::{
-        encrypted_sessions::EncryptedSession, olm_sessions::OlmSession,
+        encrypted_sessions::EncryptedSession, olm_sessions::OlmSession, profiles::Profile,
         remote_encrypted_sessions::RemoteEncryptedSession,
     },
+    outbox,
 };
+use rocket::http::Status;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -24,6 +28,18 @@ pub struct ApSession {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reference: Option<String>,
     pub uuid: Option<String>,
+}
+
+impl Outbox for ApSession {
+    async fn outbox(
+        &self,
+        conn: Db,
+        faktory: FaktoryConnection,
+        _events: EventChannels,
+        profile: Profile,
+    ) -> Result<String, Status> {
+        outbox::object::session(conn, faktory, self.clone(), profile).await
+    }
 }
 
 impl Default for ApSession {

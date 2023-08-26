@@ -2,7 +2,9 @@ use core::fmt;
 use std::{collections::HashMap, fmt::Debug};
 
 use crate::{
-    activity_pub::{ApActor, ApAttachment, ApCollection, ApContext, ApInstruments, ApTag},
+    activity_pub::{ApActor, ApAttachment, ApCollection, ApContext, ApInstruments, ApTag, Outbox},
+    db::Db,
+    fairings::{events::EventChannels, faktory::FaktoryConnection},
     helper::{get_activity_ap_id_from_uuid, get_ap_id_from_username, get_note_ap_id_from_uuid},
     models::{
         activities::{Activity, ActivityType},
@@ -14,9 +16,10 @@ use crate::{
         timeline::{TimelineItem, TimelineItemCc},
         vault::VaultItem,
     },
-    MaybeMultiple,
+    outbox, MaybeMultiple,
 };
 use chrono::{DateTime, Utc};
+use rocket::http::Status;
 use serde::{Deserialize, Serialize};
 
 use super::actor::ApAddress;
@@ -158,6 +161,26 @@ impl ApNote {
     pub fn tag(mut self, tag: ApTag) -> Self {
         self.tag.as_mut().expect("unwrap failed").push(tag);
         self
+    }
+}
+
+impl Outbox for ApNote {
+    async fn outbox(
+        &self,
+        conn: Db,
+        faktory: FaktoryConnection,
+        events: EventChannels,
+        profile: Profile,
+    ) -> Result<String, Status> {
+        match self.kind {
+            ApNoteType::Note => {
+                outbox::object::note(conn, faktory, events, self.clone(), profile).await
+            }
+            ApNoteType::EncryptedNote => {
+                outbox::object::encrypted_note(conn, faktory, events, self.clone(), profile).await
+            }
+            _ => Err(Status::NoContent),
+        }
     }
 }
 

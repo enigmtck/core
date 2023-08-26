@@ -1,11 +1,14 @@
 use crate::{
     activity_pub::{
         ApAccept, ApAdd, ApAnnounce, ApBlock, ApCreate, ApDelete, ApInvite, ApJoin, ApLike, ApNote,
-        ApRemove, ApUndo, ApUpdate, Inbox,
+        ApRemove, ApUndo, ApUpdate, Inbox, Outbox,
     },
     db::Db,
-    fairings::faktory::FaktoryConnection,
-    models::activities::{ActivityType, ExtendedActivity},
+    fairings::{events::EventChannels, faktory::FaktoryConnection},
+    models::{
+        activities::{ActivityType, ExtendedActivity},
+        profiles::Profile,
+    },
 };
 use rocket::http::Status;
 use serde::{Deserialize, Serialize};
@@ -50,6 +53,34 @@ impl Inbox for ApActivity {
             ApActivity::Block(activity) => activity.inbox(conn, faktory).await,
             ApActivity::Add(activity) => activity.inbox(conn, faktory).await,
             ApActivity::Remove(activity) => activity.inbox(conn, faktory).await,
+        }
+    }
+}
+
+impl Outbox for ApActivity {
+    async fn outbox(
+        &self,
+        conn: Db,
+        faktory: FaktoryConnection,
+        events: EventChannels,
+        profile: Profile,
+    ) -> Result<String, Status> {
+        // The dereferencing for activities below (e.g., *activity) is necessary for Boxed structures.
+        // Boxing is necessary for recursive structure types (e.g., ApActivity in an ApActivity).
+
+        match self {
+            ApActivity::Undo(activity) => (*activity).outbox(conn, faktory, events, profile).await,
+            ApActivity::Follow(activity) => {
+                (*activity).outbox(conn, faktory, events, profile).await
+            }
+            ApActivity::Like(activity) => (*activity).outbox(conn, faktory, events, profile).await,
+            ApActivity::Announce(activity) => {
+                (*activity).outbox(conn, faktory, events, profile).await
+            }
+            ApActivity::Delete(activity) => {
+                (*activity).outbox(conn, faktory, events, profile).await
+            }
+            _ => Err(Status::NoContent),
         }
     }
 }

@@ -2,12 +2,15 @@ use core::fmt;
 use std::fmt::Debug;
 
 use crate::{
-    activity_pub::{ApAddress, ApContext, ApNote, ApObject, Inbox},
+    activity_pub::{ApAddress, ApContext, ApNote, ApObject, Inbox, Outbox},
     db::Db,
-    fairings::faktory::FaktoryConnection,
+    fairings::{events::EventChannels, faktory::FaktoryConnection},
     inbox,
-    models::activities::{ActivityType, ExtendedActivity},
-    MaybeMultiple, MaybeReference,
+    models::{
+        activities::{ActivityType, ExtendedActivity},
+        profiles::Profile,
+    },
+    outbox, MaybeMultiple, MaybeReference,
 };
 use rocket::http::Status;
 use serde::{Deserialize, Serialize};
@@ -42,6 +45,18 @@ pub struct ApLike {
 impl Inbox for ApLike {
     async fn inbox(&self, conn: Db, faktory: FaktoryConnection) -> Result<Status, Status> {
         inbox::activity::like(conn, faktory, self.clone()).await
+    }
+}
+
+impl Outbox for ApLike {
+    async fn outbox(
+        &self,
+        conn: Db,
+        faktory: FaktoryConnection,
+        _events: EventChannels,
+        profile: Profile,
+    ) -> Result<String, Status> {
+        outbox::activity::like(conn, faktory, self.clone(), profile).await
     }
 }
 

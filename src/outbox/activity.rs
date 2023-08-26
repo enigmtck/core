@@ -13,7 +13,7 @@ use crate::{
         remote_actors::{get_remote_actor_by_ap_id, RemoteActor},
         remote_notes::{get_remote_note_by_ap_id, RemoteNote},
     },
-    MaybeReference,
+    to_faktory, MaybeReference,
 };
 
 use rocket::http::Status;
@@ -97,13 +97,7 @@ pub async fn undo(
             )
             .await
             {
-                if assign_to_faktory(
-                    faktory,
-                    String::from("process_undo"),
-                    vec![activity.uuid.clone()],
-                )
-                .is_ok()
-                {
+                if to_faktory(faktory, "process_undo", activity.uuid.clone()).is_ok() {
                     Ok(get_activity_ap_id_from_uuid(activity.uuid))
                 } else {
                     log::error!("FAILED TO ASSIGN UNDO TO FAKTORY");
@@ -146,13 +140,7 @@ pub async fn follow(
             )
             .await
             {
-                if assign_to_faktory(
-                    faktory,
-                    String::from("process_follow"),
-                    vec![activity.uuid.clone()],
-                )
-                .is_ok()
-                {
+                if to_faktory(faktory, "process_follow", activity.uuid.clone()).is_ok() {
                     Ok(get_activity_ap_id_from_uuid(activity.uuid))
                 } else {
                     log::error!("FAILED TO ASSIGN FOLLOW TO FAKTORY");
@@ -195,13 +183,7 @@ pub async fn like(
             )
             .await
             {
-                if assign_to_faktory(
-                    faktory,
-                    String::from("send_like"),
-                    vec![activity.uuid.clone()],
-                )
-                .is_ok()
-                {
+                if to_faktory(faktory, "send_like", activity.uuid.clone()).is_ok() {
                     Ok(get_activity_ap_id_from_uuid(activity.uuid))
                 } else {
                     log::error!("FAILED TO ASSIGN LIKE TO FAKTORY");
@@ -244,13 +226,7 @@ pub async fn announce(
             )
             .await
             {
-                if assign_to_faktory(
-                    faktory,
-                    String::from("send_announce"),
-                    vec![activity.uuid.clone()],
-                )
-                .is_ok()
-                {
+                if to_faktory(faktory, "send_announce", activity.uuid.clone()).is_ok() {
                     Ok(get_activity_ap_id_from_uuid(activity.uuid))
                 } else {
                     log::error!("FAILED TO ASSIGN ANNOUNCE TO FAKTORY");
@@ -291,13 +267,7 @@ pub async fn delete(
             )
             .await
             {
-                if assign_to_faktory(
-                    faktory,
-                    String::from("delete_note"),
-                    vec![activity.uuid.clone()],
-                )
-                .is_ok()
-                {
+                if to_faktory(faktory, "delete_note", activity.uuid.clone()).is_ok() {
                     Ok(get_activity_ap_id_from_uuid(activity.uuid))
                 } else {
                     log::error!("FAILED TO ASSIGN DELETE TO FAKTORY");

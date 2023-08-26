@@ -2,10 +2,12 @@ use core::fmt;
 use std::fmt::Debug;
 
 use crate::{
-    activity_pub::{ApActivity, ApAddress, ApContext, ApFollow, Inbox},
+    activity_pub::{ApActivity, ApAddress, ApContext, ApFollow, Inbox, Outbox},
     db::Db,
-    fairings::faktory::FaktoryConnection,
-    inbox, MaybeReference,
+    fairings::{events::EventChannels, faktory::FaktoryConnection},
+    inbox,
+    models::profiles::Profile,
+    outbox, MaybeReference,
 };
 use rocket::http::Status;
 use serde::{Deserialize, Serialize};
@@ -40,6 +42,18 @@ pub struct ApUndo {
 impl Inbox for ApUndo {
     async fn inbox(&self, conn: Db, faktory: FaktoryConnection) -> Result<Status, Status> {
         inbox::activity::undo(conn, faktory, self.clone()).await
+    }
+}
+
+impl Outbox for ApUndo {
+    async fn outbox(
+        &self,
+        conn: Db,
+        faktory: FaktoryConnection,
+        _events: EventChannels,
+        profile: Profile,
+    ) -> Result<String, Status> {
+        outbox::activity::undo(conn, faktory, self.clone(), profile).await
     }
 }
 

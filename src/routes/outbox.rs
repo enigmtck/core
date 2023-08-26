@@ -1,6 +1,5 @@
 use crate::activity_pub::{
-    ActivitiesPage, ActivityPub, ApActivity, ApCollectionPage, ApNote, ApNoteType, ApObject,
-    Temporal,
+    ActivitiesPage, ActivityPub, ApActivity, ApCollectionPage, ApObject, Outbox, Temporal,
 };
 use crate::db::Db;
 use crate::fairings::events::EventChannels;
@@ -9,7 +8,6 @@ use crate::fairings::signatures::Signed;
 use crate::models::activities::{
     get_outbox_activities_by_profile_id, get_outbox_count_by_profile_id,
 };
-use crate::outbox;
 use crate::signing::VerificationType;
 use crate::{activity_pub::ApCollection, models::profiles::get_profile_by_username};
 use rocket::{get, http::Status, post, serde::json::Error, serde::json::Json};
@@ -163,39 +161,11 @@ pub async fn outbox_post(
         match get_profile_by_username(&conn, username).await {
             Some(profile) => match object {
                 Ok(object) => match object {
-                    Json(ActivityPub::Activity(activity)) => match activity {
-                        ApActivity::Undo(activity) => {
-                            outbox::activity::undo(conn, faktory, *activity, profile).await
-                        }
-                        ApActivity::Follow(activity) => {
-                            outbox::activity::follow(conn, faktory, activity, profile).await
-                        }
-                        ApActivity::Like(activity) => {
-                            outbox::activity::like(conn, faktory, *activity, profile).await
-                        }
-                        ApActivity::Announce(activity) => {
-                            outbox::activity::announce(conn, faktory, activity, profile).await
-                        }
-                        ApActivity::Delete(activity) => {
-                            outbox::activity::delete(conn, faktory, *activity, profile).await
-                        }
-                        _ => Err(Status::NoContent),
-                    },
-                    Json(ActivityPub::Object(ApObject::Note(note))) => {
-                        // EncryptedNotes need to be handled differently, but use the ApNote struct
-                        match note.kind {
-                            ApNoteType::Note => {
-                                outbox::object::note(conn, faktory, events, note, profile).await
-                            }
-                            ApNoteType::EncryptedNote => {
-                                outbox::object::encrypted_note(conn, faktory, events, note, profile)
-                                    .await
-                            }
-                            _ => Err(Status::NoContent),
-                        }
+                    Json(ActivityPub::Activity(activity)) => {
+                        activity.outbox(conn, faktory, events, profile).await
                     }
-                    Json(ActivityPub::Object(ApObject::Session(session))) => {
-                        outbox::object::session(conn, faktory, session, profile).await
+                    Json(ActivityPub::Object(object)) => {
+                        object.outbox(conn, faktory, events, profile).await
                     }
                     _ => Err(Status::NoContent),
                 },

@@ -1,6 +1,11 @@
-use crate::activity_pub::{ApActor, ApCollection, ApInstrument, ApNote};
+use crate::activity_pub::{ApActor, ApCollection, ApInstrument, ApNote, Outbox};
+use crate::db::Db;
+use crate::fairings::events::EventChannels;
+use crate::fairings::faktory::FaktoryConnection;
+use crate::models::profiles::Profile;
 use crate::{Identifier, MaybeMultiple};
 
+use rocket::http::Status;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -52,6 +57,22 @@ pub enum ApObject {
     Complex(MaybeMultiple<Value>),
     #[default]
     Unknown,
+}
+
+impl Outbox for ApObject {
+    async fn outbox(
+        &self,
+        conn: Db,
+        faktory: FaktoryConnection,
+        events: EventChannels,
+        profile: Profile,
+    ) -> Result<String, Status> {
+        match self {
+            ApObject::Note(object) => object.outbox(conn, faktory, events, profile).await,
+            ApObject::Session(object) => object.outbox(conn, faktory, events, profile).await,
+            _ => Err(Status::NoContent),
+        }
+    }
 }
 
 impl ApObject {

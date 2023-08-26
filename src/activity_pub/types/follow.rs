@@ -2,12 +2,15 @@ use core::fmt;
 use std::fmt::Debug;
 
 use crate::{
-    activity_pub::{ApActor, ApAddress, ApContext, ApObject, Inbox},
+    activity_pub::{ApActor, ApAddress, ApContext, ApObject, Inbox, Outbox},
     db::Db,
-    fairings::faktory::FaktoryConnection,
+    fairings::{events::EventChannels, faktory::FaktoryConnection},
     inbox,
-    models::activities::{ActivityType, ExtendedActivity},
-    MaybeReference,
+    models::{
+        activities::{ActivityType, ExtendedActivity},
+        profiles::Profile,
+    },
+    outbox, MaybeReference,
 };
 use rocket::http::Status;
 use serde::{Deserialize, Serialize};
@@ -40,6 +43,18 @@ pub struct ApFollow {
 impl Inbox for ApFollow {
     async fn inbox(&self, conn: Db, faktory: FaktoryConnection) -> Result<Status, Status> {
         inbox::activity::follow(conn, faktory, self.clone()).await
+    }
+}
+
+impl Outbox for ApFollow {
+    async fn outbox(
+        &self,
+        conn: Db,
+        faktory: FaktoryConnection,
+        _events: EventChannels,
+        profile: Profile,
+    ) -> Result<String, Status> {
+        outbox::activity::follow(conn, faktory, self.clone(), profile).await
     }
 }
 

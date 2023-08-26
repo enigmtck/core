@@ -2,16 +2,17 @@ use core::fmt;
 use std::fmt::Debug;
 
 use crate::{
-    activity_pub::{ApAddress, ApContext, ApNote, ApObject, Inbox, Temporal},
+    activity_pub::{ApAddress, ApContext, ApNote, ApObject, Inbox, Outbox, Temporal},
     db::Db,
-    fairings::faktory::FaktoryConnection,
+    fairings::{events::EventChannels, faktory::FaktoryConnection},
     inbox,
     models::{
         activities::{ActivityType, ExtendedActivity},
+        profiles::Profile,
         //announces::Announce,
         remote_announces::RemoteAnnounce,
     },
-    MaybeMultiple, MaybeReference,
+    outbox, MaybeMultiple, MaybeReference,
 };
 use chrono::{DateTime, Utc};
 use rocket::http::Status;
@@ -54,6 +55,18 @@ pub struct ApAnnounce {
 impl Inbox for ApAnnounce {
     async fn inbox(&self, conn: Db, faktory: FaktoryConnection) -> Result<Status, Status> {
         inbox::activity::announce(conn, faktory, self.clone()).await
+    }
+}
+
+impl Outbox for ApAnnounce {
+    async fn outbox(
+        &self,
+        conn: Db,
+        faktory: FaktoryConnection,
+        _events: EventChannels,
+        profile: Profile,
+    ) -> Result<String, Status> {
+        outbox::activity::announce(conn, faktory, self.clone(), profile).await
     }
 }
 
