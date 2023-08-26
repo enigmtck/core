@@ -2,9 +2,12 @@ use core::fmt;
 use std::fmt::Debug;
 
 use crate::{
-    activity_pub::{ApAddress, ApContext, ApObject},
-    MaybeReference,
+    activity_pub::{ApAddress, ApContext, ApObject, Inbox},
+    db::Db,
+    fairings::faktory::FaktoryConnection,
+    inbox, MaybeReference,
 };
+use rocket::http::Status;
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
@@ -30,4 +33,10 @@ pub struct ApAdd {
     pub actor: ApAddress,
     pub target: Option<String>,
     pub object: MaybeReference<ApObject>,
+}
+
+impl Inbox for ApAdd {
+    async fn inbox(&self, conn: Db, faktory: FaktoryConnection) -> Result<Status, Status> {
+        inbox::activity::add(conn, faktory, self.clone()).await
+    }
 }

@@ -2,9 +2,12 @@ use core::fmt;
 use std::fmt::Debug;
 
 use crate::{
-    activity_pub::{ApActivity, ApAddress, ApContext, ApFollow},
-    MaybeReference,
+    activity_pub::{ApActivity, ApAddress, ApContext, ApFollow, Inbox},
+    db::Db,
+    fairings::faktory::FaktoryConnection,
+    inbox, MaybeReference,
 };
+use rocket::http::Status;
 use serde::{Deserialize, Serialize};
 
 use super::activity::RecursiveActivity;
@@ -32,6 +35,12 @@ pub struct ApUndo {
     pub actor: ApAddress,
     pub id: Option<String>,
     pub object: MaybeReference<ApActivity>,
+}
+
+impl Inbox for ApUndo {
+    async fn inbox(&self, conn: Db, faktory: FaktoryConnection) -> Result<Status, Status> {
+        inbox::activity::undo(conn, faktory, self.clone()).await
+    }
 }
 
 impl TryFrom<RecursiveActivity> for ApUndo {

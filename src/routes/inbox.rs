@@ -3,7 +3,7 @@ use rocket::serde::json::Json;
 use rocket::{get, post};
 use serde_json::Value;
 
-use crate::activity_pub::{ApActivity, ApObject};
+use crate::activity_pub::{ApActivity, ApObject, Inbox};
 use crate::db::Db;
 use crate::fairings::faktory::FaktoryConnection;
 use crate::fairings::signatures::Signed;
@@ -55,35 +55,23 @@ pub async fn shared_inbox_post(
     faktory: FaktoryConnection,
     activity: String,
 ) -> Result<Status, Status> {
-    // Log all activities to suss out those that are unknown or unusual.
-    let v: Value = serde_json::from_str(&activity).unwrap();
-    log::debug!("POSTING TO INBOX\n{v:#?}");
+    if let Ok(raw) = serde_json::from_str::<Value>(&activity) {
+        if let Ok(activity) = serde_json::from_str::<ApActivity>(&activity) {
+            log::debug!("POSTING TO INBOX\n{activity:#?}");
 
-    let activity: ApActivity = serde_json::from_str(&activity).unwrap();
-
-    if let Signed(true, _) = signed {
-        // The dereferencing for activities below (e.g., *activity) is necessary for Boxed structures.
-        // Boxing is necessary for recursive structure types (e.g., ApActivity in an ApActivity).
-        match activity.clone() {
-            ApActivity::Delete(activity) => inbox::activity::delete(conn, *activity).await,
-            ApActivity::Create(activity) => inbox::activity::create(conn, faktory, activity).await,
-            ApActivity::Follow(activity) => inbox::activity::follow(conn, faktory, activity).await,
-            ApActivity::Undo(activity) => inbox::activity::undo(conn, faktory, *activity).await,
-            ApActivity::Accept(activity) => inbox::activity::accept(conn, faktory, *activity).await,
-            ApActivity::Invite(activity) => inbox::activity::invite(conn, faktory, activity).await,
-            ApActivity::Join(activity) => inbox::activity::join(conn, faktory, activity).await,
-            ApActivity::Announce(activity) => {
-                inbox::activity::announce(conn, faktory, activity).await
+            if let Signed(true, _) = signed {
+                activity.inbox(conn, faktory).await
+            } else {
+                log::debug!("REQUEST WAS UNSIGNED OR MALFORMED");
+                Err(Status::NoContent)
             }
-            ApActivity::Update(activity) => inbox::activity::update(conn, faktory, activity).await,
-            ApActivity::Like(activity) => inbox::activity::like(conn, faktory, *activity).await,
-            ApActivity::Block(activity) => inbox::activity::block(conn, faktory, activity).await,
-            ApActivity::Add(activity) => inbox::activity::add(conn, faktory, activity).await,
-            ApActivity::Remove(activity) => inbox::activity::remove(conn, faktory, activity).await,
+        } else {
+            log::debug!("UNKNOWN OR MALFORMED ACTIVITY\n{raw:#?}");
+            Err(Status::BadRequest)
         }
     } else {
-        log::debug!("REQUEST WAS UNSIGNED OR MALFORMED");
-        Err(Status::NoContent)
+        log::debug!("FAILED TO DECODE JSON\n{activity:#?}");
+        Err(Status::BadRequest)
     }
 }
 

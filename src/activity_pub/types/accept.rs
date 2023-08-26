@@ -2,10 +2,14 @@ use core::fmt;
 use std::fmt::Debug;
 
 use crate::{
-    activity_pub::{ApActivity, ApAddress, ApContext, ApFollow, ApObject},
+    activity_pub::{ApActivity, ApAddress, ApContext, ApFollow, ApObject, Inbox},
+    db::Db,
+    fairings::faktory::FaktoryConnection,
+    inbox,
     //    models::remote_activities::RemoteActivity,
     MaybeReference,
 };
+use rocket::http::Status;
 use serde::{Deserialize, Serialize};
 
 use super::activity::RecursiveActivity;
@@ -33,6 +37,12 @@ pub struct ApAccept {
     pub actor: ApAddress,
     pub id: Option<String>,
     pub object: MaybeReference<ApActivity>,
+}
+
+impl Inbox for ApAccept {
+    async fn inbox(&self, conn: Db, faktory: FaktoryConnection) -> Result<Status, Status> {
+        inbox::activity::accept(conn, faktory, self.clone()).await
+    }
 }
 
 impl TryFrom<RecursiveActivity> for ApAccept {

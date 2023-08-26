@@ -2,7 +2,10 @@ pub mod retriever;
 pub mod sender;
 mod types;
 
+use crate::db::Db;
+use crate::fairings::faktory::FaktoryConnection;
 use chrono::{DateTime, Utc};
+use rocket::http::Status;
 use serde::{Deserialize, Serialize};
 pub use types::accept::{ApAccept, ApAcceptType};
 pub use types::activity::ApActivity;
@@ -48,4 +51,8 @@ pub trait Temporal {
     fn published(&self) -> String;
     fn created_at(&self) -> Option<DateTime<Utc>>;
     fn updated_at(&self) -> Option<DateTime<Utc>>;
+}
+
+pub trait Inbox {
+    async fn inbox(&self, conn: Db, faktory: FaktoryConnection) -> Result<Status, Status>;
 }

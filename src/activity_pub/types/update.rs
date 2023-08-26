@@ -2,9 +2,12 @@ use core::fmt;
 use std::fmt::Debug;
 
 use crate::{
-    activity_pub::{ApActor, ApAddress, ApContext, ApNote, ApObject},
-    MaybeMultiple, MaybeReference,
+    activity_pub::{ApActor, ApAddress, ApContext, ApNote, ApObject, Inbox},
+    db::Db,
+    fairings::faktory::FaktoryConnection,
+    inbox, MaybeMultiple, MaybeReference,
 };
+use rocket::http::Status;
 use serde::{Deserialize, Serialize};
 
 use super::signature::ApSignature;
@@ -34,6 +37,12 @@ pub struct ApUpdate {
     pub object: MaybeReference<ApObject>,
     pub signature: Option<ApSignature>,
     pub to: MaybeMultiple<ApAddress>,
+}
+
+impl Inbox for ApUpdate {
+    async fn inbox(&self, conn: Db, faktory: FaktoryConnection) -> Result<Status, Status> {
+        inbox::activity::update(conn, faktory, self.clone()).await
+    }
 }
 
 impl TryFrom<ApNote> for ApUpdate {

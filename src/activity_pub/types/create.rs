@@ -2,11 +2,15 @@ use core::fmt;
 use std::fmt::Debug;
 
 use crate::{
-    activity_pub::{ApAddress, ApContext, ApNote, ApObject, Temporal},
+    activity_pub::{ApAddress, ApContext, ApNote, ApObject, Inbox, Temporal},
+    db::Db,
+    fairings::faktory::FaktoryConnection,
+    inbox,
     models::activities::ExtendedActivity,
     MaybeMultiple, MaybeReference,
 };
 use chrono::{DateTime, Utc};
+use rocket::http::Status;
 use serde::{Deserialize, Serialize};
 
 use super::signature::ApSignature;
@@ -44,6 +48,12 @@ pub struct ApCreate {
 
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ephemeral_updated_at: Option<DateTime<Utc>>,
+}
+
+impl Inbox for ApCreate {
+    async fn inbox(&self, conn: Db, faktory: FaktoryConnection) -> Result<Status, Status> {
+        inbox::activity::create(conn, faktory, self.clone()).await
+    }
 }
 
 impl TryFrom<ExtendedActivity> for ApCreate {

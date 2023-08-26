@@ -2,12 +2,14 @@ use core::fmt;
 use std::fmt::Debug;
 
 use crate::{
-    // activity_pub::{ApActivity, ApActivityType, ApContext},
-    activity_pub::{ApAddress, ApContext, ApNote, ApObject},
+    activity_pub::{ApAddress, ApContext, ApNote, ApObject, Inbox},
+    db::Db,
+    fairings::faktory::FaktoryConnection,
+    inbox,
     models::activities::{ActivityType, ExtendedActivity},
-    MaybeMultiple,
-    MaybeReference,
+    MaybeMultiple, MaybeReference,
 };
+use rocket::http::Status;
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
@@ -35,6 +37,12 @@ pub struct ApLike {
     pub to: Option<MaybeMultiple<ApAddress>>,
     pub id: Option<String>,
     pub object: MaybeReference<ApObject>,
+}
+
+impl Inbox for ApLike {
+    async fn inbox(&self, conn: Db, faktory: FaktoryConnection) -> Result<Status, Status> {
+        inbox::activity::like(conn, faktory, self.clone()).await
+    }
 }
 
 impl TryFrom<ExtendedActivity> for ApLike {

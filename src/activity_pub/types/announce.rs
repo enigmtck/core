@@ -2,7 +2,10 @@ use core::fmt;
 use std::fmt::Debug;
 
 use crate::{
-    activity_pub::{ApAddress, ApContext, ApNote, ApObject, Temporal},
+    activity_pub::{ApAddress, ApContext, ApNote, ApObject, Inbox, Temporal},
+    db::Db,
+    fairings::faktory::FaktoryConnection,
+    inbox,
     models::{
         activities::{ActivityType, ExtendedActivity},
         //announces::Announce,
@@ -11,6 +14,7 @@ use crate::{
     MaybeMultiple, MaybeReference,
 };
 use chrono::{DateTime, Utc};
+use rocket::http::Status;
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
@@ -45,6 +49,12 @@ pub struct ApAnnounce {
 
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ephemeral_updated_at: Option<DateTime<Utc>>,
+}
+
+impl Inbox for ApAnnounce {
+    async fn inbox(&self, conn: Db, faktory: FaktoryConnection) -> Result<Status, Status> {
+        inbox::activity::announce(conn, faktory, self.clone()).await
+    }
 }
 
 impl Temporal for ApAnnounce {

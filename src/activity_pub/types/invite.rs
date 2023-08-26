@@ -2,9 +2,12 @@ use core::fmt;
 use std::fmt::Debug;
 
 use crate::{
-    activity_pub::{ApAddress, ApContext, ApInstruments, ApObject, ApSession},
-    MaybeMultiple, MaybeReference,
+    activity_pub::{ApAddress, ApContext, ApInstruments, ApObject, ApSession, Inbox},
+    db::Db,
+    fairings::faktory::FaktoryConnection,
+    inbox, MaybeMultiple, MaybeReference,
 };
+use rocket::http::Status;
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
@@ -31,6 +34,12 @@ pub struct ApInvite {
     pub id: Option<String>,
     pub to: MaybeMultiple<ApAddress>,
     pub object: MaybeReference<ApObject>,
+}
+
+impl Inbox for ApInvite {
+    async fn inbox(&self, conn: Db, faktory: FaktoryConnection) -> Result<Status, Status> {
+        inbox::activity::invite(conn, faktory, self.clone()).await
+    }
 }
 
 impl TryFrom<ApSession> for ApInvite {

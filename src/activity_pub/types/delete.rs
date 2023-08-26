@@ -2,10 +2,16 @@ use core::fmt;
 use std::fmt::Debug;
 
 use crate::{
-    activity_pub::{types::signature::ApSignatureType, ApAddress, ApContext, ApNote, ApObject},
+    activity_pub::{
+        types::signature::ApSignatureType, ApAddress, ApContext, ApNote, ApObject, Inbox,
+    },
+    db::Db,
+    fairings::faktory::FaktoryConnection,
+    inbox,
     models::profiles::Profile,
     MaybeMultiple, MaybeReference,
 };
+use rocket::http::Status;
 use rsa::pkcs8::DecodePrivateKey;
 use rsa::signature::{RandomizedSigner, Signature};
 use rsa::{pkcs1v15::SigningKey, RsaPrivateKey};
@@ -39,6 +45,12 @@ pub struct ApDelete {
     pub object: MaybeReference<ApObject>,
     pub signature: Option<ApSignature>,
     pub to: MaybeMultiple<ApAddress>,
+}
+
+impl Inbox for ApDelete {
+    async fn inbox(&self, conn: Db, _faktory: FaktoryConnection) -> Result<Status, Status> {
+        inbox::activity::delete(conn, self.clone()).await
+    }
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]

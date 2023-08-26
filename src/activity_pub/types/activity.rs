@@ -1,10 +1,13 @@
 use crate::{
     activity_pub::{
         ApAccept, ApAdd, ApAnnounce, ApBlock, ApCreate, ApDelete, ApInvite, ApJoin, ApLike, ApNote,
-        ApRemove, ApUndo, ApUpdate,
+        ApRemove, ApUndo, ApUpdate, Inbox,
     },
+    db::Db,
+    fairings::faktory::FaktoryConnection,
     models::activities::{ActivityType, ExtendedActivity},
 };
+use rocket::http::Status;
 use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
 
@@ -26,6 +29,29 @@ pub enum ApActivity {
     Block(ApBlock),
     Add(ApAdd),
     Remove(ApRemove),
+}
+
+impl Inbox for ApActivity {
+    async fn inbox(&self, conn: Db, faktory: FaktoryConnection) -> Result<Status, Status> {
+        // The dereferencing for activities below (e.g., *activity) is necessary for Boxed structures.
+        // Boxing is necessary for recursive structure types (e.g., ApActivity in an ApActivity).
+
+        match self {
+            ApActivity::Delete(activity) => (*activity).inbox(conn, faktory).await,
+            ApActivity::Like(activity) => (*activity).inbox(conn, faktory).await,
+            ApActivity::Undo(activity) => (*activity).inbox(conn, faktory).await,
+            ApActivity::Accept(activity) => (*activity).inbox(conn, faktory).await,
+            ApActivity::Follow(activity) => activity.inbox(conn, faktory).await,
+            ApActivity::Announce(activity) => activity.inbox(conn, faktory).await,
+            ApActivity::Create(activity) => activity.inbox(conn, faktory).await,
+            ApActivity::Invite(activity) => activity.inbox(conn, faktory).await,
+            ApActivity::Join(activity) => activity.inbox(conn, faktory).await,
+            ApActivity::Update(activity) => activity.inbox(conn, faktory).await,
+            ApActivity::Block(activity) => activity.inbox(conn, faktory).await,
+            ApActivity::Add(activity) => activity.inbox(conn, faktory).await,
+            ApActivity::Remove(activity) => activity.inbox(conn, faktory).await,
+        }
+    }
 }
 
 pub type RecursiveActivity = (ExtendedActivity, Option<ExtendedActivity>);

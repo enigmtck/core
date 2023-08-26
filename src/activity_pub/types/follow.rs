@@ -2,10 +2,14 @@ use core::fmt;
 use std::fmt::Debug;
 
 use crate::{
-    activity_pub::{ApActor, ApAddress, ApContext, ApObject},
+    activity_pub::{ApActor, ApAddress, ApContext, ApObject, Inbox},
+    db::Db,
+    fairings::faktory::FaktoryConnection,
+    inbox,
     models::activities::{ActivityType, ExtendedActivity},
     MaybeReference,
 };
+use rocket::http::Status;
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
@@ -33,37 +37,11 @@ pub struct ApFollow {
     pub object: MaybeReference<ApObject>,
 }
 
-// impl TryFrom<RemoteActivity> for ApFollow {
-//     type Error = &'static str;
-
-//     fn try_from(activity: RemoteActivity) -> Result<Self, Self::Error> {
-//         if activity.kind == "Follow" {
-//             Ok(ApFollow {
-//                 context: activity
-//                     .context
-//                     .map(|ctx| serde_json::from_value(ctx).unwrap()),
-//                 kind: ApFollowType::default(),
-//                 actor: ApAddress::Address(activity.actor),
-//                 id: Some(activity.ap_id),
-//                 object: serde_json::from_value(activity.ap_object.into()).unwrap(),
-//             })
-//         } else {
-//             Err("ACTIVITY COULD NOT BE CONVERTED TO ACCEPT")
-//         }
-//     }
-// }
-
-// impl From<Follow> for ApFollow {
-//     fn from(follow: Follow) -> Self {
-//         ApFollow {
-//             context: Some(ApContext::default()),
-//             kind: ApFollowType::default(),
-//             actor: ApAddress::Address(follow.actor),
-//             id: Some(format!("{}/activities/{}", *crate::SERVER_URL, follow.uuid)),
-//             object: MaybeReference::Reference(follow.ap_object),
-//         }
-//     }
-// }
+impl Inbox for ApFollow {
+    async fn inbox(&self, conn: Db, faktory: FaktoryConnection) -> Result<Status, Status> {
+        inbox::activity::follow(conn, faktory, self.clone()).await
+    }
+}
 
 impl TryFrom<ExtendedActivity> for ApFollow {
     type Error = &'static str;
