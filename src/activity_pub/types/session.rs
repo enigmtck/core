@@ -89,6 +89,18 @@ pub struct ApInstrument {
     pub url: Option<String>,
 }
 
+impl Outbox for ApInstrument {
+    async fn outbox(
+        &self,
+        _conn: Db,
+        _faktory: FaktoryConnection,
+        _events: EventChannels,
+        _profile: Profile,
+    ) -> Result<String, Status> {
+        Err(Status::ServiceUnavailable)
+    }
+}
+
 impl From<OlmSession> for ApInstrument {
     fn from(session: OlmSession) -> Self {
         ApInstrument {

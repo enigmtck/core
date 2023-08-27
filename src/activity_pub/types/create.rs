@@ -2,11 +2,11 @@ use core::fmt;
 use std::fmt::Debug;
 
 use crate::{
-    activity_pub::{ApAddress, ApContext, ApNote, ApObject, Inbox, Temporal},
+    activity_pub::{ApAddress, ApContext, ApNote, ApObject, Inbox, Outbox, Temporal},
     db::Db,
-    fairings::faktory::FaktoryConnection,
+    fairings::{events::EventChannels, faktory::FaktoryConnection},
     inbox,
-    models::activities::ExtendedActivity,
+    models::{activities::ExtendedActivity, profiles::Profile},
     MaybeMultiple, MaybeReference,
 };
 use chrono::{DateTime, Utc};
@@ -53,6 +53,18 @@ pub struct ApCreate {
 impl Inbox for ApCreate {
     async fn inbox(&self, conn: Db, faktory: FaktoryConnection) -> Result<Status, Status> {
         inbox::activity::create(conn, faktory, self.clone()).await
+    }
+}
+
+impl Outbox for ApCreate {
+    async fn outbox(
+        &self,
+        _conn: Db,
+        _faktory: FaktoryConnection,
+        _events: EventChannels,
+        _profile: Profile,
+    ) -> Result<String, Status> {
+        Err(Status::ServiceUnavailable)
     }
 }
 

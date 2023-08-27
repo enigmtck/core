@@ -1,12 +1,17 @@
 use core::fmt;
 use std::fmt::Debug;
 
-use crate::activity_pub::{ApAttachment, ApContext, ApEndpoint, ApImage, ApImageType, ApTag};
+use crate::activity_pub::{
+    ApAttachment, ApContext, ApEndpoint, ApImage, ApImageType, ApTag, Outbox,
+};
 use crate::db::Db;
+use crate::fairings::events::EventChannels;
+use crate::fairings::faktory::FaktoryConnection;
 use crate::models::followers::get_followers_by_profile_id;
 use crate::models::leaders::{get_leaders_by_profile_id, Leader};
 use crate::models::profiles::{get_profile_by_ap_id, Profile};
 use crate::models::remote_actors::RemoteActor;
+use rocket::http::Status;
 use serde::{Deserialize, Serialize};
 use serde_with::serde_as;
 
@@ -178,6 +183,18 @@ pub struct ApActor {
     // These are used for user operations on their own profile
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ephemeral_summary_markdown: Option<String>,
+}
+
+impl Outbox for ApActor {
+    async fn outbox(
+        &self,
+        _conn: Db,
+        _faktory: FaktoryConnection,
+        _events: EventChannels,
+        _profile: Profile,
+    ) -> Result<String, Status> {
+        Err(Status::ServiceUnavailable)
+    }
 }
 
 impl Default for ApActor {

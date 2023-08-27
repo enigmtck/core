@@ -6,9 +6,12 @@ use crate::db::Db;
 use crate::fairings::events::EventChannels;
 use crate::fairings::faktory::FaktoryConnection;
 use crate::models::profiles::Profile;
+use crate::{Identifier, MaybeMultiple};
 use chrono::{DateTime, Utc};
+use enum_dispatch::enum_dispatch;
 use rocket::http::Status;
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 pub use types::accept::{ApAccept, ApAcceptType};
 pub use types::activity::ApActivity;
 pub use types::actor::{ApActor, ApActorType, ApAddress, ApPublicKey};
@@ -20,7 +23,7 @@ pub use types::collection::{
     ApCollectionType, FollowersPage, IdentifiedVaultItems, LeadersPage,
 };
 pub use types::create::{ApCreate, ApCreateType};
-pub use types::delete::{ApDelete, ApDeleteType};
+pub use types::delete::{ApDelete, ApDeleteType, ApTombstone};
 pub use types::follow::{ApFollow, ApFollowType};
 pub use types::invite::{ApInvite, ApInviteType};
 pub use types::join::{ApJoin, ApJoinType};
@@ -55,10 +58,12 @@ pub trait Temporal {
     fn updated_at(&self) -> Option<DateTime<Utc>>;
 }
 
+#[enum_dispatch(ApActivity)]
 pub trait Inbox {
     async fn inbox(&self, conn: Db, faktory: FaktoryConnection) -> Result<Status, Status>;
 }
 
+#[enum_dispatch(ApActivity, ApObject)]
 pub trait Outbox {
     async fn outbox(
         &self,

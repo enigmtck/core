@@ -2,10 +2,12 @@ use core::fmt;
 use std::fmt::Debug;
 
 use crate::{
-    activity_pub::{ApAddress, ApContext, ApInstruments, ApObject, ApSession, Inbox},
+    activity_pub::{ApAddress, ApContext, ApInstruments, ApObject, ApSession, Inbox, Outbox},
     db::Db,
-    fairings::faktory::FaktoryConnection,
-    inbox, MaybeMultiple, MaybeReference,
+    fairings::{events::EventChannels, faktory::FaktoryConnection},
+    inbox,
+    models::profiles::Profile,
+    MaybeMultiple, MaybeReference,
 };
 use rocket::http::Status;
 use serde::{Deserialize, Serialize};
@@ -39,6 +41,18 @@ pub struct ApInvite {
 impl Inbox for ApInvite {
     async fn inbox(&self, conn: Db, faktory: FaktoryConnection) -> Result<Status, Status> {
         inbox::activity::invite(conn, faktory, self.clone()).await
+    }
+}
+
+impl Outbox for ApInvite {
+    async fn outbox(
+        &self,
+        _conn: Db,
+        _faktory: FaktoryConnection,
+        _events: EventChannels,
+        _profile: Profile,
+    ) -> Result<String, Status> {
+        Err(Status::ServiceUnavailable)
     }
 }
 

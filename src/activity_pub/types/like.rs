@@ -42,13 +42,13 @@ pub struct ApLike {
     pub object: MaybeReference<ApObject>,
 }
 
-impl Inbox for ApLike {
+impl Inbox for Box<ApLike> {
     async fn inbox(&self, conn: Db, faktory: FaktoryConnection) -> Result<Status, Status> {
-        inbox::activity::like(conn, faktory, self.clone()).await
+        inbox::activity::like(conn, faktory, *self.clone()).await
     }
 }
 
-impl Outbox for ApLike {
+impl Outbox for Box<ApLike> {
     async fn outbox(
         &self,
         conn: Db,
@@ -56,7 +56,7 @@ impl Outbox for ApLike {
         _events: EventChannels,
         profile: Profile,
     ) -> Result<String, Status> {
-        outbox::activity::like(conn, faktory, self.clone(), profile).await
+        outbox::activity::like(conn, faktory, *self.clone(), profile).await
     }
 }
 

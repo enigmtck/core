@@ -5,6 +5,7 @@ use crate::fairings::faktory::FaktoryConnection;
 use crate::models::profiles::Profile;
 use crate::{Identifier, MaybeMultiple};
 
+use enum_dispatch::enum_dispatch;
 use rocket::http::Status;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -39,7 +40,8 @@ pub struct ApBasicContent {
     pub content: String,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, Default)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[enum_dispatch]
 #[serde(untagged)]
 pub enum ApObject {
     Tombstone(ApTombstone),
@@ -55,25 +57,71 @@ pub enum ApObject {
     Identifier(Identifier),
     Basic(ApBasicContent),
     Complex(MaybeMultiple<Value>),
-    #[default]
-    Unknown,
 }
 
-impl Outbox for ApObject {
+impl Outbox for String {
     async fn outbox(
         &self,
-        conn: Db,
-        faktory: FaktoryConnection,
-        events: EventChannels,
-        profile: Profile,
+        _conn: Db,
+        _faktory: FaktoryConnection,
+        _events: EventChannels,
+        _profile: Profile,
     ) -> Result<String, Status> {
-        match self {
-            ApObject::Note(object) => object.outbox(conn, faktory, events, profile).await,
-            ApObject::Session(object) => object.outbox(conn, faktory, events, profile).await,
-            _ => Err(Status::NoContent),
-        }
+        Err(Status::ServiceUnavailable)
     }
 }
+
+impl Outbox for Identifier {
+    async fn outbox(
+        &self,
+        _conn: Db,
+        _faktory: FaktoryConnection,
+        _events: EventChannels,
+        _profile: Profile,
+    ) -> Result<String, Status> {
+        Err(Status::ServiceUnavailable)
+    }
+}
+
+impl Outbox for MaybeMultiple<Value> {
+    async fn outbox(
+        &self,
+        _conn: Db,
+        _faktory: FaktoryConnection,
+        _events: EventChannels,
+        _profile: Profile,
+    ) -> Result<String, Status> {
+        Err(Status::ServiceUnavailable)
+    }
+}
+
+impl Outbox for ApBasicContent {
+    async fn outbox(
+        &self,
+        _conn: Db,
+        _faktory: FaktoryConnection,
+        _events: EventChannels,
+        _profile: Profile,
+    ) -> Result<String, Status> {
+        Err(Status::ServiceUnavailable)
+    }
+}
+
+// impl Outbox for ApObject {
+//     async fn outbox(
+//         &self,
+//         conn: Db,
+//         faktory: FaktoryConnection,
+//         events: EventChannels,
+//         profile: Profile,
+//     ) -> Result<String, Status> {
+//         match self {
+//             ApObject::Note(object) => object.outbox(conn, faktory, events, profile).await,
+//             ApObject::Session(object) => object.outbox(conn, faktory, events, profile).await,
+//             _ => Err(Status::NoContent),
+//         }
+//     }
+// }
 
 impl ApObject {
     pub fn is_plain(&self) -> bool {

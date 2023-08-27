@@ -46,6 +46,7 @@ diesel-derive-enum = { version = "2.0.1", features = ["postgres"] }
 image = "0.24.6"
 blurhash = "0.1.1"
 rexiv2 = "0.10.0"
+enum_dispatch = "0.3.12"
 
 [dependencies.rocket_sync_db_pools]
 version = "0.1.0-rc.3"

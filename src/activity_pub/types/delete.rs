@@ -47,13 +47,13 @@ pub struct ApDelete {
     pub to: MaybeMultiple<ApAddress>,
 }
 
-impl Inbox for ApDelete {
+impl Inbox for Box<ApDelete> {
     async fn inbox(&self, conn: Db, _faktory: FaktoryConnection) -> Result<Status, Status> {
-        inbox::activity::delete(conn, self.clone()).await
+        inbox::activity::delete(conn, *self.clone()).await
     }
 }
 
-impl Outbox for ApDelete {
+impl Outbox for Box<ApDelete> {
     async fn outbox(
         &self,
         conn: Db,
@@ -61,7 +61,7 @@ impl Outbox for ApDelete {
         _events: EventChannels,
         profile: Profile,
     ) -> Result<String, Status> {
-        outbox::activity::delete(conn, faktory, self.clone(), profile).await
+        outbox::activity::delete(conn, faktory, *self.clone(), profile).await
     }
 }
 
@@ -84,6 +84,18 @@ pub struct ApTombstone {
     pub kind: ApTombstoneType,
     pub id: String,
     pub atom_uri: Option<String>,
+}
+
+impl Outbox for ApTombstone {
+    async fn outbox(
+        &self,
+        _conn: Db,
+        _faktory: FaktoryConnection,
+        _events: EventChannels,
+        _profile: Profile,
+    ) -> Result<String, Status> {
+        Err(Status::ServiceUnavailable)
+    }
 }
 
 impl TryFrom<ApNote> for ApTombstone {

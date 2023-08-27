@@ -2,10 +2,11 @@ use core::fmt;
 use std::fmt::Debug;
 
 use crate::{
-    activity_pub::{ApActivity, ApAddress, ApContext, ApFollow, ApObject, Inbox},
+    activity_pub::{ApActivity, ApAddress, ApContext, ApFollow, ApObject, Inbox, Outbox},
     db::Db,
-    fairings::faktory::FaktoryConnection,
+    fairings::{events::EventChannels, faktory::FaktoryConnection},
     inbox,
+    models::profiles::Profile,
     //    models::remote_activities::RemoteActivity,
     MaybeReference,
 };
@@ -39,9 +40,21 @@ pub struct ApAccept {
     pub object: MaybeReference<ApActivity>,
 }
 
-impl Inbox for ApAccept {
+impl Inbox for Box<ApAccept> {
     async fn inbox(&self, conn: Db, faktory: FaktoryConnection) -> Result<Status, Status> {
-        inbox::activity::accept(conn, faktory, self.clone()).await
+        inbox::activity::accept(conn, faktory, *self.clone()).await
+    }
+}
+
+impl Outbox for Box<ApAccept> {
+    async fn outbox(
+        &self,
+        _conn: Db,
+        _faktory: FaktoryConnection,
+        _events: EventChannels,
+        _profile: Profile,
+    ) -> Result<String, Status> {
+        Err(Status::ServiceUnavailable)
     }
 }
 

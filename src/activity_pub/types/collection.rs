@@ -1,10 +1,14 @@
 use core::fmt;
 use std::fmt::Debug;
 
-use crate::activity_pub::{ActivityPub, ApActivity, ApActor, ApContext, ApObject};
+use crate::activity_pub::{ActivityPub, ApActivity, ApActor, ApContext, ApObject, Outbox};
+use crate::db::Db;
+use crate::fairings::events::EventChannels;
+use crate::fairings::faktory::FaktoryConnection;
 use crate::models::vault::VaultItem;
 use crate::models::{followers::Follower, leaders::Leader, profiles::Profile};
 use crate::MaybeReference;
+use rocket::http::Status;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -56,6 +60,18 @@ pub struct ApCollectionPage {
     pub ordered_items: Option<Vec<ActivityPub>>,
 }
 
+impl Outbox for ApCollectionPage {
+    async fn outbox(
+        &self,
+        _conn: Db,
+        _faktory: FaktoryConnection,
+        _events: EventChannels,
+        _profile: Profile,
+    ) -> Result<String, Status> {
+        Err(Status::ServiceUnavailable)
+    }
+}
+
 impl Default for ApCollectionPage {
     fn default() -> ApCollectionPage {
         ApCollectionPage {
@@ -105,6 +121,18 @@ pub struct ApCollection {
     pub current: Option<MaybeReference<ApCollectionPage>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub part_of: Option<String>,
+}
+
+impl Outbox for ApCollection {
+    async fn outbox(
+        &self,
+        _conn: Db,
+        _faktory: FaktoryConnection,
+        _events: EventChannels,
+        _profile: Profile,
+    ) -> Result<String, Status> {
+        Err(Status::ServiceUnavailable)
+    }
 }
 
 impl Default for ApCollection {

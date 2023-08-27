@@ -39,13 +39,13 @@ pub struct ApUndo {
     pub object: MaybeReference<ApActivity>,
 }
 
-impl Inbox for ApUndo {
+impl Inbox for Box<ApUndo> {
     async fn inbox(&self, conn: Db, faktory: FaktoryConnection) -> Result<Status, Status> {
-        inbox::activity::undo(conn, faktory, self.clone()).await
+        inbox::activity::undo(conn, faktory, *self.clone()).await
     }
 }
 
-impl Outbox for ApUndo {
+impl Outbox for Box<ApUndo> {
     async fn outbox(
         &self,
         conn: Db,
@@ -53,7 +53,7 @@ impl Outbox for ApUndo {
         _events: EventChannels,
         profile: Profile,
     ) -> Result<String, Status> {
-        outbox::activity::undo(conn, faktory, self.clone(), profile).await
+        outbox::activity::undo(conn, faktory, *self.clone(), profile).await
     }
 }
 

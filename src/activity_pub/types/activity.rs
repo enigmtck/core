@@ -1,22 +1,18 @@
 use crate::{
     activity_pub::{
         ApAccept, ApAdd, ApAnnounce, ApBlock, ApCreate, ApDelete, ApInvite, ApJoin, ApLike, ApNote,
-        ApRemove, ApUndo, ApUpdate, Inbox, Outbox,
+        ApRemove, ApUndo, ApUpdate,
     },
-    db::Db,
-    fairings::{events::EventChannels, faktory::FaktoryConnection},
-    models::{
-        activities::{ActivityType, ExtendedActivity},
-        profiles::Profile,
-    },
+    models::activities::{ActivityType, ExtendedActivity},
 };
-use rocket::http::Status;
+use enum_dispatch::enum_dispatch;
 use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
 
 use super::follow::ApFollow;
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
+#[enum_dispatch]
 #[serde(untagged)]
 pub enum ApActivity {
     Delete(Box<ApDelete>),
@@ -32,57 +28,6 @@ pub enum ApActivity {
     Block(ApBlock),
     Add(ApAdd),
     Remove(ApRemove),
-}
-
-impl Inbox for ApActivity {
-    async fn inbox(&self, conn: Db, faktory: FaktoryConnection) -> Result<Status, Status> {
-        // The dereferencing for activities below (e.g., *activity) is necessary for Boxed structures.
-        // Boxing is necessary for recursive structure types (e.g., ApActivity in an ApActivity).
-
-        match self {
-            ApActivity::Delete(activity) => (*activity).inbox(conn, faktory).await,
-            ApActivity::Like(activity) => (*activity).inbox(conn, faktory).await,
-            ApActivity::Undo(activity) => (*activity).inbox(conn, faktory).await,
-            ApActivity::Accept(activity) => (*activity).inbox(conn, faktory).await,
-            ApActivity::Follow(activity) => activity.inbox(conn, faktory).await,
-            ApActivity::Announce(activity) => activity.inbox(conn, faktory).await,
-            ApActivity::Create(activity) => activity.inbox(conn, faktory).await,
-            ApActivity::Invite(activity) => activity.inbox(conn, faktory).await,
-            ApActivity::Join(activity) => activity.inbox(conn, faktory).await,
-            ApActivity::Update(activity) => activity.inbox(conn, faktory).await,
-            ApActivity::Block(activity) => activity.inbox(conn, faktory).await,
-            ApActivity::Add(activity) => activity.inbox(conn, faktory).await,
-            ApActivity::Remove(activity) => activity.inbox(conn, faktory).await,
-        }
-    }
-}
-
-impl Outbox for ApActivity {
-    async fn outbox(
-        &self,
-        conn: Db,
-        faktory: FaktoryConnection,
-        events: EventChannels,
-        profile: Profile,
-    ) -> Result<String, Status> {
-        // The dereferencing for activities below (e.g., *activity) is necessary for Boxed structures.
-        // Boxing is necessary for recursive structure types (e.g., ApActivity in an ApActivity).
-
-        match self {
-            ApActivity::Undo(activity) => (*activity).outbox(conn, faktory, events, profile).await,
-            ApActivity::Follow(activity) => {
-                (*activity).outbox(conn, faktory, events, profile).await
-            }
-            ApActivity::Like(activity) => (*activity).outbox(conn, faktory, events, profile).await,
-            ApActivity::Announce(activity) => {
-                (*activity).outbox(conn, faktory, events, profile).await
-            }
-            ApActivity::Delete(activity) => {
-                (*activity).outbox(conn, faktory, events, profile).await
-            }
-            _ => Err(Status::NoContent),
-        }
-    }
 }
 
 pub type RecursiveActivity = (ExtendedActivity, Option<ExtendedActivity>);
