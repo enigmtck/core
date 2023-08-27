@@ -50,6 +50,20 @@ diesel::table! {
 }
 
 diesel::table! {
+    cache (id) {
+        id -> Int4,
+        created_at -> Timestamptz,
+        updated_at -> Timestamptz,
+        uuid -> Varchar,
+        url -> Varchar,
+        media_type -> Varchar,
+        height -> Int4,
+        width -> Int4,
+        blurhash -> Nullable<Varchar>,
+    }
+}
+
+diesel::table! {
     encrypted_sessions (id) {
         id -> Int4,
         created_at -> Timestamptz,
@@ -403,6 +417,7 @@ diesel::joinable!(vault -> profiles (profile_id));
 diesel::allow_tables_to_appear_in_same_query!(
     activities,
     announces,
+    cache,
     encrypted_sessions,
     followers,
     follows,

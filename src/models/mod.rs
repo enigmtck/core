@@ -1,5 +1,6 @@
 pub mod activities;
 //pub mod announces;
+pub mod cache;
 pub mod encrypted_sessions;
 pub mod followers;
 //pub mod follows;
@@ -10,7 +11,6 @@ pub mod olm_one_time_keys;
 pub mod olm_sessions;
 pub mod processing_queue;
 pub mod profiles;
-//pub mod remote_activities;
 pub mod remote_actors;
 pub mod remote_announces;
 pub mod remote_encrypted_sessions;

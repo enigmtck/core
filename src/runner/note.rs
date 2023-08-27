@@ -2,14 +2,18 @@ use diesel::prelude::*;
 
 use faktory::Job;
 use reqwest::{Client, StatusCode};
-use std::io;
+use std::{
+    fs::File,
+    io::{self, copy},
+};
 use tokio::runtime::{Handle, Runtime};
 use webpage::{Webpage, WebpageOptions};
 
 use crate::{
-    activity_pub::{ApActivity, ApAddress, ApNote, ApObject, Metadata},
+    activity_pub::{ApActivity, ApAddress, ApAttachment, ApNote, ApObject, Metadata},
     helper::get_note_ap_id_from_uuid,
     models::{
+        cache::{CacheItem, NewCacheItem},
         notes::{Note, NoteType},
         profiles::Profile,
         remote_notes::{NewRemoteNote, RemoteNote},
@@ -24,7 +28,7 @@ use crate::{
         timeline::delete_timeline_item_by_ap_id,
         user::{get_profile, get_profile_by_ap_id},
     },
-    schema::{notes, remote_notes},
+    schema::{cache, notes, remote_notes},
     signing::{Method, SignParams},
     MaybeReference,
 };
@@ -34,6 +38,17 @@ use super::{
     timeline::{add_to_timeline, create_timeline_item},
     POOL,
 };
+
+pub fn create_cache_item(cache_item: NewCacheItem) -> Option<CacheItem> {
+    if let Ok(mut conn) = POOL.get() {
+        diesel::insert_into(cache::table)
+            .values(&cache_item)
+            .get_result::<CacheItem>(&mut conn)
+            .ok()
+    } else {
+        None
+    }
+}
 
 pub fn create_or_update_remote_note(note: NewRemoteNote) -> Option<RemoteNote> {
     if let Ok(mut conn) = POOL.get() {
@@ -309,6 +324,23 @@ pub fn get_links(text: String) -> Vec<String> {
         .collect()
 }
 
+fn download_image(cache_item: NewCacheItem) -> Option<NewCacheItem> {
+    let path = format!("{}/cache/{}", &*crate::MEDIA_DIR, cache_item.uuid);
+    // Send an HTTP GET request to the URL
+    if let Ok(mut response) = reqwest::blocking::get(&cache_item.url) {
+        // Create a new file to write the downloaded image to
+        if let Ok(mut file) = File::create(path) {
+            // Copy the contents of the response to the file
+            copy(&mut response, &mut file).ok();
+            Some(cache_item)
+        } else {
+            None
+        }
+    } else {
+        None
+    }
+}
+
 fn process_note(remote_note: &RemoteNote, handle: &Handle) -> io::Result<()> {
     let links = get_links(remote_note.content.clone());
     log::debug!("{links:#?}");
@@ -323,6 +355,16 @@ fn process_note(remote_note: &RemoteNote, handle: &Handle) -> io::Result<()> {
     };
 
     let note: ApNote = (remote_note.clone(), Some(metadata)).into();
+
+    if let Some(attachment) = &note.attachment {
+        attachment.iter().for_each(|x| {
+            if let ApAttachment::Document(document) = x {
+                if let Ok(cache_item) = NewCacheItem::try_from(document.clone()) {
+                    download_image(cache_item).map(create_cache_item);
+                }
+            };
+        });
+    }
 
     if let Some(timeline_item) = create_timeline_item(note.clone().into()) {
         add_to_timeline(
