@@ -82,7 +82,8 @@ fn rocket() -> _ {
                 conversation_get,
                 conversation_get_local,
                 authorize_stream,
-                host_meta
+                host_meta,
+                cached_image
             ],
         )
 }

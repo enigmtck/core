@@ -78,3 +78,13 @@ pub async fn get_cache_item_by_uuid(conn: &Db, uuid: String) -> Option<CacheItem
     .await
     .ok()
 }
+
+pub async fn get_cache_item_by_url(conn: &Db, url: String) -> Option<CacheItem> {
+    conn.run(move |c| {
+        let query = cache::table.filter(cache::url.eq(url));
+
+        query.first::<CacheItem>(c)
+    })
+    .await
+    .ok()
+}
