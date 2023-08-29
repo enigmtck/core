@@ -1,9 +1,6 @@
 use rocket::fs::NamedFile;
-use rocket::futures::stream::Stream;
 use rocket::http::{ContentType, Status};
-use rocket::response::stream::{ByteStream, ReaderStream};
 use rocket::serde::json::Json;
-use rocket::tokio::fs::File;
 use rocket::Data;
 use rocket::{data::ToByteUnit, get, post};
 use urlencoding::decode;
@@ -53,17 +50,9 @@ pub async fn upload_image(
     }
 }
 
-#[get("/api/user/<username>/cache?<url>")]
-pub async fn cached_image(
-    signed: Signed,
-    conn: Db,
-    username: String,
-    url: String,
-) -> Result<(ContentType, NamedFile), Status> {
-    //if let Signed(true, VerificationType::Local) = signed {
-    if let (Some(_profile), Ok(url)) =
-        (get_profile_by_username(&conn, username).await, decode(&url))
-    {
+#[get("/api/cache?<url>")]
+pub async fn cached_image(conn: Db, url: String) -> Result<(ContentType, NamedFile), Status> {
+    if let Ok(url) = decode(&url) {
         if let Some(cache) = get_cache_item_by_url(&conn, url.into()).await {
             let path = format!("{}/cache/{}", &*crate::MEDIA_DIR, cache.uuid);
             if let Some(content_type) = ContentType::parse_flexible(&cache.media_type) {
@@ -79,7 +68,4 @@ pub async fn cached_image(
     } else {
         Err(Status::NoContent)
     }
-    // } else {
-    //     Err(Status::NoContent)
-    // }
 }

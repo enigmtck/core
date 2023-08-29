@@ -1,7 +1,7 @@
 // @generated automatically by Diesel CLI.
 
 pub mod sql_types {
-    #[derive(diesel::sql_types::SqlType, QueryId)]
+    #[derive(diesel::sql_types::SqlType)]
     #[diesel(postgres_type(name = "activity_type"))]
     pub struct ActivityType;
 

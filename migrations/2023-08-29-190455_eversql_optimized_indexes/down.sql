@@ -1,0 +1,3 @@
+DROP INDEX activities_idx_revoked_target_id;
+DROP INDEX timeline_idx_ap_public_created_at;
+DROP INDEX timeline_idx_created_at;

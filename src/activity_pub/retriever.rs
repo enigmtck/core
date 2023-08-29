@@ -7,6 +7,7 @@ use reqwest::StatusCode;
 use crate::activity_pub::ApActor;
 use crate::db::Db;
 use crate::models::cache::create_cache_item;
+use crate::models::cache::get_cache_item_by_url;
 use crate::models::cache::NewCacheItem;
 use crate::models::leaders::get_leader_by_actor_ap_id_and_profile;
 use crate::models::profiles::get_profile_by_ap_id;
@@ -18,37 +19,11 @@ use crate::models::remote_notes::get_remote_note_by_ap_id;
 use crate::models::remote_notes::NewRemoteNote;
 use crate::signing::{sign, Method, SignParams};
 use crate::webfinger::WebFinger;
-use tokio::fs::File;
-use tokio::io::AsyncWriteExt;
 
 use super::types::collection::ApCollectionPage;
+use super::ApAttachment;
 use super::ApCollection;
 use super::ApNote;
-
-pub async fn download_image(cache_item: NewCacheItem) -> Option<NewCacheItem> {
-    log::debug!("DOWNLOADING IMAGE: {}", cache_item.url);
-
-    let path = format!("{}/cache/{}", &*crate::MEDIA_DIR, cache_item.uuid);
-    // Send an HTTP GET request to the URL
-    if let Ok(response) = reqwest::get(&cache_item.url).await {
-        // Create a new file to write the downloaded image to
-        if let Ok(mut file) = File::create(path).await {
-            if let Ok(data) = response.bytes().await {
-                if file.write_all(&data).await.is_ok() {
-                    Some(cache_item)
-                } else {
-                    None
-                }
-            } else {
-                None
-            }
-        } else {
-            None
-        }
-    } else {
-        None
-    }
-}
 
 pub async fn get_remote_collection_page(
     profile: Option<Profile>,
@@ -123,36 +98,48 @@ pub async fn get_note(conn: &Db, profile: Option<Profile>, id: String) -> Option
             Ok(resp) => match resp.status() {
                 StatusCode::ACCEPTED | StatusCode::OK => match resp.text().await {
                     Ok(n) => {
-                        let note = match serde_json::from_str::<ApNote>(&n) {
-                            Ok(note) => Option::from(note),
-                            Err(_) => {
-                                log::error!("FAILED TO DECODE REMOTE NOTE: {n:#?}");
-                                Option::None
+                        if let Ok(note) = serde_json::from_str::<ApNote>(&n) {
+                            if let Some(attachment) = &note.attachment {
+                                for x in attachment.iter() {
+                                    if let ApAttachment::Document(document) = x {
+                                        if let Ok(cache_item) =
+                                            NewCacheItem::try_from(document.clone())
+                                        {
+                                            if get_cache_item_by_url(conn, cache_item.url.clone())
+                                                .await
+                                                .is_none()
+                                            {
+                                                if let Some(cache_item) =
+                                                    cache_item.download().await
+                                                {
+                                                    create_cache_item(conn, cache_item).await;
+                                                }
+                                            }
+                                        };
+                                    };
+                                }
                             }
-                        };
 
-                        if let Some(note) = note {
                             create_or_update_remote_note(conn, NewRemoteNote::from(note.clone()))
-                                .await;
-                            note.into()
+                                .await
+                                .map(ApNote::from)
                         } else {
-                            log::error!("FAILED TO CREATE REMOTE NOTE: {n:#?}");
-                            Option::None
+                            None
                         }
                     }
                     Err(e) => {
                         log::error!("FAILED TO UNPACK REMOTE NOTE: {e:#?}");
-                        Option::None
+                        None
                     }
                 },
                 _ => {
-                    log::debug!("REMOTE NOTE STATUS: {:#?}", resp.status());
-                    Option::None
+                    log::debug!("REMOTE NOTE FAILURE STATUS: {:#?}", resp.status());
+                    None
                 }
             },
             Err(e) => {
                 log::error!("FAILED TO RETRIEVE REMOTE NOTE: {e:#?}");
-                Option::None
+                None
             }
         },
     }
@@ -222,17 +209,27 @@ pub async fn get_actor(
                         if let Ok(actor) = serde_json::from_str::<ApActor>(&text) {
                             if let Some(image) = actor.image.clone() {
                                 if let Ok(cache_item) = NewCacheItem::try_from(image) {
-                                    if let Some(cache_item) = download_image(cache_item).await {
-                                        create_cache_item(conn, cache_item).await;
-                                    };
-                                }
+                                    if get_cache_item_by_url(conn, cache_item.url.clone())
+                                        .await
+                                        .is_none()
+                                    {
+                                        if let Some(cache_item) = cache_item.download().await {
+                                            create_cache_item(conn, cache_item).await;
+                                        }
+                                    }
+                                };
                             }
 
                             if let Some(image) = actor.icon.clone() {
                                 if let Ok(cache_item) = NewCacheItem::try_from(image) {
-                                    if let Some(cache_item) = download_image(cache_item).await {
-                                        create_cache_item(conn, cache_item).await;
-                                    };
+                                    if get_cache_item_by_url(conn, cache_item.url.clone())
+                                        .await
+                                        .is_none()
+                                    {
+                                        if let Some(cache_item) = cache_item.download().await {
+                                            create_cache_item(conn, cache_item).await;
+                                        };
+                                    }
                                 }
                             }
 

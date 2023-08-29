@@ -5,8 +5,8 @@ use reqwest::{Client, StatusCode};
 use tokio::io;
 use tokio::runtime::Runtime;
 
-use crate::activity_pub::retriever::{download_image, maybe_signed_get};
-use crate::runner::cache::create_cache_item;
+use crate::activity_pub::retriever::maybe_signed_get;
+use crate::runner::cache::{create_cache_item, get_cache_item_by_url};
 use crate::runner::user::get_profile_by_username;
 use crate::{
     activity_pub::{ApActivity, ApAddress, ApAttachment, ApNote, ApObject},
@@ -285,7 +285,9 @@ pub async fn handle_remote_note(remote_note: RemoteNote) -> RemoteNote {
         for x in attachment.iter() {
             if let ApAttachment::Document(document) = x {
                 if let Ok(cache_item) = NewCacheItem::try_from(document.clone()) {
-                    download_image(cache_item).await.map(create_cache_item);
+                    if get_cache_item_by_url(cache_item.url.clone()).is_none() {
+                        cache_item.download().await.map(create_cache_item);
+                    }
                 }
             };
         }

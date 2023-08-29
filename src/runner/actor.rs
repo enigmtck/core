@@ -3,17 +3,17 @@ use diesel::prelude::*;
 use reqwest::StatusCode;
 
 use crate::{
-    activity_pub::{
-        retriever::{download_image, maybe_signed_get},
-        ApActor,
-    },
+    activity_pub::{retriever::maybe_signed_get, ApActor},
     models::{
         cache::NewCacheItem,
         leaders::Leader,
         profiles::Profile,
         remote_actors::{NewRemoteActor, RemoteActor},
     },
-    runner::{cache::create_cache_item, follow::get_leader_by_actor_ap_id_and_profile},
+    runner::{
+        cache::{create_cache_item, get_cache_item_by_url},
+        follow::get_leader_by_actor_ap_id_and_profile,
+    },
     schema::{leaders, profiles, remote_actors},
 };
 
@@ -93,13 +93,17 @@ pub async fn get_actor(profile: Profile, id: String) -> Option<(RemoteActor, Opt
                     if let Ok(actor) = resp.json::<ApActor>().await {
                         if let Some(image) = actor.image.clone() {
                             if let Ok(cache_item) = NewCacheItem::try_from(image) {
-                                download_image(cache_item).await.map(create_cache_item);
+                                if get_cache_item_by_url(cache_item.url.clone()).is_none() {
+                                    cache_item.download().await.map(create_cache_item);
+                                }
                             }
                         }
 
                         if let Some(image) = actor.icon.clone() {
                             if let Ok(cache_item) = NewCacheItem::try_from(image) {
-                                download_image(cache_item).await.map(create_cache_item);
+                                if get_cache_item_by_url(cache_item.url.clone()).is_none() {
+                                    cache_item.download().await.map(create_cache_item);
+                                }
                             }
                         }
 
