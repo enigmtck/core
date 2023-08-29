@@ -1,9 +1,7 @@
 use crate::activity_pub::{ApAnnounce, ApNote};
 use crate::db::Db;
 use crate::helper::get_ap_id_from_username;
-use crate::schema::{
-    activities, remote_announces, remote_likes, timeline, timeline_cc, timeline_to,
-};
+use crate::schema::{activities, timeline, timeline_cc, timeline_to};
 use chrono::{DateTime, Utc};
 use diesel::prelude::*;
 use diesel::{AsChangeset, Identifiable, Insertable, Queryable};
@@ -11,12 +9,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use super::activities::Activity;
-// use super::announces::Announce;
-// use super::likes::Like;
 use super::notes::Note;
 use super::profiles::Profile;
-use super::remote_announces::RemoteAnnounce;
-use super::remote_likes::RemoteLike;
 use super::remote_notes::RemoteNote;
 
 #[derive(Serialize, Deserialize, Insertable, Default, Debug, Clone, AsChangeset)]
@@ -115,7 +109,7 @@ impl From<ApNote> for NewTimelineItem {
     }
 }
 
-type SynthesizedAnnounce = (ApAnnounce, ApNote);
+type SynthesizedAnnounce = (Option<ApAnnounce>, ApNote);
 
 impl From<SynthesizedAnnounce> for NewTimelineItem {
     fn from((activity, note): SynthesizedAnnounce) -> Self {
@@ -125,7 +119,7 @@ impl From<SynthesizedAnnounce> for NewTimelineItem {
             ap_id: note.clone().id.unwrap(),
             kind: note.kind.to_string(),
             url: note.clone().url,
-            published: Some(activity.published),
+            published: activity.map_or(Some(note.clone().published), |x| Some(x.published)),
             replies: Option::from(serde_json::to_value(&note.replies).unwrap_or_default()),
             in_reply_to: note.clone().in_reply_to,
             content: Option::from(note.clone().content),
@@ -148,7 +142,7 @@ impl From<SynthesizedAnnounce> for NewTimelineItem {
                 serde_json::to_value(note.attachment.unwrap_or_default()).unwrap_or_default(),
             ),
             ap_object: Option::None,
-            metadata: Option::None,
+            metadata: serde_json::to_value(&note.ephemeral_metadata).ok(),
         }
     }
 }
@@ -242,13 +236,7 @@ impl From<IdentifiedTimelineItem> for NewTimelineItemTo {
 // this is used in inbox/retrieve to accommodate authenticated calls for
 // more detailed timeline data (e.g., to include whether or not I've liked
 // a post)
-pub type AuthenticatedTimelineItem = (
-    TimelineItem,
-    Option<Activity>,
-    Option<TimelineItemCc>,
-    Option<RemoteAnnounce>,
-    Option<RemoteLike>,
-);
+pub type AuthenticatedTimelineItem = (TimelineItem, Option<Activity>, Option<TimelineItemCc>);
 
 pub async fn get_authenticated_timeline_items(
     conn: &Db,
@@ -262,7 +250,6 @@ pub async fn get_authenticated_timeline_items(
             .left_join(
                 activities::table.on(activities::target_ap_id
                     .eq(timeline::ap_id.nullable())
-                    .and(activities::profile_id.eq(profile.id))
                     .and(activities::revoked.eq(false))),
             )
             .left_join(
@@ -270,11 +257,6 @@ pub async fn get_authenticated_timeline_items(
                     .eq(timeline::id)
                     .and(timeline_cc::ap_id.eq(ap_id.clone()))),
             )
-            .left_join(
-                remote_announces::table
-                    .on(remote_announces::timeline_id.eq(timeline::id.nullable())),
-            )
-            .left_join(remote_likes::table.on(remote_likes::object_id.eq(timeline::ap_id)))
             .filter(timeline::ap_public.eq(true))
             .or_filter(timeline_cc::ap_id.eq(ap_id))
             .order(timeline::created_at.desc())
@@ -292,21 +274,21 @@ pub async fn get_public_timeline_items(
     conn: &Db,
     limit: i64,
     offset: i64,
-) -> Vec<(TimelineItem, Option<RemoteAnnounce>, Option<RemoteLike>)> {
+) -> Vec<(TimelineItem, Option<Activity>)> {
     conn.run(move |c| {
         let query = timeline::table
             .left_join(
-                remote_announces::table
-                    .on(remote_announces::timeline_id.eq(timeline::id.nullable())),
+                activities::table.on(activities::target_ap_id
+                    .eq(timeline::ap_id.nullable())
+                    .and(activities::revoked.eq(false))),
             )
-            .left_join(remote_likes::table.on(remote_likes::object_id.eq(timeline::ap_id)))
             .filter(timeline::ap_public.eq(true))
             .order(timeline::created_at.desc())
             .limit(limit)
             .offset(offset)
             .into_boxed();
 
-        query.get_results::<(TimelineItem, Option<RemoteAnnounce>, Option<RemoteLike>)>(c)
+        query.get_results::<(TimelineItem, Option<Activity>)>(c)
     })
     .await
     .unwrap_or(vec![])

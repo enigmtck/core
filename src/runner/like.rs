@@ -1,15 +1,14 @@
-use diesel::prelude::*;
 use faktory::Job;
 use std::io;
 
 use crate::{
     activity_pub::{ApActivity, ApAddress},
-    models::remote_likes::RemoteLike,
-    runner::{activity::get_activity_by_uuid, get_inboxes, send_to_inboxes, user::get_profile},
-    schema::remote_likes,
+    runner::{
+        activity::{get_activity_by_uuid, revoke_activity_by_apid},
+        get_inboxes, send_to_inboxes,
+        user::get_profile,
+    },
 };
-
-use super::POOL;
 
 pub fn process_remote_undo_like(job: Job) -> io::Result<()> {
     log::debug!("running process_remote_undo_like job");
@@ -18,8 +17,8 @@ pub fn process_remote_undo_like(job: Job) -> io::Result<()> {
         let ap_id = ap_id.as_str().unwrap().to_string();
         log::debug!("looking for ap_id: {}", ap_id);
 
-        if delete_remote_like_by_apid(&ap_id).is_some() {
-            log::debug!("REMOTE LIKE DELETED: {ap_id}");
+        if revoke_activity_by_apid(&ap_id).is_some() {
+            log::debug!("LIKE REVOKED: {ap_id}");
         }
     }
 
@@ -63,26 +62,4 @@ pub fn send_like(job: Job) -> io::Result<()> {
     }
 
     Ok(())
-}
-
-pub fn get_remote_like_by_ap_id(ap_id: &str) -> Option<RemoteLike> {
-    if let Ok(mut conn) = POOL.get() {
-        remote_likes::table
-            .filter(remote_likes::ap_id.eq(ap_id))
-            .first::<RemoteLike>(&mut conn)
-            .ok()
-    } else {
-        None
-    }
-}
-
-pub fn delete_remote_like_by_apid(apid: &str) -> Option<usize> {
-    if let Ok(mut conn) = POOL.get() {
-        diesel::delete(remote_likes::table)
-            .filter(remote_likes::ap_id.eq(apid))
-            .execute(&mut conn)
-            .ok()
-    } else {
-        None
-    }
 }

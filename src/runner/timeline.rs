@@ -35,7 +35,7 @@ pub fn update_timeline_record(job: Job) -> io::Result<()> {
                 {
                     Ok(remote_note) => {
                         if remote_note.kind == "Note" {
-                            update_timeline_items(remote_note.clone().into());
+                            update_timeline_items((None, remote_note.clone().into()).into());
                         }
                     }
                     Err(e) => log::error!("error: {:#?}", e),

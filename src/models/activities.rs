@@ -20,15 +20,7 @@ use super::remote_actors::RemoteActor;
 use super::remote_notes::RemoteNote;
 
 #[derive(
-    diesel_derive_enum::DbEnum,
-    Debug,
-    Serialize,
-    Deserialize,
-    Default,
-    Clone,
-    Eq,
-    PartialEq,
-    QueryId,
+    diesel_derive_enum::DbEnum, Debug, Serialize, Deserialize, Default, Clone, Eq, PartialEq,
 )]
 #[ExistingTypePath = "crate::schema::sql_types::ActivityType"]
 pub enum ActivityType {
@@ -193,17 +185,11 @@ impl TryFrom<ApActivityTarget> for NewActivity {
                 actor: create.actor.to_string(),
                 ap_to: serde_json::to_value(create.to).ok(),
                 cc: serde_json::to_value(create.cc).ok(),
-                profile_id: None,
-                target_note_id: None,
-                target_remote_note_id: None,
-                target_profile_id: None,
-                target_activity_id: None,
-                target_ap_id: None,
-                target_remote_actor_id: None,
                 revoked: false,
                 ap_id: create
                     .id
                     .map_or(Some(get_activity_ap_id_from_uuid(uuid)), Some),
+                ..Default::default()
             }
             .link_target(target)
             .clone()),
@@ -213,17 +199,12 @@ impl TryFrom<ApActivityTarget> for NewActivity {
                 actor: announce.actor.to_string(),
                 ap_to: serde_json::to_value(announce.to).ok(),
                 cc: serde_json::to_value(announce.cc).ok(),
-                profile_id: None,
-                target_note_id: None,
-                target_remote_note_id: None,
-                target_profile_id: None,
-                target_activity_id: None,
                 target_ap_id: announce.object.reference(),
-                target_remote_actor_id: None,
                 revoked: false,
                 ap_id: announce
                     .id
                     .map_or(Some(get_activity_ap_id_from_uuid(uuid)), Some),
+                ..Default::default()
             }
             .link_target(target)
             .clone()),
@@ -231,19 +212,13 @@ impl TryFrom<ApActivityTarget> for NewActivity {
                 kind: follow.kind.into(),
                 uuid: uuid.clone(),
                 actor: follow.actor.to_string(),
-                ap_to: None,
-                cc: None,
-                profile_id: None,
-                target_note_id: None,
-                target_remote_note_id: None,
-                target_profile_id: None,
-                target_activity_id: None,
                 target_ap_id: follow.object.reference(),
                 target_remote_actor_id: None,
                 revoked: false,
                 ap_id: follow
                     .id
                     .map_or(Some(get_activity_ap_id_from_uuid(uuid)), Some),
+                ..Default::default()
             }
             .link_target(target)
             .clone()),
@@ -253,19 +228,12 @@ impl TryFrom<ApActivityTarget> for NewActivity {
                         kind: accept.kind.into(),
                         uuid: uuid.clone(),
                         actor: accept.actor.to_string(),
-                        ap_to: None,
-                        cc: None,
-                        profile_id: None,
-                        target_note_id: None,
-                        target_remote_note_id: None,
-                        target_profile_id: None,
-                        target_activity_id: None,
                         target_ap_id: follow.id,
-                        target_remote_actor_id: None,
                         revoked: false,
                         ap_id: accept
                             .id
                             .map_or(Some(get_activity_ap_id_from_uuid(uuid)), Some),
+                        ..Default::default()
                     }
                     .link_target(target)
                     .clone())
@@ -278,19 +246,12 @@ impl TryFrom<ApActivityTarget> for NewActivity {
                     kind: undo.kind.into(),
                     uuid: uuid.clone(),
                     actor: undo.actor.to_string(),
-                    ap_to: None,
-                    cc: None,
-                    profile_id: None,
-                    target_note_id: None,
-                    target_remote_note_id: None,
-                    target_profile_id: None,
-                    target_activity_id: None,
                     target_ap_id: follow.id,
-                    target_remote_actor_id: None,
                     revoked: false,
                     ap_id: undo
                         .id
                         .map_or(Some(get_activity_ap_id_from_uuid(uuid)), Some),
+                    ..Default::default()
                 }
                 .link_target(target)
                 .clone()),
@@ -298,19 +259,12 @@ impl TryFrom<ApActivityTarget> for NewActivity {
                     kind: undo.kind.into(),
                     uuid: uuid.clone(),
                     actor: undo.actor.to_string(),
-                    ap_to: None,
-                    cc: None,
-                    profile_id: None,
-                    target_note_id: None,
-                    target_remote_note_id: None,
-                    target_profile_id: None,
-                    target_activity_id: None,
                     target_ap_id: like.id,
-                    target_remote_actor_id: None,
                     revoked: false,
                     ap_id: undo
                         .id
                         .map_or(Some(get_activity_ap_id_from_uuid(uuid)), Some),
+                    ..Default::default()
                 }
                 .link_target(target)
                 .clone()),
@@ -318,19 +272,12 @@ impl TryFrom<ApActivityTarget> for NewActivity {
                     kind: undo.kind.into(),
                     uuid: uuid.clone(),
                     actor: undo.actor.to_string(),
-                    ap_to: None,
-                    cc: None,
-                    profile_id: None,
-                    target_note_id: None,
-                    target_remote_note_id: None,
-                    target_profile_id: None,
-                    target_activity_id: None,
                     target_ap_id: announce.id,
-                    target_remote_actor_id: None,
                     revoked: false,
                     ap_id: undo
                         .id
                         .map_or(Some(get_activity_ap_id_from_uuid(uuid)), Some),
+                    ..Default::default()
                 }
                 .link_target(target)
                 .clone()),
@@ -340,19 +287,12 @@ impl TryFrom<ApActivityTarget> for NewActivity {
                 kind: like.kind.into(),
                 uuid: uuid.clone(),
                 actor: like.actor.to_string(),
-                ap_to: None,
-                cc: None,
-                profile_id: None,
-                target_note_id: None,
-                target_remote_note_id: None,
-                target_profile_id: None,
-                target_activity_id: None,
                 target_ap_id: like.object.reference(),
-                target_remote_actor_id: None,
                 revoked: false,
                 ap_id: like
                     .id
                     .map_or(Some(get_activity_ap_id_from_uuid(uuid)), Some),
+                ..Default::default()
             }
             .link_target(target)
             .clone()),
@@ -399,16 +339,12 @@ impl From<ActorActivity> for NewActivity {
             uuid: uuid.clone(),
             actor: actor.to_string(),
             ap_to,
-            cc: None,
-            profile_id: None,
-            target_note_id: None,
-            target_remote_note_id: None,
             target_profile_id: profile.map(|x| x.id),
-            target_activity_id: None,
             target_ap_id,
             target_remote_actor_id: remote_actor.map(|x| x.id),
             revoked: false,
             ap_id: Some(get_activity_ap_id_from_uuid(uuid)),
+            ..Default::default()
         }
     }
 }
@@ -440,15 +376,11 @@ impl From<NoteActivity> for NewActivity {
             actor: actor.to_string(),
             ap_to,
             cc,
-            profile_id: None,
             target_note_id: note.map(|x| x.id),
             target_remote_note_id: remote_note.map(|x| x.id),
-            target_profile_id: None,
-            target_activity_id: None,
             target_ap_id,
-            target_remote_actor_id: None,
             revoked: false,
-            ap_id: None,
+            ..Default::default()
         }
     }
 }
@@ -460,17 +392,10 @@ impl From<UndoActivity> for NewActivity {
             kind,
             uuid: uuid::Uuid::new_v4().to_string(),
             actor: actor.to_string(),
-            ap_to: None,
-            cc: None,
-            profile_id: None,
-            target_note_id: None,
-            target_remote_note_id: None,
-            target_profile_id: None,
             target_activity_id: Some(activity.id),
             target_ap_id: Some(get_activity_ap_id_from_uuid(activity.uuid)),
-            target_remote_actor_id: None,
             revoked: false,
-            ap_id: None,
+            ..Default::default()
         }
     }
 }

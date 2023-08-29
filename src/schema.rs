@@ -57,8 +57,8 @@ diesel::table! {
         uuid -> Varchar,
         url -> Varchar,
         media_type -> Varchar,
-        height -> Int4,
-        width -> Int4,
+        height -> Nullable<Int4>,
+        width -> Nullable<Int4>,
         blurhash -> Nullable<Varchar>,
     }
 }
@@ -220,22 +220,6 @@ diesel::table! {
 }
 
 diesel::table! {
-    remote_activities (id) {
-        id -> Int4,
-        created_at -> Timestamptz,
-        updated_at -> Timestamptz,
-        context -> Nullable<Jsonb>,
-        kind -> Varchar,
-        ap_id -> Varchar,
-        ap_to -> Nullable<Jsonb>,
-        cc -> Nullable<Jsonb>,
-        actor -> Varchar,
-        published -> Nullable<Varchar>,
-        ap_object -> Nullable<Jsonb>,
-    }
-}
-
-diesel::table! {
     remote_actors (id) {
         id -> Int4,
         created_at -> Timestamptz,
@@ -271,24 +255,6 @@ diesel::table! {
 }
 
 diesel::table! {
-    remote_announces (id) {
-        id -> Int4,
-        created_at -> Timestamptz,
-        updated_at -> Timestamptz,
-        context -> Nullable<Varchar>,
-        kind -> Varchar,
-        ap_id -> Varchar,
-        actor -> Varchar,
-        ap_to -> Nullable<Jsonb>,
-        cc -> Nullable<Jsonb>,
-        published -> Varchar,
-        ap_object -> Jsonb,
-        timeline_id -> Nullable<Int4>,
-        revoked -> Bool,
-    }
-}
-
-diesel::table! {
     remote_encrypted_sessions (id) {
         id -> Int4,
         created_at -> Timestamptz,
@@ -301,17 +267,6 @@ diesel::table! {
         attributed_to -> Varchar,
         instrument -> Jsonb,
         reference -> Nullable<Varchar>,
-    }
-}
-
-diesel::table! {
-    remote_likes (id) {
-        id -> Int4,
-        created_at -> Timestamptz,
-        updated_at -> Timestamptz,
-        ap_id -> Varchar,
-        actor -> Varchar,
-        object_id -> Varchar,
     }
 }
 
@@ -408,7 +363,6 @@ diesel::joinable!(leaders -> profiles (profile_id));
 diesel::joinable!(notes -> profiles (profile_id));
 diesel::joinable!(olm_one_time_keys -> profiles (profile_id));
 diesel::joinable!(olm_sessions -> encrypted_sessions (encrypted_session_id));
-diesel::joinable!(remote_announces -> timeline (timeline_id));
 diesel::joinable!(remote_encrypted_sessions -> profiles (profile_id));
 diesel::joinable!(timeline_cc -> timeline (timeline_id));
 diesel::joinable!(timeline_to -> timeline (timeline_id));
@@ -428,11 +382,8 @@ diesel::allow_tables_to_appear_in_same_query!(
     olm_sessions,
     processing_queue,
     profiles,
-    remote_activities,
     remote_actors,
-    remote_announces,
     remote_encrypted_sessions,
-    remote_likes,
     remote_notes,
     timeline,
     timeline_cc,

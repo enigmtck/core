@@ -23,9 +23,7 @@ pub async fn timeline(conn: &Db, limit: i64, offset: i64) -> ApObject {
 
     let items = timeline
         .iter()
-        .map(|(timeline, announce, like)| {
-            (timeline.clone(), None, None, announce.clone(), like.clone())
-        })
+        .map(|(timeline, activity)| (timeline.clone(), activity.clone(), None))
         .collect();
 
     process(conn, items).await
@@ -52,23 +50,25 @@ async fn process(conn: &Db, timeline: Vec<AuthenticatedTimelineItem>) -> ApObjec
 }
 
 async fn process_notes(conn: &Db, timeline_items: &[AuthenticatedTimelineItem]) -> Vec<ApNote> {
-    join_all(timeline_items.iter().map(
-        |(timeline_item, activity, cc, remote_announce, remote_like)| async move {
-            let ap_ids = gather_ap_ids(timeline_item);
-            let ap_actors = get_ap_actors(conn, ap_ids).await;
-            let fully_qualified_timeline_item: FullyQualifiedTimelineItem = (
-                (
-                    timeline_item.clone(),
-                    activity.clone(),
-                    cc.clone(),
-                    remote_announce.clone(),
-                    remote_like.clone(),
-                ),
-                Some(ap_actors),
-            );
-            fully_qualified_timeline_item.into()
-        },
-    ))
+    join_all(
+        timeline_items
+            .iter()
+            .map(|(timeline_item, activity, cc)| async move {
+                let ap_ids = gather_ap_ids(timeline_item);
+                let ap_actors = get_ap_actors(conn, ap_ids).await;
+                let fully_qualified_timeline_item: FullyQualifiedTimelineItem = (
+                    (
+                        timeline_item.clone(),
+                        activity.clone(),
+                        cc.clone(),
+                        //remote_announce.clone(),
+                        //remote_like.clone(),
+                    ),
+                    Some(ap_actors),
+                );
+                fully_qualified_timeline_item.into()
+            }),
+    )
     .await
 }
 

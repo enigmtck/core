@@ -2,7 +2,6 @@ use crate::activity_pub::{ApNote, ApNoteType};
 use crate::db::Db;
 use crate::helper::{get_note_ap_id_from_uuid, handle_option};
 use crate::schema::notes;
-use crate::MaybeMultiple;
 use chrono::{DateTime, Utc};
 use diesel::prelude::*;
 use diesel::{AsChangeset, Identifiable, Insertable, Queryable};

@@ -12,8 +12,6 @@ use crate::{
         notes::get_note_by_apid,
         profiles::get_profile_by_ap_id,
         remote_actors::{create_or_update_remote_actor, delete_remote_actor_by_ap_id},
-        remote_announces::{create_remote_announce, NewRemoteAnnounce},
-        remote_likes::create_remote_like,
         remote_notes::{
             create_or_update_remote_note, delete_remote_note_by_ap_id, get_remote_note_by_ap_id,
             NewRemoteNote,
@@ -147,25 +145,25 @@ pub async fn announce(
 ) -> Result<Status, Status> {
     // this .link_timeline_item won't work if we don't already have the message; we'll need to
     // address that at Faktory
-    let n = NewRemoteAnnounce::from(activity.clone())
-        .link_timeline_item(&conn)
-        .await;
+    // let n = NewRemoteAnnounce::from(activity.clone())
+    //     .link_timeline_item(&conn)
+    //     .await;
 
-    if let Some(created_announce) = create_remote_announce(&conn, n).await {
-        if let Ok(activity) = NewActivity::try_from((ApActivity::Announce(activity), None)) {
-            log::debug!("ACTIVITY\n{activity:#?}");
-            if create_activity(&conn, activity).await.is_some() {
-                to_faktory(faktory, "process_remote_announce", created_announce.ap_id)
-            } else {
-                Err(Status::NoContent)
-            }
+    //if let Some(created_announce) = create_remote_announce(&conn, n).await {
+    if let Ok(activity) = NewActivity::try_from((ApActivity::Announce(activity), None)) {
+        log::debug!("ACTIVITY\n{activity:#?}");
+        if create_activity(&conn, activity.clone()).await.is_some() {
+            to_faktory(faktory, "process_remote_announce", activity.uuid.clone())
         } else {
             Err(Status::NoContent)
         }
     } else {
-        log::debug!("create_remote_announce failed");
         Err(Status::NoContent)
     }
+    // } else {
+    //     log::debug!("create_remote_announce failed");
+    //     Err(Status::NoContent)
+    // }
 }
 
 pub async fn follow(
@@ -473,15 +471,15 @@ pub async fn like(conn: Db, _faktory: FaktoryConnection, like: ApLike) -> Result
             {
                 log::debug!("ACTIVITY\n{activity:#?}");
                 if create_activity(&conn, activity.clone()).await.is_some() {
-                    if create_remote_like(&conn, like.clone().into())
-                        .await
-                        .is_some()
-                    {
-                        Ok(Status::Accepted)
-                    } else {
-                        log::warn!("FAILED TO CREATE LIKE (DUPLICATE?)\n{:#?}", like.object);
-                        Err(Status::NoContent)
-                    }
+                    // if create_remote_like(&conn, like.clone().into())
+                    //     .await
+                    //     .is_some()
+                    // {
+                    Ok(Status::Accepted)
+                    // } else {
+                    //     log::warn!("FAILED TO CREATE LIKE (DUPLICATE?)\n{:#?}", like.object);
+                    //     Err(Status::NoContent)
+                    // }
                 } else {
                     Err(Status::NoContent)
                 }

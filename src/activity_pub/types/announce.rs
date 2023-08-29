@@ -10,7 +10,7 @@ use crate::{
         activities::{ActivityType, ExtendedActivity},
         profiles::Profile,
         //announces::Announce,
-        remote_announces::RemoteAnnounce,
+        //remote_announces::RemoteAnnounce,
     },
     outbox, MaybeMultiple, MaybeReference,
 };
@@ -155,27 +155,27 @@ impl TryFrom<ExtendedActivity> for ApAnnounce {
     }
 }
 
-impl TryFrom<RemoteAnnounce> for ApAnnounce {
-    type Error = &'static str;
+// impl TryFrom<RemoteAnnounce> for ApAnnounce {
+//     type Error = &'static str;
 
-    fn try_from(announce: RemoteAnnounce) -> Result<Self, Self::Error> {
-        if let Some(ap_to) = announce.ap_to.clone() {
-            Ok(ApAnnounce {
-                context: Some(ApContext::default()),
-                kind: ApAnnounceType::default(),
-                id: Some(announce.ap_id),
-                actor: ApAddress::Address(announce.actor.clone()),
-                published: announce.published,
-                to: serde_json::from_value::<MaybeMultiple<ApAddress>>(ap_to).unwrap(),
-                cc: announce
-                    .cc
-                    .map(|cc| serde_json::from_value::<MaybeMultiple<ApAddress>>(cc).unwrap()),
-                object: serde_json::from_value(announce.ap_object).unwrap(),
-                ephemeral_created_at: Some(announce.created_at),
-                ephemeral_updated_at: Some(announce.updated_at),
-            })
-        } else {
-            Err("MISSING REQUIRED 'TO' VALUE ON REMOTE ANNOUNCE")
-        }
-    }
-}
+//     fn try_from(announce: RemoteAnnounce) -> Result<Self, Self::Error> {
+//         if let Some(ap_to) = announce.ap_to.clone() {
+//             Ok(ApAnnounce {
+//                 context: Some(ApContext::default()),
+//                 kind: ApAnnounceType::default(),
+//                 id: Some(announce.ap_id),
+//                 actor: ApAddress::Address(announce.actor.clone()),
+//                 published: announce.published,
+//                 to: serde_json::from_value::<MaybeMultiple<ApAddress>>(ap_to).unwrap(),
+//                 cc: announce
+//                     .cc
+//                     .map(|cc| serde_json::from_value::<MaybeMultiple<ApAddress>>(cc).unwrap()),
+//                 object: serde_json::from_value(announce.ap_object).unwrap(),
+//                 ephemeral_created_at: Some(announce.created_at),
+//                 ephemeral_updated_at: Some(announce.updated_at),
+//             })
+//         } else {
+//             Err("MISSING REQUIRED 'TO' VALUE ON REMOTE ANNOUNCE")
+//         }
+//     }
+// }

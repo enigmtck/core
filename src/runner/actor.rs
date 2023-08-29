@@ -1,17 +1,20 @@
 use chrono::{Duration, Utc};
 use diesel::prelude::*;
-use reqwest::{Client, StatusCode};
+use reqwest::StatusCode;
 
 use crate::{
-    activity_pub::ApActor,
+    activity_pub::{
+        retriever::{download_image, maybe_signed_get},
+        ApActor,
+    },
     models::{
+        cache::NewCacheItem,
         leaders::Leader,
         profiles::Profile,
         remote_actors::{NewRemoteActor, RemoteActor},
     },
-    runner::follow::get_leader_by_actor_ap_id_and_profile,
+    runner::{cache::create_cache_item, follow::get_leader_by_actor_ap_id_and_profile},
     schema::{leaders, profiles, remote_actors},
-    signing::{Method, SignParams},
 };
 
 use super::POOL;
@@ -84,32 +87,22 @@ pub async fn get_actor(profile: Profile, id: String) -> Option<(RemoteActor, Opt
     } else {
         log::debug!("PERFORMING REMOTE LOOKUP FOR ACTOR: {id}");
 
-        let url = id.clone();
-        let body = Option::None;
-        let method = Method::Get;
-
-        let signature = crate::signing::sign(SignParams {
-            profile,
-            url,
-            body,
-            method,
-        });
-
-        let client = Client::new();
-        match client
-            .get(&id)
-            .header("Signature", &signature.signature)
-            .header("Date", signature.date)
-            .header(
-                "Accept",
-                "application/ld+json; profile=\"http://www.w3.org/ns/activitystreams\"",
-            )
-            .send()
-            .await
-        {
-            Ok(resp) => match resp.status() {
+        if let Ok(resp) = maybe_signed_get(Some(profile), id.clone()).await {
+            match resp.status() {
                 StatusCode::ACCEPTED | StatusCode::OK => {
                     if let Ok(actor) = resp.json::<ApActor>().await {
+                        if let Some(image) = actor.image.clone() {
+                            if let Ok(cache_item) = NewCacheItem::try_from(image) {
+                                download_image(cache_item).await.map(create_cache_item);
+                            }
+                        }
+
+                        if let Some(image) = actor.icon.clone() {
+                            if let Ok(cache_item) = NewCacheItem::try_from(image) {
+                                download_image(cache_item).await.map(create_cache_item);
+                            }
+                        }
+
                         create_or_update_remote_actor(NewRemoteActor::from(actor))
                             .map(|a| (a, Option::None))
                     } else {
@@ -128,11 +121,9 @@ pub async fn get_actor(profile: Profile, id: String) -> Option<(RemoteActor, Opt
                     );
                     None
                 }
-            },
-            Err(e) => {
-                log::debug!("REMOTE ACTOR LOOKUP ERROR: {e:#?}");
-                None
             }
+        } else {
+            None
         }
     }
 }

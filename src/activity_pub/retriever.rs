@@ -1,12 +1,13 @@
 use chrono::Duration;
 use chrono::Utc;
-use faktory::Error;
 use reqwest::Client;
 use reqwest::Response;
 use reqwest::StatusCode;
 
 use crate::activity_pub::ApActor;
 use crate::db::Db;
+use crate::models::cache::create_cache_item;
+use crate::models::cache::NewCacheItem;
 use crate::models::leaders::get_leader_by_actor_ap_id_and_profile;
 use crate::models::profiles::get_profile_by_ap_id;
 use crate::models::profiles::Profile;
@@ -17,10 +18,37 @@ use crate::models::remote_notes::get_remote_note_by_ap_id;
 use crate::models::remote_notes::NewRemoteNote;
 use crate::signing::{sign, Method, SignParams};
 use crate::webfinger::WebFinger;
+use tokio::fs::File;
+use tokio::io::AsyncWriteExt;
 
 use super::types::collection::ApCollectionPage;
 use super::ApCollection;
 use super::ApNote;
+
+pub async fn download_image(cache_item: NewCacheItem) -> Option<NewCacheItem> {
+    log::debug!("DOWNLOADING IMAGE: {}", cache_item.url);
+
+    let path = format!("{}/cache/{}", &*crate::MEDIA_DIR, cache_item.uuid);
+    // Send an HTTP GET request to the URL
+    if let Ok(response) = reqwest::get(&cache_item.url).await {
+        // Create a new file to write the downloaded image to
+        if let Ok(mut file) = File::create(path).await {
+            if let Ok(data) = response.bytes().await {
+                if file.write_all(&data).await.is_ok() {
+                    Some(cache_item)
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    } else {
+        None
+    }
+}
 
 pub async fn get_remote_collection_page(
     profile: Option<Profile>,
@@ -192,6 +220,22 @@ pub async fn get_actor(
                 StatusCode::ACCEPTED | StatusCode::OK => {
                     if let Ok(text) = resp.text().await {
                         if let Ok(actor) = serde_json::from_str::<ApActor>(&text) {
+                            if let Some(image) = actor.image.clone() {
+                                if let Ok(cache_item) = NewCacheItem::try_from(image) {
+                                    if let Some(cache_item) = download_image(cache_item).await {
+                                        create_cache_item(conn, cache_item).await;
+                                    };
+                                }
+                            }
+
+                            if let Some(image) = actor.icon.clone() {
+                                if let Ok(cache_item) = NewCacheItem::try_from(image) {
+                                    if let Some(cache_item) = download_image(cache_item).await {
+                                        create_cache_item(conn, cache_item).await;
+                                    };
+                                }
+                            }
+
                             create_or_update_remote_actor(conn, NewRemoteActor::from(actor))
                                 .await
                                 .map(ApActor::from)
@@ -219,7 +263,7 @@ pub async fn get_actor(
     }
 }
 
-async fn maybe_signed_get(
+pub async fn maybe_signed_get(
     profile: Option<Profile>,
     url: String,
 ) -> Result<Response, reqwest::Error> {
@@ -231,7 +275,7 @@ async fn maybe_signed_get(
             let body = Option::None;
             let method = Method::Get;
 
-            log::debug!("SIGNING REQUEST FOR REMOTE ACTOR");
+            log::debug!("SIGNING REQUEST FOR REMOTE RESOURCE");
             let signature = sign(SignParams {
                 profile,
                 url: url.clone(),

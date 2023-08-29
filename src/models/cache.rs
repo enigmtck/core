@@ -1,4 +1,4 @@
-use crate::activity_pub::ApDocument;
+use crate::activity_pub::{ApDocument, ApImage};
 use crate::db::Db;
 use crate::schema::cache;
 use chrono::{DateTime, Utc};
@@ -13,8 +13,8 @@ pub struct NewCacheItem {
     pub uuid: String,
     pub url: String,
     pub media_type: String,
-    pub height: i32,
-    pub width: i32,
+    pub height: Option<i32>,
+    pub width: Option<i32>,
     pub blurhash: Option<String>,
 }
 
@@ -24,22 +24,38 @@ impl TryFrom<ApDocument> for NewCacheItem {
     fn try_from(document: ApDocument) -> Result<Self, Self::Error> {
         let uuid = uuid::Uuid::new_v4().to_string();
 
-        if let (Some(media_type), Some(url), Some(width), Some(height)) = (
-            document.media_type,
-            document.url,
-            document.width,
-            document.height,
-        ) {
+        if let (Some(media_type), Some(url)) = (document.media_type, document.url) {
             Ok(NewCacheItem {
                 uuid,
                 url,
-                width,
-                height,
+                width: document.width,
+                height: document.height,
                 media_type,
                 blurhash: document.blurhash,
             })
         } else {
             Err("INSUFFICIENT DATA IN DOCUMENT TO CONSTRUCT CACHE ITEM")
+        }
+    }
+}
+
+impl TryFrom<ApImage> for NewCacheItem {
+    type Error = &'static str;
+
+    fn try_from(image: ApImage) -> Result<Self, Self::Error> {
+        let uuid = uuid::Uuid::new_v4().to_string();
+
+        if let Some(media_type) = image.media_type {
+            Ok(NewCacheItem {
+                uuid,
+                url: image.url,
+                width: None,
+                height: None,
+                media_type,
+                blurhash: None,
+            })
+        } else {
+            Err("INSUFFICIENT DATA IN IMAGE TO CONSTRUCT CACHE ITEM")
         }
     }
 }
@@ -54,8 +70,8 @@ pub struct CacheItem {
     pub uuid: String,
     pub url: String,
     pub media_type: String,
-    pub height: i32,
-    pub width: i32,
+    pub height: Option<i32>,
+    pub width: Option<i32>,
     pub blurhash: Option<String>,
 }
 

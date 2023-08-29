@@ -10,8 +10,6 @@ use crate::{
         activities::{Activity, ActivityType},
         notes::{NewNote, Note, NoteType},
         profiles::Profile,
-        remote_announces::RemoteAnnounce,
-        remote_likes::RemoteLike,
         remote_notes::RemoteNote,
         timeline::{TimelineItem, TimelineItemCc},
         vault::VaultItem,
@@ -21,6 +19,7 @@ use crate::{
 use chrono::{DateTime, Utc};
 use rocket::http::Status;
 use serde::{Deserialize, Serialize};
+use webpage::{Webpage, WebpageOptions};
 
 use super::actor::ApAddress;
 
@@ -255,7 +254,7 @@ impl From<IdentifiedVaultItem> for ApNote {
 
 impl From<TimelineItem> for ApNote {
     fn from(timeline: TimelineItem) -> Self {
-        ApNote::from(((timeline, None, None, None, None), None))
+        ApNote::from(((timeline, None, None), None))
     }
 }
 
@@ -267,7 +266,7 @@ pub type QualifiedTimelineItem = (TimelineItem, Option<Vec<ApActor>>);
 
 impl From<QualifiedTimelineItem> for ApNote {
     fn from((timeline, actors): QualifiedTimelineItem) -> Self {
-        ApNote::from(((timeline, None, None, None, None), actors))
+        ApNote::from(((timeline, None, None), actors))
     }
 }
 
@@ -276,16 +275,14 @@ pub type FullyQualifiedTimelineItem = (
         TimelineItem,
         Option<Activity>,
         Option<TimelineItemCc>,
-        Option<RemoteAnnounce>,
-        Option<RemoteLike>,
+        //Option<RemoteAnnounce>,
+        //Option<RemoteLike>,
     ),
     Option<Vec<ApActor>>,
 );
 
 impl From<FullyQualifiedTimelineItem> for ApNote {
-    fn from(
-        ((timeline, activity, cc, remote_announce, remote_like), actors): FullyQualifiedTimelineItem,
-    ) -> Self {
+    fn from(((timeline, activity, cc), actors): FullyQualifiedTimelineItem) -> Self {
         ApNote {
             context: Some(ApContext::default()),
             to: MaybeMultiple::Multiple(vec![]),
@@ -334,8 +331,9 @@ impl From<FullyQualifiedTimelineItem> for ApNote {
                     None
                 }
             },
-            ephemeral_announces: remote_announce
-                .filter(|announce| !announce.revoked)
+            ephemeral_announces: activity
+                .clone()
+                .filter(|activity| activity.kind == ActivityType::Announce && !activity.revoked)
                 .map(|announce| vec![announce.actor]),
             ephemeral_announced: activity.clone().and_then(|x| {
                 if x.kind == ActivityType::Announce && !x.revoked {
@@ -345,14 +343,16 @@ impl From<FullyQualifiedTimelineItem> for ApNote {
                 }
             }),
             ephemeral_actors: actors,
-            ephemeral_liked: activity.and_then(|x| {
+            ephemeral_liked: activity.clone().and_then(|x| {
                 if x.kind == ActivityType::Like && !x.revoked {
                     Some(get_activity_ap_id_from_uuid(x.uuid))
                 } else {
                     None
                 }
             }),
-            ephemeral_likes: remote_like.map(|like| vec![like.actor]),
+            ephemeral_likes: activity
+                .filter(|activity| activity.kind == ActivityType::Like && !activity.revoked)
+                .map(|like| vec![like.actor]),
             ephemeral_targeted: Some(cc.is_some()),
             ephemeral_timestamp: Some(timeline.created_at),
             ephemeral_metadata: {
@@ -447,16 +447,36 @@ impl From<Note> for ApNote {
     }
 }
 
-type RemoteNoteAndMetadata = (RemoteNote, Option<Vec<Metadata>>);
+// TODO: This is problematic for links that point to large files; the filter tries
+// to account for some of that, but that's not really a solution. Maybe a whitelist?
+// That would suck. I wish the Webpage crate had a size limit (i.e., load pages with
+// a maximum size of 10MB or whatever a reasonable amount would be).
+fn get_links(text: String) -> Vec<String> {
+    let re = regex::Regex::new(r#"<a href="(.+?)".*?>"#).unwrap();
 
-impl From<RemoteNote> for ApNote {
-    fn from(remote_note: RemoteNote) -> Self {
-        (remote_note, None).into()
-    }
+    re.captures_iter(&text)
+        .filter(|cap| {
+            !cap[0].to_lowercase().contains("mention")
+                && !cap[0].to_lowercase().contains("u-url")
+                && !cap[0].to_lowercase().contains("hashtag")
+                && !cap[0].to_lowercase().contains("download")
+                && !cap[1].to_lowercase().contains(".pdf")
+        })
+        .map(|cap| cap[1].to_string())
+        .collect()
 }
 
-impl From<RemoteNoteAndMetadata> for ApNote {
-    fn from((remote_note, metadata): RemoteNoteAndMetadata) -> ApNote {
+fn metadata(remote_note: &RemoteNote) -> Vec<Metadata> {
+    get_links(remote_note.content.clone())
+        .iter()
+        .map(|link| Webpage::from_url(link, WebpageOptions::default()))
+        .filter(|metadata| metadata.is_ok())
+        .map(|metadata| metadata.unwrap().html.meta.into())
+        .collect()
+}
+
+impl From<RemoteNote> for ApNote {
+    fn from(remote_note: RemoteNote) -> ApNote {
         let kind = match remote_note.kind.as_str() {
             "Note" => ApNoteType::Note,
             "EncryptedNote" => ApNoteType::EncryptedNote,
@@ -464,36 +484,38 @@ impl From<RemoteNoteAndMetadata> for ApNote {
         };
 
         ApNote {
-            id: Some(remote_note.ap_id),
+            id: Some(remote_note.ap_id.clone()),
             kind,
-            published: remote_note.published.unwrap_or("".to_string()),
-            url: remote_note.url,
-            to: match serde_json::from_value(remote_note.ap_to.into()) {
+            published: remote_note.published.clone().unwrap_or("".to_string()),
+            url: remote_note.url.clone(),
+            to: match serde_json::from_value(remote_note.ap_to.clone().into()) {
                 Ok(x) => x,
                 Err(_) => MaybeMultiple::Multiple(vec![]),
             },
-            cc: match serde_json::from_value(remote_note.cc.into()) {
+            cc: match serde_json::from_value(remote_note.cc.clone().into()) {
                 Ok(x) => x,
                 Err(_) => None,
             },
-            tag: match serde_json::from_value(remote_note.tag.into()) {
+            tag: match serde_json::from_value(remote_note.tag.clone().into()) {
                 Ok(x) => x,
                 Err(_) => None,
             },
-            attributed_to: ApAddress::Address(remote_note.attributed_to),
-            content: remote_note.content,
-            replies: match serde_json::from_value(remote_note.replies.into()) {
+            attributed_to: ApAddress::Address(remote_note.attributed_to.clone()),
+            content: remote_note.content.clone(),
+            replies: match serde_json::from_value(remote_note.replies.clone().into()) {
                 Ok(x) => x,
                 Err(_) => None,
             },
-            in_reply_to: remote_note.in_reply_to,
-            attachment: match serde_json::from_value(remote_note.attachment.unwrap_or_default()) {
+            in_reply_to: remote_note.in_reply_to.clone(),
+            attachment: match serde_json::from_value(
+                remote_note.attachment.clone().unwrap_or_default(),
+            ) {
                 Ok(x) => x,
                 Err(_) => None,
             },
-            conversation: remote_note.conversation,
+            conversation: remote_note.conversation.clone(),
             ephemeral_timestamp: Some(remote_note.created_at),
-            ephemeral_metadata: metadata,
+            ephemeral_metadata: Some(metadata(&remote_note)),
             ..Default::default()
         }
     }

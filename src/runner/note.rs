@@ -2,18 +2,17 @@ use diesel::prelude::*;
 
 use faktory::Job;
 use reqwest::{Client, StatusCode};
-use std::{
-    fs::File,
-    io::{self, copy},
-};
-use tokio::runtime::{Handle, Runtime};
-use webpage::{Webpage, WebpageOptions};
+use tokio::io;
+use tokio::runtime::Runtime;
 
+use crate::activity_pub::retriever::{download_image, maybe_signed_get};
+use crate::runner::cache::create_cache_item;
+use crate::runner::user::get_profile_by_username;
 use crate::{
-    activity_pub::{ApActivity, ApAddress, ApAttachment, ApNote, ApObject, Metadata},
+    activity_pub::{ApActivity, ApAddress, ApAttachment, ApNote, ApObject},
     helper::get_note_ap_id_from_uuid,
     models::{
-        cache::{CacheItem, NewCacheItem},
+        cache::NewCacheItem,
         notes::{Note, NoteType},
         profiles::Profile,
         remote_notes::{NewRemoteNote, RemoteNote},
@@ -28,7 +27,7 @@ use crate::{
         timeline::delete_timeline_item_by_ap_id,
         user::{get_profile, get_profile_by_ap_id},
     },
-    schema::{cache, notes, remote_notes},
+    schema::{notes, remote_notes},
     signing::{Method, SignParams},
     MaybeReference,
 };
@@ -38,17 +37,6 @@ use super::{
     timeline::{add_to_timeline, create_timeline_item},
     POOL,
 };
-
-pub fn create_cache_item(cache_item: NewCacheItem) -> Option<CacheItem> {
-    if let Ok(mut conn) = POOL.get() {
-        diesel::insert_into(cache::table)
-            .values(&cache_item)
-            .get_result::<CacheItem>(&mut conn)
-            .ok()
-    } else {
-        None
-    }
-}
 
 pub fn create_or_update_remote_note(note: NewRemoteNote) -> Option<RemoteNote> {
     if let Ok(mut conn) = POOL.get() {
@@ -215,7 +203,7 @@ pub fn retrieve_context(job: Job) -> io::Result<()> {
             if let Some(note) = fetch_remote_note(ap_id.to_string()).await {
                 log::debug!("REPLIES\n{:#?}", note.replies);
 
-                if let Some(replies) = note.replies {
+                if let Some(replies) = ApNote::from(note).replies {
                     if let Some(MaybeReference::Actual(_first)) = replies.first {}
                 }
             }
@@ -225,51 +213,34 @@ pub fn retrieve_context(job: Job) -> io::Result<()> {
     Ok(())
 }
 
-pub async fn fetch_remote_note(id: String) -> Option<ApNote> {
+pub async fn fetch_remote_note(id: String) -> Option<RemoteNote> {
     log::debug!("PERFORMING REMOTE LOOKUP FOR NOTE: {id}");
 
     let _url = id.clone();
     let _method = Method::Get;
 
-    let client = Client::new();
-    match client
-        .get(&id)
-        .header(
-            "Accept",
-            //"application/ld+json; profile=\"http://www.w3.org/ns/activitystreams\"",
-            "application/activity+json",
-        )
-        .send()
-        .await
-    {
-        Ok(resp) => match resp.status() {
+    if let Ok(resp) = maybe_signed_get(get_profile_by_username("justin".to_string()), id).await {
+        match resp.status() {
             StatusCode::ACCEPTED | StatusCode::OK => match resp.json().await {
-                Ok(ApObject::Note(note)) => {
-                    if create_or_update_remote_note(note.clone().into()).is_some() {
-                        log::debug!("REMOTE NOTE CREATED OR UPDATED");
-                    }
-                    Option::from(note)
-                }
+                Ok(ApObject::Note(note)) => create_or_update_remote_note(note.into()),
                 Err(e) => {
                     log::error!("FAILED TO DECODE REMOTE NOTE\n{e:#?}");
-                    Option::None
+                    None
                 }
-                _ => Option::None,
+                _ => None,
             },
             StatusCode::GONE => {
                 log::debug!("REMOTE NOTE NO LONGER EXISTS AT SOURCE");
-                Option::None
+                None
             }
             _ => {
                 log::error!("REMOTE NOTE FETCH STATUS {:#?}", resp.status());
                 log::error!("{:#?}", resp.text().await);
-                Option::None
+                None
             }
-        },
-        Err(e) => {
-            log::debug!("REMOTE NOTE FETCH ERROR\n{e:#?}");
-            Option::None
         }
+    } else {
+        None
     }
 }
 
@@ -305,83 +276,35 @@ fn add_note_to_timeline(note: Note, sender: Profile) {
     }
 }
 
-// TODO: This is problematic for links that point to large files; the filter tries
-// to account for some of that, but that's not really a solution. Maybe a whitelist?
-// That would suck. I wish the Webpage crate had a size limit (i.e., load pages with
-// a maximum size of 10MB or whatever a reasonable amount would be).
-pub fn get_links(text: String) -> Vec<String> {
-    let re = regex::Regex::new(r#"<a href="(.+?)".*?>"#).unwrap();
+pub async fn handle_remote_note(remote_note: RemoteNote) -> RemoteNote {
+    log::debug!("HANDLING REMOTE NOTE");
 
-    re.captures_iter(&text)
-        .filter(|cap| {
-            !cap[0].to_lowercase().contains("mention")
-                && !cap[0].to_lowercase().contains("u-url")
-                && !cap[0].to_lowercase().contains("hashtag")
-                && !cap[0].to_lowercase().contains("download")
-                && !cap[1].to_lowercase().contains(".pdf")
-        })
-        .map(|cap| cap[1].to_string())
-        .collect()
-}
-
-fn download_image(cache_item: NewCacheItem) -> Option<NewCacheItem> {
-    let path = format!("{}/cache/{}", &*crate::MEDIA_DIR, cache_item.uuid);
-    // Send an HTTP GET request to the URL
-    if let Ok(mut response) = reqwest::blocking::get(&cache_item.url) {
-        // Create a new file to write the downloaded image to
-        if let Ok(mut file) = File::create(path) {
-            // Copy the contents of the response to the file
-            copy(&mut response, &mut file).ok();
-            Some(cache_item)
-        } else {
-            None
-        }
-    } else {
-        None
-    }
-}
-
-fn process_note(remote_note: &RemoteNote, handle: &Handle) -> io::Result<()> {
-    let links = get_links(remote_note.content.clone());
-    log::debug!("{links:#?}");
-
-    let metadata: Vec<Metadata> = {
-        links
-            .iter()
-            .map(|link| Webpage::from_url(link, WebpageOptions::default()))
-            .filter(|metadata| metadata.is_ok())
-            .map(|metadata| metadata.unwrap().html.meta.into())
-            .collect()
-    };
-
-    let note: ApNote = (remote_note.clone(), Some(metadata)).into();
+    let note: ApNote = remote_note.clone().into();
 
     if let Some(attachment) = &note.attachment {
-        attachment.iter().for_each(|x| {
+        for x in attachment.iter() {
             if let ApAttachment::Document(document) = x {
                 if let Ok(cache_item) = NewCacheItem::try_from(document.clone()) {
-                    download_image(cache_item).map(create_cache_item);
+                    download_image(cache_item).await.map(create_cache_item);
                 }
             };
-        });
+        }
     }
 
-    if let Some(timeline_item) = create_timeline_item(note.clone().into()) {
+    if let Some(timeline_item) = create_timeline_item((None, note.clone()).into()) {
         add_to_timeline(
             remote_note.clone().ap_to,
             remote_note.clone().cc,
             timeline_item,
         );
 
-        handle.block_on(async {
-            send_to_mq(note.clone()).await;
-        });
+        send_to_mq(note.clone()).await;
     }
 
-    Ok(())
+    remote_note
 }
 
-fn process_encrypted_note(remote_note: &RemoteNote) -> io::Result<()> {
+fn handle_remote_encrypted_note(remote_note: RemoteNote) -> io::Result<()> {
     log::debug!("adding to processing queue");
 
     if let Some(ap_to) = remote_note.clone().ap_to {
@@ -419,9 +342,11 @@ pub fn process_remote_note(job: Job) -> io::Result<()> {
             {
                 Ok(remote_note) => {
                     if remote_note.kind == "Note" {
-                        process_note(&remote_note, handle)?;
+                        handle.block_on(async {
+                            let _ = handle_remote_note(remote_note.clone()).await;
+                        });
                     } else if remote_note.kind == "EncryptedNote" {
-                        process_encrypted_note(&remote_note)?;
+                        handle_remote_encrypted_note(remote_note)?;
                     }
                 }
                 Err(e) => return Err(io::Error::new(io::ErrorKind::Other, e)),

@@ -18,6 +18,7 @@ use self::{actor::get_actor, user::get_follower_inboxes};
 pub mod activity;
 pub mod actor;
 pub mod announce;
+pub mod cache;
 pub mod encrypted;
 pub mod follow;
 pub mod like;
