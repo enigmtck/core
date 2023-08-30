@@ -6,13 +6,12 @@ use tokio::io;
 use tokio::runtime::Runtime;
 
 use crate::activity_pub::retriever::maybe_signed_get;
-use crate::runner::cache::{create_cache_item, get_cache_item_by_url};
+use crate::runner::cache::cache_content;
 use crate::runner::user::get_profile_by_username;
 use crate::{
     activity_pub::{ApActivity, ApAddress, ApAttachment, ApNote, ApObject},
     helper::get_note_ap_id_from_uuid,
     models::{
-        cache::NewCacheItem,
         notes::{Note, NoteType},
         profiles::Profile,
         remote_notes::{NewRemoteNote, RemoteNote},
@@ -222,7 +221,17 @@ pub async fn fetch_remote_note(id: String) -> Option<RemoteNote> {
     if let Ok(resp) = maybe_signed_get(get_profile_by_username("justin".to_string()), id).await {
         match resp.status() {
             StatusCode::ACCEPTED | StatusCode::OK => match resp.json().await {
-                Ok(ApObject::Note(note)) => create_or_update_remote_note(note.into()),
+                Ok(ApObject::Note(note)) => {
+                    if let Some(attachment) = &note.attachment {
+                        for x in attachment.iter() {
+                            if let ApAttachment::Document(document) = x {
+                                cache_content(document.clone().into()).await;
+                            };
+                        }
+                    }
+
+                    create_or_update_remote_note(note.into())
+                }
                 Err(e) => {
                     log::error!("FAILED TO DECODE REMOTE NOTE\n{e:#?}");
                     None
@@ -267,7 +276,7 @@ fn add_note_to_timeline(note: Note, sender: Profile) {
     // remote_actor representation (not the profile) for attributed_to data. In this case, the sender
     // and the note.attributed_to should represent the same person.
     if handle
-        .block_on(async { get_actor(sender, note.clone().attributed_to).await })
+        .block_on(async { get_actor(Some(sender), note.clone().attributed_to).await })
         .is_some()
     {
         if let Some(timeline_item) = create_timeline_item(note.clone().into()) {
@@ -281,14 +290,17 @@ pub async fn handle_remote_note(remote_note: RemoteNote) -> RemoteNote {
 
     let note: ApNote = remote_note.clone().into();
 
+    // we don't really need this actor - this is just to prompt pulling in assets as necessary
+    let _ = get_actor(
+        get_profile_by_username("justin".to_string()),
+        note.attributed_to.to_string(),
+    )
+    .await;
+
     if let Some(attachment) = &note.attachment {
         for x in attachment.iter() {
             if let ApAttachment::Document(document) = x {
-                if let Ok(cache_item) = NewCacheItem::try_from(document.clone()) {
-                    if get_cache_item_by_url(cache_item.url.clone()).is_none() {
-                        cache_item.download().await.map(create_cache_item);
-                    }
-                }
+                cache_content(document.clone().into()).await;
             };
         }
     }

@@ -225,7 +225,8 @@ pub fn acknowledge_followers(job: Job) -> io::Result<()> {
                     if let Some(profile) = get_profile_by_ap_id(accept.actor.clone().to_string()) {
                         handle.block_on(async {
                             if let Some((actor, _)) =
-                                get_actor(profile.clone(), follow.actor.clone().to_string()).await
+                                get_actor(Some(profile.clone()), follow.actor.clone().to_string())
+                                    .await
                             {
                                 let inbox = actor.inbox;
 

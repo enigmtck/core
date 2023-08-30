@@ -130,8 +130,8 @@ fn handle_recipients(inboxes: &mut HashSet<ApAddress>, sender: &Profile, address
     } else if let Some(followers) = actor.followers {
         if address.to_string() == followers {
             inboxes.extend(get_follower_inboxes(sender.clone()));
-        } else if let Some((actor, _)) =
-            handle.block_on(async { get_actor(sender.clone(), address.clone().to_string()).await })
+        } else if let Some((actor, _)) = handle
+            .block_on(async { get_actor(Some(sender.clone()), address.clone().to_string()).await })
         {
             inboxes.insert(ApAddress::Address(actor.inbox));
         }

@@ -58,9 +58,9 @@ pub fn handle_encrypted_note(
                     ) {
                         log::debug!("FOUND UUID - UPDATING EXISTING SESSION");
                         if let Some(_session) = update_olm_session(uuid, content, hash) {
-                            if let Some(receiver) = handle
-                                .block_on(async { get_actor(sender.clone(), to[0].clone()).await })
-                            {
+                            if let Some(receiver) = handle.block_on(async {
+                                get_actor(Some(sender.clone()), to[0].clone()).await
+                            }) {
                                 inboxes.insert(receiver.0.inbox);
                             }
                         }
@@ -69,9 +69,9 @@ pub fn handle_encrypted_note(
                         if let Some(_session) =
                             create_olm_session((instrument, encrypted_session.id).into())
                         {
-                            if let Some(receiver) = handle
-                                .block_on(async { get_actor(sender.clone(), to[0].clone()).await })
-                            {
+                            if let Some(receiver) = handle.block_on(async {
+                                get_actor(Some(sender.clone()), to[0].clone()).await
+                            }) {
                                 inboxes.insert(receiver.0.inbox);
                             }
                         }

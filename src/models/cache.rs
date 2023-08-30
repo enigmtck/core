@@ -34,6 +34,39 @@ async fn download_image(cache_item: NewCacheItem) -> Option<NewCacheItem> {
     }
 }
 
+pub enum Cacheable {
+    Document(ApDocument),
+    Image(ApImage),
+}
+
+impl From<ApDocument> for Cacheable {
+    fn from(document: ApDocument) -> Self {
+        Cacheable::Document(document)
+    }
+}
+
+impl From<ApImage> for Cacheable {
+    fn from(image: ApImage) -> Self {
+        Cacheable::Image(image)
+    }
+}
+
+pub async fn cache_content(conn: &Db, cacheable: Cacheable) {
+    if let Ok(cache_item) = match cacheable {
+        Cacheable::Document(document) => NewCacheItem::try_from(document),
+        Cacheable::Image(image) => NewCacheItem::try_from(image),
+    } {
+        if get_cache_item_by_url(conn, cache_item.url.clone())
+            .await
+            .is_none()
+        {
+            if let Some(cache_item) = cache_item.download().await {
+                create_cache_item(conn, cache_item).await;
+            }
+        }
+    }
+}
+
 #[derive(Serialize, Deserialize, Insertable, Default, Debug, Clone)]
 #[diesel(table_name = cache)]
 pub struct NewCacheItem {
@@ -108,7 +141,7 @@ pub struct CacheItem {
     pub blurhash: Option<String>,
 }
 
-pub async fn create_cache_item(conn: &Db, cache_item: NewCacheItem) -> Option<CacheItem> {
+async fn create_cache_item(conn: &Db, cache_item: NewCacheItem) -> Option<CacheItem> {
     conn.run(move |c| {
         diesel::insert_into(cache::table)
             .values(&cache_item)

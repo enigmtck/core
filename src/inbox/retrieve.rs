@@ -57,13 +57,7 @@ async fn process_notes(conn: &Db, timeline_items: &[AuthenticatedTimelineItem]) 
                 let ap_ids = gather_ap_ids(timeline_item);
                 let ap_actors = get_ap_actors(conn, ap_ids).await;
                 let fully_qualified_timeline_item: FullyQualifiedTimelineItem = (
-                    (
-                        timeline_item.clone(),
-                        activity.clone(),
-                        cc.clone(),
-                        //remote_announce.clone(),
-                        //remote_like.clone(),
-                    ),
+                    (timeline_item.clone(), activity.clone(), cc.clone()),
                     Some(ap_actors),
                 );
                 fully_qualified_timeline_item.into()

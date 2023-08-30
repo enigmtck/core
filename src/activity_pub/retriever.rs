@@ -6,7 +6,7 @@ use reqwest::StatusCode;
 
 use crate::activity_pub::ApActor;
 use crate::db::Db;
-use crate::models::cache::create_cache_item;
+use crate::models::cache::cache_content;
 use crate::models::cache::get_cache_item_by_url;
 use crate::models::cache::NewCacheItem;
 use crate::models::leaders::get_leader_by_actor_ap_id_and_profile;
@@ -102,20 +102,7 @@ pub async fn get_note(conn: &Db, profile: Option<Profile>, id: String) -> Option
                             if let Some(attachment) = &note.attachment {
                                 for x in attachment.iter() {
                                     if let ApAttachment::Document(document) = x {
-                                        if let Ok(cache_item) =
-                                            NewCacheItem::try_from(document.clone())
-                                        {
-                                            if get_cache_item_by_url(conn, cache_item.url.clone())
-                                                .await
-                                                .is_none()
-                                            {
-                                                if let Some(cache_item) =
-                                                    cache_item.download().await
-                                                {
-                                                    create_cache_item(conn, cache_item).await;
-                                                }
-                                            }
-                                        };
+                                        cache_content(conn, document.clone().into()).await;
                                     };
                                 }
                             }
@@ -160,101 +147,197 @@ pub async fn update_webfinger(conn: &Db, id: String) {
     }
 }
 
+// pub async fn get_actor(
+//     conn: &Db,
+//     id: String,
+//     profile: Option<Profile>,
+//     update: bool,
+// ) -> Option<ApActor> {
+//     let actor = {
+//         // This checks to see if the request is for a local profile. Failing that,
+//         // it checks to see if we've already captured the remote actor. It returns
+//         // None otherwise.
+//         if let Some(actor_profile) = get_profile_by_ap_id(conn, id.clone()).await {
+//             if let Some(profile) = profile.clone() {
+//                 Some(ApActor::from((
+//                     actor_profile,
+//                     get_leader_by_actor_ap_id_and_profile(conn, id.clone(), profile.id).await,
+//                 )))
+//             } else {
+//                 Some(actor_profile.into())
+//             }
+//         } else if let Some(remote_actor) = get_remote_actor_by_ap_id(conn, id.clone()).await {
+//             let now = Utc::now();
+//             let updated = remote_actor.updated_at;
+
+//             if update && now - updated > Duration::days(1) {
+//                 None
+//             } else if let Some(profile) = profile.clone() {
+//                 Some(ApActor::from((
+//                     remote_actor,
+//                     get_leader_by_actor_ap_id_and_profile(conn, id.clone(), profile.id).await,
+//                 )))
+//             } else {
+//                 Some(remote_actor.into())
+//             }
+//         } else {
+//             None
+//         }
+//     };
+
+//     if let Some(actor) = actor {
+//         update_webfinger(conn, actor.id.clone().unwrap().to_string()).await;
+//         Some(actor)
+//     } else if update {
+//         match maybe_signed_get(profile, id).await {
+//             Ok(resp) => match resp.status() {
+//                 StatusCode::ACCEPTED | StatusCode::OK => {
+//                     if let Ok(text) = resp.text().await {
+//                         if let Ok(actor) = serde_json::from_str::<ApActor>(&text) {
+//                             if let Some(image) = actor.image.clone() {
+//                                 if let Ok(cache_item) = NewCacheItem::try_from(image) {
+//                                     if get_cache_item_by_url(conn, cache_item.url.clone())
+//                                         .await
+//                                         .is_none()
+//                                     {
+//                                         if let Some(cache_item) = cache_item.download().await {
+//                                             create_cache_item(conn, cache_item).await;
+//                                         }
+//                                     }
+//                                 };
+//                             }
+
+//                             if let Some(image) = actor.icon.clone() {
+//                                 if let Ok(cache_item) = NewCacheItem::try_from(image) {
+//                                     if get_cache_item_by_url(conn, cache_item.url.clone())
+//                                         .await
+//                                         .is_none()
+//                                     {
+//                                         if let Some(cache_item) = cache_item.download().await {
+//                                             create_cache_item(conn, cache_item).await;
+//                                         };
+//                                     }
+//                                 }
+//                             }
+
+//                             create_or_update_remote_actor(conn, NewRemoteActor::from(actor))
+//                                 .await
+//                                 .map(ApActor::from)
+//                         } else {
+//                             log::error!("UNABLE TO DECODE ACTOR\n{text}");
+//                             None
+//                         }
+//                     } else {
+//                         log::error!("UNABLE TO DECODE RESPONSE TO TEXT");
+//                         None
+//                     }
+//                 }
+//                 _ => {
+//                     log::debug!("REMOTE ACTOR RETRIEVAL FAILED\n{:#?}", resp.text().await);
+//                     None
+//                 }
+//             },
+//             Err(e) => {
+//                 log::debug!("FAILED TO RETRIEVE REMOTE ACTOR\n{e:#?}");
+//                 None
+//             }
+//         }
+//     } else {
+//         None
+//     }
+// }
+
+pub async fn get_local_or_cached_actor(
+    conn: &Db,
+    id: String,
+    profile: Option<Profile>,
+    update: bool,
+) -> Option<ApActor> {
+    if let Some(actor_profile) = get_profile_by_ap_id(conn, id.clone()).await {
+        if let Some(profile) = profile.clone() {
+            Some(ApActor::from((
+                actor_profile,
+                get_leader_by_actor_ap_id_and_profile(conn, id.clone(), profile.id).await,
+            )))
+        } else {
+            Some(actor_profile.into())
+        }
+    } else if let Some(remote_actor) = get_remote_actor_by_ap_id(conn, id.clone()).await {
+        let now = Utc::now();
+        let updated = remote_actor.checked_at;
+
+        if update && now - updated > Duration::days(1) {
+            None
+        } else if let Some(profile) = profile.clone() {
+            Some(ApActor::from((
+                remote_actor,
+                get_leader_by_actor_ap_id_and_profile(conn, id.clone(), profile.id).await,
+            )))
+        } else {
+            Some(remote_actor.into())
+        }
+    } else {
+        None
+    }
+}
+
+pub async fn handle_actor_images(conn: &Db, actor: &ApActor) {
+    for image in vec![actor.image.clone(), actor.icon.clone()]
+        .into_iter()
+        .flatten()
+    {
+        cache_content(conn, image.clone().into()).await;
+    }
+}
+
+pub async fn process_remote_actor_retrieval(
+    conn: &Db,
+    profile: Option<Profile>,
+    id: String,
+) -> Option<ApActor> {
+    match maybe_signed_get(profile, id).await {
+        Ok(resp) => match resp.status() {
+            StatusCode::ACCEPTED | StatusCode::OK => {
+                if let Ok(text) = resp.text().await {
+                    if let Ok(actor) = serde_json::from_str::<ApActor>(&text) {
+                        handle_actor_images(conn, &actor).await;
+                        create_or_update_remote_actor(conn, actor.into())
+                            .await
+                            .map(ApActor::from)
+                    } else {
+                        log::error!("UNABLE TO DECODE ACTOR\n{text}");
+                        None
+                    }
+                } else {
+                    log::error!("UNABLE TO DECODE RESPONSE TO TEXT");
+                    None
+                }
+            }
+            _ => {
+                log::debug!("REMOTE ACTOR RETRIEVAL FAILED\n{:#?}", resp.text().await);
+                None
+            }
+        },
+        Err(e) => {
+            log::debug!("FAILED TO RETRIEVE REMOTE ACTOR\n{e:#?}");
+            None
+        }
+    }
+}
+
 pub async fn get_actor(
     conn: &Db,
     id: String,
     profile: Option<Profile>,
     update: bool,
 ) -> Option<ApActor> {
-    let actor = {
-        // This checks to see if the request is for a local profile. Failing that,
-        // it checks to see if we've already captured the remote actor. It returns
-        // None otherwise.
-        if let Some(actor_profile) = get_profile_by_ap_id(conn, id.clone()).await {
-            if let Some(profile) = profile.clone() {
-                Some(ApActor::from((
-                    actor_profile,
-                    get_leader_by_actor_ap_id_and_profile(conn, id.clone(), profile.id).await,
-                )))
-            } else {
-                Some(actor_profile.into())
-            }
-        } else if let Some(remote_actor) = get_remote_actor_by_ap_id(conn, id.clone()).await {
-            let now = Utc::now();
-            let updated = remote_actor.updated_at;
-
-            if update && now - updated > Duration::days(1) {
-                None
-            } else if let Some(profile) = profile.clone() {
-                Some(ApActor::from((
-                    remote_actor,
-                    get_leader_by_actor_ap_id_and_profile(conn, id.clone(), profile.id).await,
-                )))
-            } else {
-                Some(remote_actor.into())
-            }
-        } else {
-            None
-        }
-    };
+    let actor = get_local_or_cached_actor(conn, id.clone(), profile.clone(), update).await;
 
     if let Some(actor) = actor {
         update_webfinger(conn, actor.id.clone().unwrap().to_string()).await;
         Some(actor)
     } else if update {
-        match maybe_signed_get(profile, id).await {
-            Ok(resp) => match resp.status() {
-                StatusCode::ACCEPTED | StatusCode::OK => {
-                    if let Ok(text) = resp.text().await {
-                        if let Ok(actor) = serde_json::from_str::<ApActor>(&text) {
-                            if let Some(image) = actor.image.clone() {
-                                if let Ok(cache_item) = NewCacheItem::try_from(image) {
-                                    if get_cache_item_by_url(conn, cache_item.url.clone())
-                                        .await
-                                        .is_none()
-                                    {
-                                        if let Some(cache_item) = cache_item.download().await {
-                                            create_cache_item(conn, cache_item).await;
-                                        }
-                                    }
-                                };
-                            }
-
-                            if let Some(image) = actor.icon.clone() {
-                                if let Ok(cache_item) = NewCacheItem::try_from(image) {
-                                    if get_cache_item_by_url(conn, cache_item.url.clone())
-                                        .await
-                                        .is_none()
-                                    {
-                                        if let Some(cache_item) = cache_item.download().await {
-                                            create_cache_item(conn, cache_item).await;
-                                        };
-                                    }
-                                }
-                            }
-
-                            create_or_update_remote_actor(conn, NewRemoteActor::from(actor))
-                                .await
-                                .map(ApActor::from)
-                        } else {
-                            log::error!("UNABLE TO DECODE ACTOR\n{text}");
-                            None
-                        }
-                    } else {
-                        log::error!("UNABLE TO DECODE RESPONSE TO TEXT");
-                        None
-                    }
-                }
-                _ => {
-                    log::debug!("REMOTE ACTOR RETRIEVAL FAILED\n{:#?}", resp.text().await);
-                    None
-                }
-            },
-            Err(e) => {
-                log::debug!("FAILED TO RETRIEVE REMOTE ACTOR\n{e:#?}");
-                None
-            }
-        }
+        process_remote_actor_retrieval(conn, profile, id).await
     } else {
         None
     }

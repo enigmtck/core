@@ -58,14 +58,14 @@ pub async fn cached_image(conn: Db, url: String) -> Result<(ContentType, NamedFi
             if let Some(content_type) = ContentType::parse_flexible(&cache.media_type) {
                 NamedFile::open(path)
                     .await
-                    .map_or(Err(Status::NoContent), |x| Ok((content_type, x)))
+                    .map_or(Err(Status::InternalServerError), |x| Ok((content_type, x)))
             } else {
-                Err(Status::NoContent)
+                Err(Status::InternalServerError)
             }
         } else {
-            Err(Status::NoContent)
+            Err(Status::NotFound)
         }
     } else {
-        Err(Status::NoContent)
+        Err(Status::BadRequest)
     }
 }

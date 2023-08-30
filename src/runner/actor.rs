@@ -5,15 +5,11 @@ use reqwest::StatusCode;
 use crate::{
     activity_pub::{retriever::maybe_signed_get, ApActor},
     models::{
-        cache::NewCacheItem,
         leaders::Leader,
         profiles::Profile,
         remote_actors::{NewRemoteActor, RemoteActor},
     },
-    runner::{
-        cache::{create_cache_item, get_cache_item_by_url},
-        follow::get_leader_by_actor_ap_id_and_profile,
-    },
+    runner::{cache::cache_content, follow::get_leader_by_actor_ap_id_and_profile},
     schema::{leaders, profiles, remote_actors},
 };
 
@@ -57,7 +53,10 @@ pub fn create_or_update_remote_actor(actor: NewRemoteActor) -> Option<RemoteActo
     }
 }
 
-pub async fn get_actor(profile: Profile, id: String) -> Option<(RemoteActor, Option<Leader>)> {
+pub async fn get_actor(
+    profile: Option<Profile>,
+    id: String,
+) -> Option<(RemoteActor, Option<Leader>)> {
     // In the Rocket version of this, there's an option to force it not to make the external
     // call to update to avoid affecting response time to the browser. But here, that's not relevant.
     // And in fact, for local outbound Notes we use this call to check that the local user is
@@ -82,29 +81,21 @@ pub async fn get_actor(profile: Profile, id: String) -> Option<(RemoteActor, Opt
     if let Some(remote_actor) = remote_actor {
         Some((
             remote_actor,
-            get_leader_by_actor_ap_id_and_profile(id, profile.id),
+            profile.map_or(None, |x| get_leader_by_actor_ap_id_and_profile(id, x.id)),
         ))
     } else {
         log::debug!("PERFORMING REMOTE LOOKUP FOR ACTOR: {id}");
 
-        if let Ok(resp) = maybe_signed_get(Some(profile), id.clone()).await {
+        if let Ok(resp) = maybe_signed_get(profile, id.clone()).await {
             match resp.status() {
                 StatusCode::ACCEPTED | StatusCode::OK => {
                     if let Ok(actor) = resp.json::<ApActor>().await {
                         if let Some(image) = actor.image.clone() {
-                            if let Ok(cache_item) = NewCacheItem::try_from(image) {
-                                if get_cache_item_by_url(cache_item.url.clone()).is_none() {
-                                    cache_item.download().await.map(create_cache_item);
-                                }
-                            }
+                            cache_content(image.clone().into()).await;
                         }
 
                         if let Some(image) = actor.icon.clone() {
-                            if let Ok(cache_item) = NewCacheItem::try_from(image) {
-                                if get_cache_item_by_url(cache_item.url.clone()).is_none() {
-                                    cache_item.download().await.map(create_cache_item);
-                                }
-                            }
+                            cache_content(image.clone().into()).await;
                         }
 
                         create_or_update_remote_actor(NewRemoteActor::from(actor))
