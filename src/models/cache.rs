@@ -1,5 +1,7 @@
+use crate::activity_pub::retriever::maybe_signed_get;
 use crate::activity_pub::{ApDocument, ApImage};
 use crate::db::Db;
+use crate::models::profiles::get_profile_by_username;
 use crate::schema::cache;
 use chrono::{DateTime, Utc};
 use diesel::prelude::*;
@@ -9,12 +11,18 @@ use serde::{Deserialize, Serialize};
 use tokio::fs::File;
 use tokio::io::AsyncWriteExt;
 
-async fn download_image(cache_item: NewCacheItem) -> Option<NewCacheItem> {
+use super::profiles::Profile;
+
+async fn download_image(
+    profile: Option<Profile>,
+    cache_item: NewCacheItem,
+) -> Option<NewCacheItem> {
     log::debug!("DOWNLOADING IMAGE: {}", cache_item.url);
 
     let path = format!("{}/cache/{}", &*crate::MEDIA_DIR, cache_item.uuid);
     // Send an HTTP GET request to the URL
-    if let Ok(response) = reqwest::get(&cache_item.url).await {
+    if let Ok(response) = maybe_signed_get(profile, cache_item.url.clone()).await {
+        //if let Ok(response) = reqwest::get(&cache_item.url).await {
         // Create a new file to write the downloaded image to
         if let Ok(mut file) = File::create(path).await {
             if let Ok(data) = response.bytes().await {
@@ -60,7 +68,10 @@ pub async fn cache_content(conn: &Db, cacheable: Cacheable) {
             .await
             .is_none()
         {
-            if let Some(cache_item) = cache_item.download().await {
+            if let Some(cache_item) = cache_item
+                .download(get_profile_by_username(conn, "justin".to_string()).await)
+                .await
+            {
                 create_cache_item(conn, cache_item).await;
             }
         }
@@ -79,8 +90,8 @@ pub struct NewCacheItem {
 }
 
 impl NewCacheItem {
-    pub async fn download(&self) -> Option<Self> {
-        download_image(self.clone()).await
+    pub async fn download(&self, profile: Option<Profile>) -> Option<Self> {
+        download_image(profile, self.clone()).await
     }
 }
 

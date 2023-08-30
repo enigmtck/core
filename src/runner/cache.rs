@@ -1,3 +1,4 @@
+use super::user::get_profile_by_username;
 use super::POOL;
 use crate::models::cache::{CacheItem, Cacheable, NewCacheItem};
 use crate::schema::cache;
@@ -9,7 +10,10 @@ pub async fn cache_content(cacheable: Cacheable) {
         Cacheable::Image(image) => NewCacheItem::try_from(image),
     } {
         if get_cache_item_by_url(cache_item.url.clone()).is_none() {
-            cache_item.download().await.map(create_cache_item);
+            cache_item
+                .download(get_profile_by_username("justin".to_string()))
+                .await
+                .map(create_cache_item);
         }
     }
 }

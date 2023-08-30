@@ -156,19 +156,19 @@ pub struct ApMention {
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ApHashtag {
     #[serde(rename = "type")]
-    kind: ApHashtagType,
-    name: String,
-    href: String,
+    pub kind: ApHashtagType,
+    pub name: String,
+    pub href: String,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ApEmoji {
     #[serde(rename = "type")]
-    kind: ApEmojiType,
-    id: String,
-    name: String,
-    updated: Option<String>,
-    icon: ApImage,
+    pub kind: ApEmojiType,
+    pub id: String,
+    pub name: String,
+    pub updated: Option<String>,
+    pub icon: ApImage,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]

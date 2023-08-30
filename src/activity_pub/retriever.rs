@@ -21,9 +21,11 @@ use crate::signing::{sign, Method, SignParams};
 use crate::webfinger::WebFinger;
 
 use super::types::collection::ApCollectionPage;
+use super::types::object::ApEmoji;
 use super::ApAttachment;
 use super::ApCollection;
 use super::ApNote;
+use super::ApTag;
 
 pub async fn get_remote_collection_page(
     profile: Option<Profile>,
@@ -132,6 +134,8 @@ pub async fn get_note(conn: &Db, profile: Option<Profile>, id: String) -> Option
     }
 }
 
+// This seems like I wrote it as a temporary fix to populate the webfinger stuff
+// should probably remove it
 pub async fn update_webfinger(conn: &Db, id: String) {
     if let Some(actor) = get_remote_actor_by_ap_id(conn, id).await {
         if actor.webfinger.is_none() {
@@ -282,10 +286,24 @@ pub async fn get_local_or_cached_actor(
 }
 
 pub async fn handle_actor_images(conn: &Db, actor: &ApActor) {
-    for image in vec![actor.image.clone(), actor.icon.clone()]
-        .into_iter()
-        .flatten()
-    {
+    let mut emojis = if let Some(tags) = actor.tag.clone() {
+        tags.into_iter()
+            .filter_map(|x| {
+                if let ApTag::Emoji(emoji) = x {
+                    Some(emoji)
+                } else {
+                    None
+                }
+            })
+            .map(|x| Some(x.icon))
+            .collect()
+    } else {
+        vec![]
+    };
+
+    let mut images = vec![actor.image.clone(), actor.icon.clone()];
+    images.append(&mut emojis);
+    for image in images.into_iter().flatten() {
         cache_content(conn, image.clone().into()).await;
     }
 }
@@ -335,6 +353,7 @@ pub async fn get_actor(
 
     if let Some(actor) = actor {
         update_webfinger(conn, actor.id.clone().unwrap().to_string()).await;
+        handle_actor_images(conn, &actor).await;
         Some(actor)
     } else if update {
         process_remote_actor_retrieval(conn, profile, id).await
