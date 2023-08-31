@@ -1,9 +1,9 @@
+use base64::{engine::general_purpose, engine::Engine as _};
 use rocket::fs::NamedFile;
 use rocket::http::{ContentType, Status};
 use rocket::serde::json::Json;
 use rocket::Data;
 use rocket::{data::ToByteUnit, get, post};
-use urlencoding::decode;
 
 use crate::activity_pub::ApAttachment;
 use crate::db::Db;
@@ -52,18 +52,31 @@ pub async fn upload_image(
 
 #[get("/api/cache?<url>")]
 pub async fn cached_image(conn: Db, url: String) -> Result<(ContentType, NamedFile), Status> {
-    if let Ok(url) = decode(&url) {
-        if let Some(cache) = get_cache_item_by_url(&conn, url.into()).await {
-            let path = format!("{}/cache/{}", &*crate::MEDIA_DIR, cache.uuid);
-            if let Some(content_type) = ContentType::parse_flexible(&cache.media_type) {
-                NamedFile::open(path)
-                    .await
-                    .map_or(Err(Status::InternalServerError), |x| Ok((content_type, x)))
+    log::debug!("CACHE URL BEFORE DECODING: {url}");
+
+    if let Ok(url) = urlencoding::decode(&url) {
+        if let Ok(url) = general_purpose::STANDARD_NO_PAD.decode(url.to_string()) {
+            if let Ok(url) = String::from_utf8(url) {
+                log::debug!("DECODED CACHE URL: {url}");
+                if let Some(cache) = get_cache_item_by_url(&conn, url).await {
+                    let path = format!("{}/cache/{}", &*crate::MEDIA_DIR, cache.uuid);
+                    let media_type = &cache.media_type.map_or("any".to_string(), |x| x);
+
+                    if let Some(content_type) = ContentType::parse_flexible(media_type) {
+                        NamedFile::open(path)
+                            .await
+                            .map_or(Err(Status::InternalServerError), |x| Ok((content_type, x)))
+                    } else {
+                        Err(Status::InternalServerError)
+                    }
+                } else {
+                    Err(Status::NotFound)
+                }
             } else {
-                Err(Status::InternalServerError)
+                Err(Status::BadRequest)
             }
         } else {
-            Err(Status::NotFound)
+            Err(Status::BadRequest)
         }
     } else {
         Err(Status::BadRequest)

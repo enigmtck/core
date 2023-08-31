@@ -5,6 +5,7 @@ use lapin::{options::BasicPublishOptions, BasicProperties, ConnectionProperties}
 use lazy_static::lazy_static;
 use reqwest::Client;
 use tokio::runtime::Runtime;
+use url::Url;
 
 use crate::{
     activity_pub::{ApActivity, ApActor, ApAddress, ApNote},
@@ -82,36 +83,38 @@ pub fn send_to_inboxes(inboxes: Vec<ApAddress>, profile: Profile, message: ApAct
 
     log::debug!("INBOXES\n{inboxes:#?}");
 
-    for url in inboxes {
-        log::debug!("SENDING TO {url}");
+    for url_str in inboxes {
+        log::debug!("SENDING TO {url_str}");
 
         let body = Option::from(serde_json::to_string(&message).unwrap());
         let method = Method::Post;
 
-        let signature = crate::signing::sign(SignParams {
-            profile: profile.clone(),
-            url: url.clone().to_string(),
-            body: body.clone(),
-            method,
-        });
+        if let Ok(url) = Url::parse(&url_str.clone().to_string()) {
+            let signature = crate::signing::sign(SignParams {
+                profile: profile.clone(),
+                url: url.clone(),
+                body: body.clone(),
+                method,
+            });
 
-        let client = Client::new()
-            .post(url.clone().to_string())
-            .header("Date", signature.date)
-            .header("Digest", signature.digest.unwrap())
-            .header("Signature", &signature.signature)
-            .header(
-                "Content-Type",
-                "application/ld+json; profile=\"http://www.w3.org/ns/activitystreams\"",
-            )
-            .body(body.unwrap());
+            let client = Client::new()
+                .post(url_str.clone().to_string())
+                .header("Date", signature.date)
+                .header("Digest", signature.digest.unwrap())
+                .header("Signature", &signature.signature)
+                .header(
+                    "Content-Type",
+                    "application/ld+json; profile=\"http://www.w3.org/ns/activitystreams\"",
+                )
+                .body(body.unwrap());
 
-        handle.block_on(async {
-            if let Ok(resp) = client.send().await {
-                let code = resp.status();
-                log::debug!("SEND RESULT FOR {url}: {code}");
-            }
-        });
+            handle.block_on(async {
+                if let Ok(resp) = client.send().await {
+                    let code = resp.status();
+                    log::debug!("SEND RESULT FOR {url}: {code}");
+                }
+            });
+        }
     }
 }
 

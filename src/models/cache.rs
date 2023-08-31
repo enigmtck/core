@@ -95,7 +95,7 @@ pub async fn cache_content(conn: &Db, cacheable: Result<Cacheable, &str>) {
     if let Ok(cacheable) = cacheable {
         if let Ok(cache_item) = match cacheable {
             Cacheable::Document(document) => NewCacheItem::try_from(document),
-            Cacheable::Image(image) => NewCacheItem::try_from(image),
+            Cacheable::Image(image) => Ok(NewCacheItem::from(image)),
         } {
             if get_cache_item_by_url(conn, cache_item.url.clone())
                 .await
@@ -117,7 +117,7 @@ pub async fn cache_content(conn: &Db, cacheable: Result<Cacheable, &str>) {
 pub struct NewCacheItem {
     pub uuid: String,
     pub url: String,
-    pub media_type: String,
+    pub media_type: Option<String>,
     pub height: Option<i32>,
     pub width: Option<i32>,
     pub blurhash: Option<String>,
@@ -135,13 +135,13 @@ impl TryFrom<ApDocument> for NewCacheItem {
     fn try_from(document: ApDocument) -> Result<Self, Self::Error> {
         let uuid = uuid::Uuid::new_v4().to_string();
 
-        if let (Some(media_type), Some(url)) = (document.media_type, document.url) {
+        if let Some(url) = document.url {
             Ok(NewCacheItem {
                 uuid,
                 url,
                 width: document.width,
                 height: document.height,
-                media_type,
+                media_type: document.media_type,
                 blurhash: document.blurhash,
             })
         } else {
@@ -150,23 +150,15 @@ impl TryFrom<ApDocument> for NewCacheItem {
     }
 }
 
-impl TryFrom<ApImage> for NewCacheItem {
-    type Error = &'static str;
-
-    fn try_from(image: ApImage) -> Result<Self, Self::Error> {
-        let uuid = uuid::Uuid::new_v4().to_string();
-
-        if let Some(media_type) = image.media_type {
-            Ok(NewCacheItem {
-                uuid,
-                url: image.url,
-                width: None,
-                height: None,
-                media_type,
-                blurhash: None,
-            })
-        } else {
-            Err("INSUFFICIENT DATA IN IMAGE TO CONSTRUCT CACHE ITEM")
+impl From<ApImage> for NewCacheItem {
+    fn from(image: ApImage) -> Self {
+        NewCacheItem {
+            uuid: uuid::Uuid::new_v4().to_string(),
+            url: image.url,
+            width: None,
+            height: None,
+            media_type: image.media_type,
+            blurhash: None,
         }
     }
 }
@@ -180,7 +172,7 @@ pub struct CacheItem {
     pub updated_at: DateTime<Utc>,
     pub uuid: String,
     pub url: String,
-    pub media_type: String,
+    pub media_type: Option<String>,
     pub height: Option<i32>,
     pub width: Option<i32>,
     pub blurhash: Option<String>,

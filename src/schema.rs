@@ -56,7 +56,7 @@ diesel::table! {
         updated_at -> Timestamptz,
         uuid -> Varchar,
         url -> Varchar,
-        media_type -> Varchar,
+        media_type -> Nullable<Varchar>,
         height -> Nullable<Int4>,
         width -> Nullable<Int4>,
         blurhash -> Nullable<Varchar>,

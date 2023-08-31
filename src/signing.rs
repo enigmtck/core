@@ -176,7 +176,7 @@ impl fmt::Display for Method {
 #[derive(Clone, Debug)]
 pub struct SignParams {
     pub profile: Profile,
-    pub url: String,
+    pub url: Url,
     pub body: Option<String>,
     pub method: Method,
 }
@@ -204,7 +204,8 @@ pub fn sign(params: SignParams) -> SignResponse {
         }
     };
 
-    let url = Url::parse(&params.url).unwrap();
+    //let url = Url::parse(&params.url).unwrap();
+    let url = params.url;
     let host = url.host().unwrap().to_string();
     let request_target = format!(
         "{} {}",

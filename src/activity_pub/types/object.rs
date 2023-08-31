@@ -204,7 +204,13 @@ pub struct ApImage {
 fn get_media_type(url: &str) -> Option<String> {
     if let Ok(url) = Url::parse(url) {
         if let Some(ext) = url.path().split('.').last() {
-            ContentType::from_extension(ext).map(|x| x.to_string())
+            if ["png", "jpg", "jpeg", "gif", "bmp", "ico", "svg"]
+                .contains(&ext.to_lowercase().as_str())
+            {
+                ContentType::from_extension(ext).map(|x| x.to_string())
+            } else {
+                None
+            }
         } else {
             None
         }

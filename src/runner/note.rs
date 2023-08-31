@@ -4,6 +4,7 @@ use faktory::Job;
 use reqwest::{Client, StatusCode};
 use tokio::io;
 use tokio::runtime::Runtime;
+use url::Url;
 
 use crate::activity_pub::retriever::maybe_signed_get;
 use crate::activity_pub::ApImage;
@@ -180,35 +181,37 @@ pub fn process_outbound_note(job: Job) -> io::Result<()> {
                         log::debug!("SENDING ACTIVITY\n{activity:#?}");
                         log::debug!("INBOXES\n{inboxes:#?}");
 
-                        for url in inboxes {
+                        for url_str in inboxes {
                             let body = Option::from(serde_json::to_string(&activity).unwrap());
                             let method = Method::Post;
 
-                            let signature = crate::signing::sign(SignParams {
-                                profile: sender.clone(),
-                                url: url.to_string().clone(),
-                                body: body.clone(),
-                                method,
-                            });
+                            if let Ok(url) = Url::parse(&url_str.clone().to_string()) {
+                                let signature = crate::signing::sign(SignParams {
+                                    profile: sender.clone(),
+                                    url: url.clone(),
+                                    body: body.clone(),
+                                    method,
+                                });
 
-                            let client = Client::new()
-                                .post(&url.to_string())
-                                .header("Date", signature.date)
-                                .header("Digest", signature.digest.unwrap())
-                                .header("Signature", &signature.signature)
-                                .header("Content-Type", "application/activity+json")
-                                .body(body.unwrap());
+                                let client = Client::new()
+                                    .post(&url_str.to_string())
+                                    .header("Date", signature.date)
+                                    .header("Digest", signature.digest.unwrap())
+                                    .header("Signature", &signature.signature)
+                                    .header("Content-Type", "application/activity+json")
+                                    .body(body.unwrap());
 
-                            handle.block_on(async {
-                                if let Ok(resp) = client.send().await {
-                                    match resp.status() {
-                                        StatusCode::ACCEPTED | StatusCode::OK => {
-                                            log::debug!("SENT TO {url}")
+                                handle.block_on(async {
+                                    if let Ok(resp) = client.send().await {
+                                        match resp.status() {
+                                            StatusCode::ACCEPTED | StatusCode::OK => {
+                                                log::debug!("SENT TO {url}")
+                                            }
+                                            _ => log::error!("ERROR SENDING TO {url}"),
                                         }
-                                        _ => log::error!("ERROR SENDING TO {url}"),
                                     }
-                                }
-                            })
+                                })
+                            }
                         }
                     }
                 }

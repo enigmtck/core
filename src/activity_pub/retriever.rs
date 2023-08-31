@@ -3,6 +3,7 @@ use chrono::Utc;
 use reqwest::Client;
 use reqwest::Response;
 use reqwest::StatusCode;
+use url::Url;
 
 use crate::activity_pub::ApActor;
 use crate::db::Db;
@@ -235,20 +236,27 @@ pub async fn maybe_signed_get(
         if let Some(profile) = profile {
             let body = Option::None;
             let method = Method::Get;
+            let url_str = url.clone();
 
-            log::debug!("SIGNING REQUEST FOR REMOTE RESOURCE");
-            let signature = sign(SignParams {
-                profile,
-                url: url.clone(),
-                body,
-                method,
-            });
+            if let Ok(url) = Url::parse(&url.to_string()) {
+                log::debug!("SIGNING REQUEST FOR REMOTE RESOURCE");
+                let signature = sign(SignParams {
+                    profile,
+                    url,
+                    body,
+                    method,
+                });
 
-            client
-                .get(&url)
-                .header("Signature", &signature.signature)
-                .header("Date", signature.date)
-                .header("Accept", "application/activity+json")
+                client
+                    .get(&url_str)
+                    .header("Signature", &signature.signature)
+                    .header("Date", signature.date)
+                    .header("Accept", "application/activity+json")
+            } else {
+                client
+                    .get(&url)
+                    .header("Accept", "application/activity+json")
+            }
         } else {
             client
                 .get(&url)
