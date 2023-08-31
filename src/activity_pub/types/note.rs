@@ -2,12 +2,15 @@ use core::fmt;
 use std::{collections::HashMap, fmt::Debug};
 
 use crate::{
-    activity_pub::{ApActor, ApAttachment, ApCollection, ApContext, ApInstruments, ApTag, Outbox},
+    activity_pub::{
+        ApActor, ApAttachment, ApCollection, ApContext, ApImage, ApInstruments, ApTag, Outbox,
+    },
     db::Db,
     fairings::{events::EventChannels, faktory::FaktoryConnection},
     helper::{get_activity_ap_id_from_uuid, get_ap_id_from_username, get_note_ap_id_from_uuid},
     models::{
         activities::{Activity, ActivityType},
+        cache::{cache_content, Cache},
         notes::{NewNote, Note, NoteType},
         profiles::Profile,
         remote_notes::RemoteNote,
@@ -163,6 +166,36 @@ impl ApNote {
     }
 }
 
+impl Cache for ApNote {
+    async fn cache(&self, conn: &Db) -> &Self {
+        if let Some(attachments) = self.attachment.clone() {
+            for attachment in attachments {
+                cache_content(conn, attachment.clone().try_into()).await;
+            }
+        }
+
+        if let Some(tags) = self.tag.clone() {
+            for tag in tags {
+                cache_content(conn, tag.clone().try_into()).await;
+            }
+        }
+
+        if let Some(metadata_vec) = self.ephemeral_metadata.clone() {
+            for metadata in metadata_vec {
+                if let Some(og_image) = metadata.og_image.clone() {
+                    cache_content(conn, Ok(ApImage::from(og_image).into())).await;
+                }
+
+                if let Some(twitter_image) = metadata.twitter_image.clone() {
+                    cache_content(conn, Ok(ApImage::from(twitter_image).into())).await;
+                }
+            }
+        }
+
+        self
+    }
+}
+
 impl Outbox for ApNote {
     async fn outbox(
         &self,
@@ -254,7 +287,7 @@ impl From<IdentifiedVaultItem> for ApNote {
 
 impl From<TimelineItem> for ApNote {
     fn from(timeline: TimelineItem) -> Self {
-        ApNote::from(((timeline, None, None), None))
+        ApNote::from(((timeline, None, None), None, None))
     }
 }
 
@@ -266,23 +299,18 @@ pub type QualifiedTimelineItem = (TimelineItem, Option<Vec<ApActor>>);
 
 impl From<QualifiedTimelineItem> for ApNote {
     fn from((timeline, actors): QualifiedTimelineItem) -> Self {
-        ApNote::from(((timeline, None, None), actors))
+        ApNote::from(((timeline, None, None), actors, None))
     }
 }
 
 pub type FullyQualifiedTimelineItem = (
-    (
-        TimelineItem,
-        Option<Activity>,
-        Option<TimelineItemCc>,
-        //Option<RemoteAnnounce>,
-        //Option<RemoteLike>,
-    ),
+    (TimelineItem, Option<Activity>, Option<TimelineItemCc>),
     Option<Vec<ApActor>>,
+    Option<Profile>,
 );
 
 impl From<FullyQualifiedTimelineItem> for ApNote {
-    fn from(((timeline, activity, cc), actors): FullyQualifiedTimelineItem) -> Self {
+    fn from(((timeline, activity, cc), actors, profile): FullyQualifiedTimelineItem) -> Self {
         ApNote {
             context: Some(ApContext::default()),
             to: MaybeMultiple::Multiple(vec![]),
@@ -336,16 +364,30 @@ impl From<FullyQualifiedTimelineItem> for ApNote {
                 .filter(|activity| activity.kind == ActivityType::Announce && !activity.revoked)
                 .map(|announce| vec![announce.actor]),
             ephemeral_announced: activity.clone().and_then(|x| {
-                if x.kind == ActivityType::Announce && !x.revoked {
-                    Some(get_activity_ap_id_from_uuid(x.uuid))
+                if let Some(profile) = profile.clone() {
+                    if x.kind == ActivityType::Announce
+                        && !x.revoked
+                        && x.actor == get_ap_id_from_username(profile.username)
+                    {
+                        Some(get_activity_ap_id_from_uuid(x.uuid))
+                    } else {
+                        None
+                    }
                 } else {
                     None
                 }
             }),
             ephemeral_actors: actors,
             ephemeral_liked: activity.clone().and_then(|x| {
-                if x.kind == ActivityType::Like && !x.revoked {
-                    Some(get_activity_ap_id_from_uuid(x.uuid))
+                if let Some(profile) = profile {
+                    if x.kind == ActivityType::Like
+                        && !x.revoked
+                        && x.actor == get_ap_id_from_username(profile.username)
+                    {
+                        Some(get_activity_ap_id_from_uuid(x.uuid))
+                    } else {
+                        None
+                    }
                 } else {
                     None
                 }

@@ -5,12 +5,49 @@ use crate::activity_pub::{ActivityPub, ApActivity, ApActor, ApContext, ApObject,
 use crate::db::Db;
 use crate::fairings::events::EventChannels;
 use crate::fairings::faktory::FaktoryConnection;
+use crate::models::cache::Cache;
 use crate::models::vault::VaultItem;
 use crate::models::{followers::Follower, leaders::Leader, profiles::Profile};
 use crate::MaybeReference;
 use rocket::http::Status;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
+
+pub trait Collectible {
+    fn items(&self) -> Option<Vec<ActivityPub>>;
+}
+
+impl Cache for ApCollectionPage {
+    async fn cache(&self, conn: &Db) -> &Self {
+        if let Some(items) = self.items() {
+            for item in items {
+                if let ActivityPub::Activity(ApActivity::Create(create)) = item {
+                    if let MaybeReference::Actual(ApObject::Note(note)) = create.object {
+                        note.cache(conn).await;
+                    }
+                }
+            }
+        }
+
+        self
+    }
+}
+
+impl Cache for ApCollection {
+    async fn cache(&self, conn: &Db) -> &Self {
+        if let Some(items) = self.items() {
+            for item in items {
+                if let ActivityPub::Activity(ApActivity::Create(create)) = item {
+                    if let MaybeReference::Actual(ApObject::Note(note)) = create.object {
+                        note.cache(conn).await;
+                    }
+                }
+            }
+        }
+
+        self
+    }
+}
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub enum ApCollectionType {
@@ -55,9 +92,15 @@ pub struct ApCollectionPage {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub total_items: Option<i32>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub items: Option<Vec<ActivityPub>>,
+    items: Option<Vec<ActivityPub>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub ordered_items: Option<Vec<ActivityPub>>,
+    ordered_items: Option<Vec<ActivityPub>>,
+}
+
+impl Collectible for ApCollectionPage {
+    fn items(&self) -> Option<Vec<ActivityPub>> {
+        self.items.clone().map_or(self.ordered_items.clone(), Some)
+    }
 }
 
 impl Outbox for ApCollectionPage {
@@ -106,9 +149,9 @@ pub struct ApCollection {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub total_items: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub items: Option<Vec<ActivityPub>>,
+    items: Option<Vec<ActivityPub>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub ordered_items: Option<Vec<ActivityPub>>,
+    ordered_items: Option<Vec<ActivityPub>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub first: Option<MaybeReference<ApCollectionPage>>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -121,6 +164,12 @@ pub struct ApCollection {
     pub current: Option<MaybeReference<ApCollectionPage>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub part_of: Option<String>,
+}
+
+impl Collectible for ApCollection {
+    fn items(&self) -> Option<Vec<ActivityPub>> {
+        self.items.clone().and_then(|_| self.ordered_items.clone())
+    }
 }
 
 impl Outbox for ApCollection {

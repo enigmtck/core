@@ -1,6 +1,7 @@
 use std::collections::{hash_map::Entry, HashMap};
 
 use rocket::futures::future::join_all;
+use rocket::futures::stream::{self, StreamExt};
 
 use crate::{
     activity_pub::{
@@ -10,6 +11,7 @@ use crate::{
     db::Db,
     fairings::faktory::{assign_to_faktory, FaktoryConnection},
     models::{
+        cache::Cache,
         profiles::Profile,
         timeline::{
             get_authenticated_timeline_items, get_public_timeline_items,
@@ -26,43 +28,54 @@ pub async fn timeline(conn: &Db, limit: i64, offset: i64) -> ApObject {
         .map(|(timeline, activity)| (timeline.clone(), activity.clone(), None))
         .collect();
 
-    process(conn, items).await
+    process(conn, items, None).await
 }
 
 pub async fn inbox(conn: &Db, limit: i64, offset: i64, profile: Profile) -> ApObject {
     // the timeline vec will include duplicates due to the table joins
     process(
         conn,
-        get_authenticated_timeline_items(conn, limit, offset, profile).await,
+        get_authenticated_timeline_items(conn, limit, offset, profile.clone()).await,
+        Some(profile),
     )
     .await
 }
 
-async fn process(conn: &Db, timeline: Vec<AuthenticatedTimelineItem>) -> ApObject {
-    let notes = process_notes(conn, &timeline).await;
+async fn process(
+    conn: &Db,
+    timeline: Vec<AuthenticatedTimelineItem>,
+    profile: Option<Profile>,
+) -> ApObject {
+    let notes = process_notes(conn, &timeline, profile).await;
     let consolidated_notes = consolidate_notes(notes);
-    ApObject::Collection(ApCollection::from(
-        consolidated_notes
-            .iter()
-            .map(|note| ApObject::Note(note.clone()))
-            .collect::<Vec<ApObject>>(),
-    ))
+
+    // Process the notes asynchronously
+    let ap_objects: Vec<ApObject> = stream::iter(consolidated_notes)
+        .then(|note| async move { ApObject::Note(note.clone().cache(conn).await.clone()) })
+        .collect()
+        .await;
+
+    ApObject::Collection(ApCollection::from(ap_objects))
 }
 
-async fn process_notes(conn: &Db, timeline_items: &[AuthenticatedTimelineItem]) -> Vec<ApNote> {
-    join_all(
-        timeline_items
-            .iter()
-            .map(|(timeline_item, activity, cc)| async move {
-                let ap_ids = gather_ap_ids(timeline_item);
-                let ap_actors = get_ap_actors(conn, ap_ids).await;
-                let fully_qualified_timeline_item: FullyQualifiedTimelineItem = (
-                    (timeline_item.clone(), activity.clone(), cc.clone()),
-                    Some(ap_actors),
-                );
-                fully_qualified_timeline_item.into()
-            }),
-    )
+async fn process_notes(
+    conn: &Db,
+    timeline_items: &[AuthenticatedTimelineItem],
+    profile: Option<Profile>,
+) -> Vec<ApNote> {
+    join_all(timeline_items.iter().map(|(timeline_item, activity, cc)| {
+        let profile = profile.clone();
+        async move {
+            let ap_ids = gather_ap_ids(timeline_item);
+            let ap_actors = get_ap_actors(conn, ap_ids).await;
+            let fully_qualified_timeline_item: FullyQualifiedTimelineItem = (
+                (timeline_item.clone(), activity.clone(), cc.clone()),
+                Some(ap_actors),
+                profile,
+            );
+            fully_qualified_timeline_item.into()
+        }
+    }))
     .await
 }
 

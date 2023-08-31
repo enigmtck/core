@@ -6,10 +6,11 @@ use tokio::io;
 use tokio::runtime::Runtime;
 
 use crate::activity_pub::retriever::maybe_signed_get;
+use crate::activity_pub::ApImage;
 use crate::runner::cache::cache_content;
 use crate::runner::user::get_profile_by_username;
 use crate::{
-    activity_pub::{ApActivity, ApAddress, ApAttachment, ApNote, ApObject},
+    activity_pub::{ApActivity, ApAddress, ApNote, ApObject},
     helper::get_note_ap_id_from_uuid,
     models::{
         notes::{Note, NoteType},
@@ -36,6 +37,34 @@ use super::{
     timeline::{add_to_timeline, create_timeline_item},
     POOL,
 };
+
+async fn cache_note(note: &'_ ApNote) -> &'_ ApNote {
+    if let Some(attachments) = &note.attachment {
+        for attachment in attachments {
+            cache_content(attachment.clone().try_into()).await;
+        }
+    }
+
+    if let Some(tags) = &note.tag {
+        for tag in tags {
+            cache_content(tag.clone().try_into()).await;
+        }
+    }
+
+    if let Some(metadata_vec) = &note.ephemeral_metadata {
+        for metadata in metadata_vec {
+            if let Some(og_image) = metadata.og_image.clone() {
+                cache_content(Ok(ApImage::from(og_image).into())).await;
+            }
+
+            if let Some(twitter_image) = metadata.twitter_image.clone() {
+                cache_content(Ok(ApImage::from(twitter_image).into())).await;
+            }
+        }
+    }
+
+    note
+}
 
 pub fn create_or_update_remote_note(note: NewRemoteNote) -> Option<RemoteNote> {
     if let Ok(mut conn) = POOL.get() {
@@ -222,15 +251,7 @@ pub async fn fetch_remote_note(id: String) -> Option<RemoteNote> {
         match resp.status() {
             StatusCode::ACCEPTED | StatusCode::OK => match resp.json().await {
                 Ok(ApObject::Note(note)) => {
-                    if let Some(attachment) = &note.attachment {
-                        for x in attachment.iter() {
-                            if let ApAttachment::Document(document) = x {
-                                cache_content(document.clone().into()).await;
-                            };
-                        }
-                    }
-
-                    create_or_update_remote_note(note.into())
+                    create_or_update_remote_note(cache_note(&note).await.clone().into())
                 }
                 Err(e) => {
                     log::error!("FAILED TO DECODE REMOTE NOTE\n{e:#?}");
@@ -297,13 +318,7 @@ pub async fn handle_remote_note(remote_note: RemoteNote) -> RemoteNote {
     )
     .await;
 
-    if let Some(attachment) = &note.attachment {
-        for x in attachment.iter() {
-            if let ApAttachment::Document(document) = x {
-                cache_content(document.clone().into()).await;
-            };
-        }
-    }
+    let note = cache_note(&note).await.clone();
 
     if let Some(timeline_item) = create_timeline_item((None, note.clone()).into()) {
         add_to_timeline(

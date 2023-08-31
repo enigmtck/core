@@ -73,15 +73,13 @@ pub async fn remote_id_authenticated(
     }
 }
 
-/// This accepts an actor in webfinger form (e.g., justin@enigmatick.social).
-#[get("/api/remote/actor?<webfinger>")]
-pub async fn remote_actor(conn: Db, webfinger: String) -> Result<Json<ApActor>, Status> {
-    if let Some(actor) = get_remote_actor_by_webfinger(&conn, webfinger.clone()).await {
+async fn remote_actor_response(conn: &Db, webfinger: String) -> Result<Json<ApActor>, Status> {
+    if let Some(actor) = get_remote_actor_by_webfinger(conn, webfinger.clone()).await {
         log::debug!("FOUND REMOTE ACTOR LOCALLY");
         Ok(Json(ApActor::from(actor)))
     } else if let Some(ap_id) = get_ap_id_from_webfinger(webfinger).await {
         log::debug!("RETRIEVING ACTOR WEBFINGER FROM REMOTE OR LOCAL PROFILE");
-        if let Some(actor) = get_actor(&conn, ap_id, None, true).await {
+        if let Some(actor) = get_actor(conn, ap_id, None, true).await {
             Ok(Json(actor))
         } else {
             log::error!("FAILED TO RETRIEVE ACTOR BY AP_ID");
@@ -93,18 +91,23 @@ pub async fn remote_actor(conn: Db, webfinger: String) -> Result<Json<ApActor>, 
     }
 }
 
-#[get("/api/user/<username>/remote/actor?<webfinger>")]
-pub async fn remote_actor_authenticated(
+/// This accepts an actor in webfinger form (e.g., justin@enigmatick.social).
+#[get("/api/remote/actor?<webfinger>")]
+pub async fn remote_actor(conn: Db, webfinger: String) -> Result<Json<ApActor>, Status> {
+    remote_actor_response(&conn, webfinger).await
+}
+
+async fn remote_actor_authenticated_response(
     signed: Signed,
-    conn: Db,
+    conn: &Db,
     username: String,
     webfinger: String,
 ) -> Result<Json<ApActor>, Status> {
     if let Signed(true, VerificationType::Local) = signed {
-        if let Some(profile) = get_profile_by_username(&conn, username).await {
+        if let Some(profile) = get_profile_by_username(conn, username).await {
             if let Some(ap_id) = get_ap_id_from_webfinger(webfinger).await {
                 log::debug!("RETRIEVING ACTOR WEBFINGER FROM REMOTE OR LOCAL PROFILE");
-                if let Some(actor) = get_actor(&conn, ap_id, Some(profile), true).await {
+                if let Some(actor) = get_actor(conn, ap_id, Some(profile), true).await {
                     Ok(Json(actor))
                 } else {
                     log::error!("FAILED TO RETRIEVE ACTOR BY AP_ID");
@@ -121,19 +124,31 @@ pub async fn remote_actor_authenticated(
     }
 }
 
+#[get("/api/user/<username>/remote/actor?<webfinger>")]
+pub async fn remote_actor_authenticated(
+    signed: Signed,
+    conn: Db,
+    username: String,
+    webfinger: String,
+) -> Result<Json<ApActor>, Status> {
+    remote_actor_authenticated_response(signed, &conn, username, webfinger).await
+}
+
 #[get("/api/remote/followers?<webfinger>&<page>")]
 pub async fn remote_followers(
     conn: Db,
     webfinger: String,
     page: Option<String>,
 ) -> Result<Json<ApObject>, Status> {
-    if let Ok(Json(actor)) = remote_actor(conn, webfinger).await {
+    if let Ok(Json(actor)) = remote_actor_response(&conn, webfinger).await {
         if let Some(page) = page {
             if let Ok(url) = urlencoding::decode(&page) {
                 let url = &(*url).to_string();
                 if let Some(followers) = actor.followers.clone() {
                     if url.contains(&followers) {
-                        if let Some(collection) = get_remote_collection_page(None, page).await {
+                        if let Some(collection) =
+                            get_remote_collection_page(&conn, None, page).await
+                        {
                             Ok(Json(ApObject::CollectionPage(collection)))
                         } else {
                             Err(Status::NoContent)
@@ -148,7 +163,7 @@ pub async fn remote_followers(
                 Err(Status::NoContent)
             }
         } else if let Some(followers) = actor.followers {
-            if let Some(collection) = get_remote_collection(None, followers).await {
+            if let Some(collection) = get_remote_collection(&conn, None, followers).await {
                 Ok(Json(ApObject::Collection(collection)))
             } else {
                 Err(Status::NoContent)
@@ -178,7 +193,7 @@ pub async fn remote_followers_authenticated(
     if let Signed(true, VerificationType::Local) = signed {
         if let Some(profile) = get_profile_by_username(&conn, username.clone()).await {
             if let Ok(Json(actor)) =
-                remote_actor_authenticated(signed, conn, username, webfinger).await
+                remote_actor_authenticated_response(signed, &conn, username, webfinger).await
             {
                 if let Some(page) = page {
                     if let Ok(url) = urlencoding::decode(&page) {
@@ -186,7 +201,7 @@ pub async fn remote_followers_authenticated(
                         if let Some(followers) = actor.followers.clone() {
                             if url.contains(&followers) {
                                 if let Some(collection) =
-                                    get_remote_collection_page(Some(profile), page).await
+                                    get_remote_collection_page(&conn, Some(profile), page).await
                                 {
                                     Ok(Json(ApObject::CollectionPage(collection)))
                                 } else {
@@ -202,7 +217,8 @@ pub async fn remote_followers_authenticated(
                         Err(Status::NoContent)
                     }
                 } else if let Some(followers) = actor.followers {
-                    if let Some(collection) = get_remote_collection(Some(profile), followers).await
+                    if let Some(collection) =
+                        get_remote_collection(&conn, Some(profile), followers).await
                     {
                         Ok(Json(ApObject::Collection(collection)))
                     } else {
@@ -234,13 +250,15 @@ pub async fn remote_following(
     webfinger: String,
     page: Option<String>,
 ) -> Result<Json<ApObject>, Status> {
-    if let Ok(Json(actor)) = remote_actor(conn, webfinger).await {
+    if let Ok(Json(actor)) = remote_actor_response(&conn, webfinger).await {
         if let Some(page) = page {
             if let Ok(url) = urlencoding::decode(&page) {
                 let url = &(*url).to_string();
                 if let Some(following) = actor.following.clone() {
                     if url.contains(&following) {
-                        if let Some(collection) = get_remote_collection_page(None, page).await {
+                        if let Some(collection) =
+                            get_remote_collection_page(&conn, None, page).await
+                        {
                             Ok(Json(ApObject::CollectionPage(collection)))
                         } else {
                             Err(Status::NoContent)
@@ -255,7 +273,7 @@ pub async fn remote_following(
                 Err(Status::NoContent)
             }
         } else if let Some(following) = actor.following {
-            if let Some(collection) = get_remote_collection(None, following).await {
+            if let Some(collection) = get_remote_collection(&conn, None, following).await {
                 Ok(Json(ApObject::Collection(collection)))
             } else {
                 Err(Status::NoContent)
@@ -279,7 +297,7 @@ pub async fn remote_following_authenticated(
     if let Signed(true, VerificationType::Local) = signed {
         if let Some(profile) = get_profile_by_username(&conn, username.clone()).await {
             if let Ok(Json(actor)) =
-                remote_actor_authenticated(signed, conn, username, webfinger).await
+                remote_actor_authenticated_response(signed, &conn, username, webfinger).await
             {
                 if let Some(page) = page {
                     if let Ok(url) = urlencoding::decode(&page) {
@@ -287,7 +305,7 @@ pub async fn remote_following_authenticated(
                         if let Some(following) = actor.following.clone() {
                             if url.contains(&following) {
                                 if let Some(collection) =
-                                    get_remote_collection_page(Some(profile), page).await
+                                    get_remote_collection_page(&conn, Some(profile), page).await
                                 {
                                     Ok(Json(ApObject::CollectionPage(collection)))
                                 } else {
@@ -303,7 +321,8 @@ pub async fn remote_following_authenticated(
                         Err(Status::NoContent)
                     }
                 } else if let Some(following) = actor.following {
-                    if let Some(collection) = get_remote_collection(Some(profile), following).await
+                    if let Some(collection) =
+                        get_remote_collection(&conn, Some(profile), following).await
                     {
                         Ok(Json(ApObject::Collection(collection)))
                     } else {
@@ -335,12 +354,12 @@ pub async fn remote_outbox(
     webfinger: String,
     page: Option<String>,
 ) -> Result<Json<ApObject>, Status> {
-    if let Ok(Json(actor)) = remote_actor(conn, webfinger).await {
+    if let Ok(Json(actor)) = remote_actor_response(&conn, webfinger).await {
         if let Some(page) = page {
             if let Ok(url) = urlencoding::decode(&page) {
                 let url = &(*url).to_string();
                 if url.contains(&actor.outbox) {
-                    if let Some(collection) = get_remote_collection_page(None, page).await {
+                    if let Some(collection) = get_remote_collection_page(&conn, None, page).await {
                         Ok(Json(ApObject::CollectionPage(collection)))
                     } else {
                         Err(Status::NoContent)
@@ -351,7 +370,7 @@ pub async fn remote_outbox(
             } else {
                 Err(Status::NoContent)
             }
-        } else if let Some(collection) = get_remote_collection(None, actor.outbox).await {
+        } else if let Some(collection) = get_remote_collection(&conn, None, actor.outbox).await {
             Ok(Json(ApObject::Collection(collection)))
         } else {
             Err(Status::NoContent)
@@ -371,13 +390,13 @@ pub async fn remote_outbox_authenticated(
 ) -> Result<Json<ApObject>, Status> {
     if let Signed(true, VerificationType::Local) = signed {
         if let Some(profile) = get_profile_by_username(&conn, username).await {
-            if let Ok(Json(actor)) = remote_actor(conn, webfinger).await {
+            if let Ok(Json(actor)) = remote_actor_response(&conn, webfinger).await {
                 if let Some(page) = page {
                     if let Ok(url) = urlencoding::decode(&page) {
                         let url = &(*url).to_string();
                         if url.contains(&actor.outbox) {
                             if let Some(collection) =
-                                get_remote_collection_page(Some(profile), page).await
+                                get_remote_collection_page(&conn, Some(profile), page).await
                             {
                                 Ok(Json(ApObject::CollectionPage(collection)))
                             } else {
@@ -390,7 +409,7 @@ pub async fn remote_outbox_authenticated(
                         Err(Status::NoContent)
                     }
                 } else if let Some(collection) =
-                    get_remote_collection(Some(profile), actor.outbox).await
+                    get_remote_collection(&conn, Some(profile), actor.outbox).await
                 {
                     Ok(Json(ApObject::Collection(collection)))
                 } else {
@@ -431,6 +450,7 @@ pub async fn remote_note_authenticated(
     if let Signed(true, VerificationType::Local) = signed {
         if let Some(profile) = get_profile_by_username(&conn, username).await {
             if let Some(note) = get_note(&conn, Some(profile), id).await {
+                log::debug!("{note:#?}");
                 Ok(Json(note))
             } else {
                 Err(Status::NoContent)

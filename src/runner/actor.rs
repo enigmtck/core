@@ -53,6 +53,23 @@ pub fn create_or_update_remote_actor(actor: NewRemoteActor) -> Option<RemoteActo
     }
 }
 
+async fn cache_actor<'b>(actor: &'b ApActor) -> &'b ApActor {
+    if let Some(tags) = actor.tag.clone() {
+        for tag in tags {
+            cache_content(tag.try_into()).await;
+        }
+    };
+
+    for image in vec![actor.image.clone(), actor.icon.clone()]
+        .into_iter()
+        .flatten()
+    {
+        cache_content(Ok(image.clone().into())).await;
+    }
+
+    actor
+}
+
 pub async fn get_actor(
     profile: Option<Profile>,
     id: String,
@@ -90,15 +107,7 @@ pub async fn get_actor(
             match resp.status() {
                 StatusCode::ACCEPTED | StatusCode::OK => {
                     if let Ok(actor) = resp.json::<ApActor>().await {
-                        if let Some(image) = actor.image.clone() {
-                            cache_content(image.clone().into()).await;
-                        }
-
-                        if let Some(image) = actor.icon.clone() {
-                            cache_content(image.clone().into()).await;
-                        }
-
-                        create_or_update_remote_actor(NewRemoteActor::from(actor))
+                        create_or_update_remote_actor(cache_actor(&actor).await.clone().into())
                             .map(|a| (a, Option::None))
                     } else {
                         log::debug!("FAILED TO DECODE REMOTE ACTOR");

@@ -4,16 +4,18 @@ use crate::models::cache::{CacheItem, Cacheable, NewCacheItem};
 use crate::schema::cache;
 use diesel::prelude::*;
 
-pub async fn cache_content(cacheable: Cacheable) {
-    if let Ok(cache_item) = match cacheable {
-        Cacheable::Document(document) => NewCacheItem::try_from(document),
-        Cacheable::Image(image) => NewCacheItem::try_from(image),
-    } {
-        if get_cache_item_by_url(cache_item.url.clone()).is_none() {
-            cache_item
-                .download(get_profile_by_username("justin".to_string()))
-                .await
-                .map(create_cache_item);
+pub async fn cache_content(cacheable: Result<Cacheable, &str>) {
+    if let Ok(cacheable) = cacheable {
+        if let Ok(cache_item) = match cacheable {
+            Cacheable::Document(document) => NewCacheItem::try_from(document),
+            Cacheable::Image(image) => NewCacheItem::try_from(image),
+        } {
+            if get_cache_item_by_url(cache_item.url.clone()).is_none() {
+                cache_item
+                    .download(get_profile_by_username("justin".to_string()))
+                    .await
+                    .map(create_cache_item);
+            }
         }
     }
 }

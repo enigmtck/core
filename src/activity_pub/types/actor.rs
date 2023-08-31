@@ -7,6 +7,7 @@ use crate::activity_pub::{
 use crate::db::Db;
 use crate::fairings::events::EventChannels;
 use crate::fairings::faktory::FaktoryConnection;
+use crate::models::cache::{cache_content, Cache};
 use crate::models::followers::get_followers_by_profile_id;
 use crate::models::leaders::{get_leaders_by_profile_id, Leader};
 use crate::models::profiles::{get_profile_by_ap_id, Profile};
@@ -183,6 +184,25 @@ pub struct ApActor {
     // These are used for user operations on their own profile
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ephemeral_summary_markdown: Option<String>,
+}
+
+impl Cache for ApActor {
+    async fn cache(&self, conn: &Db) -> &Self {
+        if let Some(tags) = self.tag.clone() {
+            for tag in tags {
+                cache_content(conn, tag.try_into()).await;
+            }
+        };
+
+        for image in vec![self.image.clone(), self.icon.clone()]
+            .into_iter()
+            .flatten()
+        {
+            cache_content(conn, Ok(image.clone().into())).await;
+        }
+
+        self
+    }
 }
 
 impl Outbox for ApActor {

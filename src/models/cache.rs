@@ -1,5 +1,5 @@
 use crate::activity_pub::retriever::maybe_signed_get;
-use crate::activity_pub::{ApDocument, ApImage};
+use crate::activity_pub::{ApAttachment, ApDocument, ApImage, ApTag};
 use crate::db::Db;
 use crate::models::profiles::get_profile_by_username;
 use crate::schema::cache;
@@ -42,9 +42,37 @@ async fn download_image(
     }
 }
 
+pub trait Cache {
+    async fn cache(&self, conn: &Db) -> &Self;
+}
+
 pub enum Cacheable {
     Document(ApDocument),
     Image(ApImage),
+}
+
+impl TryFrom<ApAttachment> for Cacheable {
+    type Error = &'static str;
+
+    fn try_from(attachment: ApAttachment) -> Result<Self, Self::Error> {
+        if let ApAttachment::Document(document) = attachment {
+            Ok(Cacheable::Document(document))
+        } else {
+            Err("NOT CACHEABLE")
+        }
+    }
+}
+
+impl TryFrom<ApTag> for Cacheable {
+    type Error = &'static str;
+
+    fn try_from(tag: ApTag) -> Result<Self, Self::Error> {
+        if let ApTag::Emoji(emoji) = tag {
+            Ok(Cacheable::Image(emoji.icon))
+        } else {
+            Err("NOT CACHEABLE")
+        }
+    }
 }
 
 impl From<ApDocument> for Cacheable {
@@ -59,20 +87,26 @@ impl From<ApImage> for Cacheable {
     }
 }
 
-pub async fn cache_content(conn: &Db, cacheable: Cacheable) {
-    if let Ok(cache_item) = match cacheable {
-        Cacheable::Document(document) => NewCacheItem::try_from(document),
-        Cacheable::Image(image) => NewCacheItem::try_from(image),
-    } {
-        if get_cache_item_by_url(conn, cache_item.url.clone())
-            .await
-            .is_none()
-        {
-            if let Some(cache_item) = cache_item
-                .download(get_profile_by_username(conn, "justin".to_string()).await)
+// I'm not sure if this is ridiculous or not, but if I use a Result here as a parameter
+// I can streamline the calls from the TryFrom bits above. E.g.,
+// cache_content(conn, attachment.try_into()).await;
+// And the From bits just need to wrap themselves in Ok(). That seems desirable right now.
+pub async fn cache_content(conn: &Db, cacheable: Result<Cacheable, &str>) {
+    if let Ok(cacheable) = cacheable {
+        if let Ok(cache_item) = match cacheable {
+            Cacheable::Document(document) => NewCacheItem::try_from(document),
+            Cacheable::Image(image) => NewCacheItem::try_from(image),
+        } {
+            if get_cache_item_by_url(conn, cache_item.url.clone())
                 .await
+                .is_none()
             {
-                create_cache_item(conn, cache_item).await;
+                if let Some(cache_item) = cache_item
+                    .download(get_profile_by_username(conn, "justin".to_string()).await)
+                    .await
+                {
+                    create_cache_item(conn, cache_item).await;
+                }
             }
         }
     }
