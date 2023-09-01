@@ -250,7 +250,9 @@ pub async fn fetch_remote_note(id: String) -> Option<RemoteNote> {
     let _url = id.clone();
     let _method = Method::Get;
 
-    if let Ok(resp) = maybe_signed_get(get_profile_by_username("justin".to_string()), id).await {
+    if let Ok(resp) =
+        maybe_signed_get(get_profile_by_username("justin".to_string()), id, false).await
+    {
         match resp.status() {
             StatusCode::ACCEPTED | StatusCode::OK => match resp.json().await {
                 Ok(ApObject::Note(note)) => {

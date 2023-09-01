@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use crate::activity_pub::{retriever, ApActor};
 use crate::db::Db;
 use crate::models::profiles::{get_profile_by_username, Profile};
+use base64::{engine::general_purpose, engine::Engine as _};
 use rsa::pkcs1v15::{SigningKey, VerifyingKey};
 use rsa::signature::{RandomizedSigner, Signature, Verifier};
 use rsa::{pkcs8::DecodePrivateKey, pkcs8::DecodePublicKey, RsaPrivateKey, RsaPublicKey};
@@ -99,7 +100,9 @@ pub async fn verify(conn: Db, params: VerifyParams) -> (bool, VerificationType) 
     fn verify(public_key: RsaPublicKey, signature_str: String, verify_string: String) -> bool {
         let verifying_key: VerifyingKey<Sha256> = VerifyingKey::new_with_prefix(public_key);
 
-        let s = base64::decode(signature_str.as_bytes()).unwrap();
+        let s = general_purpose::STANDARD
+            .decode(signature_str.as_bytes())
+            .unwrap();
 
         let signature: rsa::pkcs1v15::Signature = rsa::pkcs1v15::Signature::from(s);
         match verifying_key.verify(verify_string.as_bytes(), &signature) {
@@ -197,7 +200,7 @@ pub fn sign(params: SignParams) -> SignResponse {
         if let Some(body) = params.body {
             let mut hasher = Sha256::new();
             hasher.update(body.as_bytes());
-            let hashed = base64::encode(hasher.finalize());
+            let hashed = general_purpose::STANDARD.encode(hasher.finalize());
             Option::from(format!("SHA-256={}", hashed))
         } else {
             Option::None
@@ -236,7 +239,7 @@ pub fn sign(params: SignParams) -> SignResponse {
             signature: format!(
                 "keyId=\"{}\",algorithm=\"rsa-sha256\",headers=\"(request-target) host date digest\",signature=\"{}\"",
                 actor.public_key.id,
-                base64::encode(signature.as_bytes())
+                general_purpose::STANDARD.encode(signature.as_bytes())
             ),
             date,
             digest: Option::from(digest),
@@ -254,7 +257,7 @@ pub fn sign(params: SignParams) -> SignResponse {
             signature: format!(
                 "keyId=\"{}\",algorithm=\"rsa-sha256\",headers=\"(request-target) host date\",signature=\"{}\"",
                 actor.public_key.id,
-                base64::encode(signature.as_bytes())
+                general_purpose::STANDARD.encode(signature.as_bytes())
             ),
             date,
             digest: Option::None,

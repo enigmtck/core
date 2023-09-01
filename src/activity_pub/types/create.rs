@@ -2,16 +2,22 @@ use core::fmt;
 use std::fmt::Debug;
 
 use crate::{
-    activity_pub::{ApAddress, ApContext, ApNote, ApObject, Inbox, Outbox, Temporal},
+    activity_pub::{ApActivity, ApAddress, ApContext, ApNote, ApObject, Inbox, Outbox, Temporal},
     db::Db,
     fairings::{events::EventChannels, faktory::FaktoryConnection},
-    inbox,
-    models::{activities::ExtendedActivity, profiles::Profile},
-    MaybeMultiple, MaybeReference,
+    models::{
+        activities::{
+            create_activity, ActivityTarget, ApActivityTarget, ExtendedActivity, NewActivity,
+        },
+        profiles::Profile,
+        remote_notes::{create_or_update_remote_note, NewRemoteNote},
+    },
+    to_faktory, MaybeMultiple, MaybeReference,
 };
 use chrono::{DateTime, Utc};
 use rocket::http::Status;
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 use super::signature::ApSignature;
 
@@ -51,8 +57,47 @@ pub struct ApCreate {
 }
 
 impl Inbox for ApCreate {
-    async fn inbox(&self, conn: Db, faktory: FaktoryConnection) -> Result<Status, Status> {
-        inbox::activity::create(conn, faktory, self.clone()).await
+    async fn inbox(
+        &self,
+        conn: Db,
+        faktory: FaktoryConnection,
+        raw: Value,
+    ) -> Result<Status, Status> {
+        //inbox::activity::create(conn, faktory, self.clone()).await
+        match self.clone().object {
+            MaybeReference::Actual(ApObject::Note(x)) => {
+                let n = NewRemoteNote::from(x.clone());
+
+                // creating Activity after RemoteNote is weird, but currently necessary
+                // see comment in models/activities.rs on TryFrom<ApActivity>
+                if let Some(created_note) = create_or_update_remote_note(&conn, n).await {
+                    if let Ok(activity) = NewActivity::try_from((
+                        ApActivity::Create(self.clone()),
+                        Some(ActivityTarget::from(created_note.clone())),
+                    )
+                        as ApActivityTarget)
+                    {
+                        log::debug!("ACTIVITY\n{activity:#?}");
+                        if create_activity(&conn, activity).await.is_some() {
+                            to_faktory(faktory, "process_remote_note", created_note.ap_id)
+                        } else {
+                            log::error!("FAILED TO INSERT ACTIVITY");
+                            Err(Status::NoContent)
+                        }
+                    } else {
+                        log::error!("FAILED TO CREATE ACTIVITY\n{raw}");
+                        Err(Status::NoContent)
+                    }
+                } else {
+                    log::error!("FAILED TO CREATE ACTIVITY\n{raw}");
+                    Err(Status::NoContent)
+                }
+            }
+            _ => {
+                log::error!("FAILED TO CREATE ACTIVITY\n{raw}");
+                Err(Status::NoContent)
+            }
+        }
     }
 }
 

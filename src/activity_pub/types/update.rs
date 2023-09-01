@@ -5,12 +5,15 @@ use crate::{
     activity_pub::{ApActor, ApAddress, ApContext, ApNote, ApObject, Inbox, Outbox},
     db::Db,
     fairings::{events::EventChannels, faktory::FaktoryConnection},
-    inbox,
-    models::profiles::Profile,
-    MaybeMultiple, MaybeReference,
+    models::{
+        profiles::Profile, remote_actors::create_or_update_remote_actor,
+        remote_notes::create_or_update_remote_note,
+    },
+    to_faktory, MaybeMultiple, MaybeReference,
 };
 use rocket::http::Status;
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 use super::signature::ApSignature;
 
@@ -42,8 +45,56 @@ pub struct ApUpdate {
 }
 
 impl Inbox for ApUpdate {
-    async fn inbox(&self, conn: Db, faktory: FaktoryConnection) -> Result<Status, Status> {
-        inbox::activity::update(conn, faktory, self.clone()).await
+    async fn inbox(
+        &self,
+        conn: Db,
+        faktory: FaktoryConnection,
+        raw: Value,
+    ) -> Result<Status, Status> {
+        match self.clone().object {
+            MaybeReference::Actual(actual) => match actual {
+                ApObject::Actor(actor) => {
+                    log::debug!("UPDATING ACTOR: {}", actor.clone().id.unwrap_or_default());
+
+                    if actor.clone().id.unwrap_or_default() == self.actor.clone()
+                        && create_or_update_remote_actor(&conn, actor.into())
+                            .await
+                            .is_some()
+                    {
+                        Ok(Status::Accepted)
+                    } else {
+                        log::error!("FAILED TO HANDLE ACTIVITY\n{raw}");
+                        Err(Status::NoContent)
+                    }
+                }
+                ApObject::Note(note) => {
+                    if let Some(id) = note.clone().id {
+                        log::debug!("UPDATING NOTE: {}", id);
+
+                        if note.clone().attributed_to == self.actor.clone()
+                            && create_or_update_remote_note(&conn, note.into())
+                                .await
+                                .is_some()
+                        {
+                            to_faktory(faktory, "update_timeline_record", id)
+                        } else {
+                            log::error!("FAILED TO HANDLE ACTIVITY\n{raw}");
+                            Err(Status::NoContent)
+                        }
+                    } else {
+                        log::warn!("MISSING NOTE ID: {note:#?}");
+                        log::error!("FAILED TO HANDLE ACTIVITY\n{raw}");
+                        Err(Status::NoContent)
+                    }
+                }
+                _ => {
+                    log::debug!("UNIMPLEMENTED UPDATE TYPE");
+                    log::error!("{raw:#?}");
+                    Err(Status::NoContent)
+                }
+            },
+            _ => Err(Status::NoContent),
+        }
     }
 }
 

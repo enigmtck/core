@@ -5,12 +5,12 @@ use crate::{
     activity_pub::{ApAddress, ApContext, ApObject, Inbox, Outbox},
     db::Db,
     fairings::{events::EventChannels, faktory::FaktoryConnection},
-    inbox,
     models::profiles::Profile,
     MaybeReference,
 };
 use rocket::http::Status;
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub enum ApAddType {
@@ -38,8 +38,15 @@ pub struct ApAdd {
 }
 
 impl Inbox for ApAdd {
-    async fn inbox(&self, conn: Db, faktory: FaktoryConnection) -> Result<Status, Status> {
-        inbox::activity::add(conn, faktory, self.clone()).await
+    async fn inbox(
+        &self,
+        _conn: Db,
+        _faktory: FaktoryConnection,
+        raw: Value,
+    ) -> Result<Status, Status> {
+        log::warn!("ADD ACTIVITY NOT YET IMPLEMENTED");
+        log::error!("{raw}");
+        Err(Status::NoContent)
     }
 }
 

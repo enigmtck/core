@@ -5,11 +5,11 @@ use crate::{
     activity_pub::{ApAddress, ApContext, Inbox, Outbox},
     db::Db,
     fairings::{events::EventChannels, faktory::FaktoryConnection},
-    inbox,
     models::profiles::Profile,
 };
 use rocket::http::Status;
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub enum ApBlockType {
@@ -37,8 +37,15 @@ pub struct ApBlock {
 }
 
 impl Inbox for ApBlock {
-    async fn inbox(&self, conn: Db, faktory: FaktoryConnection) -> Result<Status, Status> {
-        inbox::activity::block(conn, faktory, self.clone()).await
+    async fn inbox(
+        &self,
+        _conn: Db,
+        _faktory: FaktoryConnection,
+        raw: Value,
+    ) -> Result<Status, Status> {
+        log::warn!("BLOCK ACTIVITY NOT YET IMPLEMENTED");
+        log::error!("FAILED TO CREATE ACTIVITY\n{raw}");
+        Err(Status::NoContent)
     }
 }
 

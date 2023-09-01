@@ -7,16 +7,21 @@ use crate::{
     },
     db::Db,
     fairings::{events::EventChannels, faktory::FaktoryConnection},
-    inbox,
-    models::profiles::Profile,
+    models::{
+        profiles::Profile,
+        remote_actors::delete_remote_actor_by_ap_id,
+        remote_notes::{delete_remote_note_by_ap_id, get_remote_note_by_ap_id},
+        timeline::delete_timeline_item_by_ap_id,
+    },
     outbox, MaybeMultiple, MaybeReference,
 };
 use rocket::http::Status;
-use rsa::pkcs8::DecodePrivateKey;
-use rsa::signature::{RandomizedSigner, Signature};
-use rsa::{pkcs1v15::SigningKey, RsaPrivateKey};
+// use rsa::pkcs8::DecodePrivateKey;
+// use rsa::signature::{RandomizedSigner, Signature};
+// use rsa::{pkcs1v15::SigningKey, RsaPrivateKey};
 use serde::{Deserialize, Serialize};
-use sha2::Sha256;
+use serde_json::Value;
+//use sha2::Sha256;
 
 use super::signature::ApSignature;
 
@@ -48,8 +53,92 @@ pub struct ApDelete {
 }
 
 impl Inbox for Box<ApDelete> {
-    async fn inbox(&self, conn: Db, _faktory: FaktoryConnection) -> Result<Status, Status> {
-        inbox::activity::delete(conn, *self.clone()).await
+    async fn inbox(
+        &self,
+        conn: Db,
+        _faktory: FaktoryConnection,
+        raw: Value,
+    ) -> Result<Status, Status> {
+        async fn delete_actor(conn: Db, ap_id: String) -> Result<Status, Status> {
+            if delete_remote_actor_by_ap_id(&conn, ap_id).await {
+                log::debug!("REMOTE ACTOR RECORD DELETED");
+                Ok(Status::Accepted)
+            } else {
+                Err(Status::NoContent)
+            }
+        }
+
+        async fn delete_note(conn: &Db, ap_id: String) -> Result<Status, Status> {
+            if delete_remote_note_by_ap_id(conn, ap_id).await {
+                log::debug!("REMOTE NOTE RECORD DELETED");
+                Ok(Status::Accepted)
+            } else {
+                Err(Status::NoContent)
+            }
+        }
+
+        async fn delete_timeline(conn: &Db, ap_id: String) -> Result<Status, Status> {
+            if delete_timeline_item_by_ap_id(conn, ap_id).await {
+                log::debug!("TIMELINE RECORD DELETED");
+                Ok(Status::Accepted)
+            } else {
+                Err(Status::NoContent)
+            }
+        }
+
+        match self.object.clone() {
+            MaybeReference::Actual(actual) => match actual {
+                ApObject::Tombstone(tombstone) => {
+                    if let Some(remote_note) =
+                        get_remote_note_by_ap_id(&conn, tombstone.id.clone()).await
+                    {
+                        if remote_note.attributed_to == self.actor.clone().to_string() {
+                            if delete_note(&conn, tombstone.id.clone()).await.is_ok() {
+                                delete_timeline(&conn, tombstone.id).await
+                            } else {
+                                Err(Status::NoContent)
+                            }
+                        } else {
+                            Err(Status::NoContent)
+                        }
+                    } else {
+                        Err(Status::NoContent)
+                    }
+                }
+                ApObject::Identifier(obj) => {
+                    if obj.id == self.actor.clone().to_string() {
+                        delete_actor(conn, obj.id).await
+                    } else {
+                        log::debug!("DOESN'T MATCH ACTOR; ASSUMING NOTE");
+                        if delete_note(&conn, obj.clone().id).await.is_ok() {
+                            delete_timeline(&conn, obj.id).await
+                        } else {
+                            Err(Status::NoContent)
+                        }
+                    }
+                }
+                _ => {
+                    log::debug!("delete didn't match anything");
+                    Err(Status::NoContent)
+                }
+            },
+            MaybeReference::Reference(ap_id) => {
+                if ap_id == self.actor.clone().to_string() {
+                    delete_actor(conn, ap_id).await
+                } else {
+                    log::debug!("DOESN'T MATCH ACTOR; ASSUMING NOTE");
+                    if delete_note(&conn, ap_id.clone()).await.is_ok() {
+                        delete_timeline(&conn, ap_id).await
+                    } else {
+                        Err(Status::NoContent)
+                    }
+                }
+            }
+            _ => {
+                log::error!("FAILED TO CREATE ACTIVITY\n{raw}");
+                Err(Status::NoContent)
+            }
+        }
     }
 }
 
@@ -146,22 +235,22 @@ impl ApDelete {
     // I'll review some other options (like the Proof stuff that silverpill and Mitra have) to see if that's
     // more reasonable. For now, we just aren't signing these, so this will limit the ability for relayed
     // messages to be acted on.
-    pub async fn sign(mut self, profile: Profile) -> Result<ApDelete, ()> {
+    pub async fn sign(mut self, _profile: Profile) -> Result<ApDelete, ()> {
         let document = serde_json::to_string(&self).unwrap();
         log::debug!("DOCUMENT TO BE SIGNED\n{document:#?}");
 
-        let private_key = RsaPrivateKey::from_pkcs8_pem(&profile.private_key).unwrap();
-        let signing_key = SigningKey::<Sha256>::new_with_prefix(private_key);
+        //let private_key = RsaPrivateKey::from_pkcs8_pem(&profile.private_key).unwrap();
+        //let signing_key = SigningKey::<Sha256>::new_with_prefix(private_key);
 
-        let mut rng = rand::thread_rng();
-        let signed_hash = signing_key.sign_with_rng(&mut rng, document.as_bytes());
+        //let mut rng = rand::thread_rng();
+        //let signed_hash = signing_key.sign_with_rng(&mut rng, document.as_bytes());
 
         if let Some(mut signature) = self.signature {
-            signature.signature_value = Some(base64::encode(signed_hash.as_bytes()));
+            //signature.signature_value = Some(base64::encode(signed_hash.as_bytes()));
             signature.kind = Some(ApSignatureType::RsaSignature2017);
             self.signature = Some(signature);
 
-            Ok(self.clone())
+            Ok(self)
         } else {
             Err(())
         }

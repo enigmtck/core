@@ -5,12 +5,12 @@ use crate::{
     activity_pub::{ApAddress, ApContext, ApObject, Inbox, Outbox},
     db::Db,
     fairings::{events::EventChannels, faktory::FaktoryConnection},
-    inbox,
     models::profiles::Profile,
     MaybeReference,
 };
 use rocket::http::Status;
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub enum ApRemoveType {
@@ -38,8 +38,15 @@ pub struct ApRemove {
 }
 
 impl Inbox for ApRemove {
-    async fn inbox(&self, conn: Db, faktory: FaktoryConnection) -> Result<Status, Status> {
-        inbox::activity::remove(conn, faktory, self.clone()).await
+    async fn inbox(
+        &self,
+        _conn: Db,
+        _faktory: FaktoryConnection,
+        raw: Value,
+    ) -> Result<Status, Status> {
+        log::warn!("REMOVE ACTIVITY NOT YET IMPLEMENTED");
+        log::error!("FAILED TO HANDLE ACTIVITY\n{raw}");
+        Err(Status::NoContent)
     }
 }
 

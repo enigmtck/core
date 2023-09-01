@@ -103,7 +103,7 @@ pub async fn get_actor(
     } else {
         log::debug!("PERFORMING REMOTE LOOKUP FOR ACTOR: {id}");
 
-        if let Ok(resp) = maybe_signed_get(profile, id.clone()).await {
+        if let Ok(resp) = maybe_signed_get(profile, id.clone(), false).await {
             match resp.status() {
                 StatusCode::ACCEPTED | StatusCode::OK => {
                     if let Ok(actor) = resp.json::<ApActor>().await {

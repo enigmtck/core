@@ -28,7 +28,7 @@ pub async fn get_remote_collection_page(
     profile: Option<Profile>,
     url: String,
 ) -> Option<ApCollectionPage> {
-    if let Ok(response) = maybe_signed_get(profile, url).await {
+    if let Ok(response) = maybe_signed_get(profile, url, false).await {
         if let Ok(page) = response.json::<ApCollectionPage>().await {
             Some(page.cache(conn).await.clone())
         } else {
@@ -44,7 +44,7 @@ pub async fn get_remote_collection(
     profile: Option<Profile>,
     url: String,
 ) -> Option<ApCollection> {
-    if let Ok(response) = maybe_signed_get(profile, url).await {
+    if let Ok(response) = maybe_signed_get(profile, url, false).await {
         if let Ok(page) = response.json::<ApCollection>().await {
             Some(page.cache(conn).await.clone())
         } else {
@@ -107,7 +107,7 @@ pub async fn get_remote_webfinger(acct: String) -> Option<WebFinger> {
 pub async fn get_note(conn: &Db, profile: Option<Profile>, id: String) -> Option<ApNote> {
     match get_remote_note_by_ap_id(conn, id.clone()).await {
         Some(remote_note) => Some(ApNote::from(remote_note).cache(conn).await.clone()),
-        None => match maybe_signed_get(profile, id).await {
+        None => match maybe_signed_get(profile, id, false).await {
             Ok(resp) => match resp.status() {
                 StatusCode::ACCEPTED | StatusCode::OK => match resp.text().await {
                     Ok(n) => {
@@ -179,7 +179,7 @@ pub async fn process_remote_actor_retrieval(
     profile: Option<Profile>,
     id: String,
 ) -> Option<ApActor> {
-    match maybe_signed_get(profile, id).await {
+    match maybe_signed_get(profile, id, false).await {
         Ok(resp) => match resp.status() {
             StatusCode::ACCEPTED | StatusCode::OK => {
                 if let Ok(text) = resp.text().await {
@@ -228,9 +228,16 @@ pub async fn get_actor(
 pub async fn maybe_signed_get(
     profile: Option<Profile>,
     url: String,
+    accept_any: bool,
 ) -> Result<Response, reqwest::Error> {
     let client = Client::builder();
     let client = client.user_agent("Enigmatick/0.1").build().unwrap();
+
+    let accept = if accept_any {
+        "*/*"
+    } else {
+        "application/activity+json"
+    };
 
     let client = {
         if let Some(profile) = profile {
@@ -248,19 +255,15 @@ pub async fn maybe_signed_get(
                 });
 
                 client
-                    .get(&url_str)
+                    .get(url_str)
                     .header("Signature", &signature.signature)
                     .header("Date", signature.date)
-                    .header("Accept", "application/activity+json")
+                    .header("Accept", accept)
             } else {
-                client
-                    .get(&url)
-                    .header("Accept", "application/activity+json")
+                client.get(&url).header("Accept", accept)
             }
         } else {
-            client
-                .get(&url)
-                .header("Accept", "application/activity+json")
+            client.get(&url).header("Accept", accept)
         }
     };
 

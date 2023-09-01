@@ -2,21 +2,21 @@ use core::fmt;
 use std::fmt::Debug;
 
 use crate::{
-    activity_pub::{ApAddress, ApContext, ApNote, ApObject, Inbox, Outbox, Temporal},
+    activity_pub::{ApActivity, ApAddress, ApContext, ApNote, ApObject, Inbox, Outbox, Temporal},
     db::Db,
     fairings::{events::EventChannels, faktory::FaktoryConnection},
-    inbox,
     models::{
-        activities::{ActivityType, ExtendedActivity},
+        activities::{create_activity, ActivityType, ExtendedActivity, NewActivity},
         profiles::Profile,
         //announces::Announce,
         //remote_announces::RemoteAnnounce,
     },
-    outbox, MaybeMultiple, MaybeReference,
+    outbox, to_faktory, MaybeMultiple, MaybeReference,
 };
 use chrono::{DateTime, Utc};
 use rocket::http::Status;
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub enum ApAnnounceType {
@@ -53,8 +53,24 @@ pub struct ApAnnounce {
 }
 
 impl Inbox for ApAnnounce {
-    async fn inbox(&self, conn: Db, faktory: FaktoryConnection) -> Result<Status, Status> {
-        inbox::activity::announce(conn, faktory, self.clone()).await
+    async fn inbox(
+        &self,
+        conn: Db,
+        faktory: FaktoryConnection,
+        raw: Value,
+    ) -> Result<Status, Status> {
+        if let Ok(activity) = NewActivity::try_from((ApActivity::Announce(self.clone()), None)) {
+            log::debug!("ACTIVITY\n{activity:#?}");
+            if create_activity(&conn, activity.clone()).await.is_some() {
+                to_faktory(faktory, "process_remote_announce", activity.uuid.clone())
+            } else {
+                log::error!("FAILED TO CREATE ACTIVITY\n{raw}");
+                Err(Status::NoContent)
+            }
+        } else {
+            log::error!("FAILED TO CREATE ACTIVITY\n{raw}");
+            Err(Status::NoContent)
+        }
     }
 }
 
@@ -83,25 +99,6 @@ impl Temporal for ApAnnounce {
         self.ephemeral_updated_at
     }
 }
-
-// impl From<Announce> for ApAnnounce {
-//     fn from(announce: Announce) -> Self {
-//         ApAnnounce {
-//             context: Some(ApContext::default()),
-//             kind: ApAnnounceType::default(),
-//             actor: announce.actor.into(),
-//             id: Some(format!(
-//                 "{}/announces/{}",
-//                 *crate::SERVER_URL,
-//                 announce.uuid
-//             )),
-//             published: None,
-//             object: MaybeReference::Reference(announce.object_ap_id),
-//             to: serde_json::from_value(announce.ap_to).unwrap(),
-//             cc: announce.cc.map(|cc| serde_json::from_value(cc).unwrap()),
-//         }
-//     }
-// }
 
 impl TryFrom<ExtendedActivity> for ApAnnounce {
     type Error = &'static str;
@@ -154,28 +151,3 @@ impl TryFrom<ExtendedActivity> for ApAnnounce {
         }
     }
 }
-
-// impl TryFrom<RemoteAnnounce> for ApAnnounce {
-//     type Error = &'static str;
-
-//     fn try_from(announce: RemoteAnnounce) -> Result<Self, Self::Error> {
-//         if let Some(ap_to) = announce.ap_to.clone() {
-//             Ok(ApAnnounce {
-//                 context: Some(ApContext::default()),
-//                 kind: ApAnnounceType::default(),
-//                 id: Some(announce.ap_id),
-//                 actor: ApAddress::Address(announce.actor.clone()),
-//                 published: announce.published,
-//                 to: serde_json::from_value::<MaybeMultiple<ApAddress>>(ap_to).unwrap(),
-//                 cc: announce
-//                     .cc
-//                     .map(|cc| serde_json::from_value::<MaybeMultiple<ApAddress>>(cc).unwrap()),
-//                 object: serde_json::from_value(announce.ap_object).unwrap(),
-//                 ephemeral_created_at: Some(announce.created_at),
-//                 ephemeral_updated_at: Some(announce.updated_at),
-//             })
-//         } else {
-//             Err("MISSING REQUIRED 'TO' VALUE ON REMOTE ANNOUNCE")
-//         }
-//     }
-// }

@@ -60,7 +60,7 @@ pub async fn shared_inbox_post(
             log::debug!("POSTING TO INBOX\n{activity:#?}");
 
             if let Signed(true, _) = signed {
-                activity.inbox(conn, faktory).await
+                activity.inbox(conn, faktory, raw).await
             } else {
                 log::debug!("REQUEST WAS UNSIGNED OR MALFORMED");
                 Err(Status::NoContent)

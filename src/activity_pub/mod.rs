@@ -60,7 +60,12 @@ pub trait Temporal {
 
 #[enum_dispatch(ApActivity)]
 pub trait Inbox {
-    async fn inbox(&self, conn: Db, faktory: FaktoryConnection) -> Result<Status, Status>;
+    async fn inbox(
+        &self,
+        conn: Db,
+        faktory: FaktoryConnection,
+        raw: Value,
+    ) -> Result<Status, Status>;
 }
 
 #[enum_dispatch(ApActivity, ApObject)]

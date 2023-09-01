@@ -21,7 +21,7 @@ async fn download_image(
 
     let path = format!("{}/cache/{}", &*crate::MEDIA_DIR, cache_item.uuid);
     // Send an HTTP GET request to the URL
-    if let Ok(response) = maybe_signed_get(profile, cache_item.url.clone()).await {
+    if let Ok(response) = maybe_signed_get(profile, cache_item.url.clone(), true).await {
         //if let Ok(response) = reqwest::get(&cache_item.url).await {
         // Create a new file to write the downloaded image to
         if let Ok(mut file) = File::create(path).await {

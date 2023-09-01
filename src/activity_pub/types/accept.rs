@@ -5,13 +5,19 @@ use crate::{
     activity_pub::{ApActivity, ApAddress, ApContext, ApFollow, ApObject, Inbox, Outbox},
     db::Db,
     fairings::{events::EventChannels, faktory::FaktoryConnection},
-    inbox,
-    models::profiles::Profile,
+    models::{
+        activities::{
+            create_activity, get_activity_by_apid, ActivityTarget, ApActivityTarget, NewActivity,
+        },
+        profiles::Profile,
+    },
+    to_faktory,
     //    models::remote_activities::RemoteActivity,
     MaybeReference,
 };
 use rocket::http::Status;
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 use super::activity::RecursiveActivity;
 
@@ -41,8 +47,46 @@ pub struct ApAccept {
 }
 
 impl Inbox for Box<ApAccept> {
-    async fn inbox(&self, conn: Db, faktory: FaktoryConnection) -> Result<Status, Status> {
-        inbox::activity::accept(conn, faktory, *self.clone()).await
+    async fn inbox(
+        &self,
+        conn: Db,
+        faktory: FaktoryConnection,
+        raw: Value,
+    ) -> Result<Status, Status> {
+        //inbox::activity::accept(conn, faktory, *self.clone()).await
+        let follow_apid = match self.clone().object {
+            MaybeReference::Reference(reference) => Some(reference),
+            MaybeReference::Actual(ApActivity::Follow(actual)) => actual.id,
+            _ => None,
+        };
+
+        if let Some(follow_apid) = follow_apid {
+            if let Some(target) = get_activity_by_apid(&conn, follow_apid).await {
+                if let Ok(activity) = NewActivity::try_from((
+                    ApActivity::Accept(self.clone()),
+                    Some(ActivityTarget::from(target.0)),
+                ) as ApActivityTarget)
+                {
+                    log::debug!("ACTIVITY\n{activity:#?}");
+                    if create_activity(&conn, activity.clone()).await.is_some() {
+                        to_faktory(faktory, "process_accept", activity.uuid)
+                    } else {
+                        log::error!("FAILED TO CREATE ACTIVITY RECORD");
+                        Err(Status::NoContent)
+                    }
+                } else {
+                    log::error!("FAILED TO CONVERT ACTIVITY RECORD");
+                    Err(Status::NoContent)
+                }
+            } else {
+                log::error!("FAILED TO LOCATE FOLLOW ACTIVITY");
+                Err(Status::NoContent)
+            }
+        } else {
+            log::error!("FAILED TO DECODE OBJECT REFERENCE");
+            log::error!("{raw}");
+            Err(Status::NoContent)
+        }
     }
 }
 

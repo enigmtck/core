@@ -2,18 +2,22 @@ use core::fmt;
 use std::fmt::Debug;
 
 use crate::{
-    activity_pub::{ApAddress, ApContext, ApNote, ApObject, Inbox, Outbox},
+    activity_pub::{ApActivity, ApAddress, ApContext, ApNote, ApObject, Inbox, Outbox},
     db::Db,
     fairings::{events::EventChannels, faktory::FaktoryConnection},
-    inbox,
     models::{
-        activities::{ActivityType, ExtendedActivity},
+        activities::{
+            create_activity, ActivityTarget, ActivityType, ApActivityTarget, ExtendedActivity,
+            NewActivity,
+        },
+        notes::get_note_by_apid,
         profiles::Profile,
     },
     outbox, MaybeMultiple, MaybeReference,
 };
 use rocket::http::Status;
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub enum ApLikeType {
@@ -43,8 +47,46 @@ pub struct ApLike {
 }
 
 impl Inbox for Box<ApLike> {
-    async fn inbox(&self, conn: Db, faktory: FaktoryConnection) -> Result<Status, Status> {
-        inbox::activity::like(conn, faktory, *self.clone()).await
+    async fn inbox(
+        &self,
+        conn: Db,
+        _faktory: FaktoryConnection,
+        raw: Value,
+    ) -> Result<Status, Status> {
+        let note_apid = match self.object.clone() {
+            MaybeReference::Reference(reference) => Some(reference),
+            MaybeReference::Actual(ApObject::Note(actual)) => actual.id,
+            _ => None,
+        };
+
+        if let Some(note_apid) = note_apid {
+            log::debug!("NOTE AP_ID\n{note_apid:#?}");
+            if let Some(target) = get_note_by_apid(&conn, note_apid).await {
+                log::debug!("TARGET\n{target:#?}");
+                if let Ok(activity) = NewActivity::try_from((
+                    ApActivity::Like(self.clone()),
+                    Some(ActivityTarget::from(target)),
+                ) as ApActivityTarget)
+                {
+                    log::debug!("ACTIVITY\n{activity:#?}");
+                    if create_activity(&conn, activity.clone()).await.is_some() {
+                        Ok(Status::Accepted)
+                    } else {
+                        log::error!("FAILED TO HANDLE ACTIVITY\n{raw}");
+                        Err(Status::NoContent)
+                    }
+                } else {
+                    log::error!("FAILED TO HANDLE ACTIVITY\n{raw}");
+                    Err(Status::NoContent)
+                }
+            } else {
+                log::error!("FAILED TO HANDLE ACTIVITY\n{raw}");
+                Err(Status::NoContent)
+            }
+        } else {
+            log::error!("FAILED TO HANDLE ACTIVITY\n{raw}");
+            Err(Status::NoContent)
+        }
     }
 }
 

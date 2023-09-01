@@ -2,18 +2,21 @@ use core::fmt;
 use std::fmt::Debug;
 
 use crate::{
-    activity_pub::{ApActor, ApAddress, ApContext, ApObject, Inbox, Outbox},
+    activity_pub::{ApActivity, ApActor, ApAddress, ApContext, ApObject, Inbox, Outbox},
     db::Db,
     fairings::{events::EventChannels, faktory::FaktoryConnection},
-    inbox,
     models::{
-        activities::{ActivityType, ExtendedActivity},
-        profiles::Profile,
+        activities::{
+            create_activity, ActivityTarget, ActivityType, ApActivityTarget, ExtendedActivity,
+            NewActivity,
+        },
+        profiles::{get_profile_by_ap_id, Profile},
     },
-    outbox, MaybeReference,
+    outbox, to_faktory, MaybeReference,
 };
 use rocket::http::Status;
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub enum ApFollowType {
@@ -41,8 +44,38 @@ pub struct ApFollow {
 }
 
 impl Inbox for ApFollow {
-    async fn inbox(&self, conn: Db, faktory: FaktoryConnection) -> Result<Status, Status> {
-        inbox::activity::follow(conn, faktory, self.clone()).await
+    async fn inbox(
+        &self,
+        conn: Db,
+        faktory: FaktoryConnection,
+        raw: Value,
+    ) -> Result<Status, Status> {
+        if let (Some(_), Some(profile_ap_id)) = (self.id.clone(), self.object.clone().reference()) {
+            if let Some(profile) = get_profile_by_ap_id(&conn, profile_ap_id.clone()).await {
+                if let Ok(activity) = NewActivity::try_from((
+                    ApActivity::Follow(self.clone()),
+                    Some(ActivityTarget::from(profile)),
+                ) as ApActivityTarget)
+                {
+                    log::debug!("ACTIVITY\n{activity:#?}");
+                    if let Some(activity) = create_activity(&conn, activity).await {
+                        to_faktory(faktory, "acknowledge_followers", activity.uuid)
+                    } else {
+                        log::error!("FAILED TO HANDLE ACTIVITY\n{raw}");
+                        Err(Status::NoContent)
+                    }
+                } else {
+                    log::error!("FAILED TO HANDLE ACTIVITY\n{raw}");
+                    Err(Status::NoContent)
+                }
+            } else {
+                log::error!("FAILED TO HANDLE ACTIVITY\n{raw}");
+                Err(Status::NoContent)
+            }
+        } else {
+            log::error!("FAILED TO HANDLE ACTIVITY\n{raw}");
+            Err(Status::NoContent)
+        }
     }
 }
 

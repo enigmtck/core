@@ -3,14 +3,14 @@ use std::fmt::Debug;
 
 use crate::{
     activity_pub::{ApAddress, ApContext, ApInstruments, ApObject, ApSession, Inbox, Outbox},
-    db::Db,
+    db::{create_remote_encrypted_session, Db},
     fairings::{events::EventChannels, faktory::FaktoryConnection},
-    inbox,
-    models::profiles::Profile,
-    MaybeMultiple, MaybeReference,
+    models::profiles::{get_profile_by_ap_id, Profile},
+    to_faktory, MaybeMultiple, MaybeReference,
 };
 use rocket::http::Status;
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub enum ApJoinType {
@@ -39,8 +39,46 @@ pub struct ApJoin {
 }
 
 impl Inbox for ApJoin {
-    async fn inbox(&self, conn: Db, faktory: FaktoryConnection) -> Result<Status, Status> {
-        inbox::activity::join(conn, faktory, self.clone()).await
+    async fn inbox(
+        &self,
+        conn: Db,
+        faktory: FaktoryConnection,
+        raw: Value,
+    ) -> Result<Status, Status> {
+        log::debug!("PROCESSING JOIN ACTIVITY\n{self:#?}");
+
+        if let Some(ApAddress::Address(to)) = self.to.clone().single() {
+            if let Some(profile) = get_profile_by_ap_id(&conn, to.clone()).await {
+                if create_remote_encrypted_session(&conn, (self.clone(), profile.id).into())
+                    .await
+                    .is_some()
+                {
+                    if let MaybeReference::Actual(ApObject::Session(session)) = self.object.clone()
+                    {
+                        if let Some(ap_id) = session.id {
+                            log::debug!("ASSIGNING JOIN ACTIVITY TO FAKTORY");
+
+                            to_faktory(faktory, "process_join", ap_id)
+                        } else {
+                            log::error!("MISSING ID");
+                            Err(Status::NoContent)
+                        }
+                    } else {
+                        log::error!("FAILED TO HANDLE ACTIVITY\n{raw}");
+                        Err(Status::NoContent)
+                    }
+                } else {
+                    log::error!("FAILED TO HANDLE ACTIVITY\n{raw}");
+                    Err(Status::NoContent)
+                }
+            } else {
+                log::error!("FAILED TO HANDLE ACTIVITY\n{raw}");
+                Err(Status::NoContent)
+            }
+        } else {
+            log::error!("FAILED TO HANDLE ACTIVITY\n{raw}");
+            Err(Status::NoContent)
+        }
     }
 }
 
