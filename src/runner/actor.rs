@@ -107,8 +107,17 @@ pub async fn get_actor(
             match resp.status() {
                 StatusCode::ACCEPTED | StatusCode::OK => {
                     if let Ok(actor) = resp.json::<ApActor>().await {
-                        create_or_update_remote_actor(cache_actor(&actor).await.clone().into())
-                            .map(|a| (a, Option::None))
+                        if let Ok(new_remote_actor) =
+                            NewRemoteActor::try_from(cache_actor(&actor).await.clone())
+                        {
+                            create_or_update_remote_actor(new_remote_actor)
+                                .map(|a| (a, Option::None))
+                        } else {
+                            log::debug!(
+                                "FAILED TO CONVERT AP_ACTOR TO NEW_REMOTE_ACTOR\n{actor:#?}"
+                            );
+                            None
+                        }
                     } else {
                         log::debug!("FAILED TO DECODE REMOTE ACTOR");
                         None

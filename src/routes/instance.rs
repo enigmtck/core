@@ -3,7 +3,10 @@ use rocket::http::{RawStr, Status};
 use rocket::request::FromParam;
 use rocket::serde::json::Json;
 
+use crate::activity_pub::retriever::maybe_signed_get;
 use crate::api::instance::InstanceInformation;
+use crate::db::Db;
+use crate::models::profiles::get_profile_by_username;
 
 pub struct ApiVersion<'r> {
     _version: &'r str,
@@ -32,3 +35,18 @@ pub async fn instance_information(
 ) -> Result<Json<InstanceInformation>, Status> {
     Ok(Json(InstanceInformation::default()))
 }
+
+// #[get("/test-get/<username>?<url>")]
+// pub async fn test_get(conn: Db, username: String, url: String) -> Result<String, Status> {
+//     if let Ok(response) = maybe_signed_get(
+//         get_profile_by_username(&conn, username).await,
+//         urlencoding::decode(&url),
+//         true,
+//     )
+//     .await
+//     {
+//         response.text().await
+//     } else {
+//         Err(Status::NotFound)
+//     }
+// }

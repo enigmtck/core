@@ -4,8 +4,8 @@ use crate::activity_pub::{retriever, ApActor};
 use crate::db::Db;
 use crate::models::profiles::{get_profile_by_username, Profile};
 use base64::{engine::general_purpose, engine::Engine as _};
-use rsa::pkcs1v15::{SigningKey, VerifyingKey};
-use rsa::signature::{RandomizedSigner, Signature, Verifier};
+use rsa::pkcs1v15::{Signature, SigningKey};
+use rsa::signature::{RandomizedSigner, SignatureEncoding, Verifier};
 use rsa::{pkcs8::DecodePrivateKey, pkcs8::DecodePublicKey, RsaPrivateKey, RsaPublicKey};
 use sha2::{Digest, Sha256};
 use std::fmt::{self, Debug};
@@ -26,20 +26,21 @@ pub struct VerifyParams {
 fn build_verify_string(
     params: VerifyParams,
 ) -> (String, String, String, Option<String>, bool, Option<String>) {
-    log::debug!("VERIFY SIGNATURE\n{:#?}", params.signature);
-
     let mut signature_map = HashMap::<String, String>::new();
-
-    let parts_re = regex::Regex::new(r#"(\w+)="(.+?)""#).unwrap();
+    let parts_re = regex::Regex::new(r#"(\w+)="(.+?)""#).expect("Invalid regex pattern");
 
     for cap in parts_re.captures_iter(&params.signature) {
         signature_map.insert(cap[1].to_string(), cap[2].to_string());
     }
 
-    let key_id = signature_map.get("keyId").unwrap();
-    let key_id_parts = key_id.split('#').collect::<Vec<&str>>();
-    let ap_id = key_id_parts[0].to_string();
-    //let key_selector = key_id_parts[1].to_string();
+    let key_id = signature_map
+        .get("keyId")
+        .expect("keyId not found in signature_map");
+    let key_id_parts: Vec<_> = key_id.split('#').collect();
+    let ap_id = key_id_parts
+        .first()
+        .expect("Failed to parse ap_id")
+        .to_string();
 
     let local_pattern = format!(r#"(\w+://{}/user/(.+?))#(.+)"#, &*crate::SERVER_NAME);
     let local_re = regex::Regex::new(local_pattern.as_str()).unwrap();
@@ -54,32 +55,33 @@ fn build_verify_string(
         key_selector = Option::from(captures[3].to_string());
     }
 
-    let mut verify_string = String::new();
+    let headers = signature_map
+        .get("headers")
+        .expect("headers not found in signature_map");
 
-    for part in signature_map.get("headers").unwrap().split(' ') {
-        match part {
-            "(request-target)" => {
-                verify_string += &format!("(request-target): {}\n", params.request_target)
-            }
-            "host" => verify_string += &format!("host: {}\n", params.host),
-            "date" => verify_string += &format!("date: {}\n", params.date),
-            "digest" => {
-                verify_string += &format!("digest: {}\n", params.digest.clone().unwrap_or_default())
-            }
-            "content-type" => verify_string += &format!("content-type: {}\n", params.content_type),
-            "user-agent" => {
-                verify_string += &format!(
-                    "user-agent: {}\n",
-                    params.user_agent.clone().unwrap_or_default()
-                )
-            }
-            _ => (),
-        }
-    }
+    let verify_string = headers
+        .split_whitespace()
+        .map(|part| match part {
+            "(request-target)" => format!("(request-target): {}", params.request_target),
+            "host" => format!("host: {}", params.host),
+            "date" => format!("date: {}", params.date),
+            "digest" => format!("digest: {}", params.digest.clone().unwrap_or_default()),
+            "content-type" => format!("content-type: {}", params.content_type),
+            "user-agent" => format!(
+                "user-agent: {}",
+                params.user_agent.clone().unwrap_or_default()
+            ),
+            _ => String::new(),
+        })
+        .collect::<Vec<String>>()
+        .join("\n");
 
     (
-        verify_string.trim_end().to_string(),
-        signature_map.get("signature").unwrap().to_string(),
+        verify_string,
+        signature_map
+            .get("signature")
+            .expect("signature not found in signature_map")
+            .clone(),
         ap_id,
         key_selector,
         local,
@@ -93,76 +95,72 @@ pub enum VerificationType {
     None,
 }
 
-pub async fn verify(conn: Db, params: VerifyParams) -> (bool, VerificationType) {
+pub enum VerificationError {
+    DecodeError,
+    SignatureError,
+    VerificationFailed,
+    PublicKeyError,
+    ActorNotFound,
+    ProfileNotFound,
+    ClientKeyNotFound,
+}
+
+pub async fn verify(conn: Db, params: VerifyParams) -> Result<VerificationType, VerificationError> {
     let (verify_string, signature_str, ap_id, key_selector, local, username) =
         build_verify_string(params.clone());
 
-    fn verify(public_key: RsaPublicKey, signature_str: String, verify_string: String) -> bool {
-        let verifying_key: VerifyingKey<Sha256> = VerifyingKey::new_with_prefix(public_key);
+    fn verify(
+        public_key: &RsaPublicKey,
+        signature_str: &str,
+        verify_string: &str,
+    ) -> Result<(), VerificationError> {
+        let verifying_key = rsa::pkcs1v15::VerifyingKey::<Sha256>::new(public_key.clone());
 
-        let s = general_purpose::STANDARD
+        general_purpose::STANDARD
             .decode(signature_str.as_bytes())
-            .unwrap();
-
-        let signature: rsa::pkcs1v15::Signature = rsa::pkcs1v15::Signature::from(s);
-        match verifying_key.verify(verify_string.as_bytes(), &signature) {
-            Ok(_) => {
-                log::debug!("SIGNATURE VERIFICATION SUCCESSFUL");
-                true
-            }
-            Err(_) => {
-                log::debug!("SIGNATURE STRING\n{signature_str:#?}");
-                log::debug!("VERIFY STRING\n{verify_string:#?}");
-                log::warn!("SIGNATURE VERIFICATION FAILED");
-                false
-            }
-        }
+            .map_err(|_| VerificationError::DecodeError)
+            .and_then(|signature_bytes| {
+                rsa::pkcs1v15::Signature::try_from(signature_bytes.as_slice())
+                    .map_err(|_| VerificationError::SignatureError)
+            })
+            .and_then(|signature| {
+                if verifying_key
+                    .verify(verify_string.as_bytes(), &signature)
+                    .is_ok()
+                {
+                    Ok(())
+                } else {
+                    Err(VerificationError::VerificationFailed)
+                }
+            })
     }
 
     if local && key_selector == Some("client-key".to_string()) {
         if let Some(username) = username {
             if let Some(profile) = get_profile_by_username(&conn, username).await {
                 if let Some(public_key) = profile.client_public_key {
-                    if let Ok(public_key) = RsaPublicKey::from_public_key_pem(&public_key) {
-                        (
-                            verify(public_key, signature_str, verify_string),
-                            VerificationType::Local,
-                        )
-                    } else {
-                        (false, VerificationType::Local)
-                    }
+                    RsaPublicKey::from_public_key_pem(&public_key)
+                        .map_err(|_| VerificationError::PublicKeyError)
+                        .and_then(|pk| verify(&pk, &signature_str, &verify_string))?;
+                    Ok(VerificationType::Local)
                 } else {
-                    (false, VerificationType::Local)
+                    Err(VerificationError::ClientKeyNotFound)
                 }
             } else {
-                (false, VerificationType::Local)
+                Err(VerificationError::ProfileNotFound)
             }
         } else {
-            (false, VerificationType::Local)
+            Err(VerificationError::ProfileNotFound)
         }
     } else if let Some(actor) = retriever::get_actor(&conn, ap_id, Option::None, true).await {
-        if let Ok(public_key) = RsaPublicKey::from_public_key_pem(&actor.public_key.public_key_pem)
-        {
-            (
-                verify(public_key, signature_str, verify_string),
-                VerificationType::Remote,
-            )
-        } else {
-            (false, VerificationType::Remote)
-        }
+        RsaPublicKey::from_public_key_pem(&actor.public_key.public_key_pem)
+            .map_err(|_| VerificationError::PublicKeyError)
+            .and_then(|pk| verify(&pk, &signature_str, &verify_string))?;
+        Ok(VerificationType::Remote)
     } else {
-        (false, VerificationType::Remote)
+        Err(VerificationError::ActorNotFound)
     }
 }
-
-// #[derive(Clone)]
-// pub struct SignParams {
-//     pub profile: Profile,
-//     pub request_target: String,
-//     pub host: String,
-//     pub date: String,
-//     pub digest: Option<String>,
-// }
 
 #[derive(Debug, Clone)]
 pub enum Method {
@@ -191,76 +189,76 @@ pub struct SignResponse {
 }
 
 pub fn sign(params: SignParams) -> SignResponse {
-    // (request-target): post /users/justin/inbox
-    // host: ser.endipito.us
-    // date: Tue, 20 Dec 2022 22:02:48 GMT
-    // digest: sha-256=uus37v4gf3z6ze+jtuyk+8xsT01FhYOi/rOoDfFV1u4=
+    let digest = compute_digest(&params.body);
+    let host = params.url.host().unwrap().to_string();
+    let request_target = format_request_target(&params.method, &params.url);
+    let date = httpdate::fmt_http_date(SystemTime::now());
 
-    let digest = {
-        if let Some(body) = params.body {
-            let mut hasher = Sha256::new();
-            hasher.update(body.as_bytes());
-            let hashed = general_purpose::STANDARD.encode(hasher.finalize());
-            Option::from(format!("SHA-256={}", hashed))
-        } else {
-            Option::None
-        }
-    };
-
-    //let url = Url::parse(&params.url).unwrap();
-    let url = params.url;
-    let host = url.host().unwrap().to_string();
-    let request_target = format!(
-        "{} {}",
-        params.method.to_string().to_lowercase(),
-        url.path()
-    );
-
-    let now = SystemTime::now();
-    let date = httpdate::fmt_http_date(now);
-
-    log::debug!("SIGN {url}, {host}, {request_target}, {date}");
+    //log::debug!("SIGN {}, {host}, {request_target}, {date}", params.url);
 
     let actor = ApActor::from(params.profile.clone());
-
     let private_key = RsaPrivateKey::from_pkcs8_pem(&params.profile.private_key).unwrap();
-    let signing_key = SigningKey::<Sha256>::new_with_prefix(private_key);
+    let signing_key = SigningKey::<Sha256>::new(private_key);
+    let structured_data = construct_structured_data(&request_target, &host, &date, &digest);
+    let signature = compute_signature(&signing_key, &structured_data);
+    let response_signature = format_response_signature(&actor, &signature, digest.is_some());
 
-    if let Some(digest) = digest {
-        let structured_data = format!(
+    SignResponse {
+        signature: response_signature,
+        date,
+        digest,
+    }
+}
+
+fn compute_digest(body: &Option<String>) -> Option<String> {
+    body.as_ref().map(|body| {
+        let mut hasher = Sha256::new();
+        hasher.update(body.as_bytes());
+        let hashed = general_purpose::STANDARD.encode(hasher.finalize());
+        format!("SHA-256={}", hashed)
+    })
+}
+
+fn format_request_target(method: &Method, url: &Url) -> String {
+    format!("{} {}", method.to_string().to_lowercase(), url.path())
+}
+
+fn construct_structured_data(
+    request_target: &str,
+    host: &str,
+    date: &str,
+    digest: &Option<String>,
+) -> String {
+    if let Some(ref digest) = digest {
+        format!(
             "(request-target): {}\nhost: {}\ndate: {}\ndigest: {}",
             request_target, host, date, digest
-        );
-
-        let mut rng = rand::thread_rng();
-        let signature = signing_key.sign_with_rng(&mut rng, structured_data.as_bytes());
-
-        SignResponse {
-            signature: format!(
-                "keyId=\"{}\",algorithm=\"rsa-sha256\",headers=\"(request-target) host date digest\",signature=\"{}\"",
-                actor.public_key.id,
-                general_purpose::STANDARD.encode(signature.as_bytes())
-            ),
-            date,
-            digest: Option::from(digest),
-        }
+        )
     } else {
-        let structured_data = format!(
+        format!(
             "(request-target): {}\nhost: {}\ndate: {}",
             request_target, host, date
-        );
+        )
+    }
+}
 
-        let mut rng = rand::thread_rng();
-        let signature = signing_key.sign_with_rng(&mut rng, structured_data.as_bytes());
+fn compute_signature(signing_key: &SigningKey<Sha256>, structured_data: &str) -> Signature {
+    let mut rng = rand::thread_rng();
+    signing_key.sign_with_rng(&mut rng, structured_data.as_bytes())
+}
 
-        SignResponse {
-            signature: format!(
-                "keyId=\"{}\",algorithm=\"rsa-sha256\",headers=\"(request-target) host date\",signature=\"{}\"",
-                actor.public_key.id,
-                general_purpose::STANDARD.encode(signature.as_bytes())
-            ),
-            date,
-            digest: Option::None,
-        }
+fn format_response_signature(actor: &ApActor, signature: &Signature, has_digest: bool) -> String {
+    if has_digest {
+        format!(
+            "keyId=\"{}#main-key\",algorithm=\"rsa-sha256\",headers=\"(request-target) host date digest\",signature=\"{}\"",
+            actor.public_key.id,
+            general_purpose::STANDARD.encode(signature.to_bytes())
+        )
+    } else {
+        format!(
+            "keyId=\"{}#main-key\",algorithm=\"rsa-sha256\",headers=\"(request-target) host date\",signature=\"{}\"",
+            actor.public_key.id,
+            general_purpose::STANDARD.encode(signature.to_bytes())
+        )
     }
 }

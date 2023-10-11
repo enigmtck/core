@@ -6,7 +6,8 @@ use crate::{
     db::Db,
     fairings::{events::EventChannels, faktory::FaktoryConnection},
     models::{
-        profiles::Profile, remote_actors::create_or_update_remote_actor,
+        profiles::Profile,
+        remote_actors::{create_or_update_remote_actor, NewRemoteActor},
         remote_notes::create_or_update_remote_note,
     },
     to_faktory, MaybeMultiple, MaybeReference,
@@ -56,12 +57,17 @@ impl Inbox for ApUpdate {
                 ApObject::Actor(actor) => {
                     log::debug!("UPDATING ACTOR: {}", actor.clone().id.unwrap_or_default());
 
-                    if actor.clone().id.unwrap_or_default() == self.actor.clone()
-                        && create_or_update_remote_actor(&conn, actor.into())
-                            .await
-                            .is_some()
-                    {
-                        Ok(Status::Accepted)
+                    if let Ok(new_remote_actor) = NewRemoteActor::try_from(actor.clone()) {
+                        if actor.clone().id.unwrap_or_default() == self.actor.clone()
+                            && create_or_update_remote_actor(&conn, new_remote_actor)
+                                .await
+                                .is_some()
+                        {
+                            Ok(Status::Accepted)
+                        } else {
+                            log::error!("FAILED TO HANDLE ACTIVITY\n{raw}");
+                            Err(Status::NoContent)
+                        }
                     } else {
                         log::error!("FAILED TO HANDLE ACTIVITY\n{raw}");
                         Err(Status::NoContent)

@@ -13,6 +13,7 @@ use crate::models::profiles::get_profile_by_ap_id;
 use crate::models::profiles::Profile;
 use crate::models::remote_actors::create_or_update_remote_actor;
 use crate::models::remote_actors::get_remote_actor_by_ap_id;
+use crate::models::remote_actors::NewRemoteActor;
 use crate::models::remote_notes::create_or_update_remote_note;
 use crate::models::remote_notes::get_remote_note_by_ap_id;
 use crate::models::remote_notes::NewRemoteNote;
@@ -184,9 +185,15 @@ pub async fn process_remote_actor_retrieval(
             StatusCode::ACCEPTED | StatusCode::OK => {
                 if let Ok(text) = resp.text().await {
                     if let Ok(actor) = serde_json::from_str::<ApActor>(&text) {
-                        create_or_update_remote_actor(conn, actor.cache(conn).await.clone().into())
-                            .await
-                            .map(ApActor::from)
+                        if let Ok(actor) = NewRemoteActor::try_from(actor.cache(conn).await.clone())
+                        {
+                            create_or_update_remote_actor(conn, actor)
+                                .await
+                                .map(ApActor::from)
+                        } else {
+                            log::error!("UNABLE TO CONVERT AP_ACTOR\n{actor:#?}");
+                            None
+                        }
                     } else {
                         log::error!("UNABLE TO DECODE ACTOR\n{text}");
                         None
