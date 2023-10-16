@@ -2,7 +2,6 @@
 extern crate log;
 extern crate rocket;
 
-#[macro_use]
 extern crate diesel;
 
 use activity_pub::{ApActivity, ApObject};

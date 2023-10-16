@@ -3,10 +3,10 @@ use rocket::http::{RawStr, Status};
 use rocket::request::FromParam;
 use rocket::serde::json::Json;
 
-use crate::activity_pub::retriever::maybe_signed_get;
+//use crate::activity_pub::retriever::maybe_signed_get;
 use crate::api::instance::InstanceInformation;
-use crate::db::Db;
-use crate::models::profiles::get_profile_by_username;
+//use crate::db::Db;
+//use crate::models::profiles::get_profile_by_username;
 
 pub struct ApiVersion<'r> {
     _version: &'r str,

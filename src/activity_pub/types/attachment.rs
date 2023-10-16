@@ -1,8 +1,9 @@
-use image::io::Reader;
-use image::ImageFormat;
-use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::fmt::Debug;
+
+use image::ImageFormat;
+use image::io::Reader;
+use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
@@ -16,7 +17,7 @@ pub enum ApAttachment {
 }
 
 impl TryFrom<String> for ApAttachment {
-    type Error = &'static str;
+    type Error = String;
 
     fn try_from(filename: String) -> Result<Self, Self::Error> {
         let path = &format!("{}/uploads/{}", *crate::MEDIA_DIR, filename);
@@ -39,7 +40,7 @@ impl TryFrom<String> for ApAttachment {
                             decode.width(),
                             decode.height(),
                             &decode.to_rgba8().into_vec(),
-                        );
+                        ).map_err(|e| e.to_string())?;
                         Ok(ApAttachment::Document(ApDocument {
                             kind: ApDocumentType::Document,
                             media_type: Some("image/png".to_string()),
@@ -50,19 +51,19 @@ impl TryFrom<String> for ApAttachment {
                         }))
                     } else {
                         log::error!("FAILED TO DECODE IMAGE");
-                        Err("FAILED TO DECODE IMAGE")
+                        Err("FAILED TO DECODE IMAGE".to_string())
                     }
                 } else {
                     log::error!("FAILED TO DETERMINE FORMAT");
-                    Err("FAILED TO DETERMINE FORMAT")
+                    Err("FAILED TO DETERMINE FORMAT".to_string())
                 }
             } else {
                 log::error!("FAILED TO GUESS FORMAT");
-                Err("FAILED TO GUESS FORMAT")
+                Err("FAILED TO GUESS FORMAT".to_string())
             }
         } else {
             log::error!("FAILED TO OPEN FILE");
-            Err("FAILED TO OPEN FILE")
+            Err("FAILED TO OPEN FILE".to_string())
         }
     }
 }

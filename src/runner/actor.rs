@@ -53,7 +53,7 @@ pub fn create_or_update_remote_actor(actor: NewRemoteActor) -> Option<RemoteActo
     }
 }
 
-async fn cache_actor<'b>(actor: &'b ApActor) -> &'b ApActor {
+async fn cache_actor(actor: &ApActor) -> &ApActor {
     if let Some(tags) = actor.tag.clone() {
         for tag in tags {
             cache_content(tag.try_into()).await;
@@ -98,7 +98,7 @@ pub async fn get_actor(
     if let Some(remote_actor) = remote_actor {
         Some((
             remote_actor,
-            profile.map_or(None, |x| get_leader_by_actor_ap_id_and_profile(id, x.id)),
+            profile.and_then(|x| get_leader_by_actor_ap_id_and_profile(id, x.id)),
         ))
     } else {
         log::debug!("PERFORMING REMOTE LOOKUP FOR ACTOR: {id}");

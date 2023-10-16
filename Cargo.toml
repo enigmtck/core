@@ -44,7 +44,7 @@ rocket = { version = "0.5.0-rc.3", features = ["json"] }
 diesel = { version = "2.1.0", features = ["postgres", "chrono", "r2d2", "serde_json"] }
 diesel-derive-enum = { version = "2.1.0", features = ["postgres"] }
 image = "0.24.6"
-blurhash = "0.1.1"
+blurhash = "0.2.0"
 rexiv2 = "0.10.0"
 enum_dispatch = "0.3.12"
 

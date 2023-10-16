@@ -1,7 +1,7 @@
 use crate::{
     activity_pub::{ApActivity, ApAddress, ApAnnounce, ApDelete, ApFollow, ApLike, ApUndo},
     db::Db,
-    fairings::faktory::{assign_to_faktory, FaktoryConnection},
+    fairings::faktory::FaktoryConnection,
     helper::{
         get_activity_ap_id_from_uuid, get_ap_id_from_username, get_local_identifier, is_local,
         LocalIdentifierType,

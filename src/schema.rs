@@ -1,13 +1,17 @@
 // @generated automatically by Diesel CLI.
 
 pub mod sql_types {
-    #[derive(diesel::sql_types::SqlType, QueryId)]
+    #[derive(diesel::sql_types::SqlType, diesel::query_builder::QueryId)]
     #[diesel(postgres_type(name = "activity_type"))]
     pub struct ActivityType;
 
-    #[derive(diesel::sql_types::SqlType)]
+    #[derive(diesel::sql_types::SqlType, diesel::query_builder::QueryId)]
     #[diesel(postgres_type(name = "note_type"))]
     pub struct NoteType;
+
+    #[derive(diesel::sql_types::SqlType, diesel::query_builder::QueryId)]
+    #[diesel(postgres_type(name = "notification_type"))]
+    pub struct NotificationType;
 }
 
 diesel::table! {
@@ -151,6 +155,21 @@ diesel::table! {
         attachment -> Nullable<Jsonb>,
         instrument -> Nullable<Jsonb>,
         ap_id -> Nullable<Varchar>,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
+    use super::sql_types::NotificationType;
+
+    notifications (id) {
+        id -> Int4,
+        created_at -> Timestamptz,
+        updated_at -> Timestamptz,
+        uuid -> Varchar,
+        kind -> NotificationType,
+        profile_id -> Int4,
+        activity_id -> Int4,
     }
 }
 
@@ -378,6 +397,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     leaders,
     likes,
     notes,
+    notifications,
     olm_one_time_keys,
     olm_sessions,
     processing_queue,

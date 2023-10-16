@@ -7,16 +7,10 @@ use crate::db::Db;
 use crate::models::remote_actors::get_remote_actor_by_webfinger;
 use rocket::http::Status;
 use rocket::{get, serde::json::Json};
-use serde::Deserialize;
 
 use crate::fairings::signatures::Signed;
 use crate::models::profiles::get_profile_by_username;
 use crate::signing::VerificationType;
-
-#[derive(Deserialize, Debug, Clone)]
-pub struct Lookup {
-    id: String,
-}
 
 /// This accepts an actor in URL form (e.g., https://enigmatick.social/user/justin).
 #[get("/api/remote/webfinger?<id>")]

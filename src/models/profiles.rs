@@ -99,7 +99,7 @@ pub async fn get_profile_by_ap_id(conn: &Db, ap_id: String) -> Option<Profile> {
 pub async fn get_follower_inboxes(conn: &Db, profile: Profile) -> Vec<ApAddress> {
     let mut inboxes: HashSet<ApAddress> = HashSet::new();
 
-    for (follower, remote_actor) in get_followers_by_profile_id(conn, profile.id).await {
+    for (_follower, remote_actor) in get_followers_by_profile_id(conn, profile.id).await {
         if let Some(remote_actor) = remote_actor {
             inboxes.insert(ApAddress::Address(remote_actor.inbox));
         }

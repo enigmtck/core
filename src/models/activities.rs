@@ -75,9 +75,9 @@ impl From<ApLikeType> for ActivityType {
 }
 
 pub enum ActivityTarget {
-    Note(Note),
+    Note(Box<Note>),
     RemoteNote(RemoteNote),
-    Profile(Profile),
+    Profile(Box<Profile>),
     Activity(Activity),
     RemoteActor(RemoteActor),
 }
@@ -90,7 +90,7 @@ impl From<RemoteNote> for ActivityTarget {
 
 impl From<Profile> for ActivityTarget {
     fn from(profile: Profile) -> Self {
-        ActivityTarget::Profile(profile)
+        ActivityTarget::Profile(Box::new(profile))
     }
 }
 
@@ -102,7 +102,7 @@ impl From<Activity> for ActivityTarget {
 
 impl From<Note> for ActivityTarget {
     fn from(note: Note) -> Self {
-        ActivityTarget::Note(note)
+        ActivityTarget::Note(Box::new(note))
     }
 }
 
@@ -589,8 +589,10 @@ pub async fn get_outbox_activities_by_profile_id(
         }
 
         if let Some(min) = min {
-            let date: DateTime<Utc> =
-                DateTime::from_utc(NaiveDateTime::from_timestamp_micros(min).unwrap(), Utc);
+            let date: DateTime<Utc> = DateTime::from_naive_utc_and_offset(
+                NaiveDateTime::from_timestamp_micros(min).unwrap(),
+                Utc,
+            );
 
             log::debug!("MINIMUM {date:#?}");
 
@@ -598,8 +600,10 @@ pub async fn get_outbox_activities_by_profile_id(
                 .filter(activities::created_at.gt(date))
                 .order(activities::created_at.asc());
         } else if let Some(max) = max {
-            let date: DateTime<Utc> =
-                DateTime::from_utc(NaiveDateTime::from_timestamp_micros(max).unwrap(), Utc);
+            let date: DateTime<Utc> = DateTime::from_naive_utc_and_offset(
+                NaiveDateTime::from_timestamp_micros(max).unwrap(),
+                Utc,
+            );
 
             log::debug!("MAXIMUM {date:#?}");
 
