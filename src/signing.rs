@@ -8,6 +8,7 @@ use rsa::pkcs1v15::{Signature, SigningKey};
 use rsa::signature::{RandomizedSigner, SignatureEncoding, Verifier};
 use rsa::{pkcs8::DecodePrivateKey, pkcs8::DecodePublicKey, RsaPrivateKey, RsaPublicKey};
 use sha2::{Digest, Sha256};
+use std::error::Error;
 use std::fmt::{self, Debug};
 use std::time::SystemTime;
 use url::Url;
@@ -162,6 +163,25 @@ pub async fn verify(conn: Db, params: VerifyParams) -> Result<VerificationType, 
     }
 }
 
+#[derive(Debug)]
+pub enum SigningError {
+    InvalidUrl,
+}
+
+impl fmt::Display for SigningError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{:#?}", self)
+    }
+}
+
+impl Error for SigningError {
+    fn description(&self) -> &str {
+        match self {
+            SigningError::InvalidUrl => "URL is invalid",
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub enum Method {
     Get,
@@ -188,25 +208,29 @@ pub struct SignResponse {
     pub digest: Option<String>,
 }
 
-pub fn sign(params: SignParams) -> SignResponse {
+pub fn sign(params: SignParams) -> Result<SignResponse, SigningError> {
     let digest = compute_digest(&params.body);
-    let host = params.url.host().unwrap().to_string();
-    let request_target = format_request_target(&params.method, &params.url);
-    let date = httpdate::fmt_http_date(SystemTime::now());
+    if let Some(host) = params.url.host() {
+        let request_target = format_request_target(&params.method, &params.url);
+        let date = httpdate::fmt_http_date(SystemTime::now());
 
-    //log::debug!("SIGN {}, {host}, {request_target}, {date}", params.url);
+        //log::debug!("SIGN {}, {host}, {request_target}, {date}", params.url);
 
-    let actor = ApActor::from(params.profile.clone());
-    let private_key = RsaPrivateKey::from_pkcs8_pem(&params.profile.private_key).unwrap();
-    let signing_key = SigningKey::<Sha256>::new(private_key);
-    let structured_data = construct_structured_data(&request_target, &host, &date, &digest);
-    let signature = compute_signature(&signing_key, &structured_data);
-    let response_signature = format_response_signature(&actor, &signature, digest.is_some());
+        let actor = ApActor::from(params.profile.clone());
+        let private_key = RsaPrivateKey::from_pkcs8_pem(&params.profile.private_key).unwrap();
+        let signing_key = SigningKey::<Sha256>::new(private_key);
+        let structured_data =
+            construct_structured_data(&request_target, &host.to_string(), &date, &digest);
+        let signature = compute_signature(&signing_key, &structured_data);
+        let response_signature = format_response_signature(&actor, &signature, digest.is_some());
 
-    SignResponse {
-        signature: response_signature,
-        date,
-        digest,
+        Ok(SignResponse {
+            signature: response_signature,
+            date,
+            digest,
+        })
+    } else {
+        Err(SigningError::InvalidUrl)
     }
 }
 

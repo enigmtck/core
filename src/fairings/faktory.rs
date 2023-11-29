@@ -52,7 +52,7 @@ impl<'r> FromRequest<'r> for FaktoryConnection {
         if let Some(faktory) = request.rocket().state::<FaktoryConnection>() {
             Outcome::Success(faktory.clone())
         } else {
-            Outcome::Failure((Status::BadRequest, FaktoryConnectionError::Failed))
+            Outcome::Error((Status::BadRequest, FaktoryConnectionError::Failed))
         }
     }
 }

@@ -3,6 +3,8 @@ use chrono::Utc;
 use reqwest::Client;
 use reqwest::Response;
 use reqwest::StatusCode;
+use std::error::Error;
+use std::fmt;
 use url::Url;
 
 use crate::activity_pub::ApActor;
@@ -23,6 +25,31 @@ use crate::webfinger::WebFinger;
 use super::ApCollection;
 use super::ApCollectionPage;
 use super::ApNote;
+
+#[derive(Debug)]
+pub struct RetrieverError {
+    details: String,
+}
+
+impl RetrieverError {
+    fn new(msg: &str) -> RetrieverError {
+        RetrieverError {
+            details: msg.to_string(),
+        }
+    }
+}
+
+impl fmt::Display for RetrieverError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", self.details)
+    }
+}
+
+impl Error for RetrieverError {
+    fn description(&self) -> &str {
+        &self.details
+    }
+}
 
 pub async fn get_remote_collection_page(
     conn: &Db,
@@ -236,7 +263,7 @@ pub async fn maybe_signed_get(
     profile: Option<Profile>,
     url: String,
     accept_any: bool,
-) -> Result<Response, reqwest::Error> {
+) -> Result<Response, RetrieverError> {
     let client = Client::builder();
     let client = client.user_agent("Enigmatick/0.1").build().unwrap();
 
@@ -246,33 +273,46 @@ pub async fn maybe_signed_get(
         "application/activity+json"
     };
 
+    let url_str = &url.clone();
+
     let client = {
         if let Some(profile) = profile {
             let body = Option::None;
             let method = Method::Get;
-            let url_str = url.clone();
 
-            if let Ok(url) = Url::parse(&url.to_string()) {
+            if let Ok(url) = Url::parse(url_str) {
                 log::debug!("SIGNING REQUEST FOR REMOTE RESOURCE");
-                let signature = sign(SignParams {
+                if let Ok(signature) = sign(SignParams {
                     profile,
                     url,
                     body,
                     method,
-                });
-
-                client
-                    .get(url_str)
-                    .header("Signature", &signature.signature)
-                    .header("Date", signature.date)
-                    .header("Accept", accept)
+                }) {
+                    Some(
+                        client
+                            .get(url_str)
+                            .header("Signature", &signature.signature)
+                            .header("Date", signature.date)
+                            .header("Accept", accept),
+                    )
+                } else {
+                    None
+                }
             } else {
-                client.get(&url).header("Accept", accept)
+                None
             }
         } else {
-            client.get(&url).header("Accept", accept)
+            Some(client.get(url_str).header("Accept", accept))
         }
     };
 
-    client.send().await
+    if let Some(client) = client {
+        client.send().await.map_err(|_| {
+            RetrieverError::new(&format!("Failed to retrieve external resource: {url}"))
+        })
+    } else {
+        Err(RetrieverError::new(&format!(
+            "Failed to retrieve external resource: {url}"
+        )))
+    }
 }

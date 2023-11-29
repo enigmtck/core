@@ -47,7 +47,7 @@ impl<'r> FromRequest<'r> for Signed {
 
         let date = match get_header("date").or_else(|| get_header("enigmatick-date")) {
             Some(val) => val,
-            None => return Outcome::Failure((Status::BadRequest, SignatureError::NoDateProvided)),
+            None => return Outcome::Error((Status::BadRequest, SignatureError::NoDateProvided)),
         };
 
         let digest = get_header("digest");
@@ -61,28 +61,24 @@ impl<'r> FromRequest<'r> for Signed {
                 0 => Outcome::Success(Signed(false, VerificationType::None)),
                 1 => {
                     let signature = signature_vec[0].to_string();
-
-                    match verify(
-                        conn,
-                        VerifyParams {
-                            signature,
-                            request_target,
-                            host,
-                            date,
-                            digest,
-                            content_type,
-                            user_agent,
-                        },
-                    )
-                    .await
-                    {
+                    let verify_params = VerifyParams {
+                        signature,
+                        request_target,
+                        host,
+                        date,
+                        digest,
+                        content_type,
+                        user_agent,
+                    };
+                    match verify(conn, verify_params.clone()).await {
                         Ok(t) => Outcome::Success(Signed(true, t)),
                         Err(_) => {
-                            Outcome::Failure((Status::BadRequest, SignatureError::SignatureInvalid))
+                            log::debug!("{verify_params:#?}");
+                            Outcome::Error((Status::BadRequest, SignatureError::SignatureInvalid))
                         }
                     }
                 }
-                _ => Outcome::Failure((Status::BadRequest, SignatureError::MultipleSignatures)),
+                _ => Outcome::Error((Status::BadRequest, SignatureError::MultipleSignatures)),
             }
         } else {
             Outcome::Success(Signed(false, VerificationType::None))

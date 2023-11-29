@@ -72,19 +72,19 @@ impl Inbox for Box<ApLike> {
                     if create_activity(&conn, activity.clone()).await.is_some() {
                         Ok(Status::Accepted)
                     } else {
-                        log::error!("FAILED TO HANDLE ACTIVITY\n{raw}");
+                        log::error!("FAILED TO INSERT LIKE ACTIVITY\n{raw}");
                         Err(Status::NoContent)
                     }
                 } else {
-                    log::error!("FAILED TO HANDLE ACTIVITY\n{raw}");
+                    log::error!("FAILED TO BUILD LIKE ACTIVITY\n{raw}");
                     Err(Status::NoContent)
                 }
             } else {
-                log::error!("FAILED TO HANDLE ACTIVITY\n{raw}");
+                log::warn!("LIKED NOTE DOES NOT EXIST LOCALLY\n{raw}");
                 Err(Status::NoContent)
             }
         } else {
-            log::error!("FAILED TO HANDLE ACTIVITY\n{raw}");
+            log::warn!("FAILED TO DETERMINE NOTE ID\n{raw}");
             Err(Status::NoContent)
         }
     }

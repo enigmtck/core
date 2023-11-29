@@ -186,31 +186,31 @@ pub fn process_outbound_note(job: Job) -> io::Result<()> {
                             let method = Method::Post;
 
                             if let Ok(url) = Url::parse(&url_str.clone().to_string()) {
-                                let signature = crate::signing::sign(SignParams {
+                                if let Ok(signature) = crate::signing::sign(SignParams {
                                     profile: sender.clone(),
                                     url: url.clone(),
                                     body: body.clone(),
                                     method,
-                                });
+                                }) {
+                                    let client = Client::new()
+                                        .post(&url_str.to_string())
+                                        .header("Date", signature.date)
+                                        .header("Digest", signature.digest.unwrap())
+                                        .header("Signature", &signature.signature)
+                                        .header("Content-Type", "application/activity+json")
+                                        .body(body.unwrap());
 
-                                let client = Client::new()
-                                    .post(&url_str.to_string())
-                                    .header("Date", signature.date)
-                                    .header("Digest", signature.digest.unwrap())
-                                    .header("Signature", &signature.signature)
-                                    .header("Content-Type", "application/activity+json")
-                                    .body(body.unwrap());
-
-                                handle.block_on(async {
-                                    if let Ok(resp) = client.send().await {
-                                        match resp.status() {
-                                            StatusCode::ACCEPTED | StatusCode::OK => {
-                                                log::debug!("SENT TO {url}")
+                                    handle.block_on(async {
+                                        if let Ok(resp) = client.send().await {
+                                            match resp.status() {
+                                                StatusCode::ACCEPTED | StatusCode::OK => {
+                                                    log::debug!("SENT TO {url}")
+                                                }
+                                                _ => log::error!("ERROR SENDING TO {url}"),
                                             }
-                                            _ => log::error!("ERROR SENDING TO {url}"),
                                         }
-                                    }
-                                })
+                                    })
+                                }
                             }
                         }
                     }

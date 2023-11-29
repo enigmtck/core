@@ -159,7 +159,7 @@ impl<'r> FromRequest<'r> for EventChannels {
         if let Some(channels) = request.rocket().state::<EventChannels>() {
             Outcome::Success(channels.clone())
         } else {
-            Outcome::Failure((Status::BadRequest, EventChannelsError::Failed))
+            Outcome::Error((Status::BadRequest, EventChannelsError::Failed))
         }
     }
 }

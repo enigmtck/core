@@ -90,30 +90,30 @@ pub fn send_to_inboxes(inboxes: Vec<ApAddress>, profile: Profile, message: ApAct
         let method = Method::Post;
 
         if let Ok(url) = Url::parse(&url_str.clone().to_string()) {
-            let signature = crate::signing::sign(SignParams {
+            if let Ok(signature) = crate::signing::sign(SignParams {
                 profile: profile.clone(),
                 url: url.clone(),
                 body: body.clone(),
                 method,
-            });
+            }) {
+                let client = Client::new()
+                    .post(url_str.clone().to_string())
+                    .header("Date", signature.date)
+                    .header("Digest", signature.digest.unwrap())
+                    .header("Signature", &signature.signature)
+                    .header(
+                        "Content-Type",
+                        "application/ld+json; profile=\"http://www.w3.org/ns/activitystreams\"",
+                    )
+                    .body(body.unwrap());
 
-            let client = Client::new()
-                .post(url_str.clone().to_string())
-                .header("Date", signature.date)
-                .header("Digest", signature.digest.unwrap())
-                .header("Signature", &signature.signature)
-                .header(
-                    "Content-Type",
-                    "application/ld+json; profile=\"http://www.w3.org/ns/activitystreams\"",
-                )
-                .body(body.unwrap());
-
-            handle.block_on(async {
-                if let Ok(resp) = client.send().await {
-                    let code = resp.status();
-                    log::debug!("SEND RESULT FOR {url}: {code}");
-                }
-            });
+                handle.block_on(async {
+                    if let Ok(resp) = client.send().await {
+                        let code = resp.status();
+                        log::debug!("SEND RESULT FOR {url}: {code}");
+                    }
+                });
+            }
         }
     }
 }

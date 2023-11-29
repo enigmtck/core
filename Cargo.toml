@@ -40,7 +40,7 @@ bb8-lapin = "0.5"
 async_once = "0.2"
 webpage = { version = "1.5", features = ["serde"] }
 
-rocket = { version = "0.5.0-rc.3", features = ["json"] }
+rocket = { version = "0.5", features = ["json"] }
 diesel = { version = "2.1.0", features = ["postgres", "chrono", "r2d2", "serde_json"] }
 diesel-derive-enum = { version = "2.1.0", features = ["postgres"] }
 image = "0.24.6"
@@ -49,6 +49,6 @@ rexiv2 = "0.10.0"
 enum_dispatch = "0.3.12"
 
 [dependencies.rocket_sync_db_pools]
-version = "0.1.0-rc.3"
+version = "0.1.0"
 default-features = false
 features = ["diesel_postgres_pool"]

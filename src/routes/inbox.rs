@@ -37,12 +37,12 @@ pub async fn timeline(conn: Db, offset: u16, limit: u8) -> Result<Json<ApObject>
     ))
 }
 
-#[post("/user/<_username>/inbox", data = "<activity>")]
+#[post("/user/<username>/inbox", data = "<activity>")]
 pub async fn inbox_post(
     signed: Signed,
     conn: Db,
     faktory: FaktoryConnection,
-    _username: String,
+    username: String,
     activity: String,
 ) -> Result<Status, Status> {
     shared_inbox_post(signed, conn, faktory, activity).await
