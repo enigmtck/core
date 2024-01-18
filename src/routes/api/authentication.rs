@@ -1,11 +1,12 @@
-use crate::admin::{self, verify_and_generate_password};
-use crate::db::{update_password_by_username, Db};
-use crate::fairings::signatures::Signed;
-use crate::models::profiles::Profile;
-use crate::signing::VerificationType;
-use rocket::http::Status;
 use rocket::{post, serde::json::Error, serde::json::Json};
+use rocket::http::Status;
 use serde::Deserialize;
+
+use crate::admin::{self, verify_and_generate_password};
+use crate::db::Db;
+use crate::fairings::signatures::Signed;
+use crate::models::profiles::{Profile, update_password_by_username};
+use crate::signing::VerificationType;
 
 #[derive(Deserialize, Debug, Clone)]
 pub struct AuthenticationData {
@@ -33,10 +34,15 @@ pub async fn authenticate_user(
     }
 }
 
+// We need to include the re-encrypted private data that is encrypted using a derivation of the
+// plaintext password (the current and updated "passwords" submitted here are base64-encoded Blake2b
+// hashes of the real passwords - the plaintext password is never processed by this server)
 #[derive(Deserialize, Debug, Clone)]
 pub struct UpdatePassword {
     pub current: String,
     pub updated: String,
+    pub encrypted_client_private_key: String,
+    pub encrypted_olm_pickled_account: String,
 }
 
 #[post("/api/user/<username>/password", format = "json", data = "<password>")]
@@ -46,28 +52,38 @@ pub async fn change_password(
     username: String,
     password: Result<Json<UpdatePassword>, Error<'_>>,
 ) -> Result<Json<Profile>, Status> {
-    if let Signed(true, VerificationType::Local) = signed {
-        if let Ok(password) = password {
+    match (&signed, password) {
+        (Signed(true, VerificationType::Local), Ok(password)) => {
+            let client_private_key = password.encrypted_client_private_key.clone();
+            let olm_pickled_account = password.encrypted_olm_pickled_account.clone();
+
             if let Some(password) = verify_and_generate_password(
                 &conn,
                 username.clone(),
                 password.current.clone(),
                 password.updated.clone(),
             )
-            .await
+                .await
             {
                 Ok(Json(
-                    update_password_by_username(&conn, username, password)
+                    update_password_by_username(
+                        &conn,
+                        username,
+                        password,
+                        client_private_key,
+                        olm_pickled_account,
+                    )
                         .await
                         .unwrap_or_default(),
                 ))
             } else {
-                Err(Status::NoContent)
+                log::debug!("verify_and_generate_password failed");
+                Err(Status::Forbidden)
             }
-        } else {
-            Err(Status::Forbidden)
         }
-    } else {
-        Err(Status::BadRequest)
+        _ => Err(match signed {
+            Signed(true, _) => Status::Forbidden,
+            _ => Status::BadRequest,
+        }),
     }
 }

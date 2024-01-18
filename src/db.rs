@@ -10,27 +10,6 @@ use rocket_sync_db_pools::{database, diesel};
 #[database("enigmatick")]
 pub struct Db(diesel::PgConnection);
 
-pub async fn update_password_by_username(
-    conn: &Db,
-    username: String,
-    password: String,
-) -> Option<Profile> {
-    use schema::profiles::dsl::{password as p, profiles, username as u};
-
-    if let Ok(x) = conn
-        .run(move |c| {
-            diesel::update(profiles.filter(u.eq(username)))
-                .set(p.eq(password))
-                .get_result::<Profile>(c)
-        })
-        .await
-    {
-        Some(x)
-    } else {
-        Option::None
-    }
-}
-
 pub async fn create_remote_encrypted_session(
     conn: &Db,
     remote_encrypted_session: NewRemoteEncryptedSession,

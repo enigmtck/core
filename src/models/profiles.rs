@@ -175,3 +175,23 @@ pub async fn update_summary_by_username(
     .await
     .ok()
 }
+
+pub async fn update_password_by_username(
+    conn: &Db,
+    username: String,
+    password: String,
+    client_private_key: String,
+    olm_pickled_account: String,
+) -> Option<Profile> {
+    conn.run(move |c| {
+        diesel::update(profiles::table.filter(profiles::username.eq(username)))
+            .set((
+                profiles::password.eq(password),
+                profiles::client_private_key.eq(client_private_key),
+                profiles::olm_pickled_account.eq(olm_pickled_account),
+            ))
+            .get_result::<Profile>(c)
+    })
+    .await
+    .ok()
+}

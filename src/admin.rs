@@ -1,12 +1,12 @@
-use crate::db::Db;
-use crate::models::profiles::{create_profile, get_profile_by_username, NewProfile, Profile};
 use orion::pwhash;
 use rsa::{
     pkcs8::EncodePrivateKey, pkcs8::EncodePublicKey, pkcs8::LineEnding, RsaPrivateKey, RsaPublicKey,
 };
 use serde::Deserialize;
-
 use uuid::Uuid;
+
+use crate::db::Db;
+use crate::models::profiles::{create_profile, get_profile_by_username, NewProfile, Profile};
 
 struct KeyPair {
     private_key: RsaPrivateKey,
@@ -25,29 +25,18 @@ fn get_key_pair() -> KeyPair {
     }
 }
 
-pub async fn authenticate(conn: &Db, username: String, password: String) -> Option<Profile> {
-    if let Ok(password) = pwhash::Password::from_slice(password.as_bytes()) {
-        if let Some(profile) = get_profile_by_username(conn, username).await {
-            if let Some(encoded_password_hash) = profile.clone().password {
-                if let Ok(password_hash) =
-                    pwhash::PasswordHash::from_encoded(&encoded_password_hash)
-                {
-                    if pwhash::hash_password_verify(&password_hash, &password).is_ok() {
-                        Option::from(profile)
-                    } else {
-                        Option::None
-                    }
-                } else {
-                    Option::None
-                }
-            } else {
-                Option::None
-            }
-        } else {
-            Option::None
-        }
+pub async fn authenticate(conn: &Db, username: String, password_str: String) -> Option<Profile> {
+    log::debug!("AUTHENTICATING {username} {password_str}");
+    let password = pwhash::Password::from_slice(password_str.clone().as_bytes()).ok()?;
+    let profile = get_profile_by_username(conn, username.clone()).await?;
+    let encoded_password_hash = profile.clone().password?;
+    let password_hash = pwhash::PasswordHash::from_encoded(&encoded_password_hash).ok()?;
+
+    if pwhash::hash_password_verify(&password_hash, &password).is_ok() {
+        Some(profile)
     } else {
-        Option::None
+        log::debug!("hash_password_verify failed {username} {password_str}");
+        None
     }
 }
 
@@ -62,15 +51,15 @@ pub async fn verify_and_generate_password(
             // the example memory cost is 1<<16 (64MB); that taxes my system quite a bit,
             // so I'm using 8MB - this should be increased as available power permits
             if let Ok(hash) = pwhash::hash_password(&password, 3, 1 << 4) {
-                Option::from(hash.unprotected_as_encoded().to_string())
+                Some(hash.unprotected_as_encoded().to_string())
             } else {
-                Option::None
+                None
             }
         } else {
-            Option::None
+            None
         }
     } else {
-        Option::None
+        None
     }
 }
 
