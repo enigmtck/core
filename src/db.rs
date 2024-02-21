@@ -1,9 +1,8 @@
 use crate::models::notes::{NewNote, Note};
-use crate::models::profiles::Profile;
 use crate::models::remote_encrypted_sessions::{NewRemoteEncryptedSession, RemoteEncryptedSession};
 use crate::schema;
 use diesel::prelude::*;
-use rocket_sync_db_pools::{database, diesel};
+use rocket_sync_db_pools::database;
 
 // this is a reference to the value in Rocket.toml, not the actual
 // database name

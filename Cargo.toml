@@ -9,9 +9,9 @@ edition = "2021"
 anyhow = "1.0"
 log = "0.4"
 env_logger = "0.10"
-log4rs = "1.2"
+log4rs = "1.3"
 dotenvy = "0.15"
-chrono = { version = "0.4.24", features = ["serde"] }
+chrono = { version = "0.4.34", features = ["serde"] }
 lazy_static = "1.4.0"
 uuid = { version = "1", features = ["v4", "serde"] }
 serde = { version = "1", features = ["derive"] }
@@ -20,9 +20,9 @@ serde_with = "2"
 rsa = "0.9"
 rand = "0.8"
 sha2 = { version = "0.10", features = ["oid"] }
-base64 = "0.21.3"
+base64 = "0.21.7"
 reqwest = { version = "0.11", features = ["json", "blocking"] }
-url = "2.3"
+url = "2.5"
 hex = "0.4"
 httpdate = "1"
 regex = "1"
@@ -30,21 +30,21 @@ faktory = "0.12"
 async-mutex = "1.4"
 crossbeam-channel = "0.5"
 r2d2 = "0.8"
-tokio = { version = "1.23", features = ["rt"] }
+tokio = { version = "1.36", features = ["rt"] }
 orion = "0.17"
 urlencoding = "2.1"
 ammonia = "3.3"
 maplit = "1.0"
-lapin = { version = "2.1.1" }
-futures-lite = "^1.7"
+lapin = { version = "2.3.1" }
+futures-lite = "^1.13"
 bb8-lapin = "0.5"
 async_once = "0.2"
-webpage = { version = "1.5", features = ["serde"] }
+webpage = { version = "1.6", features = ["serde"] }
 
 rocket = { version = "0.5", features = ["json"] }
-diesel = { version = "2.1.0", features = ["postgres", "chrono", "r2d2", "serde_json"] }
+diesel = { version = "2.1.4", features = ["postgres", "chrono", "r2d2", "serde_json"] }
 diesel-derive-enum = { version = "2.1.0", features = ["postgres"] }
-image = "0.24.6"
+image = "0.24.8"
 blurhash = "0.2.0"
 rexiv2 = "0.10.0"
 enum_dispatch = "0.3.12"

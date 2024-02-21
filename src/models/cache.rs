@@ -54,25 +54,25 @@ pub enum Cacheable {
 }
 
 impl TryFrom<ApAttachment> for Cacheable {
-    type Error = &'static str;
+    type Error = anyhow::Error;
 
     fn try_from(attachment: ApAttachment) -> Result<Self, Self::Error> {
         if let ApAttachment::Document(document) = attachment {
             Ok(Cacheable::Document(document))
         } else {
-            Err("NOT CACHEABLE")
+            Err(Self::Error::msg("not cacheable"))
         }
     }
 }
 
 impl TryFrom<ApTag> for Cacheable {
-    type Error = &'static str;
+    type Error = anyhow::Error;
 
     fn try_from(tag: ApTag) -> Result<Self, Self::Error> {
         if let ApTag::Emoji(emoji) = tag {
             Ok(Cacheable::Image(emoji.icon))
         } else {
-            Err("NOT CACHEABLE")
+            Err(Self::Error::msg("not cacheable"))
         }
     }
 }
@@ -93,7 +93,7 @@ impl From<ApImage> for Cacheable {
 // I can streamline the calls from the TryFrom bits above. E.g.,
 // cache_content(conn, attachment.try_into()).await;
 // And the From bits just need to wrap themselves in Ok(). That seems desirable right now.
-pub async fn cache_content(conn: &Db, cacheable: Result<Cacheable, &str>) {
+pub async fn cache_content(conn: &Db, cacheable: Result<Cacheable>) {
     if let Ok(cacheable) = cacheable {
         if let Ok(cache_item) = match cacheable {
             Cacheable::Document(document) => NewCacheItem::try_from(document),

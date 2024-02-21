@@ -42,24 +42,24 @@ use super::{
 async fn cache_note(note: &'_ ApNote) -> &'_ ApNote {
     if let Some(attachments) = &note.attachment {
         for attachment in attachments {
-            cache_content(attachment.clone().try_into()).await;
+            let _ = cache_content(attachment.clone().try_into()).await;
         }
     }
 
     if let Some(tags) = &note.tag {
         for tag in tags {
-            cache_content(tag.clone().try_into()).await;
+            let _ = cache_content(tag.clone().try_into()).await;
         }
     }
 
     if let Some(metadata_vec) = &note.ephemeral_metadata {
         for metadata in metadata_vec {
             if let Some(og_image) = metadata.og_image.clone() {
-                cache_content(Ok(ApImage::from(og_image).into())).await;
+                let _ = cache_content(Ok(ApImage::from(og_image).into())).await;
             }
 
             if let Some(twitter_image) = metadata.twitter_image.clone() {
-                cache_content(Ok(ApImage::from(twitter_image).into())).await;
+                let _ = cache_content(Ok(ApImage::from(twitter_image).into())).await;
             }
         }
     }

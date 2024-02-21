@@ -56,7 +56,7 @@ pub fn create_or_update_remote_actor(actor: NewRemoteActor) -> Option<RemoteActo
 async fn cache_actor(actor: &ApActor) -> &ApActor {
     if let Some(tags) = actor.tag.clone() {
         for tag in tags {
-            cache_content(tag.try_into()).await;
+            let _ = cache_content(tag.try_into()).await;
         }
     };
 
@@ -64,7 +64,7 @@ async fn cache_actor(actor: &ApActor) -> &ApActor {
         .into_iter()
         .flatten()
     {
-        cache_content(Ok(image.clone().into())).await;
+        let _ = cache_content(Ok(image.clone().into())).await;
     }
 
     actor
