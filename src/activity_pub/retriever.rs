@@ -1,10 +1,9 @@
+use anyhow::{Context, Result};
 use chrono::Duration;
 use chrono::Utc;
 use reqwest::Client;
 use reqwest::Response;
 use reqwest::StatusCode;
-use std::error::Error;
-use std::fmt;
 use url::Url;
 
 use crate::activity_pub::ApActor;
@@ -26,42 +25,14 @@ use super::ApCollection;
 use super::ApCollectionPage;
 use super::ApNote;
 
-#[derive(Debug)]
-pub struct RetrieverError {
-    details: String,
-}
-
-impl RetrieverError {
-    fn new(msg: &str) -> RetrieverError {
-        RetrieverError {
-            details: msg.to_string(),
-        }
-    }
-}
-
-impl fmt::Display for RetrieverError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", self.details)
-    }
-}
-
-impl Error for RetrieverError {
-    fn description(&self) -> &str {
-        &self.details
-    }
-}
-
 pub async fn get_remote_collection_page(
     conn: &Db,
     profile: Option<Profile>,
     url: String,
 ) -> Option<ApCollectionPage> {
     if let Ok(response) = maybe_signed_get(profile, url, false).await {
-        if let Ok(page) = response.json::<ApCollectionPage>().await {
-            Some(page.cache(conn).await.clone())
-        } else {
-            None
-        }
+        let page = response.json::<ApCollectionPage>().await.ok()?;
+        Some(page.cache(conn).await.clone())
     } else {
         None
     }
@@ -73,35 +44,34 @@ pub async fn get_remote_collection(
     url: String,
 ) -> Option<ApCollection> {
     if let Ok(response) = maybe_signed_get(profile, url, false).await {
-        if let Ok(page) = response.json::<ApCollection>().await {
-            Some(page.cache(conn).await.clone())
-        } else {
-            None
-        }
+        let page = response.json::<ApCollection>().await.ok()?;
+        Some(page.cache(conn).await.clone())
     } else {
         None
     }
 }
 
 pub async fn get_ap_id_from_webfinger(acct: String) -> Option<String> {
-    if let Some(webfinger) = get_remote_webfinger(acct).await {
-        webfinger
-            .links
-            .iter()
-            .filter_map(|x| {
-                if x.kind == Some("application/activity+json".to_string())
-                    || x.kind
-                        == Some("application/ld+json; profile=\"https://www.w3.org/ns/activitystreams\"".to_string())
-                {
-                    x.href.clone()
-                } else {
-                    None
-                }
-            })
-            .take(1).next()
-    } else {
-        None
-    }
+    let webfinger = get_remote_webfinger(acct).await?;
+
+    webfinger
+        .links
+        .iter()
+        .filter_map(|x| {
+            if x.kind == Some("application/activity+json".to_string())
+                || x.kind
+                    == Some(
+                        "application/ld+json; profile=\"https://www.w3.org/ns/activitystreams\""
+                            .to_string(),
+                    )
+            {
+                x.href.clone()
+            } else {
+                None
+            }
+        })
+        .take(1)
+        .next()
 }
 
 pub async fn get_remote_webfinger(acct: String) -> Option<WebFinger> {
@@ -112,8 +82,8 @@ pub async fn get_remote_webfinger(acct: String) -> Option<WebFinger> {
 
     if webfinger_re.captures_len() == 3 {
         for cap in webfinger_re.captures_iter(&acct) {
-            username = Option::from(cap[1].to_string());
-            server = Option::from(cap[2].to_string());
+            username = Some(cap[1].to_string());
+            server = Some(cap[2].to_string());
         }
     }
 
@@ -126,9 +96,9 @@ pub async fn get_remote_webfinger(acct: String) -> Option<WebFinger> {
 
     if let Ok(response) = client.get(&url).send().await {
         let response: WebFinger = response.json().await.unwrap();
-        Option::from(response)
+        Some(response)
     } else {
-        Option::from(WebFinger::default())
+        Some(WebFinger::default())
     }
 }
 
@@ -137,24 +107,17 @@ pub async fn get_note(conn: &Db, profile: Option<Profile>, id: String) -> Option
         Some(remote_note) => Some(ApNote::from(remote_note).cache(conn).await.clone()),
         None => match maybe_signed_get(profile, id, false).await {
             Ok(resp) => match resp.status() {
-                StatusCode::ACCEPTED | StatusCode::OK => match resp.text().await {
-                    Ok(n) => {
-                        if let Ok(note) = serde_json::from_str::<ApNote>(&n) {
-                            create_or_update_remote_note(
-                                conn,
-                                NewRemoteNote::from(note.cache(conn).await.clone()),
-                            )
-                            .await
-                            .map(ApNote::from)
-                        } else {
-                            None
-                        }
-                    }
-                    Err(e) => {
-                        log::error!("FAILED TO UNPACK REMOTE NOTE: {e:#?}");
-                        None
-                    }
-                },
+                StatusCode::ACCEPTED | StatusCode::OK => {
+                    let text = resp.text().await.ok()?;
+                    let note = serde_json::from_str::<ApNote>(&text).ok()?;
+
+                    create_or_update_remote_note(
+                        conn,
+                        NewRemoteNote::from(note.cache(conn).await.clone()),
+                    )
+                    .await
+                    .map(ApNote::from)
+                }
                 _ => {
                     log::debug!("REMOTE NOTE FAILURE STATUS: {:#?}", resp.status());
                     None
@@ -206,39 +169,21 @@ pub async fn process_remote_actor_retrieval(
     conn: &Db,
     profile: Option<Profile>,
     id: String,
-) -> Option<ApActor> {
-    match maybe_signed_get(profile, id, false).await {
-        Ok(resp) => match resp.status() {
-            StatusCode::ACCEPTED | StatusCode::OK => {
-                if let Ok(text) = resp.text().await {
-                    if let Ok(actor) = serde_json::from_str::<ApActor>(&text) {
-                        if let Ok(actor) = NewRemoteActor::try_from(actor.cache(conn).await.clone())
-                        {
-                            create_or_update_remote_actor(conn, actor)
-                                .await
-                                .map(ApActor::from)
-                        } else {
-                            log::error!("UNABLE TO CONVERT AP_ACTOR\n{actor:#?}");
-                            None
-                        }
-                    } else {
-                        log::error!("UNABLE TO DECODE ACTOR\n{text}");
-                        None
-                    }
-                } else {
-                    log::error!("UNABLE TO DECODE RESPONSE TO TEXT");
-                    None
-                }
-            }
-            _ => {
-                log::debug!("REMOTE ACTOR RETRIEVAL FAILED\n{:#?}", resp.text().await);
-                None
-            }
-        },
-        Err(e) => {
-            log::debug!("FAILED TO RETRIEVE REMOTE ACTOR\n{e:#?}");
-            None
+) -> Result<ApActor> {
+    let response = maybe_signed_get(profile, id, false).await?;
+
+    match response.status() {
+        StatusCode::ACCEPTED | StatusCode::OK => {
+            let text = response.text().await?;
+            let actor = serde_json::from_str::<ApActor>(&text)?;
+            let actor = NewRemoteActor::try_from(actor.cache(conn).await.clone())
+                .map_err(anyhow::Error::msg)?;
+            create_or_update_remote_actor(conn, actor)
+                .await
+                .map(ApActor::from)
+                .context("failed to create or update remote actor")
         }
+        _ => Err(anyhow::Error::msg("bad response")),
     }
 }
 
@@ -253,7 +198,7 @@ pub async fn get_actor(
     if let Some(actor) = actor {
         Some(actor.cache(conn).await.clone())
     } else if update {
-        process_remote_actor_retrieval(conn, profile, id).await
+        process_remote_actor_retrieval(conn, profile, id).await.ok()
     } else {
         None
     }
@@ -263,7 +208,7 @@ pub async fn maybe_signed_get(
     profile: Option<Profile>,
     url: String,
     accept_any: bool,
-) -> Result<Response, RetrieverError> {
+) -> Result<Response> {
     let client = Client::builder();
     let client = client.user_agent("Enigmatick/0.1").build().unwrap();
 
@@ -275,44 +220,33 @@ pub async fn maybe_signed_get(
 
     let url_str = &url.clone();
 
+    let body = None;
+    let method = Method::Get;
+    let url = Url::parse(url_str)?;
+
     let client = {
         if let Some(profile) = profile {
-            let body = Option::None;
-            let method = Method::Get;
+            log::debug!("SIGNING REQUEST FOR REMOTE RESOURCE");
+            let signature = sign(SignParams {
+                profile,
+                url,
+                body,
+                method,
+            })?;
 
-            if let Ok(url) = Url::parse(url_str) {
-                log::debug!("SIGNING REQUEST FOR REMOTE RESOURCE");
-                if let Ok(signature) = sign(SignParams {
-                    profile,
-                    url,
-                    body,
-                    method,
-                }) {
-                    Some(
-                        client
-                            .get(url_str)
-                            .header("Signature", &signature.signature)
-                            .header("Date", signature.date)
-                            .header("Accept", accept),
-                    )
-                } else {
-                    None
-                }
-            } else {
-                None
-            }
+            client
+                .get(url_str)
+                .timeout(std::time::Duration::new(15, 0))
+                .header("Signature", &signature.signature)
+                .header("Date", signature.date)
+                .header("Accept", accept)
         } else {
-            Some(client.get(url_str).header("Accept", accept))
+            client
+                .get(url_str)
+                .header("Accept", accept)
+                .timeout(std::time::Duration::new(15, 0))
         }
     };
 
-    if let Some(client) = client {
-        client.send().await.map_err(|_| {
-            RetrieverError::new(&format!("Failed to retrieve external resource: {url}"))
-        })
-    } else {
-        Err(RetrieverError::new(&format!(
-            "Failed to retrieve external resource: {url}"
-        )))
-    }
+    client.send().await.map_err(anyhow::Error::msg)
 }

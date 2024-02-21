@@ -3,6 +3,7 @@ use crate::activity_pub::{ApAttachment, ApDocument, ApImage, ApTag};
 use crate::db::Db;
 use crate::models::profiles::get_profile_by_username;
 use crate::schema::cache;
+use anyhow::Result;
 use chrono::{DateTime, Utc};
 use diesel::prelude::*;
 use diesel::{AsChangeset, Identifiable, Insertable, Queryable};
@@ -16,30 +17,31 @@ use super::profiles::Profile;
 async fn download_image(
     profile: Option<Profile>,
     cache_item: NewCacheItem,
-) -> Option<NewCacheItem> {
+) -> Result<NewCacheItem> {
     log::debug!("DOWNLOADING IMAGE: {}", cache_item.url);
 
     let path = format!("{}/cache/{}", &*crate::MEDIA_DIR, cache_item.uuid);
+
     // Send an HTTP GET request to the URL
-    if let Ok(response) = maybe_signed_get(profile, cache_item.url.clone(), true).await {
-        //if let Ok(response) = reqwest::get(&cache_item.url).await {
-        // Create a new file to write the downloaded image to
-        if let Ok(mut file) = File::create(path).await {
-            if let Ok(data) = response.bytes().await {
-                if file.write_all(&data).await.is_ok() {
-                    Some(cache_item)
-                } else {
-                    None
-                }
-            } else {
-                None
-            }
-        } else {
-            None
-        }
-    } else {
-        None
-    }
+    let response = maybe_signed_get(profile, cache_item.url.clone(), true).await?;
+
+    log::debug!(
+        "RESPONSE CODE FOR {}: {}",
+        cache_item.uuid,
+        response.status()
+    );
+
+    // Create a new file to write the downloaded image to
+    let mut file = File::create(path.clone()).await?;
+
+    log::debug!("FILE CREATED: {path}");
+
+    let data = response.bytes().await?;
+    file.write_all(&data).await?;
+
+    log::debug!("FILE WRITTEN: {path}");
+
+    Ok(cache_item)
 }
 
 pub trait Cache {
@@ -101,7 +103,7 @@ pub async fn cache_content(conn: &Db, cacheable: Result<Cacheable, &str>) {
                 .await
                 .is_none()
             {
-                if let Some(cache_item) = cache_item
+                if let Ok(cache_item) = cache_item
                     .download(get_profile_by_username(conn, "justin".to_string()).await)
                     .await
                 {
@@ -124,7 +126,7 @@ pub struct NewCacheItem {
 }
 
 impl NewCacheItem {
-    pub async fn download(&self, profile: Option<Profile>) -> Option<Self> {
+    pub async fn download(&self, profile: Option<Profile>) -> Result<Self> {
         download_image(profile, self.clone()).await
     }
 }
