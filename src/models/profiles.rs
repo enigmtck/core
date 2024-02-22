@@ -4,6 +4,7 @@ use crate::activity_pub::ApAddress;
 use crate::db::Db;
 use crate::helper::{get_local_identifier, LocalIdentifierType};
 use crate::schema::{self, profiles};
+use crate::FlexibleDb;
 use chrono::{DateTime, Utc};
 use diesel::prelude::*;
 use diesel::{AsChangeset, Identifiable, Insertable, Queryable};
@@ -58,14 +59,21 @@ pub struct Profile {
     pub summary_markdown: Option<String>,
 }
 
-pub async fn create_profile(conn: &Db, profile: NewProfile) -> Option<Profile> {
-    conn.run(move |c| {
-        diesel::insert_into(profiles::table)
+pub async fn create_profile(conn: FlexibleDb<'_>, profile: NewProfile) -> Option<Profile> {
+    match conn {
+        FlexibleDb::Db(conn) => conn
+            .run(move |c| {
+                diesel::insert_into(profiles::table)
+                    .values(&profile)
+                    .get_result::<Profile>(c)
+            })
+            .await
+            .ok(),
+        FlexibleDb::Pool(mut pool) => diesel::insert_into(profiles::table)
             .values(&profile)
-            .get_result::<Profile>(c)
-    })
-    .await
-    .ok()
+            .get_result::<Profile>(&mut pool)
+            .ok(),
+    }
 }
 
 pub async fn get_profile(conn: &Db, id: i32) -> Option<Profile> {

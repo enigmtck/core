@@ -30,13 +30,12 @@ use crate::{
     },
     schema::{notes, remote_notes},
     signing::{Method, SignParams},
-    MaybeReference,
+    MaybeReference, POOL,
 };
 
 use super::{
     actor::get_actor,
     timeline::{add_to_timeline, create_timeline_item},
-    POOL,
 };
 
 async fn cache_note(note: &'_ ApNote) -> &'_ ApNote {
@@ -59,7 +58,7 @@ async fn cache_note(note: &'_ ApNote) -> &'_ ApNote {
             }
 
             if let Some(twitter_image) = metadata.twitter_image.clone() {
-                let _ = cache_content(Ok(ApImage::from(twitter_image).into())).await;
+                cache_content(Ok(ApImage::from(twitter_image).into())).await;
             }
         }
     }

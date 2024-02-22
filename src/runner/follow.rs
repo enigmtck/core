@@ -17,10 +17,8 @@ use crate::{
         user::{get_profile, get_profile_by_ap_id},
     },
     schema::{followers, leaders},
-    MaybeReference,
+    MaybeReference, POOL,
 };
-
-use super::POOL;
 
 pub fn get_leader_by_actor_ap_id_and_profile(ap_id: String, profile_id: i32) -> Option<Leader> {
     if let Ok(mut conn) = POOL.get() {

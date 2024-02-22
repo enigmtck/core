@@ -6,12 +6,14 @@ use std::io;
 
 use crate::{
     activity_pub::{ApActivity, ApActor, ApAddress, ApUpdate},
+    admin::{create_user, NewUser},
     models::{followers::Follower, profiles::Profile},
     runner::send_to_inboxes,
     schema::{followers, profiles},
+    FlexibleDb, POOL,
 };
 
-use super::{actor::get_remote_actor_by_ap_id, POOL};
+use super::actor::get_remote_actor_by_ap_id;
 
 pub fn get_profile_by_ap_id(ap_id: String) -> Option<Profile> {
     let server_url = (*crate::SERVER_URL).clone();
@@ -108,19 +110,24 @@ pub fn send_profile_update(job: Job) -> io::Result<()> {
         log::debug!("LOOKING UP {uuid}");
         if let Some(profile) = get_profile_by_uuid(uuid.as_str().unwrap().to_string()) {
             log::debug!("FOUND PROFILE");
-            if let Ok(actor) = ApActor::try_from(profile.clone()) {
-                log::debug!("ACTOR\n{actor:#?}");
-                if let Ok(update) = ApUpdate::try_from(actor) {
-                    log::debug!("UPDATE\n{update:#?}");
-                    send_to_inboxes(
-                        get_follower_inboxes(profile.clone()),
-                        profile,
-                        ApActivity::Update(update),
-                    );
-                }
+            if let Ok(update) = ApUpdate::try_from(ApActor::from(profile.clone())) {
+                log::debug!("UPDATE\n{update:#?}");
+                send_to_inboxes(
+                    get_follower_inboxes(profile.clone()),
+                    profile,
+                    ApActivity::Update(update),
+                );
             }
         }
     }
 
     Ok(())
+}
+
+pub async fn create(user: NewUser) -> Option<Profile> {
+    if let Ok(conn) = POOL.get() {
+        create_user(FlexibleDb::Pool(conn), user).await
+    } else {
+        None
+    }
 }

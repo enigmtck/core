@@ -3,9 +3,8 @@ use diesel::prelude::*;
 use crate::{
     models::processing_queue::{NewProcessingItem, ProcessingItem},
     schema::processing_queue,
+    POOL,
 };
-
-use super::POOL;
 
 pub fn create_processing_item(processing_item: NewProcessingItem) -> Option<ProcessingItem> {
     if let Ok(mut conn) = POOL.get() {

@@ -1,7 +1,7 @@
-#[macro_use]
-extern crate rocket;
+use dotenvy::dotenv;
+use rocket::{Build, Rocket};
 
-use enigmatick::{
+use crate::{
     db::Db,
     fairings::{events::EventChannels, faktory::FaktoryConnection, mq::MqConnection},
     routes::api::{
@@ -16,8 +16,7 @@ use enigmatick::{
     routes::webfinger::*,
 };
 
-#[launch]
-fn rocket() -> _ {
+fn rocket() -> Rocket<Build> {
     if let Ok(profile) = std::env::var("PROFILE") {
         match profile.as_str() {
             "debug" => log4rs::init_file("log4rs.yml", Default::default()).unwrap(),
@@ -27,6 +26,8 @@ fn rocket() -> _ {
     } else {
         env_logger::init();
     }
+
+    dotenv().ok();
 
     rocket::build()
         .attach(FaktoryConnection::fairing())
@@ -86,4 +87,8 @@ fn rocket() -> _ {
                 cached_image
             ],
         )
+}
+
+pub async fn start() {
+    let _ = rocket().launch().await;
 }

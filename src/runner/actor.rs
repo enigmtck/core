@@ -11,9 +11,8 @@ use crate::{
     },
     runner::{cache::cache_content, follow::get_leader_by_actor_ap_id_and_profile},
     schema::{leaders, profiles, remote_actors},
+    POOL,
 };
-
-use super::POOL;
 
 pub fn get_remote_actor_by_ap_id(ap_id: String) -> Option<RemoteActor> {
     if let Ok(mut conn) = POOL.get() {

@@ -1,14 +1,20 @@
 #![allow(async_fn_in_trait)]
 extern crate log;
+
+#[macro_use]
 extern crate rocket;
 
 extern crate diesel;
 
 use activity_pub::{ApActivity, ApObject};
+use db::Db;
+use diesel::r2d2::{ConnectionManager, Pool};
+use diesel::PgConnection;
 use dotenvy::dotenv;
 use fairings::faktory::assign_to_faktory;
 use fairings::faktory::FaktoryConnection;
 use lazy_static::lazy_static;
+use r2d2::PooledConnection;
 use rocket::http::Status;
 use serde::{Deserialize, Serialize};
 use std::env;
@@ -26,13 +32,17 @@ pub mod outbox;
 pub mod routes;
 pub mod runner;
 pub mod schema;
+pub mod server;
 pub mod signing;
 pub mod webfinger;
 
 lazy_static! {
-    pub static ref DATABASE_URL: String = {
+    pub static ref POOL: Pool<ConnectionManager<PgConnection>> = {
         dotenv().ok();
-        env::var("DATABASE_URL").expect("DATABASE_URL must be set")
+        Pool::new(ConnectionManager::<PgConnection>::new(
+            env::var("DATABASE_URL").expect("DATABASE_URL must be set"),
+        ))
+        .expect("failed to create db pool")
     };
     pub static ref SERVER_URL: String = {
         dotenv().ok();
@@ -100,6 +110,12 @@ lazy_static! {
         dotenv().ok();
         env::var("INSTANCE_DESCRIPTION").expect("INSTANCE_DESCRIPTION must be set")
     };
+}
+
+#[allow(clippy::large_enum_variant)]
+pub enum FlexibleDb<'a> {
+    Db(&'a Db),
+    Pool(PooledConnection<ConnectionManager<PgConnection>>),
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]

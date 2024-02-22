@@ -27,7 +27,7 @@ COPY Cargo.* /opt/build/
 COPY src /opt/build/src
 COPY rust-toolchain.toml /opt/build
 
-RUN source /root/.cargo/env && cargo build --bin server --bin runner --release
+RUN source /root/.cargo/env && cargo build --bin enigmatick --release
 
 FROM ubuntu:22.04
 RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y \
@@ -38,8 +38,7 @@ RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y \
 
 RUN mkdir -p /srv/enigmatick
 WORKDIR /srv/enigmatick
-COPY --from=builder /opt/build/target/release/server ./
-COPY --from=builder /opt/build/target/release/runner ./
+COPY --from=builder /opt/build/target/release/enigmatick ./
 
 COPY docker/files/start /usr/local/bin/start
 RUN chmod a+x /usr/local/bin/start

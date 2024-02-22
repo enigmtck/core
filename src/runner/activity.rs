@@ -3,9 +3,8 @@ use diesel::prelude::*;
 use crate::{
     models::activities::{Activity, ExtendedActivity},
     schema::{activities, notes, profiles, remote_actors, remote_notes},
+    POOL,
 };
-
-use super::POOL;
 
 //pub type ExtendedActivity = (Activity, Option<Note>, Option<RemoteNote>, Option<Profile>, Option<RemoteActor>);
 pub fn get_activity_by_uuid(uuid: String) -> Option<ExtendedActivity> {

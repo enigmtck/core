@@ -15,9 +15,8 @@ use crate::{
         user::get_profile,
     },
     schema::activities,
+    POOL,
 };
-
-use super::POOL;
 
 pub fn send_announce(job: Job) -> io::Result<()> {
     log::debug!("SENDING ANNOUNCE");

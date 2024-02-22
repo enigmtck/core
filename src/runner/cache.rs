@@ -1,7 +1,7 @@
 use super::user::get_profile_by_username;
-use super::POOL;
 use crate::models::cache::{CacheItem, Cacheable, NewCacheItem};
 use crate::schema::cache;
+use crate::POOL;
 use anyhow::Result;
 use diesel::prelude::*;
 

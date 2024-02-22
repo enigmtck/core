@@ -1,6 +1,8 @@
 use std::collections::HashSet;
 
 use diesel::{r2d2::ConnectionManager, PgConnection};
+use dotenvy::dotenv;
+use faktory::ConsumerBuilder;
 use lapin::{options::BasicPublishOptions, BasicProperties, ConnectionProperties};
 use lazy_static::lazy_static;
 use reqwest::Client;
@@ -10,6 +12,18 @@ use url::Url;
 use crate::{
     activity_pub::{ApActivity, ApActor, ApAddress, ApNote},
     models::profiles::Profile,
+    runner::{
+        announce::{process_remote_announce, process_remote_undo_announce, send_announce},
+        encrypted::{process_join, provide_one_time_key, send_kexinit},
+        follow::{
+            acknowledge_followers, process_accept, process_follow, process_remote_undo_follow,
+        },
+        like::{process_remote_undo_like, send_like},
+        note::{delete_note, process_outbound_note, process_remote_note, retrieve_context},
+        timeline::update_timeline_record,
+        undo::process_outbound_undo,
+        user::send_profile_update,
+    },
     signing::{Method, SignParams},
     MaybeMultiple, MaybeReference,
 };
@@ -29,17 +43,8 @@ pub mod timeline;
 pub mod undo;
 pub mod user;
 
-type Pool = r2d2::Pool<ConnectionManager<PgConnection>>;
+pub type Pool = r2d2::Pool<ConnectionManager<PgConnection>>;
 pub type DbConnection = r2d2::PooledConnection<ConnectionManager<PgConnection>>;
-
-lazy_static! {
-    pub static ref POOL: Pool = {
-        let database_url = &*crate::DATABASE_URL;
-        log::debug!("database: {}", database_url);
-        let manager = ConnectionManager::<PgConnection>::new(database_url);
-        Pool::new(manager).expect("failed to create db pool")
-    };
-}
 
 pub fn clean_text(text: String) -> String {
     let ammonia = ammonia::Builder::default();
@@ -212,4 +217,39 @@ pub fn get_inboxes(activity: ApActivity, sender: Profile) -> Vec<ApAddress> {
     }
 
     inboxes.into_iter().collect()
+}
+
+pub fn start() {
+    env_logger::init();
+
+    let faktory_url = &*crate::FAKTORY_URL;
+
+    log::info!("STARTING FAKTORY CONSUMER: {}", faktory_url);
+
+    let mut consumer = ConsumerBuilder::default();
+    consumer.register("acknowledge_followers", acknowledge_followers);
+    consumer.register("provide_one_time_key", provide_one_time_key);
+    consumer.register("process_remote_note", process_remote_note);
+    consumer.register("process_join", process_join);
+    consumer.register("process_outbound_note", process_outbound_note);
+    consumer.register("process_remote_announce", process_remote_announce);
+    consumer.register("send_kexinit", send_kexinit);
+    consumer.register("update_timeline_record", update_timeline_record);
+    consumer.register("retrieve_context", retrieve_context);
+    consumer.register("send_like", send_like);
+    consumer.register("send_announce", send_announce);
+    consumer.register("delete_note", delete_note);
+    consumer.register("process_follow", process_follow);
+    consumer.register("process_accept", process_accept);
+    consumer.register("process_remote_undo_follow", process_remote_undo_follow);
+    consumer.register("send_profile_update", send_profile_update);
+    consumer.register("process_undo", process_outbound_undo);
+    consumer.register("process_remote_undo_announce", process_remote_undo_announce);
+    consumer.register("process_remote_undo_like", process_remote_undo_like);
+
+    let mut consumer = consumer.connect(Some(faktory_url)).unwrap();
+
+    if let Err(e) = consumer.run(&["default"]) {
+        log::error!("worker failed: {}", e);
+    }
 }

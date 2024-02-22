@@ -60,7 +60,7 @@ pub async fn cached_image(conn: Db, url: String) -> Result<(ContentType, NamedFi
                 log::debug!("DECODED CACHE URL: {url}");
                 if let Some(cache) = get_cache_item_by_url(&conn, url).await {
                     let path = format!("{}/cache/{}", &*crate::MEDIA_DIR, cache.uuid);
-                    let media_type = &cache.media_type.map_or("any".to_string(), |x| x);
+                    let media_type = &cache.clone().media_type.map_or("any".to_string(), |x| x);
 
                     if let Some(content_type) = ContentType::parse_flexible(media_type) {
                         NamedFile::open(path)

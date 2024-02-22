@@ -2,6 +2,7 @@ use crate::{
     admin::{self, NewUser},
     db::Db,
     models::profiles::Profile,
+    FlexibleDb,
 };
 use rocket::{http::Status, post, serde::json::Error, serde::json::Json};
 
@@ -13,7 +14,7 @@ pub async fn create_user(
     if let Ok(Json(user)) = user {
         log::debug!("CREATING USER\n{user:#?}");
 
-        if let Some(profile) = admin::create_user(&conn, user).await {
+        if let Some(profile) = admin::create_user(FlexibleDb::Db(&conn), user).await {
             Ok(Json(profile))
         } else {
             Err(Status::NoContent)

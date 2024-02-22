@@ -11,9 +11,9 @@ use crate::{
             TimelineItemTo,
         },
     },
-    runner::POOL,
     schema::{remote_notes, timeline_to},
     schema::{timeline, timeline_cc},
+    POOL,
 };
 
 use super::actor::{get_follower_profiles_by_endpoint, get_leader_by_endpoint};

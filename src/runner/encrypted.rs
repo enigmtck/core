@@ -25,9 +25,8 @@ use crate::{
         user::{get_profile, get_profile_by_username},
     },
     schema::{encrypted_sessions, olm_one_time_keys, olm_sessions, remote_encrypted_sessions},
+    POOL,
 };
-
-use super::POOL;
 
 pub fn handle_encrypted_note(
     note: &mut Note,
