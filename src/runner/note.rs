@@ -1,3 +1,5 @@
+use std::io::ErrorKind;
+
 use diesel::prelude::*;
 
 use faktory::Job;
@@ -6,20 +8,20 @@ use tokio::io;
 use tokio::runtime::Runtime;
 use url::Url;
 
-use crate::activity_pub::retriever::maybe_signed_get;
+use crate::activity_pub::retriever::signed_get;
 use crate::activity_pub::ApImage;
+use crate::models::profiles::guaranteed_profile;
 use crate::runner::cache::cache_content;
-use crate::runner::user::get_profile_by_username;
 use crate::{
     activity_pub::{ApActivity, ApAddress, ApNote, ApObject},
     helper::get_note_ap_id_from_uuid,
     models::{
+        activities::get_activity_by_uuid,
         notes::{Note, NoteType},
         profiles::Profile,
         remote_notes::{NewRemoteNote, RemoteNote},
     },
     runner::{
-        activity::get_activity_by_uuid,
         //encrypted::handle_encrypted_note,
         get_inboxes,
         processing::create_processing_item,
@@ -58,7 +60,7 @@ async fn cache_note(note: &'_ ApNote) -> &'_ ApNote {
             }
 
             if let Some(twitter_image) = metadata.twitter_image.clone() {
-                cache_content(Ok(ApImage::from(twitter_image).into())).await;
+                let _ = cache_content(Ok(ApImage::from(twitter_image).into())).await;
             }
         }
     }
@@ -82,6 +84,8 @@ pub fn create_or_update_remote_note(note: NewRemoteNote) -> Option<RemoteNote> {
 
 pub fn delete_note(job: Job) -> io::Result<()> {
     log::debug!("DELETING NOTE");
+    let runtime = Runtime::new().unwrap();
+    let handle = runtime.handle();
 
     for uuid in job.args() {
         let uuid = uuid.as_str().unwrap().to_string();
@@ -93,8 +97,9 @@ pub fn delete_note(job: Job) -> io::Result<()> {
             target_remote_note,
             target_profile,
             target_remote_actor,
-        )) = get_activity_by_uuid(uuid.clone())
-        {
+        )) = handle.block_on(async {
+            get_activity_by_uuid(POOL.get().expect("failed to get pool").into(), uuid.clone()).await
+        }) {
             log::debug!("FOUND ACTIVITY\n{activity:#?}");
             if let Some(profile_id) = activity.profile_id {
                 if let (Some(sender), Some(note)) = (get_profile(profile_id), target_note.clone()) {
@@ -108,8 +113,12 @@ pub fn delete_note(job: Job) -> io::Result<()> {
                         ),
                         None,
                     )) {
-                        let inboxes: Vec<ApAddress> = get_inboxes(activity.clone(), sender.clone());
-                        send_to_inboxes(inboxes, sender, activity.clone());
+                        let inboxes: Vec<ApAddress> = handle.block_on(async {
+                            get_inboxes(activity.clone(), sender.clone()).await
+                        });
+                        handle.block_on(async {
+                            send_to_inboxes(inboxes, sender, activity.clone()).await
+                        });
 
                         let ap_id = get_note_ap_id_from_uuid(note.uuid.clone());
 
@@ -131,9 +140,8 @@ pub fn delete_note(job: Job) -> io::Result<()> {
 
 pub fn process_outbound_note(job: Job) -> io::Result<()> {
     log::debug!("running process_outbound_note job");
-
-    let rt = Runtime::new().unwrap();
-    let handle = rt.handle();
+    let runtime = Runtime::new().unwrap();
+    let handle = runtime.handle();
 
     for uuid in job.args() {
         let uuid = uuid.as_str().unwrap().to_string();
@@ -144,8 +152,9 @@ pub fn process_outbound_note(job: Job) -> io::Result<()> {
             target_remote_note,
             target_profile,
             target_remote_actor,
-        )) = get_activity_by_uuid(uuid)
-        {
+        )) = handle.block_on(async {
+            get_activity_by_uuid(POOL.get().expect("failed to get pool").into(), uuid).await
+        }) {
             if let Some(profile_id) = activity.profile_id {
                 if let (Some(sender), Some(note)) = (get_profile(profile_id), target_note.clone()) {
                     let activity = match note.kind {
@@ -175,7 +184,9 @@ pub fn process_outbound_note(job: Job) -> io::Result<()> {
                     add_note_to_timeline(note, sender.clone());
 
                     if let Some(activity) = activity {
-                        let inboxes: Vec<ApAddress> = get_inboxes(activity.clone(), sender.clone());
+                        let inboxes: Vec<ApAddress> = handle.block_on(async {
+                            get_inboxes(activity.clone(), sender.clone()).await
+                        });
 
                         log::debug!("SENDING ACTIVITY\n{activity:#?}");
                         log::debug!("INBOXES\n{inboxes:#?}");
@@ -199,16 +210,15 @@ pub fn process_outbound_note(job: Job) -> io::Result<()> {
                                         .header("Content-Type", "application/activity+json")
                                         .body(body.unwrap());
 
-                                    handle.block_on(async {
-                                        if let Ok(resp) = client.send().await {
-                                            match resp.status() {
-                                                StatusCode::ACCEPTED | StatusCode::OK => {
-                                                    log::debug!("SENT TO {url}")
-                                                }
-                                                _ => log::error!("ERROR SENDING TO {url}"),
+                                    if let Ok(resp) = handle.block_on(async { client.send().await })
+                                    {
+                                        match resp.status() {
+                                            StatusCode::ACCEPTED | StatusCode::OK => {
+                                                log::debug!("SENT TO {url}")
                                             }
+                                            _ => log::error!("ERROR SENDING TO {url}"),
                                         }
-                                    })
+                                    }
                                 }
                             }
                         }
@@ -226,32 +236,34 @@ pub fn retrieve_context(job: Job) -> io::Result<()> {
 
     let rt = Runtime::new().unwrap();
     let handle = rt.handle();
+    let pool = POOL.get().map_err(|_| io::Error::from(ErrorKind::Other))?;
+    let profile = handle.block_on(async { guaranteed_profile(pool.into(), None).await });
 
     for ap_id in job.args() {
         let ap_id = ap_id.as_str().unwrap().to_string();
-        handle.block_on(async {
-            if let Some(note) = fetch_remote_note(ap_id.to_string()).await {
-                log::debug!("REPLIES\n{:#?}", note.replies);
+        let profile = profile.clone();
 
-                if let Some(replies) = ApNote::from(note).replies {
-                    if let Some(MaybeReference::Actual(_first)) = replies.first {}
-                }
+        if let Some(note) =
+            handle.block_on(async { fetch_remote_note(ap_id.to_string(), profile).await })
+        {
+            log::debug!("REPLIES\n{:#?}", note.replies);
+
+            if let Some(replies) = ApNote::from(note).replies {
+                if let Some(MaybeReference::Actual(_first)) = replies.first {}
             }
-        });
+        }
     }
 
     Ok(())
 }
 
-pub async fn fetch_remote_note(id: String) -> Option<RemoteNote> {
+pub async fn fetch_remote_note(id: String, profile: Profile) -> Option<RemoteNote> {
     log::debug!("PERFORMING REMOTE LOOKUP FOR NOTE: {id}");
 
     let _url = id.clone();
     let _method = Method::Get;
 
-    if let Ok(resp) =
-        maybe_signed_get(get_profile_by_username("justin".to_string()), id, false).await
-    {
+    if let Ok(resp) = signed_get(profile, id, false).await {
         match resp.status() {
             StatusCode::ACCEPTED | StatusCode::OK => match resp.json().await {
                 Ok(ApObject::Note(note)) => {
@@ -301,26 +313,25 @@ fn add_note_to_timeline(note: Note, sender: Profile) {
     // remote_actor representation (not the profile) for attributed_to data. In this case, the sender
     // and the note.attributed_to should represent the same person.
     if handle
-        .block_on(async { get_actor(Some(sender), note.clone().attributed_to).await })
+        .block_on(async { get_actor(sender, note.clone().attributed_to).await })
         .is_some()
     {
         if let Some(timeline_item) = create_timeline_item(note.clone().into()) {
-            add_to_timeline(Option::from(note.clone().ap_to), note.cc, timeline_item);
+            handle.block_on(async {
+                add_to_timeline(Option::from(note.clone().ap_to), note.cc, timeline_item).await
+            });
         }
     }
 }
 
-pub async fn handle_remote_note(remote_note: RemoteNote) -> RemoteNote {
+pub async fn handle_remote_note(remote_note: RemoteNote) -> anyhow::Result<RemoteNote> {
     log::debug!("HANDLING REMOTE NOTE");
 
     let note: ApNote = remote_note.clone().into();
+    let pool = POOL.get()?;
+    let profile = guaranteed_profile(pool.into(), None);
 
-    // we don't really need this actor - this is just to prompt pulling in assets as necessary
-    let _ = get_actor(
-        get_profile_by_username("justin".to_string()),
-        note.attributed_to.to_string(),
-    )
-    .await;
+    let _ = get_actor(profile.await, note.attributed_to.to_string()).await;
 
     let note = cache_note(&note).await.clone();
 
@@ -329,12 +340,13 @@ pub async fn handle_remote_note(remote_note: RemoteNote) -> RemoteNote {
             remote_note.clone().ap_to,
             remote_note.clone().cc,
             timeline_item,
-        );
+        )
+        .await;
 
         send_to_mq(note.clone()).await;
     }
 
-    remote_note
+    Ok(remote_note)
 }
 
 fn handle_remote_encrypted_note(remote_note: RemoteNote) -> io::Result<()> {

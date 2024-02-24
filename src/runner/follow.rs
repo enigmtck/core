@@ -1,60 +1,33 @@
-use diesel::prelude::*;
 use faktory::Job;
-use std::io;
+use std::io::{self, ErrorKind};
 use tokio::runtime::Runtime;
 
 use crate::{
     activity_pub::{sender::send_activity, ApAccept, ApActivity, ApAddress, ApFollow},
     models::{
-        followers::{Follower, NewFollower},
+        activities::{get_activity, get_activity_by_uuid},
+        followers::{create_follower, delete_follower_by_ap_id, NewFollower},
         //follows::Follow,
-        leaders::{Leader, NewLeader},
+        leaders::{create_leader, NewLeader},
     },
     runner::{
-        activity::{get_activity, get_activity_by_uuid},
         actor::get_actor,
         get_inboxes, send_to_inboxes,
         user::{get_profile, get_profile_by_ap_id},
     },
-    schema::{followers, leaders},
     MaybeReference, POOL,
 };
-
-pub fn get_leader_by_actor_ap_id_and_profile(ap_id: String, profile_id: i32) -> Option<Leader> {
-    if let Ok(mut conn) = POOL.get() {
-        match leaders::table
-            .filter(leaders::leader_ap_id.eq(ap_id))
-            .filter(leaders::profile_id.eq(profile_id))
-            .first::<Leader>(&mut conn)
-        {
-            Ok(x) => Option::from(x),
-            Err(_) => Option::None,
-        }
-    } else {
-        Option::None
-    }
-}
-
-// pub fn get_follow_by_uuid(uuid: String) -> Option<Follow> {
-//     if let Ok(mut conn) = POOL.get() {
-//         match follows::table
-//             .filter(follows::uuid.eq(uuid))
-//             .first::<Follow>(&mut conn)
-//         {
-//             Ok(x) => Option::from(x),
-//             Err(_) => Option::None,
-//         }
-//     } else {
-//         None
-//     }
-// }
 
 pub fn process_follow(job: Job) -> io::Result<()> {
     log::debug!("PROCESSING OUTGOING FOLLOW REQUEST");
 
+    let runtime = Runtime::new().unwrap();
+    let handle = runtime.handle();
+
     for uuid in job.args() {
         let uuid = uuid.as_str().unwrap().to_string();
         log::debug!("LOOKING FOR UUID {uuid}");
+        let pool = POOL.get().map_err(|_| io::Error::from(ErrorKind::Other))?;
 
         if let Some((
             activity,
@@ -62,7 +35,7 @@ pub fn process_follow(job: Job) -> io::Result<()> {
             target_remote_note,
             target_profile,
             target_remote_actor,
-        )) = get_activity_by_uuid(uuid.clone())
+        )) = handle.block_on(async { get_activity_by_uuid(pool.into(), uuid.clone()).await })
         {
             log::debug!("FOUND ACTIVITY\n{activity:#?}");
             if let Some(profile_id) = activity.profile_id {
@@ -77,8 +50,12 @@ pub fn process_follow(job: Job) -> io::Result<()> {
                         ),
                         None,
                     )) {
-                        let inboxes: Vec<ApAddress> = get_inboxes(activity.clone(), sender.clone());
-                        send_to_inboxes(inboxes, sender, activity.clone());
+                        let inboxes: Vec<ApAddress> = handle.block_on(async {
+                            get_inboxes(activity.clone(), sender.clone()).await
+                        });
+                        handle.block_on(async {
+                            send_to_inboxes(inboxes, sender, activity.clone()).await
+                        });
                     }
                 }
             }
@@ -88,33 +65,23 @@ pub fn process_follow(job: Job) -> io::Result<()> {
     Ok(())
 }
 
-pub fn create_leader(leader: NewLeader) -> Option<Leader> {
-    if let Ok(mut conn) = POOL.get() {
-        match diesel::insert_into(leaders::table)
-            .values(&leader)
-            .get_result::<Leader>(&mut conn)
-        {
-            Ok(x) => Some(x),
-            Err(e) => {
-                log::error!("{:#?}", e);
-                Option::None
-            }
-        }
-    } else {
-        Option::None
-    }
-}
-
 pub fn process_accept(job: Job) -> io::Result<()> {
     log::debug!("PROCESSING INCOMING ACCEPT REQUEST");
+
+    let runtime = Runtime::new().unwrap();
+    let handle = runtime.handle();
 
     for uuid in job.args() {
         let uuid = uuid.as_str().unwrap().to_string();
         log::debug!("UUID: {uuid}");
 
-        if let Some(extended_accept) = get_activity_by_uuid(uuid) {
+        if let Some(extended_accept) = handle.block_on(async {
+            get_activity_by_uuid(POOL.get().expect("failed to get pool").into(), uuid).await
+        }) {
             if let Some(follow_id) = extended_accept.0.target_activity_id {
-                if let Some(extended_follow) = get_activity(follow_id) {
+                if let Some(extended_follow) = handle.block_on(async {
+                    get_activity(POOL.get().expect("failed to get pool").into(), follow_id).await
+                }) {
                     if let Ok(ApActivity::Accept(accept)) =
                         (extended_accept, Some(extended_follow)).try_into()
                     {
@@ -125,7 +92,13 @@ pub fn process_accept(job: Job) -> io::Result<()> {
                                 if let Ok(mut leader) = NewLeader::try_from(*accept.clone()) {
                                     leader.link(profile);
 
-                                    if let Some(leader) = create_leader(leader) {
+                                    if let Some(leader) = handle.block_on(async {
+                                        create_leader(
+                                            POOL.get().expect("failed to get pool").into(),
+                                            leader,
+                                        )
+                                        .await
+                                    }) {
                                         log::debug!("LEADER CREATED: {}", leader.uuid);
                                     }
                                 }
@@ -146,58 +119,31 @@ pub enum DeleteLeaderError {
     DatabaseError(diesel::result::Error),
 }
 
-pub fn delete_leader_by_ap_id_and_profile_id(
-    ap_id: String,
-    profile_id: i32,
-) -> Result<usize, DeleteLeaderError> {
-    if let Ok(mut conn) = POOL.get() {
-        match diesel::delete(
-            leaders::table
-                .filter(leaders::leader_ap_id.eq(ap_id))
-                .filter(leaders::profile_id.eq(profile_id)),
-        )
-        .execute(&mut conn)
-        {
-            Ok(x) => Ok(x),
-            Err(e) => {
-                log::error!("FAILED TO DELETE LEADER\n{e:#?}");
-                Err(DeleteLeaderError::DatabaseError(e))
-            }
-        }
-    } else {
-        Err(DeleteLeaderError::ConnectionError)
-    }
-}
-
 #[derive(Debug)]
 pub enum DeleteFollowerError {
     ConnectionError,
     DatabaseError(diesel::result::Error),
 }
 
-pub fn delete_follower_by_ap_id(ap_id: String) -> Result<usize, DeleteFollowerError> {
-    if let Ok(mut conn) = POOL.get() {
-        match diesel::delete(followers::table.filter(followers::ap_id.eq(ap_id))).execute(&mut conn)
-        {
-            Ok(x) => Ok(x),
-            Err(e) => {
-                log::error!("FAILED TO DELETE FOLLOWER\n{e:#?}");
-                Err(DeleteFollowerError::DatabaseError(e))
-            }
-        }
-    } else {
-        Err(DeleteFollowerError::ConnectionError)
-    }
-}
-
 pub fn process_remote_undo_follow(job: Job) -> io::Result<()> {
     log::debug!("PROCESSING INCOMING UNDO FOLLOW REQUEST");
+
+    let rt = Runtime::new().unwrap();
+    let handle = rt.handle();
 
     for ap_id in job.args() {
         let ap_id = ap_id.as_str().unwrap().to_string();
         log::debug!("APID: {ap_id}");
 
-        if delete_follower_by_ap_id(ap_id.clone()).is_ok() {
+        if handle.block_on(async {
+            delete_follower_by_ap_id(
+                POOL.get()
+                    .expect("failed to get database connection")
+                    .into(),
+                ap_id.clone(),
+            )
+            .await
+        }) {
             log::info!("FOLLOWER RECORD DELETED: {ap_id}");
         }
     }
@@ -217,40 +163,49 @@ pub fn acknowledge_followers(job: Job) -> io::Result<()> {
         let uuid = uuid.as_str().unwrap().to_string();
         log::debug!("UUID: {uuid}");
 
-        if let Some(extended_follow) = get_activity_by_uuid(uuid) {
+        if let Some(extended_follow) = handle.block_on(async {
+            get_activity_by_uuid(POOL.get().expect("failed to get pool").into(), uuid).await
+        }) {
             if let Ok(follow) = ApFollow::try_from(extended_follow) {
                 if let Ok(accept) = ApAccept::try_from(follow.clone()) {
                     if let Some(profile) = get_profile_by_ap_id(accept.actor.clone().to_string()) {
-                        handle.block_on(async {
-                            if let Some((actor, _)) =
-                                get_actor(Some(profile.clone()), follow.actor.clone().to_string())
-                                    .await
-                            {
-                                let inbox = actor.inbox;
+                        if let Some((actor, _)) = handle.block_on(async {
+                            get_actor(profile.clone(), follow.actor.clone().to_string()).await
+                        }) {
+                            let inbox = actor.inbox;
 
-                                match send_activity(
+                            match handle.block_on(async {
+                                send_activity(
                                     ApActivity::Accept(Box::new(accept)),
                                     profile.clone(),
                                     inbox.clone(),
                                 )
                                 .await
-                                {
-                                    Ok(_) => {
-                                        log::info!("ACCEPT SENT: {inbox:#?}");
+                            }) {
+                                Ok(_) => {
+                                    log::info!("ACCEPT SENT: {inbox:#?}");
 
-                                        if let Ok(mut follower) = NewFollower::try_from(follow) {
-                                            follower.link(profile.clone());
+                                    if let Ok(mut follower) = NewFollower::try_from(follow) {
+                                        follower.link(profile.clone());
 
-                                            log::debug!("NEW FOLLOWER\n{follower:#?}");
-                                            if create_follower(follower).is_some() {
-                                                log::info!("FOLLOWER CREATED");
-                                            }
+                                        log::debug!("NEW FOLLOWER\n{follower:#?}");
+                                        if handle
+                                            .block_on(async {
+                                                create_follower(
+                                                    POOL.get().expect("failed to get pool").into(),
+                                                    follower,
+                                                )
+                                                .await
+                                            })
+                                            .is_some()
+                                        {
+                                            log::info!("FOLLOWER CREATED");
                                         }
                                     }
-                                    Err(e) => log::error!("ERROR SENDING ACCEPT: {e:#?}"),
                                 }
+                                Err(e) => log::error!("ERROR SENDING ACCEPT: {e:#?}"),
                             }
-                        });
+                        }
                     }
                 }
             }
@@ -258,21 +213,4 @@ pub fn acknowledge_followers(job: Job) -> io::Result<()> {
     }
 
     Ok(())
-}
-
-pub fn create_follower(follower: NewFollower) -> Option<Follower> {
-    if let Ok(mut conn) = POOL.get() {
-        match diesel::insert_into(followers::table)
-            .values(&follower)
-            .get_result::<Follower>(&mut conn)
-        {
-            Ok(x) => Some(x),
-            Err(e) => {
-                log::error!("{:#?}", e);
-                Option::None
-            }
-        }
-    } else {
-        Option::None
-    }
 }

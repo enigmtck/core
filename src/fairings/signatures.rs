@@ -72,8 +72,8 @@ impl<'r> FromRequest<'r> for Signed {
                     };
                     match verify(conn, verify_params.clone()).await {
                         Ok(t) => Outcome::Success(Signed(true, t)),
-                        Err(_) => {
-                            log::debug!("{verify_params:#?}");
+                        Err(e) => {
+                            log::debug!("{e:#?}");
                             Outcome::Error((Status::BadRequest, SignatureError::SignatureInvalid))
                         }
                     }

@@ -68,7 +68,10 @@ impl Inbox for Box<ApAccept> {
                 ) as ApActivityTarget)
                 {
                     log::debug!("ACTIVITY\n{activity:#?}");
-                    if create_activity(&conn, activity.clone()).await.is_some() {
+                    if create_activity((&conn).into(), activity.clone())
+                        .await
+                        .is_some()
+                    {
                         to_faktory(faktory, "process_accept", activity.uuid)
                     } else {
                         log::error!("FAILED TO CREATE ACTIVITY RECORD");

@@ -59,9 +59,9 @@ impl Inbox for ApUpdate {
 
                     if let Ok(new_remote_actor) = NewRemoteActor::try_from(actor.clone()) {
                         if actor.clone().id.unwrap_or_default() == self.actor.clone()
-                            && create_or_update_remote_actor(&conn, new_remote_actor)
+                            && create_or_update_remote_actor((&conn).into(), new_remote_actor)
                                 .await
-                                .is_some()
+                                .is_ok()
                         {
                             Ok(Status::Accepted)
                         } else {

@@ -1,20 +1,20 @@
 use faktory::Job;
 use std::io;
+use tokio::runtime::Runtime;
 
 use crate::{
     activity_pub::{ApActivity, ApAddress},
     helper::{get_local_identifier, LocalIdentifierType},
-    runner::{
-        activity::{get_activity, get_activity_by_uuid, revoke_activity_by_uuid},
-        follow::delete_leader_by_ap_id_and_profile_id,
-        get_inboxes, send_to_inboxes,
-        user::get_profile,
-    },
-    MaybeReference,
+    models::activities::{get_activity, get_activity_by_uuid, revoke_activity_by_uuid},
+    models::leaders::delete_leader_by_ap_id_and_profile_id,
+    runner::{get_inboxes, send_to_inboxes, user::get_profile},
+    MaybeReference, POOL,
 };
 
 pub fn process_outbound_undo(job: Job) -> io::Result<()> {
     log::debug!("PROCESSING OUTGOING UNDO REQUEST");
+    let runtime = Runtime::new().unwrap();
+    let handle = runtime.handle();
 
     for uuid in job.args() {
         let uuid = uuid.as_str().unwrap().to_string();
@@ -26,13 +26,16 @@ pub fn process_outbound_undo(job: Job) -> io::Result<()> {
             target_remote_note,
             target_profile,
             target_remote_actor,
-        )) = get_activity_by_uuid(uuid.clone())
-        {
+        )) = handle.block_on(async {
+            get_activity_by_uuid(POOL.get().expect("failed to get pool").into(), uuid.clone()).await
+        }) {
             if let Some(profile_id) = activity.profile_id {
                 if let (Some(sender), Some(id)) =
                     (get_profile(profile_id), activity.target_activity_id)
                 {
-                    let target_activity = get_activity(id);
+                    let target_activity = handle.block_on(async {
+                        get_activity(POOL.get().expect("failed to get pool").into(), id).await
+                    });
 
                     if let Ok(ap_activity) = ApActivity::try_from((
                         (
@@ -44,11 +47,14 @@ pub fn process_outbound_undo(job: Job) -> io::Result<()> {
                         ),
                         target_activity.clone(),
                     )) {
-                        let inboxes: Vec<ApAddress> =
-                            get_inboxes(ap_activity.clone(), sender.clone());
+                        let inboxes: Vec<ApAddress> = handle.block_on(async {
+                            get_inboxes(ap_activity.clone(), sender.clone()).await
+                        });
                         log::debug!("INBOXES\n{inboxes:#?}");
                         log::debug!("ACTIVITY\n{activity:#?}");
-                        send_to_inboxes(inboxes, sender, ap_activity.clone());
+                        handle.block_on(async {
+                            send_to_inboxes(inboxes, sender, ap_activity.clone()).await
+                        });
 
                         if let Some(target_activity) = target_activity {
                             if let Ok(target_activity) =
@@ -64,14 +70,14 @@ pub fn process_outbound_undo(job: Job) -> io::Result<()> {
                                                     if let MaybeReference::Reference(ap_id) =
                                                         follow.object
                                                     {
-                                                        if delete_leader_by_ap_id_and_profile_id(
+                                                        if handle.block_on(async { delete_leader_by_ap_id_and_profile_id(
+                                                            POOL.get().expect("failed to get database connection").into(),
                                                             ap_id, profile_id,
-                                                        )
-                                                        .is_ok()
-                                                            && revoke_activity_by_uuid(
+                                                        ).await })
+                                                            && handle.block_on(async { revoke_activity_by_uuid(
+                                                                POOL.get().expect("failed to get pool").into(),
                                                                 identifier.identifier,
-                                                            )
-                                                            .is_some()
+                                                            ).await.is_ok() })
                                                         {
                                                             log::info!("LEADER DELETED");
                                                         }
@@ -86,10 +92,17 @@ pub fn process_outbound_undo(job: Job) -> io::Result<()> {
                                             if let Some(identifier) = get_local_identifier(id) {
                                                 log::debug!("LIKE IDENTIFIER: {identifier:#?}");
                                                 if identifier.kind == LocalIdentifierType::Activity
-                                                    && revoke_activity_by_uuid(
-                                                        identifier.identifier,
-                                                    )
-                                                    .is_some()
+                                                    && handle
+                                                        .block_on(async {
+                                                            revoke_activity_by_uuid(
+                                                                POOL.get()
+                                                                    .expect("failed to get pool")
+                                                                    .into(),
+                                                                identifier.identifier,
+                                                            )
+                                                            .await
+                                                        })
+                                                        .is_ok()
                                                 {
                                                     log::info!("LIKE ACTIVITY REVOKED");
                                                 }
@@ -102,10 +115,17 @@ pub fn process_outbound_undo(job: Job) -> io::Result<()> {
                                             if let Some(identifier) = get_local_identifier(id) {
                                                 log::debug!("ANNOUNCE IDENTIFIER: {identifier:#?}");
                                                 if identifier.kind == LocalIdentifierType::Activity
-                                                    && revoke_activity_by_uuid(
-                                                        identifier.identifier,
-                                                    )
-                                                    .is_some()
+                                                    && handle
+                                                        .block_on(async {
+                                                            revoke_activity_by_uuid(
+                                                                POOL.get()
+                                                                    .expect("failed to get pool")
+                                                                    .into(),
+                                                                identifier.identifier,
+                                                            )
+                                                            .await
+                                                        })
+                                                        .is_ok()
                                                 {
                                                     log::info!("ANNOUNCE ACTIVITY REVOKED");
                                                 }

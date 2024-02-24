@@ -69,7 +69,10 @@ impl Inbox for Box<ApLike> {
                 ) as ApActivityTarget)
                 {
                     log::debug!("ACTIVITY\n{activity:#?}");
-                    if create_activity(&conn, activity.clone()).await.is_some() {
+                    if create_activity((&conn).into(), activity.clone())
+                        .await
+                        .is_some()
+                    {
                         Ok(Status::Accepted)
                     } else {
                         log::error!("FAILED TO INSERT LIKE ACTIVITY\n{raw}");
@@ -98,7 +101,7 @@ impl Outbox for Box<ApLike> {
         _events: EventChannels,
         profile: Profile,
     ) -> Result<String, Status> {
-        outbox::activity::like(conn, faktory, *self.clone(), profile).await
+        outbox::activity::like(&conn, faktory, *self.clone(), profile).await
     }
 }
 

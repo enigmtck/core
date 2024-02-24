@@ -59,8 +59,8 @@ impl Inbox for Box<ApDelete> {
         _faktory: FaktoryConnection,
         raw: Value,
     ) -> Result<Status, Status> {
-        async fn delete_actor(conn: Db, ap_id: String) -> Result<Status, Status> {
-            if delete_remote_actor_by_ap_id(&conn, ap_id).await {
+        async fn delete_actor(conn: &Db, ap_id: String) -> Result<Status, Status> {
+            if delete_remote_actor_by_ap_id(conn, ap_id).await {
                 log::debug!("REMOTE ACTOR RECORD DELETED");
                 Ok(Status::Accepted)
             } else {
@@ -107,7 +107,7 @@ impl Inbox for Box<ApDelete> {
                 }
                 ApObject::Identifier(obj) => {
                     if obj.id == self.actor.clone().to_string() {
-                        delete_actor(conn, obj.id).await
+                        delete_actor(&conn, obj.id).await
                     } else {
                         log::debug!("DOESN'T MATCH ACTOR; ASSUMING NOTE");
                         if delete_note(&conn, obj.clone().id).await.is_ok() {
@@ -124,7 +124,7 @@ impl Inbox for Box<ApDelete> {
             },
             MaybeReference::Reference(ap_id) => {
                 if ap_id == self.actor.clone().to_string() {
-                    delete_actor(conn, ap_id).await
+                    delete_actor(&conn, ap_id).await
                 } else {
                     log::debug!("DOESN'T MATCH ACTOR; ASSUMING NOTE");
                     if delete_note(&conn, ap_id.clone()).await.is_ok() {
@@ -150,7 +150,7 @@ impl Outbox for Box<ApDelete> {
         _events: EventChannels,
         profile: Profile,
     ) -> Result<String, Status> {
-        outbox::activity::delete(conn, faktory, *self.clone(), profile).await
+        outbox::activity::delete(&conn, faktory, *self.clone(), profile).await
     }
 }
 

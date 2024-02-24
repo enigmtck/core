@@ -2,9 +2,9 @@ use std::collections::HashSet;
 
 use crate::activity_pub::ApAddress;
 use crate::db::Db;
+use crate::db::FlexibleDb;
 use crate::helper::{get_local_identifier, LocalIdentifierType};
 use crate::schema::{self, profiles};
-use crate::FlexibleDb;
 use chrono::{DateTime, Utc};
 use diesel::prelude::*;
 use diesel::{AsChangeset, Identifiable, Insertable, Queryable};
@@ -82,20 +82,27 @@ pub async fn get_profile(conn: &Db, id: i32) -> Option<Profile> {
         .ok()
 }
 
-pub async fn get_profile_by_username(conn: &Db, username: String) -> Option<Profile> {
-    conn.run(move |c| {
-        profiles::table
+pub async fn get_profile_by_username(conn: FlexibleDb<'_>, username: String) -> Option<Profile> {
+    match conn {
+        FlexibleDb::Db(conn) => conn
+            .run(move |c| {
+                profiles::table
+                    .filter(profiles::username.eq(username))
+                    .first::<Profile>(c)
+            })
+            .await
+            .ok(),
+        FlexibleDb::Pool(mut pool) => profiles::table
             .filter(profiles::username.eq(username))
-            .first::<Profile>(c)
-    })
-    .await
-    .ok()
+            .first::<Profile>(&mut pool)
+            .ok(),
+    }
 }
 
 pub async fn get_profile_by_ap_id(conn: &Db, ap_id: String) -> Option<Profile> {
     if let Some(x) = get_local_identifier(ap_id) {
         if x.kind == LocalIdentifierType::User {
-            get_profile_by_username(conn, x.identifier).await
+            get_profile_by_username(conn.into(), x.identifier).await
         } else {
             Option::None
         }
@@ -202,4 +209,13 @@ pub async fn update_password_by_username(
     })
     .await
     .ok()
+}
+
+pub async fn guaranteed_profile(conn: FlexibleDb<'_>, profile: Option<Profile>) -> Profile {
+    match profile {
+        Some(profile) => profile,
+        None => get_profile_by_username(conn, (*crate::SERVER_NAME).clone())
+            .await
+            .expect("unable to retrieve system user"),
+    }
 }

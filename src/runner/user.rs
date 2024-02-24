@@ -3,17 +3,17 @@ use std::collections::HashSet;
 use diesel::prelude::*;
 use faktory::Job;
 use std::io;
+use tokio::runtime::Runtime;
 
 use crate::{
     activity_pub::{ApActivity, ApActor, ApAddress, ApUpdate},
     admin::{create_user, NewUser},
-    models::{followers::Follower, profiles::Profile},
+    db::FlexibleDb,
+    models::{followers::Follower, profiles::Profile, remote_actors::get_remote_actor_by_ap_id},
     runner::send_to_inboxes,
     schema::{followers, profiles},
-    FlexibleDb, POOL,
+    POOL,
 };
-
-use super::actor::get_remote_actor_by_ap_id;
 
 pub fn get_profile_by_ap_id(ap_id: String) -> Option<Profile> {
     let server_url = (*crate::SERVER_URL).clone();
@@ -27,13 +27,13 @@ pub fn get_profile_by_ap_id(ap_id: String) -> Option<Profile> {
             if let Some(username) = captures.get(1) {
                 get_profile_by_username(username.as_str().to_string())
             } else {
-                Option::None
+                None
             }
         } else {
-            Option::None
+            None
         }
     } else {
-        Option::None
+        None
     }
 }
 
@@ -44,7 +44,7 @@ pub fn get_profile_by_uuid(uuid: String) -> Option<Profile> {
             .first::<Profile>(&mut conn)
             .ok()
     } else {
-        Option::None
+        None
     }
 }
 
@@ -55,7 +55,7 @@ pub fn get_profile_by_username(username: String) -> Option<Profile> {
             .first::<Profile>(&mut conn)
             .ok()
     } else {
-        Option::None
+        None
     }
 }
 
@@ -63,15 +63,26 @@ pub fn get_profile(id: i32) -> Option<Profile> {
     if let Ok(mut conn) = POOL.get() {
         profiles::table.find(id).first::<Profile>(&mut conn).ok()
     } else {
-        Option::None
+        None
     }
 }
 
 pub fn get_follower_inboxes(profile: Profile) -> Vec<ApAddress> {
     let mut inboxes: HashSet<ApAddress> = HashSet::new();
 
+    let rt = Runtime::new().unwrap();
+    let handle = rt.handle();
+
     for follower in get_followers_by_profile_id(profile.id) {
-        if let Some(actor) = get_remote_actor_by_ap_id(follower.actor) {
+        if let Ok(actor) = handle.block_on(async {
+            get_remote_actor_by_ap_id(
+                POOL.get()
+                    .expect("failed to get database connection")
+                    .into(),
+                follower.actor,
+            )
+            .await
+        }) {
             let actor = ApActor::from(actor);
             if let Some(endpoints) = actor.endpoints {
                 inboxes.insert(ApAddress::Address(endpoints.shared_inbox));
@@ -102,6 +113,9 @@ pub fn get_followers_by_profile_id(profile_id: i32) -> Vec<Follower> {
 pub fn send_profile_update(job: Job) -> io::Result<()> {
     log::debug!("RUNNING SEND_PROFILE_UPDATE JOB");
 
+    let rt = Runtime::new().unwrap();
+    let handle = rt.handle();
+
     let uuids = job.args();
 
     log::debug!("UUIDS\n{uuids:#?}");
@@ -112,11 +126,14 @@ pub fn send_profile_update(job: Job) -> io::Result<()> {
             log::debug!("FOUND PROFILE");
             if let Ok(update) = ApUpdate::try_from(ApActor::from(profile.clone())) {
                 log::debug!("UPDATE\n{update:#?}");
-                send_to_inboxes(
-                    get_follower_inboxes(profile.clone()),
-                    profile,
-                    ApActivity::Update(update),
-                );
+                handle.block_on(async {
+                    send_to_inboxes(
+                        get_follower_inboxes(profile.clone()),
+                        profile,
+                        ApActivity::Update(update),
+                    )
+                    .await
+                });
             }
         }
     }

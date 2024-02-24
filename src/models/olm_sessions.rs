@@ -1,5 +1,5 @@
 use crate::activity_pub::ApInstrument;
-use crate::db::Db;
+use crate::db::{Db, FlexibleDb};
 use crate::schema::{encrypted_sessions, olm_sessions};
 use chrono::{DateTime, Utc};
 use diesel::prelude::*;
@@ -44,14 +44,24 @@ impl From<LinkedApInstrument> for NewOlmSession {
     }
 }
 
-pub async fn create_olm_session(conn: &Db, olm_session: NewOlmSession) -> Option<OlmSession> {
-    conn.run(move |c| {
-        diesel::insert_into(olm_sessions::table)
+pub async fn create_olm_session(
+    conn: FlexibleDb<'_>,
+    olm_session: NewOlmSession,
+) -> Option<OlmSession> {
+    match conn {
+        FlexibleDb::Db(conn) => conn
+            .run(move |c| {
+                diesel::insert_into(olm_sessions::table)
+                    .values(&olm_session)
+                    .get_result::<OlmSession>(c)
+            })
+            .await
+            .ok(),
+        FlexibleDb::Pool(mut pool) => diesel::insert_into(olm_sessions::table)
             .values(&olm_session)
-            .get_result::<OlmSession>(c)
-    })
-    .await
-    .ok()
+            .get_result::<OlmSession>(&mut pool)
+            .ok(),
+    }
 }
 
 pub async fn get_olm_session_by_uuid(
@@ -107,4 +117,34 @@ pub async fn update_olm_session_by_encrypted_session_id(
     })
     .await
     .ok()
+}
+
+pub async fn update_olm_session(
+    conn: FlexibleDb<'_>,
+    uuid: String,
+    session_data: String,
+    session_hash: String,
+) -> Option<OlmSession> {
+    match conn {
+        FlexibleDb::Db(conn) => conn
+            .run(move |c| {
+                diesel::update(olm_sessions::table.filter(olm_sessions::uuid.eq(uuid)))
+                    .set((
+                        olm_sessions::session_data.eq(session_data),
+                        olm_sessions::session_hash.eq(session_hash),
+                    ))
+                    .get_result::<OlmSession>(c)
+            })
+            .await
+            .ok(),
+        FlexibleDb::Pool(mut pool) => {
+            diesel::update(olm_sessions::table.filter(olm_sessions::uuid.eq(uuid)))
+                .set((
+                    olm_sessions::session_data.eq(session_data),
+                    olm_sessions::session_hash.eq(session_hash),
+                ))
+                .get_result::<OlmSession>(&mut pool)
+                .ok()
+        }
+    }
 }

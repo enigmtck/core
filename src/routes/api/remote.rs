@@ -41,7 +41,7 @@ pub async fn remote_id_authenticated(
     id: String,
 ) -> Result<String, Status> {
     if let Signed(true, VerificationType::Local) = signed {
-        if let Some(profile) = get_profile_by_username(&conn, username).await {
+        if let Some(profile) = get_profile_by_username((&conn).into(), username).await {
             if let Ok(id) = urlencoding::decode(&id) {
                 let id = (*id).to_string();
                 if let Some(actor) = get_actor(&conn, id, Some(profile), true).await {
@@ -98,7 +98,7 @@ async fn remote_actor_authenticated_response(
     webfinger: String,
 ) -> Result<Json<ApActor>, Status> {
     if let Signed(true, VerificationType::Local) = signed {
-        if let Some(profile) = get_profile_by_username(conn, username).await {
+        if let Some(profile) = get_profile_by_username(conn.into(), username).await {
             if let Some(ap_id) = get_ap_id_from_webfinger(webfinger).await {
                 log::debug!("RETRIEVING ACTOR WEBFINGER FROM REMOTE OR LOCAL PROFILE");
                 if let Some(actor) = get_actor(conn, ap_id, Some(profile), true).await {
@@ -185,7 +185,7 @@ pub async fn remote_followers_authenticated(
     page: Option<String>,
 ) -> Result<Json<ApObject>, Status> {
     if let Signed(true, VerificationType::Local) = signed {
-        if let Some(profile) = get_profile_by_username(&conn, username.clone()).await {
+        if let Some(profile) = get_profile_by_username((&conn).into(), username.clone()).await {
             if let Ok(Json(actor)) =
                 remote_actor_authenticated_response(signed, &conn, username, webfinger).await
             {
@@ -289,7 +289,7 @@ pub async fn remote_following_authenticated(
     page: Option<String>,
 ) -> Result<Json<ApObject>, Status> {
     if let Signed(true, VerificationType::Local) = signed {
-        if let Some(profile) = get_profile_by_username(&conn, username.clone()).await {
+        if let Some(profile) = get_profile_by_username((&conn).into(), username.clone()).await {
             if let Ok(Json(actor)) =
                 remote_actor_authenticated_response(signed, &conn, username, webfinger).await
             {
@@ -383,7 +383,7 @@ pub async fn remote_outbox_authenticated(
     page: Option<String>,
 ) -> Result<Json<ApObject>, Status> {
     if let Signed(true, VerificationType::Local) = signed {
-        if let Some(profile) = get_profile_by_username(&conn, username).await {
+        if let Some(profile) = get_profile_by_username((&conn).into(), username).await {
             if let Ok(Json(actor)) = remote_actor_response(&conn, webfinger).await {
                 if let Some(page) = page {
                     if let Ok(url) = urlencoding::decode(&page) {
@@ -442,7 +442,7 @@ pub async fn remote_note_authenticated(
     id: String,
 ) -> Result<Json<ApNote>, Status> {
     if let Signed(true, VerificationType::Local) = signed {
-        if let Some(profile) = get_profile_by_username(&conn, username).await {
+        if let Some(profile) = get_profile_by_username((&conn).into(), username).await {
             if let Some(note) = get_note(&conn, Some(profile), id).await {
                 log::debug!("{note:#?}");
                 Ok(Json(note))

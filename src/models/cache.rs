@@ -1,7 +1,8 @@
-use crate::activity_pub::retriever::maybe_signed_get;
+use crate::activity_pub::retriever::signed_get;
 use crate::activity_pub::{ApAttachment, ApDocument, ApImage, ApTag};
 use crate::db::Db;
-use crate::models::profiles::get_profile_by_username;
+use crate::db::FlexibleDb;
+use crate::models::profiles::{get_profile_by_username, guaranteed_profile};
 use crate::schema::cache;
 use anyhow::Result;
 use chrono::{DateTime, Utc};
@@ -15,6 +16,7 @@ use tokio::io::AsyncWriteExt;
 use super::profiles::Profile;
 
 async fn download_image(
+    conn: FlexibleDb<'_>,
     profile: Option<Profile>,
     cache_item: NewCacheItem,
 ) -> Result<NewCacheItem> {
@@ -23,7 +25,12 @@ async fn download_image(
     let path = format!("{}/cache/{}", &*crate::MEDIA_DIR, cache_item.uuid);
 
     // Send an HTTP GET request to the URL
-    let response = maybe_signed_get(profile, cache_item.url.clone(), true).await?;
+    let response = signed_get(
+        guaranteed_profile(conn, profile).await,
+        cache_item.url.clone(),
+        true,
+    )
+    .await?;
 
     log::debug!(
         "RESPONSE CODE FOR {}: {}",
@@ -99,15 +106,18 @@ pub async fn cache_content(conn: &Db, cacheable: Result<Cacheable>) {
             Cacheable::Document(document) => NewCacheItem::try_from(document),
             Cacheable::Image(image) => Ok(NewCacheItem::from(image)),
         } {
-            if get_cache_item_by_url(conn, cache_item.url.clone())
+            if get_cache_item_by_url(conn.into(), cache_item.url.clone())
                 .await
                 .is_none()
             {
                 if let Ok(cache_item) = cache_item
-                    .download(get_profile_by_username(conn, "justin".to_string()).await)
+                    .download(
+                        conn.into(),
+                        get_profile_by_username(conn.into(), (*crate::SERVER_NAME).clone()).await,
+                    )
                     .await
                 {
-                    create_cache_item(conn, cache_item).await;
+                    create_cache_item(conn.into(), cache_item).await;
                 }
             }
         }
@@ -126,8 +136,8 @@ pub struct NewCacheItem {
 }
 
 impl NewCacheItem {
-    pub async fn download(&self, profile: Option<Profile>) -> Result<Self> {
-        download_image(profile, self.clone()).await
+    pub async fn download(&self, conn: FlexibleDb<'_>, profile: Option<Profile>) -> Result<Self> {
+        download_image(conn, profile, self.clone()).await
     }
 }
 
@@ -180,15 +190,26 @@ pub struct CacheItem {
     pub blurhash: Option<String>,
 }
 
-async fn create_cache_item(conn: &Db, cache_item: NewCacheItem) -> Option<CacheItem> {
-    conn.run(move |c| {
-        diesel::insert_into(cache::table)
+pub async fn create_cache_item(
+    conn: FlexibleDb<'_>,
+    cache_item: NewCacheItem,
+) -> Option<CacheItem> {
+    match conn {
+        FlexibleDb::Db(conn) => conn
+            .run(move |c| {
+                diesel::insert_into(cache::table)
+                    .values(&cache_item)
+                    .on_conflict_do_nothing()
+                    .get_result::<CacheItem>(c)
+            })
+            .await
+            .ok(),
+        FlexibleDb::Pool(mut pool) => diesel::insert_into(cache::table)
             .values(&cache_item)
             .on_conflict_do_nothing()
-            .get_result::<CacheItem>(c)
-    })
-    .await
-    .ok()
+            .get_result::<CacheItem>(&mut pool)
+            .ok(),
+    }
 }
 
 pub async fn get_cache_item_by_uuid(conn: &Db, uuid: String) -> Option<CacheItem> {
@@ -201,12 +222,19 @@ pub async fn get_cache_item_by_uuid(conn: &Db, uuid: String) -> Option<CacheItem
     .ok()
 }
 
-pub async fn get_cache_item_by_url(conn: &Db, url: String) -> Option<CacheItem> {
-    conn.run(move |c| {
-        let query = cache::table.filter(cache::url.eq(url));
-
-        query.first::<CacheItem>(c)
-    })
-    .await
-    .ok()
+pub async fn get_cache_item_by_url(conn: FlexibleDb<'_>, url: String) -> Option<CacheItem> {
+    match conn {
+        FlexibleDb::Db(conn) => conn
+            .run(move |c| {
+                cache::table
+                    .filter(cache::url.eq(url))
+                    .first::<CacheItem>(c)
+            })
+            .await
+            .ok(),
+        FlexibleDb::Pool(mut pool) => cache::table
+            .filter(cache::url.eq(url))
+            .first::<CacheItem>(&mut pool)
+            .ok(),
+    }
 }

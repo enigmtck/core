@@ -96,6 +96,7 @@ pub enum VerificationType {
     None,
 }
 
+#[derive(Debug)]
 pub enum VerificationError {
     DecodeError,
     SignatureError,
@@ -138,7 +139,7 @@ pub async fn verify(conn: Db, params: VerifyParams) -> Result<VerificationType, 
 
     if local && key_selector == Some("client-key".to_string()) {
         if let Some(username) = username {
-            if let Some(profile) = get_profile_by_username(&conn, username).await {
+            if let Some(profile) = get_profile_by_username((&conn).into(), username).await {
                 if let Some(public_key) = profile.client_public_key {
                     RsaPublicKey::from_public_key_pem(&public_key)
                         .map_err(|_| VerificationError::PublicKeyError)
@@ -274,13 +275,13 @@ fn compute_signature(signing_key: &SigningKey<Sha256>, structured_data: &str) ->
 fn format_response_signature(actor: &ApActor, signature: &Signature, has_digest: bool) -> String {
     if has_digest {
         format!(
-            "keyId=\"{}#main-key\",algorithm=\"rsa-sha256\",headers=\"(request-target) host date digest\",signature=\"{}\"",
+            "keyId=\"{}\",algorithm=\"rsa-sha256\",headers=\"(request-target) host date digest\",signature=\"{}\"",
             actor.public_key.id,
             general_purpose::STANDARD.encode(signature.to_bytes())
         )
     } else {
         format!(
-            "keyId=\"{}#main-key\",algorithm=\"rsa-sha256\",headers=\"(request-target) host date\",signature=\"{}\"",
+            "keyId=\"{}\",algorithm=\"rsa-sha256\",headers=\"(request-target) host date\",signature=\"{}\"",
             actor.public_key.id,
             general_purpose::STANDARD.encode(signature.to_bytes())
         )

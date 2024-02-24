@@ -36,7 +36,7 @@ pub async fn note(
 
     if let Some(created_note) = create_note(&conn, new_note.clone()).await {
         if let Some(activity) = create_activity(
-            &conn,
+            (&conn).into(),
             NewActivity::from((
                 Some(created_note.clone()),
                 None,
@@ -109,7 +109,8 @@ pub async fn session(
 ) -> Result<String, Status> {
     let encrypted_session: NewEncryptedSession = (session.clone(), profile.id).into();
 
-    if let Some(session) = create_encrypted_session(&conn, encrypted_session.clone()).await {
+    if let Some(session) = create_encrypted_session((&conn).into(), encrypted_session.clone()).await
+    {
         if assign_to_faktory(
             faktory,
             String::from("send_kexinit"),

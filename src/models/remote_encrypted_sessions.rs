@@ -1,7 +1,9 @@
 use crate::activity_pub::{ApInvite, ApJoin, ApObject};
+use crate::db::FlexibleDb;
 use crate::schema::remote_encrypted_sessions;
 use crate::MaybeReference;
 use chrono::{DateTime, Utc};
+use diesel::prelude::*;
 use diesel::{AsChangeset, Identifiable, Insertable, Queryable};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -73,4 +75,24 @@ pub struct RemoteEncryptedSession {
     pub attributed_to: String,
     pub instrument: Value,
     pub reference: Option<String>,
+}
+
+pub async fn get_remote_encrypted_session_by_ap_id(
+    conn: FlexibleDb<'_>,
+    apid: String,
+) -> Option<RemoteEncryptedSession> {
+    match conn {
+        FlexibleDb::Db(conn) => conn
+            .run(move |c| {
+                remote_encrypted_sessions::table
+                    .filter(remote_encrypted_sessions::ap_id.eq(apid))
+                    .first::<RemoteEncryptedSession>(c)
+            })
+            .await
+            .ok(),
+        FlexibleDb::Pool(mut pool) => remote_encrypted_sessions::table
+            .filter(remote_encrypted_sessions::ap_id.eq(apid))
+            .first::<RemoteEncryptedSession>(&mut pool)
+            .ok(),
+    }
 }

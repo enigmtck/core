@@ -1,4 +1,3 @@
-use diesel::prelude::*;
 use std::collections::HashSet;
 use std::io;
 
@@ -12,43 +11,50 @@ use crate::{
     },
     helper::{get_local_identifier, is_local, LocalIdentifierType},
     models::{
-        encrypted_sessions::{EncryptedSession, NewEncryptedSession},
+        encrypted_sessions::{
+            create_encrypted_session, get_encrypted_session_by_profile_id_and_ap_to,
+            get_encrypted_session_by_uuid, NewEncryptedSession,
+        },
         notes::Note,
-        olm_one_time_keys::OlmOneTimeKey,
-        olm_sessions::{NewOlmSession, OlmSession},
+        olm_one_time_keys::get_olm_one_time_key_by_profile_id,
+        olm_sessions::{create_olm_session, update_olm_session},
         profiles::Profile,
-        remote_encrypted_sessions::RemoteEncryptedSession,
+        remote_actors::get_remote_actor_by_ap_id,
+        remote_encrypted_sessions::get_remote_encrypted_session_by_ap_id,
     },
     runner::{
-        actor::{get_actor, get_remote_actor_by_ap_id},
+        actor::get_actor,
         processing::create_processing_item,
         user::{get_profile, get_profile_by_username},
     },
-    schema::{encrypted_sessions, olm_one_time_keys, olm_sessions, remote_encrypted_sessions},
     POOL,
 };
 
-pub fn handle_encrypted_note(
+pub async fn handle_encrypted_note(
     note: &mut Note,
     inboxes: &mut HashSet<String>,
     sender: Profile,
 ) -> Option<ApNote> {
     log::debug!("ENCRYPTED NOTE\n{note:#?}");
 
-    fn do_it(
+    async fn do_it(
         instrument: ApInstrument,
         inboxes: &mut HashSet<String>,
         note: &mut Note,
         sender: Profile,
     ) {
-        let rt = Runtime::new().unwrap();
-        let handle = rt.handle();
-
         if let ApInstrumentType::OlmSession = instrument.kind {
             if let Ok(to) = serde_json::from_value::<Vec<String>>(note.ap_to.clone()) {
                 // save encrypted session
-                if let Some(encrypted_session) =
-                    get_encrypted_session_by_profile_id_and_ap_to(sender.id, to[0].clone())
+                if let Some((encrypted_session, _olm_session)) =
+                    get_encrypted_session_by_profile_id_and_ap_to(
+                        POOL.get()
+                            .expect("unable to get database connection")
+                            .into(),
+                        sender.id,
+                        to[0].clone(),
+                    )
+                    .await
                 {
                     if let (Some(uuid), Some(hash), Some(content)) = (
                         instrument.clone().uuid,
@@ -56,21 +62,31 @@ pub fn handle_encrypted_note(
                         instrument.clone().content,
                     ) {
                         log::debug!("FOUND UUID - UPDATING EXISTING SESSION");
-                        if let Some(_session) = update_olm_session(uuid, content, hash) {
-                            if let Some(receiver) = handle.block_on(async {
-                                get_actor(Some(sender.clone()), to[0].clone()).await
-                            }) {
+                        if let Some(_session) = update_olm_session(
+                            POOL.get()
+                                .expect("failed to get database connection")
+                                .into(),
+                            uuid,
+                            content,
+                            hash,
+                        )
+                        .await
+                        {
+                            if let Some(receiver) = get_actor(sender.clone(), to[0].clone()).await {
                                 inboxes.insert(receiver.0.inbox);
                             }
                         }
                     } else {
                         log::debug!("NO UUID - CREATING NEW SESSION");
-                        if let Some(_session) =
-                            create_olm_session((instrument, encrypted_session.id).into())
+                        if let Some(_session) = create_olm_session(
+                            POOL.get()
+                                .expect("failed to get database connection")
+                                .into(),
+                            (instrument, encrypted_session.id).into(),
+                        )
+                        .await
                         {
-                            if let Some(receiver) = handle.block_on(async {
-                                get_actor(Some(sender.clone()), to[0].clone()).await
-                            }) {
+                            if let Some(receiver) = get_actor(sender.clone(), to[0].clone()).await {
                                 inboxes.insert(receiver.0.inbox);
                             }
                         }
@@ -85,11 +101,11 @@ pub fn handle_encrypted_note(
             match instruments {
                 ApInstruments::Multiple(instruments) => {
                     for instrument in instruments {
-                        do_it(instrument, inboxes, note, sender.clone());
+                        do_it(instrument, inboxes, note, sender.clone()).await;
                     }
                 }
                 ApInstruments::Single(instrument) => {
-                    do_it(instrument, inboxes, note, sender);
+                    do_it(instrument, inboxes, note, sender).await;
                 }
                 _ => (),
             }
@@ -105,60 +121,38 @@ pub fn handle_encrypted_note(
     }
 }
 
-pub fn create_olm_session(session: NewOlmSession) -> Option<OlmSession> {
-    if let Ok(mut conn) = POOL.get() {
-        match diesel::insert_into(olm_sessions::table)
-            .values(&session)
-            .get_result::<OlmSession>(&mut conn)
-            .optional()
-        {
-            Ok(x) => x,
-            Err(_) => Option::None,
-        }
-    } else {
-        Option::None
-    }
-}
-
-pub fn update_olm_session(
-    uuid: String,
-    session_data: String,
-    session_hash: String,
-) -> Option<OlmSession> {
-    if let Ok(mut conn) = POOL.get() {
-        match diesel::update(olm_sessions::table.filter(olm_sessions::uuid.eq(uuid)))
-            .set((
-                olm_sessions::session_data.eq(session_data),
-                olm_sessions::session_hash.eq(session_hash),
-            ))
-            .get_result::<OlmSession>(&mut conn)
-            .optional()
-        {
-            Ok(x) => x,
-            Err(_) => Option::None,
-        }
-    } else {
-        None
-    }
-}
-
 pub fn process_join(job: Job) -> io::Result<()> {
     let ap_ids = job.args();
 
     log::debug!("RUNNING process_join JOB");
+    let rt = Runtime::new().unwrap();
+    let handle = rt.handle();
 
     for ap_id in ap_ids {
-        if let Some(session) =
-            get_remote_encrypted_session_by_ap_id(ap_id.as_str().unwrap().to_string())
-        {
+        if let Some(session) = handle.block_on(async {
+            get_remote_encrypted_session_by_ap_id(
+                POOL.get()
+                    .expect("failed to get database connection")
+                    .into(),
+                ap_id.as_str().unwrap().to_string(),
+            )
+            .await
+        }) {
             // this is the username of the Enigmatick user who received the Invite
-            if let Some(identifier) = get_local_identifier(session.ap_to.clone()) {
+            if let Some(identifier) = get_local_identifier(session.clone().ap_to.clone()) {
                 if identifier.kind == LocalIdentifierType::User {
                     let username = identifier.identifier;
                     if let Some(_profile) = get_profile_by_username(username.clone()) {
-                        if let Some(actor) =
-                            get_remote_actor_by_ap_id(session.attributed_to.clone())
-                        {
+                        let session_clone = session.clone();
+                        if let Ok(actor) = handle.block_on(async move {
+                            get_remote_actor_by_ap_id(
+                                POOL.get()
+                                    .expect("failed to get database connection")
+                                    .into(),
+                                session_clone.attributed_to,
+                            )
+                            .await
+                        }) {
                             log::debug!("ACTOR\n{actor:#?}");
                             //let session: ApSession = session.clone().into();
 
@@ -184,7 +178,15 @@ pub fn send_kexinit(job: Job) -> io::Result<()> {
     for uuid in job.args() {
         let uuid = uuid.as_str().unwrap().to_string();
 
-        if let Some(encrypted_session) = get_encrypted_session_by_uuid(uuid) {
+        if let Some((encrypted_session, _olm_session)) = handle.block_on(async {
+            get_encrypted_session_by_uuid(
+                POOL.get()
+                    .expect("failed to get database connection")
+                    .into(),
+                uuid,
+            )
+            .await
+        }) {
             if let Some(sender) = get_profile(encrypted_session.profile_id) {
                 let mut session: ApSession = encrypted_session.clone().into();
                 session.id = Option::from(format!(
@@ -203,9 +205,15 @@ pub fn send_kexinit(job: Job) -> io::Result<()> {
                             }
                         }
                     }
-                } else if let Some(actor) =
-                    get_remote_actor_by_ap_id(session.to.clone().to_string())
-                {
+                } else if let Ok(actor) = handle.block_on(async {
+                    get_remote_actor_by_ap_id(
+                        POOL.get()
+                            .expect("failed to get database connection")
+                            .into(),
+                        session.to.clone().to_string(),
+                    )
+                    .await
+                }) {
                     inbox = Option::from(actor.inbox);
                 }
 
@@ -235,20 +243,47 @@ pub fn send_kexinit(job: Job) -> io::Result<()> {
 pub fn provide_one_time_key(job: Job) -> io::Result<()> {
     log::debug!("RUNNING provide_one_time_key JOB");
 
+    let rt = Runtime::new().unwrap();
+    let handle = rt.handle();
+
     for ap_id in job.args() {
         let ap_id = ap_id.as_str().unwrap().to_string();
 
-        if let Some(session) = get_remote_encrypted_session_by_ap_id(ap_id) {
-            if let (Some(identifier), Some(actor)) = (
+        if let Some(session) = handle.block_on(async {
+            get_remote_encrypted_session_by_ap_id(
+                POOL.get()
+                    .expect("failed to get database connection")
+                    .into(),
+                ap_id,
+            )
+            .await
+        }) {
+            if let (Some(identifier), Ok(actor)) = (
                 get_local_identifier(session.ap_to.clone()),
-                get_remote_actor_by_ap_id(session.attributed_to.clone()),
+                handle.block_on(async {
+                    get_remote_actor_by_ap_id(
+                        POOL.get()
+                            .expect("failed to get database connection")
+                            .into(),
+                        session.attributed_to.clone(),
+                    )
+                    .await
+                }),
             ) {
                 if identifier.kind == LocalIdentifierType::User {
                     let username = identifier.identifier;
                     if let Some(profile) = get_profile_by_username(username.clone()) {
                         if let (Some(identity_key), Some(otk)) = (
                             profile.olm_identity_key.clone(),
-                            get_one_time_key(profile.id),
+                            handle.block_on(async {
+                                get_olm_one_time_key_by_profile_id(
+                                    POOL.get()
+                                        .expect("failed to get database connection")
+                                        .into(),
+                                    profile.id,
+                                )
+                                .await
+                            }),
                         ) {
                             let session = ApSession::from(JoinData {
                                 one_time_key: otk.key_data,
@@ -262,23 +297,31 @@ pub fn provide_one_time_key(job: Job) -> io::Result<()> {
                                 let encrypted_session: NewEncryptedSession =
                                     (session.clone(), profile.id).into();
 
-                                if create_encrypted_session(encrypted_session).is_some() {
-                                    let rt = Runtime::new().unwrap();
-                                    tokio::task::block_in_place(|| {
-                                        match rt.block_on(async {
-                                            send_activity(
-                                                ApActivity::Join(activity),
-                                                profile,
-                                                actor.inbox,
-                                            )
-                                            .await
-                                        }) {
-                                            Ok(_) => {
-                                                log::info!("JOIN SENT");
-                                            }
-                                            Err(e) => log::error!("ERROR SENDING JOIN: {e:#?}",),
+                                if handle.block_on(async {
+                                    create_encrypted_session(
+                                        POOL.get()
+                                            .expect("failed to get database connection")
+                                            .into(),
+                                        encrypted_session,
+                                    )
+                                    .await
+                                    .is_some()
+                                }) {
+                                    match handle.block_on(async {
+                                        send_activity(
+                                            ApActivity::Join(activity),
+                                            profile,
+                                            actor.inbox,
+                                        )
+                                        .await
+                                    }) {
+                                        Ok(_) => {
+                                            log::info!("JOIN SENT");
                                         }
-                                    });
+                                        Err(e) => {
+                                            log::error!("ERROR SENDING JOIN: {e:#?}",)
+                                        }
+                                    }
                                 } else {
                                     log::error!("FAILED TO SAVE ENCRYPTED SESSION");
                                 }
@@ -359,108 +402,3 @@ pub fn provide_one_time_key(job: Job) -> io::Result<()> {
 
 //     Ok(())
 // }
-
-pub fn create_encrypted_session(
-    encrypted_session: NewEncryptedSession,
-) -> Option<EncryptedSession> {
-    if let Ok(mut conn) = POOL.get() {
-        match diesel::insert_into(encrypted_sessions::table)
-            .values(&encrypted_session)
-            .get_result::<EncryptedSession>(&mut conn)
-        {
-            Ok(x) => Some(x),
-            Err(e) => {
-                log::error!("{:#?}", e);
-                Option::None
-            }
-        }
-    } else {
-        Option::None
-    }
-}
-
-pub fn get_encrypted_session_by_profile_id_and_ap_to(
-    profile_id: i32,
-    ap_to: String,
-) -> Option<EncryptedSession> {
-    if let Ok(mut conn) = POOL.get() {
-        match encrypted_sessions::table
-            .filter(encrypted_sessions::profile_id.eq(profile_id))
-            .filter(encrypted_sessions::ap_to.eq(ap_to))
-            .order(encrypted_sessions::updated_at.desc())
-            .first::<EncryptedSession>(&mut conn)
-        {
-            Ok(x) => Option::from(x),
-            Err(e) => {
-                log::error!("{:#?}", e);
-                Option::None
-            }
-        }
-    } else {
-        Option::None
-    }
-}
-
-pub fn get_encrypted_session_by_uuid(uuid: String) -> Option<EncryptedSession> {
-    log::debug!("looking for encrypted_session_by_uuid: {:#?}", uuid);
-    if let Ok(mut conn) = POOL.get() {
-        match encrypted_sessions::table
-            .filter(encrypted_sessions::uuid.eq(uuid))
-            .first::<EncryptedSession>(&mut conn)
-        {
-            Ok(x) => Option::from(x),
-            Err(e) => {
-                log::error!("{:#?}", e);
-                Option::None
-            }
-        }
-    } else {
-        Option::None
-    }
-}
-
-pub fn get_one_time_key(profile_id: i32) -> Option<OlmOneTimeKey> {
-    log::debug!("IN get_one_time_key");
-    if let Ok(mut conn) = POOL.get() {
-        if let Ok(Some(otk)) = olm_one_time_keys::table
-            .filter(olm_one_time_keys::profile_id.eq(profile_id))
-            .filter(olm_one_time_keys::distributed.eq(false))
-            .first::<OlmOneTimeKey>(&mut conn)
-            .optional()
-        {
-            log::debug!("OTK\n{otk:#?}");
-            match diesel::update(olm_one_time_keys::table.find(otk.id))
-                .set(olm_one_time_keys::distributed.eq(true))
-                .get_results::<OlmOneTimeKey>(&mut conn)
-            {
-                Ok(mut x) => x.pop(),
-                Err(e) => {
-                    log::error!("FAILED TO RETRIEVE OTK: {e:#?}");
-                    Option::None
-                }
-            }
-        } else {
-            Option::None
-        }
-    } else {
-        Option::None
-    }
-}
-
-pub fn get_remote_encrypted_session_by_ap_id(apid: String) -> Option<RemoteEncryptedSession> {
-    log::debug!("looking for remote_encrypted_session_by_ap_id: {:#?}", apid);
-    if let Ok(mut conn) = POOL.get() {
-        match remote_encrypted_sessions::table
-            .filter(remote_encrypted_sessions::ap_id.eq(apid))
-            .first::<RemoteEncryptedSession>(&mut conn)
-        {
-            Ok(x) => Option::from(x),
-            Err(e) => {
-                log::error!("{:#?}", e);
-                Option::None
-            }
-        }
-    } else {
-        Option::None
-    }
-}

@@ -39,11 +39,7 @@ fn main() {
     match args.command {
         Commands::Setup(args) => handle_setup(args),
         Commands::Runner => runner::start(),
-        Commands::Server => {
-            let rt = Runtime::new().unwrap();
-            let handle = rt.handle();
-            handle.block_on(async { server::start().await });
-        }
+        Commands::Server => server::start(),
     }
 }
 
@@ -57,7 +53,7 @@ fn handle_setup(args: SetupArgs) {
                 let rt = Runtime::new().unwrap();
                 let handle = rt.handle();
                 handle.block_on(async {
-                    runner::user::create(NewUser {
+                    if runner::user::create(NewUser {
                         username: server_name.clone(),
                         password: Alphanumeric.sample_string(&mut rand::thread_rng(), 16),
                         display_name: "System User".to_string(),
@@ -68,7 +64,13 @@ fn handle_setup(args: SetupArgs) {
                         olm_identity_key: None,
                         salt: None,
                     })
-                    .await;
+                    .await
+                    .is_some()
+                    {
+                        println!("system user created.");
+                    } else {
+                        println!("failed to create system user.");
+                    }
                 })
             }
         }

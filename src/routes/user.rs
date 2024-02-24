@@ -18,7 +18,7 @@ pub async fn person_redirect(username: String) -> Redirect {
 
 #[get("/user/<username>", rank = 2)]
 pub async fn person(conn: Db, username: String) -> Result<Json<ApActor>, Status> {
-    match get_profile_by_username(&conn, username).await {
+    match get_profile_by_username((&conn).into(), username).await {
         Some(profile) => Ok(Json(ApActor::from(profile).load_ephemeral(conn).await)),
         None => Err(Status::NoContent),
     }
@@ -26,7 +26,7 @@ pub async fn person(conn: Db, username: String) -> Result<Json<ApActor>, Status>
 
 #[get("/user/<username>/liked")]
 pub async fn liked_get(conn: Db, username: String) -> Result<Json<ApCollection>, Status> {
-    if let Some(_profile) = get_profile_by_username(&conn, username).await {
+    if let Some(_profile) = get_profile_by_username((&conn).into(), username).await {
         Ok(Json(ApCollection::default()))
     } else {
         Err(Status::NoContent)
@@ -41,7 +41,7 @@ pub async fn get_followers(
 ) -> Result<Json<ApCollection>, Status> {
     if let (Signed(true, VerificationType::Local), Some(profile)) = (
         signed,
-        get_profile_by_username(&conn, username.clone()).await,
+        get_profile_by_username((&conn).into(), username.clone()).await,
     ) {
         let followers = get_followers_by_profile_id(&conn, profile.id).await;
 
@@ -57,7 +57,7 @@ pub async fn get_followers(
                 })
                 .collect(),
         })))
-    } else if let Some(profile) = get_profile_by_username(&conn, username).await {
+    } else if let Some(profile) = get_profile_by_username((&conn).into(), username).await {
         let followers = get_followers_by_profile_id(&conn, profile.id).await;
 
         Ok(Json(ApCollection::from(FollowersPage {
@@ -81,7 +81,7 @@ pub async fn get_leaders(
 ) -> Result<Json<ApCollection>, Status> {
     if let (Signed(true, VerificationType::Local), Some(profile)) = (
         signed,
-        get_profile_by_username(&conn, username.clone()).await,
+        get_profile_by_username((&conn).into(), username.clone()).await,
     ) {
         let leaders = get_leaders_by_profile_id(&conn, profile.id).await;
 
@@ -97,7 +97,7 @@ pub async fn get_leaders(
                 })
                 .collect(),
         })))
-    } else if let Some(profile) = get_profile_by_username(&conn, username).await {
+    } else if let Some(profile) = get_profile_by_username((&conn).into(), username).await {
         let leaders = get_leaders_by_profile_id(&conn, profile.id).await;
 
         Ok(Json(ApCollection::from(LeadersPage {

@@ -6,8 +6,8 @@ use serde::Deserialize;
 use uuid::Uuid;
 
 use crate::db::Db;
+use crate::db::FlexibleDb;
 use crate::models::profiles::{create_profile, get_profile_by_username, NewProfile, Profile};
-use crate::FlexibleDb;
 
 struct KeyPair {
     private_key: RsaPrivateKey,
@@ -29,7 +29,7 @@ fn get_key_pair() -> KeyPair {
 pub async fn authenticate(conn: &Db, username: String, password_str: String) -> Option<Profile> {
     log::debug!("AUTHENTICATING {username} {password_str}");
     let password = pwhash::Password::from_slice(password_str.clone().as_bytes()).ok()?;
-    let profile = get_profile_by_username(conn, username.clone()).await?;
+    let profile = get_profile_by_username(conn.into(), username.clone()).await?;
     let encoded_password_hash = profile.clone().password?;
     let password_hash = pwhash::PasswordHash::from_encoded(&encoded_password_hash).ok()?;
 

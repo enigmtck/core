@@ -39,7 +39,7 @@ async fn get_actory(conn: &Db, id: String) -> (Option<Profile>, Option<RemoteAct
         if let Some(identifier) = get_local_identifier(id.clone()) {
             if identifier.kind == LocalIdentifierType::User {
                 (
-                    get_profile_by_username(conn, identifier.identifier).await,
+                    get_profile_by_username(conn.into(), identifier.identifier).await,
                     None,
                 )
             } else {
@@ -49,7 +49,7 @@ async fn get_actory(conn: &Db, id: String) -> (Option<Profile>, Option<RemoteAct
             (None, None)
         }
     } else {
-        (None, get_remote_actor_by_ap_id(conn, id).await)
+        (None, get_remote_actor_by_ap_id(conn.into(), id).await.ok())
     }
 }
 
@@ -83,10 +83,11 @@ pub async fn undo(
 
     log::debug!("TARGET_AP_ID: {target_ap_id:#?}");
     if let Some(target_ap_id) = target_ap_id {
-        if let Some((target_activity, _, _, _, _)) = get_activity_by_uuid(&conn, target_ap_id).await
+        if let Some((target_activity, _, _, _, _)) =
+            get_activity_by_uuid((&conn).into(), target_ap_id).await
         {
             if let Some(activity) = create_activity(
-                &conn,
+                (&conn).into(),
                 NewActivity::from((
                     target_activity,
                     ActivityType::Undo,
@@ -128,7 +129,7 @@ pub async fn follow(
 
         if actor.is_some() || remote_actor.is_some() {
             if let Some(activity) = create_activity(
-                &conn,
+                (&conn).into(),
                 NewActivity::from((
                     actor.clone(),
                     remote_actor.clone(),
@@ -161,24 +162,24 @@ pub async fn follow(
 }
 
 pub async fn like(
-    conn: Db,
+    conn: &Db,
     faktory: FaktoryConnection,
     like: ApLike,
     profile: Profile,
 ) -> Result<String, Status> {
     if let MaybeReference::Reference(id) = like.object {
-        let (note, remote_note) = get_notey(&conn, id).await;
+        let (note, remote_note) = get_notey(conn, id).await;
 
         if note.is_some() || remote_note.is_some() {
             if let Some(activity) = create_activity(
-                &conn,
+                conn.into(),
                 NewActivity::from((
                     note.clone(),
                     remote_note.clone(),
                     ActivityType::Like,
                     ApAddress::Address(get_ap_id_from_username(profile.username.clone())),
                 ))
-                .link_profile(&conn)
+                .link_profile(conn)
                 .await,
             )
             .await
@@ -204,24 +205,24 @@ pub async fn like(
 }
 
 pub async fn announce(
-    conn: Db,
+    conn: &Db,
     faktory: FaktoryConnection,
     announce: ApAnnounce,
     profile: Profile,
 ) -> Result<String, Status> {
     if let MaybeReference::Reference(id) = announce.object {
-        let (note, remote_note) = get_notey(&conn, id).await;
+        let (note, remote_note) = get_notey(conn, id).await;
 
         if note.is_some() || remote_note.is_some() {
             if let Some(activity) = create_activity(
-                &conn,
+                conn.into(),
                 NewActivity::from((
                     note.clone(),
                     remote_note.clone(),
                     ActivityType::Announce,
                     ApAddress::Address(get_ap_id_from_username(profile.username.clone())),
                 ))
-                .link_profile(&conn)
+                .link_profile(conn)
                 .await,
             )
             .await
@@ -247,22 +248,22 @@ pub async fn announce(
 }
 
 pub async fn delete(
-    conn: Db,
+    conn: &Db,
     faktory: FaktoryConnection,
     delete: ApDelete,
     profile: Profile,
 ) -> Result<String, Status> {
     if let MaybeReference::Reference(id) = delete.object {
-        if let (Some(note), None) = get_notey(&conn, id).await {
+        if let (Some(note), None) = get_notey(conn, id).await {
             if let Some(activity) = create_activity(
-                &conn,
+                conn.into(),
                 NewActivity::from((
                     Some(note.clone()),
                     None,
                     ActivityType::Delete,
                     ApAddress::Address(get_ap_id_from_username(profile.username.clone())),
                 ))
-                .link_profile(&conn)
+                .link_profile(conn)
                 .await,
             )
             .await

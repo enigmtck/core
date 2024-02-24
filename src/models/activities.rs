@@ -2,12 +2,13 @@ use crate::activity_pub::{
     ApAcceptType, ApActivity, ApAddress, ApAnnounceType, ApCreateType, ApFollowType, ApLikeType,
     ApUndoType,
 };
-use crate::db::Db;
+use crate::db::{Db, FlexibleDb};
 use crate::helper::{
     get_activity_ap_id_from_uuid, get_ap_id_from_username, get_note_ap_id_from_uuid,
 };
 use crate::schema::{activities, notes, profiles, remote_actors, remote_notes};
 use crate::MaybeReference;
+use anyhow::Result;
 use chrono::{DateTime, NaiveDateTime, Utc};
 use diesel::prelude::*;
 use diesel::{AsChangeset, Identifiable, Insertable, Queryable};
@@ -423,14 +424,21 @@ pub struct Activity {
     pub ap_id: Option<String>,
 }
 
-pub async fn create_activity(conn: &Db, activity: NewActivity) -> Option<Activity> {
-    conn.run(move |c| {
-        diesel::insert_into(activities::table)
+pub async fn create_activity(conn: FlexibleDb<'_>, activity: NewActivity) -> Option<Activity> {
+    match conn {
+        FlexibleDb::Db(conn) => conn
+            .run(move |c| {
+                diesel::insert_into(activities::table)
+                    .values(&activity)
+                    .get_result::<Activity>(c)
+            })
+            .await
+            .ok(),
+        FlexibleDb::Pool(mut pool) => diesel::insert_into(activities::table)
             .values(&activity)
-            .get_result::<Activity>(c)
-    })
-    .await
-    .ok()
+            .get_result::<Activity>(&mut pool)
+            .ok(),
+    }
 }
 
 pub type ExtendedActivity = (
@@ -441,26 +449,48 @@ pub type ExtendedActivity = (
     Option<RemoteActor>,
 );
 
-pub async fn get_activity_by_uuid(conn: &Db, uuid: String) -> Option<ExtendedActivity> {
-    conn.run(move |c| {
-        activities::table
-            .filter(activities::uuid.eq(uuid))
-            .left_join(notes::table.on(activities::target_note_id.eq(notes::id.nullable())))
-            .left_join(
-                remote_notes::table
-                    .on(activities::target_remote_note_id.eq(remote_notes::id.nullable())),
-            )
-            .left_join(
-                profiles::table.on(activities::target_profile_id.eq(profiles::id.nullable())),
-            )
-            .left_join(
-                remote_actors::table
-                    .on(activities::target_remote_actor_id.eq(remote_actors::id.nullable())),
-            )
-            .first::<ExtendedActivity>(c)
-    })
-    .await
-    .ok()
+pub async fn get_activity_by_uuid(conn: FlexibleDb<'_>, uuid: String) -> Option<ExtendedActivity> {
+    match conn {
+        FlexibleDb::Db(conn) => {
+            conn.run(move |c| {
+                activities::table
+                    .filter(activities::uuid.eq(uuid))
+                    .left_join(notes::table.on(activities::target_note_id.eq(notes::id.nullable())))
+                    .left_join(
+                        remote_notes::table
+                            .on(activities::target_remote_note_id.eq(remote_notes::id.nullable())),
+                    )
+                    .left_join(
+                        profiles::table.on(activities::target_profile_id.eq(profiles::id.nullable())),
+                    )
+                    .left_join(
+                        remote_actors::table
+                            .on(activities::target_remote_actor_id.eq(remote_actors::id.nullable())),
+                    )
+                    .first::<ExtendedActivity>(c)
+            })
+                .await
+                .ok()
+        }
+        FlexibleDb::Pool(mut pool) => {
+            activities::table
+                .filter(activities::uuid.eq(uuid))
+                .left_join(notes::table.on(activities::target_note_id.eq(notes::id.nullable())))
+                .left_join(
+                    remote_notes::table
+                        .on(activities::target_remote_note_id.eq(remote_notes::id.nullable())),
+                )
+                .left_join(
+                    profiles::table.on(activities::target_profile_id.eq(profiles::id.nullable())),
+                )
+                .left_join(
+                    remote_actors::table
+                        .on(activities::target_remote_actor_id.eq(remote_actors::id.nullable())),
+                )
+                .first::<ExtendedActivity>(&mut pool)
+                .ok()
+        }
+    }
 }
 
 pub async fn get_activity_by_apid(conn: &Db, ap_id: String) -> Option<ExtendedActivity> {
@@ -485,26 +515,48 @@ pub async fn get_activity_by_apid(conn: &Db, ap_id: String) -> Option<ExtendedAc
     .ok()
 }
 
-pub async fn get_activity(conn: &Db, id: i32) -> Option<ExtendedActivity> {
-    conn.run(move |c| {
-        activities::table
-            .find(id)
-            .left_join(notes::table.on(activities::target_note_id.eq(notes::id.nullable())))
-            .left_join(
-                remote_notes::table
-                    .on(activities::target_remote_note_id.eq(remote_notes::id.nullable())),
-            )
-            .left_join(
-                profiles::table.on(activities::target_profile_id.eq(profiles::id.nullable())),
-            )
-            .left_join(
-                remote_actors::table
-                    .on(activities::target_remote_actor_id.eq(remote_actors::id.nullable())),
-            )
-            .first::<ExtendedActivity>(c)
-    })
-    .await
-    .ok()
+pub async fn get_activity(conn: FlexibleDb<'_>, id: i32) -> Option<ExtendedActivity> {
+    match conn {
+        FlexibleDb::Db(conn) => {
+            conn.run(move |c| {
+                activities::table
+                    .find(id)
+                    .left_join(notes::table.on(activities::target_note_id.eq(notes::id.nullable())))
+                    .left_join(
+                        remote_notes::table
+                            .on(activities::target_remote_note_id.eq(remote_notes::id.nullable())),
+                    )
+                    .left_join(
+                        profiles::table.on(activities::target_profile_id.eq(profiles::id.nullable())),
+                    )
+                    .left_join(
+                        remote_actors::table
+                            .on(activities::target_remote_actor_id.eq(remote_actors::id.nullable())),
+                    )
+                    .first::<ExtendedActivity>(c)
+            })
+                .await
+                .ok()
+        }
+        FlexibleDb::Pool(mut pool) => {
+            activities::table
+                .find(id)
+                .left_join(notes::table.on(activities::target_note_id.eq(notes::id.nullable())))
+                .left_join(
+                    remote_notes::table
+                        .on(activities::target_remote_note_id.eq(remote_notes::id.nullable())),
+                )
+                .left_join(
+                    profiles::table.on(activities::target_profile_id.eq(profiles::id.nullable())),
+                )
+                .left_join(
+                    remote_actors::table
+                        .on(activities::target_remote_actor_id.eq(remote_actors::id.nullable())),
+                )
+                .first::<ExtendedActivity>(&mut pool)
+                .ok()
+        }
+    }
 }
 
 pub async fn get_activity_by_kind_profile_id_and_target_ap_id(
@@ -618,4 +670,66 @@ pub async fn get_outbox_activities_by_profile_id(
     })
     .await
     .unwrap_or(vec![])
+}
+
+pub async fn revoke_activity_by_uuid(conn: FlexibleDb<'_>, uuid: String) -> Result<Activity> {
+    match conn {
+        FlexibleDb::Db(conn) => {
+            conn.run(move |c| {
+                diesel::update(activities::table.filter(activities::uuid.eq(uuid)))
+                    .set(activities::revoked.eq(true))
+                    .get_result::<Activity>(c)
+                    .map_err(anyhow::Error::msg)
+            })
+            .await
+        }
+        FlexibleDb::Pool(mut pool) => {
+            diesel::update(activities::table.filter(activities::uuid.eq(uuid)))
+                .set(activities::revoked.eq(true))
+                .get_result::<Activity>(&mut pool)
+                .map_err(anyhow::Error::msg)
+        }
+    }
+}
+
+pub async fn revoke_activity_by_apid(conn: FlexibleDb<'_>, ap_id: String) -> Result<Activity> {
+    match conn {
+        FlexibleDb::Db(conn) => {
+            conn.run(move |c| {
+                diesel::update(activities::table.filter(activities::ap_id.eq(ap_id)))
+                    .set(activities::revoked.eq(true))
+                    .get_result::<Activity>(c)
+                    .map_err(anyhow::Error::msg)
+            })
+            .await
+        }
+        FlexibleDb::Pool(mut pool) => {
+            diesel::update(activities::table.filter(activities::ap_id.eq(ap_id)))
+                .set(activities::revoked.eq(true))
+                .get_result::<Activity>(&mut pool)
+                .map_err(anyhow::Error::msg)
+        }
+    }
+}
+
+pub async fn update_target_remote_note(
+    conn: FlexibleDb<'_>,
+    activity: Activity,
+    remote_note: RemoteNote,
+) -> Option<usize> {
+    match conn {
+        FlexibleDb::Db(conn) => {
+            conn.run(move |c| {
+                diesel::update(activities::table.find(activity.id))
+                    .set(activities::target_remote_note_id.eq(remote_note.id))
+                    .execute(c)
+                    .ok()
+            })
+            .await
+        }
+        FlexibleDb::Pool(mut pool) => diesel::update(activities::table.find(activity.id))
+            .set(activities::target_remote_note_id.eq(remote_note.id))
+            .execute(&mut pool)
+            .ok(),
+    }
 }

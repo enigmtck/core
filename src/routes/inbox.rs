@@ -20,9 +20,10 @@ pub async fn inbox_get(
     offset: u16,
     limit: u8,
 ) -> Result<Json<ApObject>, Status> {
-    if let (Some(profile), Signed(true, VerificationType::Local)) =
-        (get_profile_by_username(&conn, username).await, signed)
-    {
+    if let (Some(profile), Signed(true, VerificationType::Local)) = (
+        get_profile_by_username((&conn).into(), username).await,
+        signed,
+    ) {
         let inbox = inbox::retrieve::inbox(&conn, limit.into(), offset.into(), profile).await;
         Ok(Json(inbox))
     } else {
@@ -37,12 +38,11 @@ pub async fn timeline(conn: Db, offset: u16, limit: u8) -> Result<Json<ApObject>
     ))
 }
 
-#[post("/user/<username>/inbox", data = "<activity>")]
+#[post("/user/<_>/inbox", data = "<activity>")]
 pub async fn inbox_post(
     signed: Signed,
     conn: Db,
     faktory: FaktoryConnection,
-    username: String,
     activity: String,
 ) -> Result<Status, Status> {
     shared_inbox_post(signed, conn, faktory, activity).await
@@ -85,9 +85,10 @@ pub async fn conversation_get(
     limit: u8,
     conversation: String,
 ) -> Result<Json<ApObject>, Status> {
-    if let (Some(_profile), Signed(true, VerificationType::Local)) =
-        (get_profile_by_username(&conn, username).await, signed)
-    {
+    if let (Some(_profile), Signed(true, VerificationType::Local)) = (
+        get_profile_by_username((&conn).into(), username).await,
+        signed,
+    ) {
         if let Ok(conversation) = urlencoding::decode(&conversation.clone()) {
             let inbox = inbox::retrieve::conversation(
                 &conn,

@@ -32,7 +32,7 @@ pub async fn outbox_get(
     min: Option<i64>,
     max: Option<i64>,
 ) -> Result<Json<ApObject>, Status> {
-    if let Some(profile) = get_profile_by_username(&conn, username.clone()).await {
+    if let Some(profile) = get_profile_by_username((&conn).into(), username.clone()).await {
         if page.is_none() || !page.unwrap() {
             Ok(Json(ApObject::Collection(
                 ApCollection::default()
@@ -158,7 +158,7 @@ pub async fn outbox_post(
     log::debug!("POSTING TO OUTBOX\n{object:#?}");
 
     if let Signed(true, VerificationType::Local) = signed {
-        match get_profile_by_username(&conn, username).await {
+        match get_profile_by_username((&conn).into(), username).await {
             Some(profile) => match object {
                 Ok(object) => match object {
                     Json(ActivityPub::Activity(activity)) => {

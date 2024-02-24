@@ -61,7 +61,10 @@ impl Inbox for ApAnnounce {
     ) -> Result<Status, Status> {
         if let Ok(activity) = NewActivity::try_from((ApActivity::Announce(self.clone()), None)) {
             log::debug!("ACTIVITY\n{activity:#?}");
-            if create_activity(&conn, activity.clone()).await.is_some() {
+            if create_activity((&conn).into(), activity.clone())
+                .await
+                .is_some()
+            {
                 to_faktory(faktory, "process_remote_announce", activity.uuid.clone())
             } else {
                 log::error!("FAILED TO CREATE ACTIVITY\n{raw}");
@@ -82,7 +85,7 @@ impl Outbox for ApAnnounce {
         _events: EventChannels,
         profile: Profile,
     ) -> Result<String, Status> {
-        outbox::activity::announce(conn, faktory, self.clone(), profile).await
+        outbox::activity::announce(&conn, faktory, self.clone(), profile).await
     }
 }
 

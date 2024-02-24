@@ -11,6 +11,7 @@ use crate::db::Db;
 use crate::models::cache::Cache;
 use crate::models::leaders::get_leader_by_actor_ap_id_and_profile;
 use crate::models::profiles::get_profile_by_ap_id;
+use crate::models::profiles::guaranteed_profile;
 use crate::models::profiles::Profile;
 use crate::models::remote_actors::create_or_update_remote_actor;
 use crate::models::remote_actors::get_remote_actor_by_ap_id;
@@ -30,7 +31,9 @@ pub async fn get_remote_collection_page(
     profile: Option<Profile>,
     url: String,
 ) -> Option<ApCollectionPage> {
-    if let Ok(response) = maybe_signed_get(profile, url, false).await {
+    if let Ok(response) =
+        signed_get(guaranteed_profile(conn.into(), profile).await, url, false).await
+    {
         let page = response.json::<ApCollectionPage>().await.ok()?;
         Some(page.cache(conn).await.clone())
     } else {
@@ -43,7 +46,9 @@ pub async fn get_remote_collection(
     profile: Option<Profile>,
     url: String,
 ) -> Option<ApCollection> {
-    if let Ok(response) = maybe_signed_get(profile, url, false).await {
+    if let Ok(response) =
+        signed_get(guaranteed_profile(conn.into(), profile).await, url, false).await
+    {
         let page = response.json::<ApCollection>().await.ok()?;
         Some(page.cache(conn).await.clone())
     } else {
@@ -105,7 +110,7 @@ pub async fn get_remote_webfinger(acct: String) -> Option<WebFinger> {
 pub async fn get_note(conn: &Db, profile: Option<Profile>, id: String) -> Option<ApNote> {
     match get_remote_note_by_ap_id(conn, id.clone()).await {
         Some(remote_note) => Some(ApNote::from(remote_note).cache(conn).await.clone()),
-        None => match maybe_signed_get(profile, id, false).await {
+        None => match signed_get(guaranteed_profile(conn.into(), profile).await, id, false).await {
             Ok(resp) => match resp.status() {
                 StatusCode::ACCEPTED | StatusCode::OK => {
                     let text = resp.text().await.ok()?;
@@ -146,7 +151,7 @@ pub async fn get_local_or_cached_actor(
         } else {
             Some(actor_profile.into())
         }
-    } else if let Some(remote_actor) = get_remote_actor_by_ap_id(conn, id.clone()).await {
+    } else if let Ok(remote_actor) = get_remote_actor_by_ap_id(conn.into(), id.clone()).await {
         let now = Utc::now();
         let updated = remote_actor.checked_at;
 
@@ -170,7 +175,7 @@ pub async fn process_remote_actor_retrieval(
     profile: Option<Profile>,
     id: String,
 ) -> Result<ApActor> {
-    let response = maybe_signed_get(profile, id, false).await?;
+    let response = signed_get(guaranteed_profile(conn.into(), profile).await, id, false).await?;
 
     match response.status() {
         StatusCode::ACCEPTED | StatusCode::OK => {
@@ -178,8 +183,9 @@ pub async fn process_remote_actor_retrieval(
             let actor = serde_json::from_str::<ApActor>(&text)?;
             let actor = NewRemoteActor::try_from(actor.cache(conn).await.clone())
                 .map_err(anyhow::Error::msg)?;
-            create_or_update_remote_actor(conn, actor)
+            create_or_update_remote_actor(conn.into(), actor)
                 .await
+                .ok()
                 .map(ApActor::from)
                 .context("failed to create or update remote actor")
         }
@@ -204,11 +210,7 @@ pub async fn get_actor(
     }
 }
 
-pub async fn maybe_signed_get(
-    profile: Option<Profile>,
-    url: String,
-    accept_any: bool,
-) -> Result<Response> {
+pub async fn signed_get(profile: Profile, url: String, accept_any: bool) -> Result<Response> {
     let client = Client::builder();
     let client = client.user_agent("Enigmatick/0.1").build().unwrap();
 
@@ -224,29 +226,21 @@ pub async fn maybe_signed_get(
     let method = Method::Get;
     let url = Url::parse(url_str)?;
 
-    let client = {
-        if let Some(profile) = profile {
-            log::debug!("SIGNING REQUEST FOR REMOTE RESOURCE");
-            let signature = sign(SignParams {
-                profile,
-                url,
-                body,
-                method,
-            })?;
+    log::debug!("SIGNING REQUEST FOR REMOTE RESOURCE");
+    let signature = sign(SignParams {
+        profile,
+        url,
+        body,
+        method,
+    })?;
 
-            client
-                .get(url_str)
-                .timeout(std::time::Duration::new(15, 0))
-                .header("Signature", &signature.signature)
-                .header("Date", signature.date)
-                .header("Accept", accept)
-        } else {
-            client
-                .get(url_str)
-                .header("Accept", accept)
-                .timeout(std::time::Duration::new(15, 0))
-        }
-    };
-
-    client.send().await.map_err(anyhow::Error::msg)
+    client
+        .get(url_str)
+        .timeout(std::time::Duration::new(5, 0))
+        .header("Accept", accept)
+        .header("Signature", &signature.signature)
+        .header("Date", signature.date)
+        .send()
+        .await
+        .map_err(anyhow::Error::msg)
 }

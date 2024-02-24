@@ -17,6 +17,7 @@ use crate::{
     },
     signing::VerificationType,
 };
+use base64::{engine::general_purpose, engine::Engine as _};
 use rocket::{get, http::Status, post, serde::json::Error, serde::json::Json};
 use serde::{Deserialize, Serialize};
 
@@ -27,7 +28,7 @@ pub async fn get_sessions(
     username: String,
 ) -> Result<Json<ApObject>, Status> {
     //  if let Signed(true, VerificationType::Local) = signed {
-    if let Some(profile) = get_profile_by_username(&conn, username).await {
+    if let Some(profile) = get_profile_by_username((&conn).into(), username).await {
         let sessions: Vec<(EncryptedSession, Option<OlmSession>)> =
             get_encrypted_sessions_by_profile_id(&conn, profile.id).await;
 
@@ -55,11 +56,12 @@ pub async fn get_olm_session(
     encoded: String,
 ) -> Result<Json<ApSession>, Status> {
     //  if let Signed(true, VerificationType::Local) = signed {
-    if let Some(profile) = get_profile_by_username(&conn, username).await {
-        if let Ok(id) = base64::decode(encoded) {
+    if let Some(profile) = get_profile_by_username((&conn).into(), username).await {
+        if let Ok(id) = general_purpose::STANDARD.decode(encoded) {
             if let Ok(id) = String::from_utf8(id) {
                 if let Some((encrypted_session, olm_session)) =
-                    get_encrypted_session_by_profile_id_and_ap_to(&conn, profile.id, id).await
+                    get_encrypted_session_by_profile_id_and_ap_to((&conn).into(), profile.id, id)
+                        .await
                 {
                     Ok(Json((encrypted_session.into(), olm_session).into()))
                 } else {
@@ -85,7 +87,7 @@ pub async fn get_processing_queue(
     username: String,
 ) -> Result<Json<ApObject>, Status> {
     if let Signed(true, VerificationType::Local) = signed {
-        if let Some(profile) = get_profile_by_username(&conn, username).await {
+        if let Some(profile) = get_profile_by_username((&conn).into(), username).await {
             let l = processing_queue::retrieve(&conn, profile).await;
 
             Ok(Json(ApObject::Collection(ApCollection::from(l))))
@@ -119,7 +121,7 @@ pub async fn update_processing_queue_item(
 ) -> Result<Status, Status> {
     if let Signed(true, VerificationType::Local) = signed {
         if let Ok(Json(item)) = item {
-            if let Some(profile) = get_profile_by_username(&conn, username).await {
+            if let Some(profile) = get_profile_by_username((&conn).into(), username).await {
                 if item.action == QueueTask::Resolve {
                     if resolve_processed_item_by_ap_id_and_profile_id(&conn, profile.id, item.id)
                         .await
@@ -161,7 +163,7 @@ pub async fn add_one_time_keys(
     log::debug!("ADDING ONE-TIME-KEYS\n{params:#?}");
 
     if let Signed(true, VerificationType::Local) = signed {
-        if let Some(profile) = get_profile_by_username(&conn, username.clone()).await {
+        if let Some(profile) = get_profile_by_username((&conn).into(), username.clone()).await {
             if let Ok(Json(params)) = params {
                 if profile.olm_pickled_account_hash == params.mutation_of.into() {
                     if update_olm_account_by_username(

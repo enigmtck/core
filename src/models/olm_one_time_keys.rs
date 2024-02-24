@@ -1,4 +1,4 @@
-use crate::db::Db;
+use crate::db::{Db, FlexibleDb};
 use crate::schema::olm_one_time_keys;
 use chrono::{DateTime, Utc};
 use diesel::prelude::*;
@@ -79,17 +79,44 @@ pub async fn get_olm_one_time_keys_by_profile_id(
 }
 
 pub async fn get_olm_one_time_key_by_profile_id(
-    conn: &Db,
+    conn: FlexibleDb<'_>,
     profile_id: i32,
 ) -> Option<OlmOneTimeKey> {
-    conn.run(move |c| {
-        let query = olm_one_time_keys::table
+    match conn {
+        FlexibleDb::Db(conn) => {
+            let otk = conn
+                .run(move |c| {
+                    olm_one_time_keys::table
+                        .filter(olm_one_time_keys::profile_id.eq(profile_id))
+                        .filter(olm_one_time_keys::distributed.eq(false))
+                        .order(olm_one_time_keys::created_at.asc())
+                        .first::<OlmOneTimeKey>(c)
+                })
+                .await
+                .ok();
+
+            if let Some(otk) = otk {
+                conn.run(move |c| {
+                    diesel::update(olm_one_time_keys::table.find(otk.id))
+                        .set(olm_one_time_keys::distributed.eq(true))
+                        .get_result::<OlmOneTimeKey>(c)
+                })
+                .await
+                .ok()
+            } else {
+                None
+            }
+        }
+        FlexibleDb::Pool(mut pool) => olm_one_time_keys::table
             .filter(olm_one_time_keys::profile_id.eq(profile_id))
             .filter(olm_one_time_keys::distributed.eq(false))
-            .order(olm_one_time_keys::created_at.asc());
-
-        query.first::<OlmOneTimeKey>(c)
-    })
-    .await
-    .ok()
+            .order(olm_one_time_keys::created_at.asc())
+            .first::<OlmOneTimeKey>(&mut pool)
+            .and_then(|otk| {
+                diesel::update(olm_one_time_keys::table.find(otk.id))
+                    .set(olm_one_time_keys::distributed.eq(true))
+                    .get_result::<OlmOneTimeKey>(&mut pool)
+            })
+            .ok(),
+    }
 }

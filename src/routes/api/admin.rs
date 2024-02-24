@@ -1,8 +1,8 @@
 use crate::{
     admin::{self, NewUser},
     db::Db,
+    db::FlexibleDb,
     models::profiles::Profile,
-    FlexibleDb,
 };
 use rocket::{http::Status, post, serde::json::Error, serde::json::Json};
 

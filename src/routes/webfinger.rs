@@ -14,7 +14,7 @@ pub async fn webfinger_xml(conn: Db, resource: String) -> Result<String, Status>
 
         let server_url = (*crate::SERVER_URL).clone();
 
-        if get_profile_by_username(&conn, username.to_string())
+        if get_profile_by_username((&conn).into(), username.to_string())
             .await
             .is_some()
         {
@@ -57,7 +57,7 @@ pub async fn webfinger_json(conn: Db, resource: String) -> Result<Json<WebFinger
         let handle = parts[1].split('@').collect::<Vec<&str>>();
         let username = handle[0];
 
-        match get_profile_by_username(&conn, username.to_string()).await {
+        match get_profile_by_username((&conn).into(), username.to_string()).await {
             Some(profile) => Ok(Json(WebFinger::from(profile))),
             None => Err(Status::NoContent),
         }

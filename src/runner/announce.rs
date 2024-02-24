@@ -1,29 +1,33 @@
-use diesel::prelude::*;
 use faktory::Job;
-use std::io;
+use std::io::{self, ErrorKind};
 use tokio::runtime::Runtime;
 
 use crate::{
     activity_pub::{ApActivity, ApAddress},
-    models::{activities::Activity, remote_notes::RemoteNote},
+    models::{
+        activities::{get_activity_by_uuid, revoke_activity_by_apid, update_target_remote_note},
+        profiles::guaranteed_profile,
+    },
     runner::{
-        activity::{get_activity_by_uuid, revoke_activity_by_apid},
         get_inboxes,
         note::{fetch_remote_note, handle_remote_note},
         send_to_inboxes,
         timeline::get_timeline_item_by_ap_id,
         user::get_profile,
     },
-    schema::activities,
     POOL,
 };
 
 pub fn send_announce(job: Job) -> io::Result<()> {
     log::debug!("SENDING ANNOUNCE");
+    let runtime = Runtime::new().unwrap();
+    let handle = runtime.handle();
 
     for uuid in job.args() {
         let uuid = uuid.as_str().unwrap().to_string();
         log::debug!("LOOKING FOR UUID {uuid}");
+
+        let pool = POOL.get().map_err(|_| io::Error::from(ErrorKind::Other))?;
 
         if let Some((
             activity,
@@ -31,7 +35,7 @@ pub fn send_announce(job: Job) -> io::Result<()> {
             target_remote_note,
             target_profile,
             target_remote_actor,
-        )) = get_activity_by_uuid(uuid.clone())
+        )) = handle.block_on(async { get_activity_by_uuid(pool.into(), uuid.clone()).await })
         {
             log::debug!("FOUND ACTIVITY\n{activity:#?}");
             if let Some(profile_id) = activity.profile_id {
@@ -46,8 +50,12 @@ pub fn send_announce(job: Job) -> io::Result<()> {
                         ),
                         None,
                     )) {
-                        let inboxes: Vec<ApAddress> = get_inboxes(activity.clone(), sender.clone());
-                        send_to_inboxes(inboxes, sender, activity.clone());
+                        let inboxes: Vec<ApAddress> = handle.block_on(async {
+                            get_inboxes(activity.clone(), sender.clone()).await
+                        });
+                        handle.block_on(async {
+                            send_to_inboxes(inboxes, sender, activity.clone()).await
+                        });
                     }
                 }
             }
@@ -60,13 +68,23 @@ pub fn send_announce(job: Job) -> io::Result<()> {
 pub fn process_remote_undo_announce(job: Job) -> io::Result<()> {
     log::debug!("running process_remote_undo_announce job");
 
+    let runtime = Runtime::new().unwrap();
+    let handle = runtime.handle();
+
     for ap_id in job.args() {
         let ap_id = ap_id.as_str().unwrap().to_string();
         log::debug!("looking for ap_id: {}", ap_id);
 
-        if revoke_activity_by_apid(&ap_id).is_some() {
-            log::debug!("ANNOUNCE REVOKED: {ap_id}");
-        }
+        let pool = POOL.get().map_err(|_| io::Error::from(ErrorKind::Other))?;
+
+        handle.block_on(async move {
+            if revoke_activity_by_apid(pool.into(), ap_id.clone())
+                .await
+                .is_ok()
+            {
+                log::debug!("ANNOUNCE REVOKED: {ap_id}");
+            }
+        });
     }
 
     Ok(())
@@ -75,25 +93,40 @@ pub fn process_remote_undo_announce(job: Job) -> io::Result<()> {
 pub fn process_remote_announce(job: Job) -> io::Result<()> {
     log::debug!("running process_remote_announce job");
 
-    let rt = Runtime::new().unwrap();
-    let handle = rt.handle();
+    let runtime = Runtime::new().unwrap();
+    let handle = runtime.handle();
+
+    let pool = POOL.get().map_err(|_| io::Error::from(ErrorKind::Other))?;
+    let profile = handle.block_on(async { guaranteed_profile(pool.into(), None).await });
 
     for uuid in job.args() {
         if let Some(uuid) = uuid.as_str() {
             log::debug!("RETRIEVING ANNOUNCE: {uuid}");
 
-            if let Some((activity, _, _, _, _)) = get_activity_by_uuid(uuid.to_string()) {
+            let pool = POOL.get().map_err(|_| io::Error::from(ErrorKind::Other))?;
+            let profile = profile.clone();
+
+            if let Some((activity, _, _, _, _)) = handle
+                .block_on(async move { get_activity_by_uuid(pool.into(), uuid.to_string()).await })
+            {
                 if let Some(target_ap_id) = activity.clone().target_ap_id {
                     if get_timeline_item_by_ap_id(target_ap_id.clone()).is_none() {
-                        handle.block_on(async {
-                            if let Some(remote_note) = fetch_remote_note(target_ap_id.clone()).await
-                            {
+                        if let Some(remote_note) = handle.block_on(async move {
+                            fetch_remote_note(target_ap_id.clone(), profile.clone()).await
+                        }) {
+                            handle.block_on(async move {
                                 update_target_remote_note(
+                                    POOL.get()
+                                        .expect("failed to get database connection")
+                                        .into(),
                                     activity.clone(),
-                                    handle_remote_note(remote_note).await,
-                                );
-                            };
-                        });
+                                    handle_remote_note(remote_note)
+                                        .await
+                                        .expect("failed to handle remote note"),
+                                )
+                                .await
+                            });
+                        };
                     };
 
                     // TODO: also update the updated_at time on timeline and surface that in the
@@ -105,15 +138,4 @@ pub fn process_remote_announce(job: Job) -> io::Result<()> {
     }
 
     Ok(())
-}
-
-pub fn update_target_remote_note(activity: Activity, remote_note: RemoteNote) -> Option<usize> {
-    if let Ok(mut conn) = POOL.get() {
-        diesel::update(activities::table.find(activity.id))
-            .set(activities::target_remote_note_id.eq(remote_note.id))
-            .execute(&mut conn)
-            .ok()
-    } else {
-        None
-    }
 }

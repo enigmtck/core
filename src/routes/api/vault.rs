@@ -5,6 +5,7 @@ use crate::models::olm_sessions::{
 };
 use crate::models::profiles::get_profile_by_username;
 use crate::models::vault::{create_vault_item, get_vault_items_by_profile_id_and_remote_actor};
+use base64::{engine::general_purpose, engine::Engine as _};
 use rocket::http::Status;
 use rocket::serde::json::Json;
 use rocket::{get, post};
@@ -57,7 +58,7 @@ pub async fn store_vault_item(
     if let Signed(true, VerificationType::Local) = signed {
         log::debug!("STORE VAULT REQUEST\n{data:#?}");
 
-        if let Some(profile) = get_profile_by_username(&conn, username).await {
+        if let Some(profile) = get_profile_by_username((&conn).into(), username).await {
             let data = data.0;
             let session_update = data.clone().session;
 
@@ -129,10 +130,11 @@ pub async fn vault_get(
     limit: u8,
     actor: String,
 ) -> Result<Json<ApObject>, Status> {
-    if let (Some(profile), Signed(true, VerificationType::Local)) =
-        (get_profile_by_username(&conn, username).await, signed)
-    {
-        if let Ok(actor) = base64::decode(actor) {
+    if let (Some(profile), Signed(true, VerificationType::Local)) = (
+        get_profile_by_username((&conn).into(), username).await,
+        signed,
+    ) {
+        if let Ok(actor) = general_purpose::STANDARD.decode(actor) {
             let items: Vec<VaultItem> = get_vault_items_by_profile_id_and_remote_actor(
                 &conn,
                 profile.id,

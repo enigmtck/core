@@ -1,5 +1,5 @@
 use crate::activity_pub::{ApAccept, ApActivity};
-use crate::db::Db;
+use crate::db::{Db, FlexibleDb};
 use crate::helper::{get_local_identifier, LocalIdentifierType};
 use crate::schema::{leaders, remote_actors};
 use crate::MaybeReference;
@@ -94,14 +94,21 @@ pub async fn get_leader_by_actor_ap_id_and_profile(
     .ok()
 }
 
-pub async fn create_leader(conn: &Db, leader: NewLeader) -> Option<Leader> {
-    conn.run(move |c| {
-        diesel::insert_into(leaders::table)
+pub async fn create_leader(conn: FlexibleDb<'_>, leader: NewLeader) -> Option<Leader> {
+    match conn {
+        FlexibleDb::Db(conn) => conn
+            .run(move |c| {
+                diesel::insert_into(leaders::table)
+                    .values(&leader)
+                    .get_result::<Leader>(c)
+            })
+            .await
+            .ok(),
+        FlexibleDb::Pool(mut pool) => diesel::insert_into(leaders::table)
             .values(&leader)
-            .get_result::<Leader>(c)
-    })
-    .await
-    .ok()
+            .get_result::<Leader>(&mut pool)
+            .ok(),
+    }
 }
 
 pub async fn delete_leader(conn: &Db, leader_id: i32) -> bool {
@@ -110,39 +117,60 @@ pub async fn delete_leader(conn: &Db, leader_id: i32) -> bool {
         .is_ok()
 }
 
-pub async fn delete_leader_by_ap_id_and_profile(
-    conn: &Db,
+pub async fn delete_leader_by_ap_id_and_profile_id(
+    conn: FlexibleDb<'_>,
     leader_ap_id: String,
     profile_id: i32,
 ) -> bool {
-    conn.run(move |c| {
-        diesel::delete(
+    match conn {
+        FlexibleDb::Db(conn) => conn
+            .run(move |c| {
+                diesel::delete(
+                    leaders::table
+                        .filter(leaders::profile_id.eq(profile_id))
+                        .filter(leaders::leader_ap_id.eq(leader_ap_id)),
+                )
+                .execute(c)
+            })
+            .await
+            .is_ok(),
+        FlexibleDb::Pool(mut pool) => diesel::delete(
             leaders::table
                 .filter(leaders::profile_id.eq(profile_id))
                 .filter(leaders::leader_ap_id.eq(leader_ap_id)),
         )
-        .execute(c)
-    })
-    .await
-    .is_ok()
+        .execute(&mut pool)
+        .is_ok(),
+    }
 }
 
 pub async fn get_leader_by_profile_id_and_ap_id(
-    conn: &Db,
+    conn: FlexibleDb<'_>,
     profile_id: i32,
     leader_ap_id: String,
 ) -> Option<Leader> {
-    conn.run(move |c| {
-        leaders::table
+    match conn {
+        FlexibleDb::Db(conn) => conn
+            .run(move |c| {
+                leaders::table
+                    .filter(
+                        leaders::profile_id
+                            .eq(profile_id)
+                            .and(leaders::leader_ap_id.eq(leader_ap_id)),
+                    )
+                    .first::<Leader>(c)
+            })
+            .await
+            .ok(),
+        FlexibleDb::Pool(mut pool) => leaders::table
             .filter(
                 leaders::profile_id
                     .eq(profile_id)
                     .and(leaders::leader_ap_id.eq(leader_ap_id)),
             )
-            .first::<Leader>(c)
-    })
-    .await
-    .ok()
+            .first::<Leader>(&mut pool)
+            .ok(),
+    }
 }
 
 pub async fn update_leader_by_uuid(

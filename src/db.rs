@@ -1,13 +1,43 @@
 use crate::models::notes::{NewNote, Note};
 use crate::models::remote_encrypted_sessions::{NewRemoteEncryptedSession, RemoteEncryptedSession};
 use crate::schema;
+use anyhow::Result;
 use diesel::prelude::*;
+use diesel::r2d2::ConnectionManager;
+use r2d2::PooledConnection;
 use rocket_sync_db_pools::database;
 
 // this is a reference to the value in Rocket.toml, not the actual
 // database name
 #[database("enigmatick")]
 pub struct Db(diesel::PgConnection);
+
+#[allow(clippy::large_enum_variant)]
+pub enum FlexibleDb<'a> {
+    Db(&'a Db),
+    Pool(PooledConnection<ConnectionManager<PgConnection>>),
+}
+
+impl<'a> From<&'a Db> for FlexibleDb<'a> {
+    fn from(db: &'a Db) -> Self {
+        FlexibleDb::Db(db)
+    }
+}
+
+impl<'a> FlexibleDb<'a> {
+    pub fn conn(self) -> Result<&'a Db> {
+        match self {
+            FlexibleDb::Db(conn) => Ok(conn),
+            FlexibleDb::Pool(_) => Err(anyhow::Error::msg("not sync")),
+        }
+    }
+}
+
+impl From<PooledConnection<ConnectionManager<PgConnection>>> for FlexibleDb<'_> {
+    fn from(pool: PooledConnection<ConnectionManager<PgConnection>>) -> Self {
+        FlexibleDb::Pool(pool)
+    }
+}
 
 pub async fn create_remote_encrypted_session(
     conn: &Db,

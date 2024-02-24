@@ -47,7 +47,7 @@ pub struct Notification {
     pub activity_id: i32,
 }
 
-pub async fn get_notification_by_uuid(conn: &Db, uuid: String) -> Option<Notification> {
+pub async fn _get_notification_by_uuid(conn: &Db, uuid: String) -> Option<Notification> {
     conn.run(move |c| {
         notifications::table
             .filter(notifications::uuid.eq(uuid))
@@ -57,7 +57,10 @@ pub async fn get_notification_by_uuid(conn: &Db, uuid: String) -> Option<Notific
     .ok()
 }
 
-pub async fn create_notification(conn: &Db, notification: NewNotification) -> Option<Notification> {
+pub async fn _create_notification(
+    conn: &Db,
+    notification: NewNotification,
+) -> Option<Notification> {
     conn.run(move |c| {
         diesel::insert_into(notifications::table)
             .values(&notification)
@@ -67,15 +70,15 @@ pub async fn create_notification(conn: &Db, notification: NewNotification) -> Op
     .ok()
 }
 
-pub async fn delete_notification(conn: &Db, id: i32) -> bool {
-    delete_by_filter(conn, notifications::id.eq(id)).await
+pub async fn _delete_notification(conn: &Db, id: i32) -> bool {
+    _delete_by_filter(conn, notifications::id.eq(id)).await
 }
 
-pub async fn delete_notification_by_uuid(conn: &Db, uuid: String) -> bool {
-    delete_by_filter(conn, notifications::uuid.eq(uuid)).await
+pub async fn _delete_notification_by_uuid(conn: &Db, uuid: String) -> bool {
+    _delete_by_filter(conn, notifications::uuid.eq(uuid)).await
 }
 
-async fn delete_by_filter<T>(conn: &Db, filter: T) -> bool
+async fn _delete_by_filter<T>(conn: &Db, filter: T) -> bool
 where
     T: diesel::BoxableExpression<notifications::table, Pg, SqlType = Bool>
         + QueryId

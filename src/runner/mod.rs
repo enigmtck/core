@@ -1,12 +1,9 @@
 use std::collections::HashSet;
 
 use diesel::{r2d2::ConnectionManager, PgConnection};
-use dotenvy::dotenv;
 use faktory::ConsumerBuilder;
 use lapin::{options::BasicPublishOptions, BasicProperties, ConnectionProperties};
-use lazy_static::lazy_static;
 use reqwest::Client;
-use tokio::runtime::Runtime;
 use url::Url;
 
 use crate::{
@@ -30,7 +27,6 @@ use crate::{
 
 use self::{actor::get_actor, user::get_follower_inboxes};
 
-pub mod activity;
 pub mod actor;
 pub mod announce;
 pub mod cache;
@@ -82,10 +78,7 @@ pub async fn send_to_mq(note: ApNote) {
         .unwrap();
 }
 
-pub fn send_to_inboxes(inboxes: Vec<ApAddress>, profile: Profile, message: ApActivity) {
-    let rt = Runtime::new().unwrap();
-    let handle = rt.handle();
-
+pub async fn send_to_inboxes(inboxes: Vec<ApAddress>, profile: Profile, message: ApActivity) {
     log::debug!("INBOXES\n{inboxes:#?}");
 
     for url_str in inboxes {
@@ -112,21 +105,20 @@ pub fn send_to_inboxes(inboxes: Vec<ApAddress>, profile: Profile, message: ApAct
                     )
                     .body(body.unwrap());
 
-                handle.block_on(async {
-                    if let Ok(resp) = client.send().await {
-                        let code = resp.status();
-                        log::debug!("SEND RESULT FOR {url}: {code}");
-                    }
-                });
+                if let Ok(resp) = client.send().await {
+                    let code = resp.status();
+                    log::debug!("SEND RESULT FOR {url}: {code}");
+                }
             }
         }
     }
 }
 
-fn handle_recipients(inboxes: &mut HashSet<ApAddress>, sender: &Profile, address: &ApAddress) {
-    let rt = Runtime::new().unwrap();
-    let handle = rt.handle();
-
+async fn handle_recipients(
+    inboxes: &mut HashSet<ApAddress>,
+    sender: &Profile,
+    address: &ApAddress,
+) {
     let actor = ApActor::from(sender.clone());
 
     if address.is_public() {
@@ -138,15 +130,15 @@ fn handle_recipients(inboxes: &mut HashSet<ApAddress>, sender: &Profile, address
     } else if let Some(followers) = actor.followers {
         if address.to_string() == followers {
             inboxes.extend(get_follower_inboxes(sender.clone()));
-        } else if let Some((actor, _)) = handle
-            .block_on(async { get_actor(Some(sender.clone()), address.clone().to_string()).await })
+        } else if let Some((actor, _)) =
+            get_actor(sender.clone(), address.clone().to_string()).await
         {
             inboxes.insert(ApAddress::Address(actor.inbox));
         }
     }
 }
 
-pub fn get_inboxes(activity: ApActivity, sender: Profile) -> Vec<ApAddress> {
+pub async fn get_inboxes(activity: ApActivity, sender: Profile) -> Vec<ApAddress> {
     let mut inboxes = HashSet::<ApAddress>::new();
 
     let (to, cc) = match activity {
@@ -191,11 +183,11 @@ pub fn get_inboxes(activity: ApActivity, sender: Profile) -> Vec<ApAddress> {
     if let Some(to) = to {
         match to {
             MaybeMultiple::Single(to) => {
-                handle_recipients(&mut inboxes, &sender, &to);
+                handle_recipients(&mut inboxes, &sender, &to).await;
             }
             MaybeMultiple::Multiple(to) => {
                 for address in to.iter() {
-                    handle_recipients(&mut inboxes, &sender, address);
+                    handle_recipients(&mut inboxes, &sender, address).await;
                 }
             }
             MaybeMultiple::None => {}
@@ -205,11 +197,11 @@ pub fn get_inboxes(activity: ApActivity, sender: Profile) -> Vec<ApAddress> {
     if let Some(cc) = cc {
         match cc {
             MaybeMultiple::Single(to) => {
-                handle_recipients(&mut inboxes, &sender, &to);
+                handle_recipients(&mut inboxes, &sender, &to).await;
             }
             MaybeMultiple::Multiple(to) => {
                 for address in to.iter() {
-                    handle_recipients(&mut inboxes, &sender, address);
+                    handle_recipients(&mut inboxes, &sender, address).await;
                 }
             }
             MaybeMultiple::None => {}

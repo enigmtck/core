@@ -16,6 +16,7 @@ use crate::{
     routes::webfinger::*,
 };
 
+#[launch]
 fn rocket() -> Rocket<Build> {
     if let Ok(profile) = std::env::var("PROFILE") {
         match profile.as_str() {
@@ -89,6 +90,6 @@ fn rocket() -> Rocket<Build> {
         )
 }
 
-pub async fn start() {
-    let _ = rocket().launch().await;
+pub fn start() {
+    main()
 }

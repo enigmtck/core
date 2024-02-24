@@ -7,14 +7,13 @@ extern crate rocket;
 extern crate diesel;
 
 use activity_pub::{ApActivity, ApObject};
-use db::Db;
+use anyhow::Result;
 use diesel::r2d2::{ConnectionManager, Pool};
 use diesel::PgConnection;
 use dotenvy::dotenv;
 use fairings::faktory::assign_to_faktory;
 use fairings::faktory::FaktoryConnection;
 use lazy_static::lazy_static;
-use r2d2::PooledConnection;
 use rocket::http::Status;
 use serde::{Deserialize, Serialize};
 use std::env;
@@ -112,11 +111,42 @@ lazy_static! {
     };
 }
 
-#[allow(clippy::large_enum_variant)]
-pub enum FlexibleDb<'a> {
-    Db(&'a Db),
-    Pool(PooledConnection<ConnectionManager<PgConnection>>),
-}
+// This was an idea I had to return an un-awaited Future from the model calls so that I could use
+// non-async calls in runner. But it's truly a pain in the ass to deal with the 'static lifetime requirements
+// of Rocket's async conn. I couldn't make it work properly with all the other requirements.
+
+// pub enum MaybeFuture<'a, T: Clone> {
+//     Future(Pin<Box<dyn Future<Output = Result<T>> + Send + 'a>>),
+//     Resolved(Result<T>),
+// }
+
+// impl<'a, T: Clone> From<Pin<Box<dyn Future<Output = Result<T>> + Send>>> for MaybeFuture<'a, T> {
+//     fn from(future: Pin<Box<dyn Future<Output = Result<T>> + Send>>) -> Self {
+//         MaybeFuture::Future(future)
+//     }
+// }
+
+// impl<'a, T: Clone> From<Result<T>> for MaybeFuture<'a, T> {
+//     fn from(result: Result<T>) -> Self {
+//         MaybeFuture::Resolved(result)
+//     }
+// }
+
+// impl<'a, T: Clone> MaybeFuture<'a, T> {
+//     pub fn resolved(self) -> Result<T> {
+//         match self {
+//             MaybeFuture::Resolved(result) => result,
+//             _ => Err(anyhow::Error::msg("MaybeFuture is not Resolved")),
+//         }
+//     }
+
+//     pub async fn future(self) -> Result<T> {
+//         match self {
+//             MaybeFuture::Future(future) => future.await,
+//             _ => Err(anyhow::Error::msg("MaybeFuture is not Future")),
+//         }
+//     }
+// }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 #[serde(untagged)]

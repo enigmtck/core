@@ -25,7 +25,7 @@ pub async fn retrieve(conn: &Db, profile: Profile) -> Vec<ApObject> {
                 note.clone().attributed_to
             );
             if let Some(session) = get_encrypted_session_by_profile_id_and_ap_to(
-                conn,
+                conn.into(),
                 profile.id,
                 note.clone().attributed_to.to_string(),
             )

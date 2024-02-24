@@ -78,7 +78,7 @@ impl Inbox for ApCreate {
                         as ApActivityTarget)
                     {
                         log::debug!("ACTIVITY\n{activity:#?}");
-                        if create_activity(&conn, activity).await.is_some() {
+                        if create_activity((&conn).into(), activity).await.is_some() {
                             to_faktory(faktory, "process_remote_note", created_note.ap_id)
                         } else {
                             log::error!("FAILED TO INSERT ACTIVITY");

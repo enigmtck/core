@@ -1,23 +1,33 @@
 use faktory::Job;
 use std::io;
+use tokio::runtime::Runtime;
 
 use crate::{
     activity_pub::{ApActivity, ApAddress},
-    runner::{
-        activity::{get_activity_by_uuid, revoke_activity_by_apid},
-        get_inboxes, send_to_inboxes,
-        user::get_profile,
-    },
+    models::activities::{get_activity_by_uuid, revoke_activity_by_apid},
+    runner::{get_inboxes, send_to_inboxes, user::get_profile},
+    POOL,
 };
 
 pub fn process_remote_undo_like(job: Job) -> io::Result<()> {
     log::debug!("running process_remote_undo_like job");
+    let runtime = Runtime::new().unwrap();
+    let handle = runtime.handle();
 
     for ap_id in job.args() {
         let ap_id = ap_id.as_str().unwrap().to_string();
         log::debug!("looking for ap_id: {}", ap_id);
 
-        if revoke_activity_by_apid(&ap_id).is_some() {
+        if handle
+            .block_on(async {
+                revoke_activity_by_apid(
+                    POOL.get().expect("failed to get pool").into(),
+                    ap_id.clone(),
+                )
+                .await
+            })
+            .is_ok()
+        {
             log::debug!("LIKE REVOKED: {ap_id}");
         }
     }
@@ -27,6 +37,9 @@ pub fn process_remote_undo_like(job: Job) -> io::Result<()> {
 
 pub fn send_like(job: Job) -> io::Result<()> {
     log::debug!("SENDING LIKE");
+
+    let runtime = Runtime::new().unwrap();
+    let handle = runtime.handle();
 
     for uuid in job.args() {
         let uuid = uuid.as_str().unwrap().to_string();
@@ -38,8 +51,9 @@ pub fn send_like(job: Job) -> io::Result<()> {
             target_remote_note,
             target_profile,
             target_remote_actor,
-        )) = get_activity_by_uuid(uuid.clone())
-        {
+        )) = handle.block_on(async {
+            get_activity_by_uuid(POOL.get().expect("failed to get pool").into(), uuid.clone()).await
+        }) {
             log::debug!("FOUND ACTIVITY\n{activity:#?}");
             if let Some(profile_id) = activity.profile_id {
                 if let Some(sender) = get_profile(profile_id) {
@@ -53,8 +67,12 @@ pub fn send_like(job: Job) -> io::Result<()> {
                         ),
                         None,
                     )) {
-                        let inboxes: Vec<ApAddress> = get_inboxes(activity.clone(), sender.clone());
-                        send_to_inboxes(inboxes, sender, activity.clone());
+                        let inboxes: Vec<ApAddress> = handle.block_on(async {
+                            get_inboxes(activity.clone(), sender.clone()).await
+                        });
+                        handle.block_on(async {
+                            send_to_inboxes(inboxes, sender, activity.clone()).await
+                        });
                     }
                 }
             }

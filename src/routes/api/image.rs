@@ -20,7 +20,7 @@ pub async fn upload_image(
     media: Data<'_>,
 ) -> Result<Json<ApAttachment>, Status> {
     if let Signed(true, VerificationType::Local) = signed {
-        if let Some(_profile) = get_profile_by_username(&conn, username).await {
+        if let Some(_profile) = get_profile_by_username((&conn).into(), username).await {
             let filename = uuid::Uuid::new_v4();
             let path = &format!("{}/uploads/{}", *crate::MEDIA_DIR, filename);
 
@@ -58,7 +58,7 @@ pub async fn cached_image(conn: Db, url: String) -> Result<(ContentType, NamedFi
         if let Ok(url) = general_purpose::STANDARD_NO_PAD.decode(url.to_string()) {
             if let Ok(url) = String::from_utf8(url) {
                 log::debug!("DECODED CACHE URL: {url}");
-                if let Some(cache) = get_cache_item_by_url(&conn, url).await {
+                if let Some(cache) = get_cache_item_by_url((&conn).into(), url).await {
                     let path = format!("{}/cache/{}", &*crate::MEDIA_DIR, cache.uuid);
                     let media_type = &cache.clone().media_type.map_or("any".to_string(), |x| x);
 
