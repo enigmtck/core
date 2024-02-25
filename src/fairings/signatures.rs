@@ -8,7 +8,18 @@ use rocket::{
     request::{FromRequest, Outcome, Request},
 };
 
+#[derive(Clone)]
 pub struct Signed(pub bool, pub VerificationType);
+
+impl Signed {
+    pub fn local(&self) -> bool {
+        matches!(self, Signed(true, VerificationType::Local))
+    }
+
+    pub fn remote(&self) -> bool {
+        matches!(self, Signed(true, VerificationType::Remote))
+    }
+}
 
 #[derive(Debug)]
 pub enum SignatureError {

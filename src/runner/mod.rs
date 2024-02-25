@@ -99,15 +99,16 @@ pub async fn send_to_inboxes(inboxes: Vec<ApAddress>, profile: Profile, message:
                     .header("Date", signature.date)
                     .header("Digest", signature.digest.unwrap())
                     .header("Signature", &signature.signature)
-                    .header(
-                        "Content-Type",
-                        "application/ld+json; profile=\"http://www.w3.org/ns/activitystreams\"",
-                    )
-                    .body(body.unwrap());
+                    .header("Content-Type", "application/activity+json")
+                    .body(body.clone().unwrap());
+
+                log::debug!("{client:#?}");
+                log::debug!("{body:#?}");
 
                 if let Ok(resp) = client.send().await {
                     let code = resp.status();
-                    log::debug!("SEND RESULT FOR {url}: {code}");
+                    let message = resp.text().await;
+                    log::debug!("SEND RESULT FOR {url}: {code} {message:#?}");
                 }
             }
         }

@@ -44,17 +44,17 @@ fn main() {
 }
 
 fn handle_setup(args: SetupArgs) {
-    let server_name = &*enigmatick::SERVER_NAME;
+    let system_user = &*enigmatick::SYSTEM_USER;
 
     if let Some(command) = args.command {
         match command {
             SetupCommands::SystemUser => {
-                println!("setup system user: {server_name}");
+                println!("setup system user: {system_user}");
                 let rt = Runtime::new().unwrap();
                 let handle = rt.handle();
                 handle.block_on(async {
                     if runner::user::create(NewUser {
-                        username: server_name.clone(),
+                        username: system_user.clone(),
                         password: Alphanumeric.sample_string(&mut rand::thread_rng(), 16),
                         display_name: "System User".to_string(),
                         client_public_key: None,

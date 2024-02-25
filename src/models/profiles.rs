@@ -214,7 +214,7 @@ pub async fn update_password_by_username(
 pub async fn guaranteed_profile(conn: FlexibleDb<'_>, profile: Option<Profile>) -> Profile {
     match profile {
         Some(profile) => profile,
-        None => get_profile_by_username(conn, (*crate::SERVER_NAME).clone())
+        None => get_profile_by_username(conn, (*crate::SYSTEM_USER).clone())
             .await
             .expect("unable to retrieve system user"),
     }

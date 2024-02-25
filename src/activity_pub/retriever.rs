@@ -30,30 +30,20 @@ pub async fn get_remote_collection_page(
     conn: &Db,
     profile: Option<Profile>,
     url: String,
-) -> Option<ApCollectionPage> {
-    if let Ok(response) =
-        signed_get(guaranteed_profile(conn.into(), profile).await, url, false).await
-    {
-        let page = response.json::<ApCollectionPage>().await.ok()?;
-        Some(page.cache(conn).await.clone())
-    } else {
-        None
-    }
+) -> Result<ApCollectionPage> {
+    let response = signed_get(guaranteed_profile(conn.into(), profile).await, url, false).await?;
+    let page = response.json::<ApCollectionPage>().await?;
+    Ok(page.cache(conn).await.clone())
 }
 
 pub async fn get_remote_collection(
     conn: &Db,
     profile: Option<Profile>,
     url: String,
-) -> Option<ApCollection> {
-    if let Ok(response) =
-        signed_get(guaranteed_profile(conn.into(), profile).await, url, false).await
-    {
-        let page = response.json::<ApCollection>().await.ok()?;
-        Some(page.cache(conn).await.clone())
-    } else {
-        None
-    }
+) -> Result<ApCollection> {
+    let response = signed_get(guaranteed_profile(conn.into(), profile).await, url, false).await?;
+    let page = response.json::<ApCollection>().await?;
+    Ok(page.cache(conn).await.clone())
 }
 
 pub async fn get_ap_id_from_webfinger(acct: String) -> Option<String> {

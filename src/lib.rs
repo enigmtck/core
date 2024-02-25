@@ -51,6 +51,10 @@ lazy_static! {
         dotenv().ok();
         env::var("SERVER_NAME").expect("SERVER_NAME must be set")
     };
+    pub static ref SYSTEM_USER: String = {
+        dotenv().ok();
+        env::var("SYSTEM_USER").expect("SYSTEM_USER must be set")
+    };
     pub static ref MEDIA_DIR: String = {
         dotenv().ok();
         env::var("MEDIA_DIR").expect("MEDIA_DIR must be set")

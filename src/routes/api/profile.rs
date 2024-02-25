@@ -181,19 +181,20 @@ fn process_avatar(filename: String) -> Option<ApImage> {
     }
 }
 
-#[post("/api/user/<username>/avatar?<_extension>", data = "<media>")]
+#[allow(unused_variables)]
+#[post("/api/user/<username>/avatar?<extension>", data = "<media>")]
 pub async fn upload_avatar(
     signed: Signed,
     conn: Db,
     username: String,
-    _extension: String,
+    extension: String,
     media: Data<'_>,
 ) -> Result<Status, Status> {
     if let Signed(true, VerificationType::Local) = signed {
         let filename = uuid::Uuid::new_v4().to_string();
 
         if let Ok(file) = media
-            .open(4.mebibytes())
+            .open(20.mebibytes())
             .into_file(&format!("{}/avatars/{}", *crate::MEDIA_DIR, filename))
             .await
         {

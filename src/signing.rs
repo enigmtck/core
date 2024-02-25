@@ -90,6 +90,7 @@ fn build_verify_string(
     )
 }
 
+#[derive(Clone)]
 pub enum VerificationType {
     Remote,
     Local,
