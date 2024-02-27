@@ -141,7 +141,7 @@ impl Outbox for Box<ApUndo> {
         _events: EventChannels,
         profile: Profile,
     ) -> Result<String, Status> {
-        outbox::activity::undo(conn, faktory, *self.clone(), profile).await
+        outbox::activity::undo(&conn, faktory, *self.clone(), profile).await
     }
 }
 

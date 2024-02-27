@@ -25,6 +25,7 @@ RUN source /root/.cargo/env && rustup +nightly default
 
 COPY Cargo.* /opt/build/
 COPY src /opt/build/src
+COPY migrations /opt/build/migrations
 COPY rust-toolchain.toml /opt/build
 
 RUN source /root/.cargo/env && cargo build --bin enigmatick --release

@@ -227,12 +227,13 @@ pub async fn upload_avatar(
     }
 }
 
-#[post("/api/user/<username>/banner?<_extension>", data = "<media>")]
+#[allow(unused_variables)]
+#[post("/api/user/<username>/banner?<extension>", data = "<media>")]
 pub async fn upload_banner(
     signed: Signed,
     conn: Db,
     username: String,
-    _extension: String,
+    extension: String,
     media: Data<'_>,
 ) -> Result<Status, Status> {
     if let Signed(true, VerificationType::Local) = signed {

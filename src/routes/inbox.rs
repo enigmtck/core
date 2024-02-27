@@ -12,6 +12,8 @@ use crate::models::profiles::get_profile_by_username;
 //use crate::models::remote_activities::create_remote_activity;
 use crate::signing::VerificationType;
 
+use super::ActivityJson;
+
 #[get("/user/<username>/inbox?<offset>&<limit>")]
 pub async fn inbox_get(
     signed: Signed,
@@ -19,23 +21,23 @@ pub async fn inbox_get(
     username: String,
     offset: u16,
     limit: u8,
-) -> Result<Json<ApObject>, Status> {
+) -> Result<ActivityJson<ApObject>, Status> {
     if let (Some(profile), Signed(true, VerificationType::Local)) = (
         get_profile_by_username((&conn).into(), username).await,
         signed,
     ) {
         let inbox = inbox::retrieve::inbox(&conn, limit.into(), offset.into(), profile).await;
-        Ok(Json(inbox))
+        Ok(ActivityJson(Json(inbox)))
     } else {
         Err(Status::NoContent)
     }
 }
 
 #[get("/api/timeline?<offset>&<limit>")]
-pub async fn timeline(conn: Db, offset: u16, limit: u8) -> Result<Json<ApObject>, Status> {
-    Ok(Json(
+pub async fn timeline(conn: Db, offset: u16, limit: u8) -> Result<ActivityJson<ApObject>, Status> {
+    Ok(ActivityJson(Json(
         inbox::retrieve::timeline(&conn, limit.into(), offset.into()).await,
-    ))
+    )))
 }
 
 #[post("/user/<_>/inbox", data = "<activity>")]
@@ -84,7 +86,7 @@ pub async fn conversation_get(
     offset: u16,
     limit: u8,
     conversation: String,
-) -> Result<Json<ApObject>, Status> {
+) -> Result<ActivityJson<ApObject>, Status> {
     if let (Some(_profile), Signed(true, VerificationType::Local)) = (
         get_profile_by_username((&conn).into(), username).await,
         signed,
@@ -98,7 +100,7 @@ pub async fn conversation_get(
                 offset.into(),
             )
             .await;
-            Ok(Json(inbox))
+            Ok(ActivityJson(Json(inbox)))
         } else {
             Err(Status::NoContent)
         }
@@ -112,10 +114,10 @@ pub async fn conversation_get_local(
     conn: Db,
     faktory: FaktoryConnection,
     uuid: String,
-) -> Result<Json<ApObject>, Status> {
+) -> Result<ActivityJson<ApObject>, Status> {
     let conversation = format!("{}/conversation/{}", *crate::SERVER_URL, uuid);
 
-    Ok(Json(
+    Ok(ActivityJson(Json(
         inbox::retrieve::conversation(&conn, faktory, conversation.to_string(), 40, 0).await,
-    ))
+    )))
 }

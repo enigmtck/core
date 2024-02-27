@@ -21,6 +21,7 @@ pub struct VerifyParams {
     pub date: String,
     pub digest: Option<String>,
     pub content_type: String,
+    pub content_length: Option<String>,
     pub user_agent: Option<String>,
 }
 
@@ -68,6 +69,10 @@ fn build_verify_string(
             "date" => format!("date: {}", params.date),
             "digest" => format!("digest: {}", params.digest.clone().unwrap_or_default()),
             "content-type" => format!("content-type: {}", params.content_type),
+            "content-length" => format!(
+                "content-length: {}",
+                params.content_length.clone().unwrap_or_default()
+            ),
             "user-agent" => format!(
                 "user-agent: {}",
                 params.user_agent.clone().unwrap_or_default()

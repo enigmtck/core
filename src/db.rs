@@ -4,7 +4,6 @@ use crate::schema;
 use anyhow::Result;
 use diesel::prelude::*;
 use diesel::r2d2::ConnectionManager;
-use r2d2::PooledConnection;
 use rocket_sync_db_pools::database;
 
 // this is a reference to the value in Rocket.toml, not the actual
@@ -12,10 +11,13 @@ use rocket_sync_db_pools::database;
 #[database("enigmatick")]
 pub struct Db(diesel::PgConnection);
 
+pub type Pool = r2d2::Pool<ConnectionManager<PgConnection>>;
+pub type PooledConnection = r2d2::PooledConnection<ConnectionManager<PgConnection>>;
+
 #[allow(clippy::large_enum_variant)]
 pub enum FlexibleDb<'a> {
     Db(&'a Db),
-    Pool(PooledConnection<ConnectionManager<PgConnection>>),
+    Pool(PooledConnection),
 }
 
 impl<'a> From<&'a Db> for FlexibleDb<'a> {
@@ -33,8 +35,8 @@ impl<'a> FlexibleDb<'a> {
     }
 }
 
-impl From<PooledConnection<ConnectionManager<PgConnection>>> for FlexibleDb<'_> {
-    fn from(pool: PooledConnection<ConnectionManager<PgConnection>>) -> Self {
+impl From<PooledConnection> for FlexibleDb<'_> {
+    fn from(pool: PooledConnection) -> Self {
         FlexibleDb::Pool(pool)
     }
 }

@@ -87,7 +87,7 @@ impl Outbox for ApFollow {
         _events: EventChannels,
         profile: Profile,
     ) -> Result<String, Status> {
-        outbox::activity::follow(conn, faktory, self.clone(), profile).await
+        outbox::activity::follow(&conn, faktory, self.clone(), profile).await
     }
 }
 

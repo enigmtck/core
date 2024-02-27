@@ -357,15 +357,11 @@ impl From<NoteActivity> for NewActivity {
             if let Some(note) = note.clone() {
                 (
                     Some(note.ap_to),
-                    Some(serde_json::to_value(vec![note.attributed_to]).unwrap()),
+                    note.cc,
                     Some(get_note_ap_id_from_uuid(note.uuid)),
                 )
             } else if let Some(remote_note) = remote_note.clone() {
-                (
-                    remote_note.ap_to,
-                    Some(serde_json::to_value(vec![remote_note.attributed_to]).unwrap()),
-                    Some(remote_note.ap_id),
-                )
+                (remote_note.ap_to, remote_note.cc, Some(remote_note.ap_id))
             } else {
                 (None, None, None)
             }

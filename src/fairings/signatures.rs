@@ -63,6 +63,7 @@ impl<'r> FromRequest<'r> for Signed {
 
         let digest = get_header("digest");
         let user_agent = get_header("user-agent");
+        let content_length = get_header("content-length");
 
         if let Some(content_type) = request.content_type() {
             let content_type = content_type.to_string();
@@ -79,6 +80,7 @@ impl<'r> FromRequest<'r> for Signed {
                         date,
                         digest,
                         content_type,
+                        content_length,
                         user_agent,
                     };
                     match verify(conn, verify_params.clone()).await {

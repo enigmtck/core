@@ -104,10 +104,10 @@ pub async fn get_profile_by_ap_id(conn: &Db, ap_id: String) -> Option<Profile> {
         if x.kind == LocalIdentifierType::User {
             get_profile_by_username(conn.into(), x.identifier).await
         } else {
-            Option::None
+            None
         }
     } else {
-        Option::None
+        None
     }
 }
 

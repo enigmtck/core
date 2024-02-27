@@ -8,7 +8,6 @@ use tokio::runtime::Runtime;
 use crate::{
     activity_pub::{ApActivity, ApActor, ApAddress, ApUpdate},
     admin::{create_user, NewUser},
-    db::FlexibleDb,
     models::{followers::Follower, profiles::Profile, remote_actors::get_remote_actor_by_ap_id},
     runner::send_to_inboxes,
     schema::{followers, profiles},
@@ -67,22 +66,18 @@ pub fn get_profile(id: i32) -> Option<Profile> {
     }
 }
 
-pub fn get_follower_inboxes(profile: Profile) -> Vec<ApAddress> {
+pub async fn get_follower_inboxes(profile: Profile) -> Vec<ApAddress> {
     let mut inboxes: HashSet<ApAddress> = HashSet::new();
 
-    let rt = Runtime::new().unwrap();
-    let handle = rt.handle();
-
     for follower in get_followers_by_profile_id(profile.id) {
-        if let Ok(actor) = handle.block_on(async {
-            get_remote_actor_by_ap_id(
-                POOL.get()
-                    .expect("failed to get database connection")
-                    .into(),
-                follower.actor,
-            )
-            .await
-        }) {
+        if let Ok(actor) = get_remote_actor_by_ap_id(
+            POOL.get()
+                .expect("failed to get database connection")
+                .into(),
+            follower.actor,
+        )
+        .await
+        {
             let actor = ApActor::from(actor);
             if let Some(endpoints) = actor.endpoints {
                 inboxes.insert(ApAddress::Address(endpoints.shared_inbox));
@@ -128,7 +123,7 @@ pub fn send_profile_update(job: Job) -> io::Result<()> {
                 log::debug!("UPDATE\n{update:#?}");
                 handle.block_on(async {
                     send_to_inboxes(
-                        get_follower_inboxes(profile.clone()),
+                        get_follower_inboxes(profile.clone()).await,
                         profile,
                         ApActivity::Update(update),
                     )
@@ -143,7 +138,7 @@ pub fn send_profile_update(job: Job) -> io::Result<()> {
 
 pub async fn create(user: NewUser) -> Option<Profile> {
     if let Ok(conn) = POOL.get() {
-        create_user(FlexibleDb::Pool(conn), user).await
+        create_user(conn.into(), user).await
     } else {
         None
     }

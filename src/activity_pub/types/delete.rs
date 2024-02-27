@@ -50,6 +50,7 @@ pub struct ApDelete {
     pub object: MaybeReference<ApObject>,
     pub signature: Option<ApSignature>,
     pub to: MaybeMultiple<ApAddress>,
+    pub cc: Option<MaybeMultiple<ApAddress>>,
 }
 
 impl Inbox for Box<ApDelete> {
@@ -78,7 +79,10 @@ impl Inbox for Box<ApDelete> {
         }
 
         async fn delete_timeline(conn: &Db, ap_id: String) -> Result<Status, Status> {
-            if delete_timeline_item_by_ap_id(conn, ap_id).await {
+            if delete_timeline_item_by_ap_id(conn.into(), ap_id)
+                .await
+                .is_ok()
+            {
                 log::debug!("TIMELINE RECORD DELETED");
                 Ok(Status::Accepted)
             } else {
@@ -216,6 +220,7 @@ impl TryFrom<ApNote> for ApDelete {
                 object: MaybeReference::Actual(ApObject::Tombstone(tombstone)),
                 signature: None,
                 to: note.to,
+                cc: note.cc,
             })
         } else {
             Err("ApNote must have an ID")

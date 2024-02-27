@@ -66,7 +66,7 @@ fn get_uuid(id: String) -> Option<String> {
 }
 
 pub async fn undo(
-    conn: Db,
+    conn: &Db,
     faktory: FaktoryConnection,
     undo: ApUndo,
     profile: Profile,
@@ -84,16 +84,16 @@ pub async fn undo(
     log::debug!("TARGET_AP_ID: {target_ap_id:#?}");
     if let Some(target_ap_id) = target_ap_id {
         if let Some((target_activity, _, _, _, _)) =
-            get_activity_by_uuid((&conn).into(), target_ap_id).await
+            get_activity_by_uuid(conn.into(), target_ap_id).await
         {
             if let Some(activity) = create_activity(
-                (&conn).into(),
+                conn.into(),
                 NewActivity::from((
                     target_activity,
                     ActivityType::Undo,
                     ApAddress::Address(get_ap_id_from_username(profile.username.clone())),
                 ))
-                .link_profile(&conn)
+                .link_profile(conn)
                 .await,
             )
             .await
@@ -119,24 +119,24 @@ pub async fn undo(
 }
 
 pub async fn follow(
-    conn: Db,
+    conn: &Db,
     faktory: FaktoryConnection,
     follow: ApFollow,
     profile: Profile,
 ) -> Result<String, Status> {
     if let MaybeReference::Reference(id) = follow.object {
-        let (actor, remote_actor) = get_actory(&conn, id).await;
+        let (actor, remote_actor) = get_actory(conn, id).await;
 
         if actor.is_some() || remote_actor.is_some() {
             if let Some(activity) = create_activity(
-                (&conn).into(),
+                conn.into(),
                 NewActivity::from((
                     actor.clone(),
                     remote_actor.clone(),
                     ActivityType::Follow,
                     ApAddress::Address(get_ap_id_from_username(profile.username.clone())),
                 ))
-                .link_profile(&conn)
+                .link_profile(conn)
                 .await,
             )
             .await

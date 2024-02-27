@@ -1,11 +1,11 @@
-use rocket::{post, serde::json::Error, serde::json::Json};
 use rocket::http::Status;
+use rocket::{post, serde::json::Error, serde::json::Json};
 use serde::Deserialize;
 
 use crate::admin::{self, verify_and_generate_password};
 use crate::db::Db;
 use crate::fairings::signatures::Signed;
-use crate::models::profiles::{Profile, update_password_by_username};
+use crate::models::profiles::{update_password_by_username, Profile};
 use crate::signing::VerificationType;
 
 #[derive(Deserialize, Debug, Clone)]
@@ -63,7 +63,7 @@ pub async fn change_password(
                 password.current.clone(),
                 password.updated.clone(),
             )
-                .await
+            .await
             {
                 Ok(Json(
                     update_password_by_username(
@@ -73,8 +73,8 @@ pub async fn change_password(
                         client_private_key,
                         olm_pickled_account,
                     )
-                        .await
-                        .unwrap_or_default(),
+                    .await
+                    .unwrap_or_default(),
                 ))
             } else {
                 log::debug!("verify_and_generate_password failed");

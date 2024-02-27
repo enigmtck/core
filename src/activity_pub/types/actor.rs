@@ -259,11 +259,11 @@ impl Default for ApActor {
 }
 
 impl ApActor {
-    pub async fn load_ephemeral(&mut self, conn: Db) -> Self {
+    pub async fn load_ephemeral(&mut self, conn: &Db) -> Self {
         if let Some(ap_id) = self.id.clone() {
-            if let Some(profile) = get_profile_by_ap_id(&conn, ap_id.to_string()).await {
+            if let Some(profile) = get_profile_by_ap_id(conn, ap_id.to_string()).await {
                 self.ephemeral_followers = Some(
-                    get_followers_by_profile_id(&conn, profile.id)
+                    get_followers_by_profile_id(conn, profile.id)
                         .await
                         .iter()
                         .filter_map(|(_, remote_actor)| {
@@ -275,7 +275,7 @@ impl ApActor {
                 );
 
                 self.ephemeral_leaders = Some(
-                    get_leaders_by_profile_id(&conn, profile.id)
+                    get_leaders_by_profile_id(conn, profile.id)
                         .await
                         .iter()
                         .filter_map(|(_, remote_actor)| {

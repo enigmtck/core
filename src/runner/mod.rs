@@ -123,14 +123,14 @@ async fn handle_recipients(
     let actor = ApActor::from(sender.clone());
 
     if address.is_public() {
-        inboxes.extend(get_follower_inboxes(sender.clone()));
+        inboxes.extend(get_follower_inboxes(sender.clone()).await);
         // instead of the above, consider sending to shared inboxes of known instances
         // the duplicate code is temporary because some operations (e.g., Delete) do not have
         // the followers in cc, so until there's logic to send more broadly to all instances,
         // this will need to suffice
     } else if let Some(followers) = actor.followers {
         if address.to_string() == followers {
-            inboxes.extend(get_follower_inboxes(sender.clone()));
+            inboxes.extend(get_follower_inboxes(sender.clone()).await);
         } else if let Some((actor, _)) =
             get_actor(sender.clone(), address.clone().to_string()).await
         {
@@ -144,7 +144,7 @@ pub async fn get_inboxes(activity: ApActivity, sender: Profile) -> Vec<ApAddress
 
     let (to, cc) = match activity {
         ApActivity::Create(activity) => (Some(activity.to), activity.cc),
-        ApActivity::Delete(activity) => (Some(activity.to), None),
+        ApActivity::Delete(activity) => (Some(activity.to), activity.cc),
         ApActivity::Announce(activity) => (Some(activity.to), activity.cc),
         ApActivity::Like(activity) => (activity.to, None),
         ApActivity::Follow(activity) => {
@@ -181,32 +181,25 @@ pub async fn get_inboxes(activity: ApActivity, sender: Profile) -> Vec<ApAddress
         _ => (None, None),
     };
 
-    if let Some(to) = to {
-        match to {
-            MaybeMultiple::Single(to) => {
-                handle_recipients(&mut inboxes, &sender, &to).await;
-            }
-            MaybeMultiple::Multiple(to) => {
-                for address in to.iter() {
-                    handle_recipients(&mut inboxes, &sender, address).await;
-                }
-            }
-            MaybeMultiple::None => {}
-        }
-    }
+    let consolidated = match (to, cc) {
+        (Some(to), Some(MaybeMultiple::Multiple(cc))) => to.extend(cc),
+        (Some(to), Some(MaybeMultiple::Single(cc))) => to.extend(vec![cc]),
+        (Some(to), Some(MaybeMultiple::None)) => to,
+        (Some(to), None) => to,
+        (None, Some(cc)) => cc,
+        (None, None) => MaybeMultiple::None,
+    };
 
-    if let Some(cc) = cc {
-        match cc {
-            MaybeMultiple::Single(to) => {
-                handle_recipients(&mut inboxes, &sender, &to).await;
-            }
-            MaybeMultiple::Multiple(to) => {
-                for address in to.iter() {
-                    handle_recipients(&mut inboxes, &sender, address).await;
-                }
-            }
-            MaybeMultiple::None => {}
+    match consolidated {
+        MaybeMultiple::Single(to) => {
+            handle_recipients(&mut inboxes, &sender, &to).await;
         }
+        MaybeMultiple::Multiple(to) => {
+            for address in to.iter() {
+                handle_recipients(&mut inboxes, &sender, address).await;
+            }
+        }
+        MaybeMultiple::None => {}
     }
 
     inboxes.into_iter().collect()

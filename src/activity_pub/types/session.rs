@@ -38,7 +38,7 @@ impl Outbox for ApSession {
         _events: EventChannels,
         profile: Profile,
     ) -> Result<String, Status> {
-        outbox::object::session(conn, faktory, self.clone(), profile).await
+        outbox::object::session(&conn, faktory, self.clone(), profile).await
     }
 }
 

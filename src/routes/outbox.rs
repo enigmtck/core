@@ -8,9 +8,10 @@ use crate::fairings::signatures::Signed;
 use crate::models::activities::{
     get_outbox_activities_by_profile_id, get_outbox_count_by_profile_id,
 };
-use crate::signing::VerificationType;
 use crate::{activity_pub::ApCollection, models::profiles::get_profile_by_username};
 use rocket::{get, http::Status, post, serde::json::Error, serde::json::Json};
+
+use super::ActivityJson;
 
 fn get_published_url(activity: &impl Temporal, username: &str, is_max: bool) -> Option<String> {
     activity.created_at().map(|date| {
@@ -31,10 +32,10 @@ pub async fn outbox_get(
     page: Option<bool>,
     min: Option<i64>,
     max: Option<i64>,
-) -> Result<Json<ApObject>, Status> {
+) -> Result<ActivityJson<ApObject>, Status> {
     if let Some(profile) = get_profile_by_username((&conn).into(), username.clone()).await {
         if page.is_none() || !page.unwrap() {
-            Ok(Json(ApObject::Collection(
+            Ok(ActivityJson(Json(ApObject::Collection(
                 ApCollection::default()
                     .total_items(
                         get_outbox_count_by_profile_id(&conn, profile.id)
@@ -54,7 +55,7 @@ pub async fn outbox_get(
                     .id(format!("{}/user/{}/outbox", *crate::SERVER_URL, username))
                     .ordered()
                     .clone(),
-            )))
+            ))))
         } else {
             let activities: Vec<ApActivity> =
                 get_outbox_activities_by_profile_id(&conn, profile.id, min, max, Some(5))
@@ -121,8 +122,8 @@ pub async fn outbox_get(
                 _ => (None, None),
             };
 
-            Ok(Json(ApObject::CollectionPage(ApCollectionPage::from(
-                ActivitiesPage {
+            Ok(ActivityJson(Json(ApObject::CollectionPage(
+                ApCollectionPage::from(ActivitiesPage {
                     profile,
                     activities,
                     first: Some(format!(
@@ -138,7 +139,7 @@ pub async fn outbox_get(
                     prev,
                     next,
                     part_of: Some(format!("{}/user/{}/outbox", *crate::SERVER_URL, username)),
-                },
+                }),
             ))))
         }
     } else {
@@ -157,23 +158,23 @@ pub async fn outbox_post(
 ) -> Result<String, Status> {
     log::debug!("POSTING TO OUTBOX\n{object:#?}");
 
-    if let Signed(true, VerificationType::Local) = signed {
-        match get_profile_by_username((&conn).into(), username).await {
-            Some(profile) => match object {
-                Ok(object) => match object {
-                    Json(ActivityPub::Activity(activity)) => {
-                        activity.outbox(conn, faktory, events, profile).await
-                    }
-                    Json(ActivityPub::Object(object)) => {
-                        object.outbox(conn, faktory, events, profile).await
-                    }
-                    _ => Err(Status::NoContent),
-                },
-                Err(_) => Err(Status::NoContent),
-            },
-            None => Err(Status::NoContent),
+    if signed.local() {
+        let profile = get_profile_by_username((&conn).into(), username)
+            .await
+            .ok_or(Status::new(521))?;
+
+        let object = object.map_err(|_| Status::new(522))?;
+
+        match object {
+            Json(ActivityPub::Activity(activity)) => {
+                activity.outbox(conn, faktory, events, profile).await
+            }
+            Json(ActivityPub::Object(object)) => {
+                object.outbox(conn, faktory, events, profile).await
+            }
+            _ => Err(Status::new(523)),
         }
     } else {
-        Err(Status::NoContent)
+        Err(Status::Unauthorized)
     }
 }

@@ -11,6 +11,7 @@ use url::Url;
 use crate::activity_pub::retriever::signed_get;
 use crate::activity_pub::ApImage;
 use crate::models::profiles::guaranteed_profile;
+use crate::models::timeline::{create_timeline_item, delete_timeline_item_by_ap_id};
 use crate::runner::cache::cache_content;
 use crate::{
     activity_pub::{ApActivity, ApAddress, ApNote, ApObject},
@@ -27,7 +28,6 @@ use crate::{
         processing::create_processing_item,
         send_to_inboxes,
         send_to_mq,
-        timeline::delete_timeline_item_by_ap_id,
         user::{get_profile, get_profile_by_ap_id},
     },
     schema::{notes, remote_notes},
@@ -35,10 +35,7 @@ use crate::{
     MaybeReference, POOL,
 };
 
-use super::{
-    actor::get_actor,
-    timeline::{add_to_timeline, create_timeline_item},
-};
+use super::{actor::get_actor, timeline::add_to_timeline};
 
 async fn cache_note(note: &'_ ApNote) -> &'_ ApNote {
     if let Some(attachments) = &note.attachment {
@@ -122,7 +119,15 @@ pub fn delete_note(job: Job) -> io::Result<()> {
 
                         let ap_id = get_note_ap_id_from_uuid(note.uuid.clone());
 
-                        if let Ok(records) = delete_timeline_item_by_ap_id(ap_id) {
+                        if let Ok(records) = handle.block_on(async move {
+                            delete_timeline_item_by_ap_id(
+                                POOL.get()
+                                    .expect("failed to get database connection")
+                                    .into(),
+                                ap_id,
+                            )
+                            .await
+                        }) {
                             log::debug!("TIMELINE RECORDS DELETED: {records}");
 
                             if let Ok(records) = delete_note_by_uuid(note.uuid) {
@@ -181,7 +186,7 @@ pub fn process_outbound_note(job: Job) -> io::Result<()> {
                         _ => None,
                     };
 
-                    add_note_to_timeline(note, sender.clone());
+                    handle.block_on(async { add_note_to_timeline(note, sender.clone()).await });
 
                     if let Some(activity) = activity {
                         let inboxes: Vec<ApAddress> = handle.block_on(async {
@@ -305,21 +310,17 @@ pub fn get_note_by_uuid(uuid: String) -> Option<Note> {
     }
 }
 
-fn add_note_to_timeline(note: Note, sender: Profile) {
-    let rt = Runtime::new().unwrap();
-    let handle = rt.handle();
+async fn add_note_to_timeline(note: Note, sender: Profile) {
     // Add to local timeline - this checks to be sure that the profile is represented as a remote_actor
     // locally before adding the Note to the Timeline. This is important as the Timeline only uses the
     // remote_actor representation (not the profile) for attributed_to data. In this case, the sender
     // and the note.attributed_to should represent the same person.
-    if handle
-        .block_on(async { get_actor(sender, note.clone().attributed_to).await })
+    if get_actor(sender, note.clone().attributed_to)
+        .await
         .is_some()
     {
-        if let Some(timeline_item) = create_timeline_item(note.clone().into()) {
-            handle.block_on(async {
-                add_to_timeline(Option::from(note.clone().ap_to), note.cc, timeline_item).await
-            });
+        if let Ok(timeline_item) = create_timeline_item(None, note.clone().into()).await {
+            add_to_timeline(Option::from(note.clone().ap_to), note.cc, timeline_item).await;
         }
     }
 }
@@ -335,7 +336,7 @@ pub async fn handle_remote_note(remote_note: RemoteNote) -> anyhow::Result<Remot
 
     let note = cache_note(&note).await.clone();
 
-    if let Some(timeline_item) = create_timeline_item((None, note.clone()).into()) {
+    if let Ok(timeline_item) = create_timeline_item(None, (None, note.clone()).into()).await {
         add_to_timeline(
             remote_note.clone().ap_to,
             remote_note.clone().cc,

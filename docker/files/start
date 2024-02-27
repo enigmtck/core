@@ -4,12 +4,12 @@ cd /srv/enigmatick
 
 if [[ -z ${ENIGMATICK_ROLE} ]]; then
     echo "Assuming server role..."
-    ./enigmatick server
+    ./enigmatick migrations && ./enigmatick server
 else
     if [ "$ENIGMATICK_ROLE" == "runner" ]; then
 	      ./enigmatick runner
     else
-	      ./enigmatick server
+	      ./enigmatick migrations && ./enigmatick server
     fi
 fi
 

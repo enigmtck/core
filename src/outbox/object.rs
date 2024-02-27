@@ -12,38 +12,57 @@ use crate::{
         notes::NewNote,
         profiles::Profile,
     },
+    MaybeMultiple,
 };
 use rocket::http::Status;
 
 pub async fn note(
-    conn: Db,
+    conn: &Db,
     faktory: FaktoryConnection,
     _events: EventChannels,
-    note: ApNote,
+    mut note: ApNote,
     profile: Profile,
 ) -> Result<String, Status> {
     // ApNote -> NewNote -> ApNote -> ApActivity
     // UUID is set in NewNote
-    let mut new_note = NewNote::from((note.clone(), profile.id));
 
-    if let (Some(note), Some(followers)) =
+    if let (Some(to), Some(followers)) =
         (note.to.single(), ApActor::from(profile.clone()).followers)
     {
-        if note.is_public() {
-            new_note.cc = Some(serde_json::to_value(vec![followers]).unwrap());
+        if to.is_public() {
+            if let Some(cc) = note.cc {
+                match cc {
+                    MaybeMultiple::Multiple(mut cc) => {
+                        cc.push(ApAddress::Address(followers));
+                        note.cc = Some(MaybeMultiple::Multiple(cc));
+                    }
+                    MaybeMultiple::Single(cc) => {
+                        note.cc = Some(MaybeMultiple::Multiple(vec![
+                            cc,
+                            ApAddress::Address(followers),
+                        ]));
+                    }
+                    MaybeMultiple::None => {
+                        note.cc =
+                            Some(MaybeMultiple::Multiple(vec![ApAddress::Address(followers)]));
+                    }
+                }
+            }
         }
     }
 
-    if let Some(created_note) = create_note(&conn, new_note.clone()).await {
+    let new_note = NewNote::from((note.clone(), profile.id));
+
+    if let Some(created_note) = create_note(conn, new_note.clone()).await {
         if let Some(activity) = create_activity(
-            (&conn).into(),
+            conn.into(),
             NewActivity::from((
                 Some(created_note.clone()),
                 None,
                 ActivityType::Create,
                 ApAddress::Address(get_ap_id_from_username(profile.username.clone())),
             ))
-            .link_profile(&conn)
+            .link_profile(conn)
             .await,
         )
         .await
@@ -68,7 +87,7 @@ pub async fn note(
 }
 
 pub async fn encrypted_note(
-    conn: Db,
+    conn: &Db,
     faktory: FaktoryConnection,
     _events: EventChannels,
     note: ApNote,
@@ -78,7 +97,7 @@ pub async fn encrypted_note(
     // UUID is set in NewNote
     let n = NewNote::from((note.clone(), profile.id));
 
-    if let Some(created_note) = create_note(&conn, n.clone()).await {
+    if let Some(created_note) = create_note(conn, n.clone()).await {
         log::debug!("created_note\n{created_note:#?}");
 
         // let ap_note = ApNote::from(created_note.clone());
@@ -102,15 +121,14 @@ pub async fn encrypted_note(
 }
 
 pub async fn session(
-    conn: Db,
+    conn: &Db,
     faktory: FaktoryConnection,
     session: ApSession,
     profile: Profile,
 ) -> Result<String, Status> {
     let encrypted_session: NewEncryptedSession = (session.clone(), profile.id).into();
 
-    if let Some(session) = create_encrypted_session((&conn).into(), encrypted_session.clone()).await
-    {
+    if let Some(session) = create_encrypted_session(conn.into(), encrypted_session.clone()).await {
         if assign_to_faktory(
             faktory,
             String::from("send_kexinit"),

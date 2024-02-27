@@ -7,12 +7,12 @@ use crate::{
     models::{
         activities::{get_activity_by_uuid, revoke_activity_by_apid, update_target_remote_note},
         profiles::guaranteed_profile,
+        timeline::get_timeline_item_by_ap_id,
     },
     runner::{
         get_inboxes,
         note::{fetch_remote_note, handle_remote_note},
         send_to_inboxes,
-        timeline::get_timeline_item_by_ap_id,
         user::get_profile,
     },
     POOL,
@@ -110,7 +110,19 @@ pub fn process_remote_announce(job: Job) -> io::Result<()> {
                 .block_on(async move { get_activity_by_uuid(pool.into(), uuid.to_string()).await })
             {
                 if let Some(target_ap_id) = activity.clone().target_ap_id {
-                    if get_timeline_item_by_ap_id(target_ap_id.clone()).is_none() {
+                    let target_ap_id_clone = target_ap_id.clone();
+                    if handle
+                        .block_on(async move {
+                            get_timeline_item_by_ap_id(
+                                POOL.get()
+                                    .expect("failed to get database connection")
+                                    .into(),
+                                target_ap_id_clone.clone(),
+                            )
+                            .await
+                        })
+                        .is_none()
+                    {
                         if let Some(remote_note) = handle.block_on(async move {
                             fetch_remote_note(target_ap_id.clone(), profile.clone()).await
                         }) {

@@ -197,6 +197,20 @@ impl<T: Clone> MaybeMultiple<T> {
             MaybeMultiple::None => vec![],
         }
     }
+
+    pub fn extend(mut self, mut additional: Vec<T>) -> Self {
+        match self {
+            MaybeMultiple::Multiple(ref mut data) => {
+                data.append(&mut additional);
+                data.clone().into()
+            }
+            MaybeMultiple::Single(data) => {
+                additional.push(data.clone());
+                additional.clone().into()
+            }
+            MaybeMultiple::None => additional.clone().into(),
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]

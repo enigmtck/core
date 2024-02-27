@@ -206,10 +206,10 @@ impl Outbox for ApNote {
     ) -> Result<String, Status> {
         match self.kind {
             ApNoteType::Note => {
-                outbox::object::note(conn, faktory, events, self.clone(), profile).await
+                outbox::object::note(&conn, faktory, events, self.clone(), profile).await
             }
             ApNoteType::EncryptedNote => {
-                outbox::object::encrypted_note(conn, faktory, events, self.clone(), profile).await
+                outbox::object::encrypted_note(&conn, faktory, events, self.clone(), profile).await
             }
             _ => Err(Status::NoContent),
         }
