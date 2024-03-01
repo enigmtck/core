@@ -2,11 +2,14 @@ use crate::activity_pub::{ApNote, ApNoteType};
 use crate::db::Db;
 use crate::helper::{get_note_ap_id_from_uuid, handle_option};
 use crate::schema::notes;
+use crate::POOL;
+use anyhow::Result;
 use chrono::{DateTime, Utc};
 use diesel::prelude::*;
 use diesel::{AsChangeset, Identifiable, Insertable, Queryable};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::fmt;
 
 #[derive(
     diesel_derive_enum::DbEnum, Debug, Serialize, Deserialize, Default, Clone, Eq, PartialEq,
@@ -17,6 +20,13 @@ pub enum NoteType {
     Note,
     EncryptedNote,
     VaultNote,
+    Question,
+}
+
+impl fmt::Display for NoteType {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{:?}", self)
+    }
 }
 
 impl From<ApNoteType> for NoteType {
@@ -25,6 +35,7 @@ impl From<ApNoteType> for NoteType {
             ApNoteType::EncryptedNote => NoteType::EncryptedNote,
             ApNoteType::Note => NoteType::Note,
             ApNoteType::VaultNote => NoteType::VaultNote,
+            ApNoteType::Question => NoteType::Question,
         }
     }
 }
@@ -132,14 +143,55 @@ pub async fn get_notes_by_profile_id(
     .unwrap_or(vec![])
 }
 
-pub async fn get_note_by_uuid(conn: &Db, uuid: String) -> Option<Note> {
-    conn.run(move |c| notes::table.filter(notes::uuid.eq(uuid)).first::<Note>(c))
-        .await
-        .ok()
+pub async fn get_note_by_uuid(conn: Option<&Db>, uuid: String) -> Option<Note> {
+    match conn {
+        Some(conn) => conn
+            .run(move |c| notes::table.filter(notes::uuid.eq(uuid)).first::<Note>(c))
+            .await
+            .ok(),
+        None => {
+            let mut pool = POOL.get().ok()?;
+            notes::table
+                .filter(notes::uuid.eq(uuid))
+                .first::<Note>(&mut pool)
+                .ok()
+        }
+    }
 }
 
 pub async fn get_note_by_apid(conn: &Db, ap_id: String) -> Option<Note> {
     conn.run(move |c| notes::table.filter(notes::ap_id.eq(ap_id)).first::<Note>(c))
         .await
         .ok()
+}
+
+pub async fn create_note(conn: &Db, note: NewNote) -> Option<Note> {
+    conn.run(move |c| {
+        diesel::insert_into(notes::table)
+            .values(&note)
+            .get_result::<Note>(c)
+    })
+    .await
+    .ok()
+}
+
+#[derive(Debug)]
+pub enum DeleteNoteError {
+    ConnectionError,
+    DatabaseError(diesel::result::Error),
+}
+
+pub async fn delete_note_by_uuid(conn: Option<&Db>, uuid: String) -> Result<usize> {
+    match conn {
+        Some(conn) => conn
+            .run(move |c| diesel::delete(notes::table.filter(notes::uuid.eq(uuid))).execute(c))
+            .await
+            .map_err(anyhow::Error::msg),
+        None => {
+            let mut pool = POOL.get()?;
+            diesel::delete(notes::table.filter(notes::uuid.eq(uuid)))
+                .execute(&mut pool)
+                .map_err(anyhow::Error::msg)
+        }
+    }
 }

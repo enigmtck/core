@@ -2,12 +2,12 @@ use crate::activity_pub::{
     ApAcceptType, ApActivity, ApAddress, ApAnnounceType, ApCreateType, ApFollowType, ApLikeType,
     ApUndoType,
 };
-use crate::db::{Db, FlexibleDb};
+use crate::db::Db;
 use crate::helper::{
     get_activity_ap_id_from_uuid, get_ap_id_from_username, get_note_ap_id_from_uuid,
 };
 use crate::schema::{activities, notes, profiles, remote_actors, remote_notes};
-use crate::MaybeReference;
+use crate::{MaybeReference, POOL};
 use anyhow::Result;
 use chrono::{DateTime, NaiveDateTime, Utc};
 use diesel::prelude::*;
@@ -128,7 +128,7 @@ pub struct NewActivity {
 
 impl NewActivity {
     pub async fn link_profile(&mut self, conn: &Db) -> Self {
-        if let Some(profile) = get_profile_by_ap_id(conn, self.clone().actor).await {
+        if let Some(profile) = get_profile_by_ap_id(Some(conn), self.clone().actor).await {
             self.profile_id = Some(profile.id);
         };
 
@@ -420,9 +420,9 @@ pub struct Activity {
     pub ap_id: Option<String>,
 }
 
-pub async fn create_activity(conn: FlexibleDb<'_>, activity: NewActivity) -> Option<Activity> {
+pub async fn create_activity(conn: Option<&Db>, activity: NewActivity) -> Option<Activity> {
     match conn {
-        FlexibleDb::Db(conn) => conn
+        Some(conn) => conn
             .run(move |c| {
                 diesel::insert_into(activities::table)
                     .values(&activity)
@@ -430,10 +430,13 @@ pub async fn create_activity(conn: FlexibleDb<'_>, activity: NewActivity) -> Opt
             })
             .await
             .ok(),
-        FlexibleDb::Pool(mut pool) => diesel::insert_into(activities::table)
-            .values(&activity)
-            .get_result::<Activity>(&mut pool)
-            .ok(),
+        None => {
+            let mut pool = POOL.get().ok()?;
+            diesel::insert_into(activities::table)
+                .values(&activity)
+                .get_result::<Activity>(&mut pool)
+                .ok()
+        }
     }
 }
 
@@ -445,9 +448,9 @@ pub type ExtendedActivity = (
     Option<RemoteActor>,
 );
 
-pub async fn get_activity_by_uuid(conn: FlexibleDb<'_>, uuid: String) -> Option<ExtendedActivity> {
+pub async fn get_activity_by_uuid(conn: Option<&Db>, uuid: String) -> Option<ExtendedActivity> {
     match conn {
-        FlexibleDb::Db(conn) => {
+        Some(conn) => {
             conn.run(move |c| {
                 activities::table
                     .filter(activities::uuid.eq(uuid))
@@ -468,7 +471,8 @@ pub async fn get_activity_by_uuid(conn: FlexibleDb<'_>, uuid: String) -> Option<
                 .await
                 .ok()
         }
-        FlexibleDb::Pool(mut pool) => {
+        None => {
+            let mut pool = POOL.get().ok()?;
             activities::table
                 .filter(activities::uuid.eq(uuid))
                 .left_join(notes::table.on(activities::target_note_id.eq(notes::id.nullable())))
@@ -511,9 +515,9 @@ pub async fn get_activity_by_apid(conn: &Db, ap_id: String) -> Option<ExtendedAc
     .ok()
 }
 
-pub async fn get_activity(conn: FlexibleDb<'_>, id: i32) -> Option<ExtendedActivity> {
+pub async fn get_activity(conn: Option<&Db>, id: i32) -> Option<ExtendedActivity> {
     match conn {
-        FlexibleDb::Db(conn) => {
+        Some(conn) => {
             conn.run(move |c| {
                 activities::table
                     .find(id)
@@ -534,7 +538,8 @@ pub async fn get_activity(conn: FlexibleDb<'_>, id: i32) -> Option<ExtendedActiv
                 .await
                 .ok()
         }
-        FlexibleDb::Pool(mut pool) => {
+        None => {
+            let mut pool = POOL.get().ok()?;
             activities::table
                 .find(id)
                 .left_join(notes::table.on(activities::target_note_id.eq(notes::id.nullable())))
@@ -668,9 +673,9 @@ pub async fn get_outbox_activities_by_profile_id(
     .unwrap_or(vec![])
 }
 
-pub async fn revoke_activity_by_uuid(conn: FlexibleDb<'_>, uuid: String) -> Result<Activity> {
+pub async fn revoke_activity_by_uuid(conn: Option<&Db>, uuid: String) -> Result<Activity> {
     match conn {
-        FlexibleDb::Db(conn) => {
+        Some(conn) => {
             conn.run(move |c| {
                 diesel::update(activities::table.filter(activities::uuid.eq(uuid)))
                     .set(activities::revoked.eq(true))
@@ -679,7 +684,8 @@ pub async fn revoke_activity_by_uuid(conn: FlexibleDb<'_>, uuid: String) -> Resu
             })
             .await
         }
-        FlexibleDb::Pool(mut pool) => {
+        None => {
+            let mut pool = POOL.get().map_err(anyhow::Error::msg)?;
             diesel::update(activities::table.filter(activities::uuid.eq(uuid)))
                 .set(activities::revoked.eq(true))
                 .get_result::<Activity>(&mut pool)
@@ -688,9 +694,9 @@ pub async fn revoke_activity_by_uuid(conn: FlexibleDb<'_>, uuid: String) -> Resu
     }
 }
 
-pub async fn revoke_activity_by_apid(conn: FlexibleDb<'_>, ap_id: String) -> Result<Activity> {
+pub async fn revoke_activity_by_apid(conn: Option<&Db>, ap_id: String) -> Result<Activity> {
     match conn {
-        FlexibleDb::Db(conn) => {
+        Some(conn) => {
             conn.run(move |c| {
                 diesel::update(activities::table.filter(activities::ap_id.eq(ap_id)))
                     .set(activities::revoked.eq(true))
@@ -699,7 +705,8 @@ pub async fn revoke_activity_by_apid(conn: FlexibleDb<'_>, ap_id: String) -> Res
             })
             .await
         }
-        FlexibleDb::Pool(mut pool) => {
+        None => {
+            let mut pool = POOL.get().map_err(anyhow::Error::msg)?;
             diesel::update(activities::table.filter(activities::ap_id.eq(ap_id)))
                 .set(activities::revoked.eq(true))
                 .get_result::<Activity>(&mut pool)
@@ -709,12 +716,12 @@ pub async fn revoke_activity_by_apid(conn: FlexibleDb<'_>, ap_id: String) -> Res
 }
 
 pub async fn update_target_remote_note(
-    conn: FlexibleDb<'_>,
+    conn: Option<&Db>,
     activity: Activity,
     remote_note: RemoteNote,
 ) -> Option<usize> {
     match conn {
-        FlexibleDb::Db(conn) => {
+        Some(conn) => {
             conn.run(move |c| {
                 diesel::update(activities::table.find(activity.id))
                     .set(activities::target_remote_note_id.eq(remote_note.id))
@@ -723,9 +730,12 @@ pub async fn update_target_remote_note(
             })
             .await
         }
-        FlexibleDb::Pool(mut pool) => diesel::update(activities::table.find(activity.id))
-            .set(activities::target_remote_note_id.eq(remote_note.id))
-            .execute(&mut pool)
-            .ok(),
+        None => {
+            let mut pool = POOL.get().ok()?;
+            diesel::update(activities::table.find(activity.id))
+                .set(activities::target_remote_note_id.eq(remote_note.id))
+                .execute(&mut pool)
+                .ok()
+        }
     }
 }

@@ -70,15 +70,19 @@ pub fn get_local_identifier(ap_id: String) -> Option<LocalIdentifier> {
 }
 
 pub fn get_ap_id_from_username(username: String) -> String {
-    format!("https://{}/user/{}", *crate::SERVER_NAME, username)
+    format!("https://{}/user/{username}", *crate::SERVER_NAME)
 }
 
 pub fn get_note_ap_id_from_uuid(uuid: String) -> String {
-    format!("https://{}/notes/{}", *crate::SERVER_NAME, uuid)
+    format!("https://{}/notes/{uuid}", *crate::SERVER_NAME)
+}
+
+pub fn get_note_url_from_uuid(uuid: String) -> String {
+    format!("https://{}/notes?uuid={uuid}", *crate::SERVER_NAME)
 }
 
 pub fn get_activity_ap_id_from_uuid(uuid: String) -> String {
-    format!("https://{}/activities/{}", *crate::SERVER_NAME, uuid)
+    format!("https://{}/activities/{uuid}", *crate::SERVER_NAME)
 }
 
 pub fn handle_option(v: Value) -> Option<Value> {

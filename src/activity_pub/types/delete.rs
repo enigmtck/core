@@ -94,7 +94,7 @@ impl Inbox for Box<ApDelete> {
             MaybeReference::Actual(actual) => match actual {
                 ApObject::Tombstone(tombstone) => {
                     if let Some(remote_note) =
-                        get_remote_note_by_ap_id(&conn, tombstone.id.clone()).await
+                        get_remote_note_by_ap_id(Some(&conn), tombstone.id.clone()).await
                     {
                         if remote_note.attributed_to == self.actor.clone().to_string() {
                             if delete_note(&conn, tombstone.id.clone()).await.is_ok() {

@@ -1,5 +1,4 @@
 use rocket::{
-    get,
     http::Status,
     post,
     response::stream::{Event, EventStream},
@@ -29,12 +28,12 @@ pub struct StreamAuthorization {
 pub async fn authorize_stream(
     signed: Signed,
     mut events: EventChannels,
-    username: String,
+    username: &str,
     authorization: Result<Json<StreamAuthorization>, Error<'_>>,
 ) -> Result<Json<StreamAuthorization>, Status> {
     if let Signed(true, VerificationType::Local) = signed {
         if let Ok(authorization) = authorization {
-            events.authorize(authorization.uuid.clone(), username);
+            events.authorize(authorization.uuid.clone(), username.to_string());
             Ok(authorization)
         } else {
             Err(Status::Forbidden)
@@ -56,14 +55,17 @@ impl Drop for DropGuard {
     }
 }
 
-#[get("/api/user/<username>/events")]
+#[allow(unused_variables)]
+#[post("/api/user/<username>/events", data = "<authorization>")]
 pub fn stream(
     mut shutdown: Shutdown,
     mut events: EventChannels,
     username: String,
+    authorization: Result<Json<StreamAuthorization>, Error<'_>>,
 ) -> EventStream![] {
     EventStream! {
-        let (uuid, rx) = events.subscribe(username);
+        let (uuid, rx) = events.subscribe(username.clone());
+
         let _drop_guard = DropGuard { events: events.clone(), uuid: uuid.clone() };
         let mut i = 1;
 

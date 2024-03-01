@@ -1,7 +1,6 @@
 use crate::activity_pub::{ApInvite, ApJoin, ApObject};
-use crate::db::FlexibleDb;
 use crate::schema::remote_encrypted_sessions;
-use crate::MaybeReference;
+use crate::{db::Db, MaybeReference, POOL};
 use chrono::{DateTime, Utc};
 use diesel::prelude::*;
 use diesel::{AsChangeset, Identifiable, Insertable, Queryable};
@@ -78,11 +77,11 @@ pub struct RemoteEncryptedSession {
 }
 
 pub async fn get_remote_encrypted_session_by_ap_id(
-    conn: FlexibleDb<'_>,
+    conn: Option<&Db>,
     apid: String,
 ) -> Option<RemoteEncryptedSession> {
     match conn {
-        FlexibleDb::Db(conn) => conn
+        Some(conn) => conn
             .run(move |c| {
                 remote_encrypted_sessions::table
                     .filter(remote_encrypted_sessions::ap_id.eq(apid))
@@ -90,9 +89,30 @@ pub async fn get_remote_encrypted_session_by_ap_id(
             })
             .await
             .ok(),
-        FlexibleDb::Pool(mut pool) => remote_encrypted_sessions::table
-            .filter(remote_encrypted_sessions::ap_id.eq(apid))
-            .first::<RemoteEncryptedSession>(&mut pool)
-            .ok(),
+        None => {
+            let mut pool = POOL.get().ok()?;
+            remote_encrypted_sessions::table
+                .filter(remote_encrypted_sessions::ap_id.eq(apid))
+                .first::<RemoteEncryptedSession>(&mut pool)
+                .ok()
+        }
+    }
+}
+
+pub async fn create_remote_encrypted_session(
+    conn: &Db,
+    remote_encrypted_session: NewRemoteEncryptedSession,
+) -> Option<RemoteEncryptedSession> {
+    if let Ok(x) = conn
+        .run(move |c| {
+            diesel::insert_into(remote_encrypted_sessions::table)
+                .values(&remote_encrypted_session)
+                .get_result::<RemoteEncryptedSession>(c)
+        })
+        .await
+    {
+        Some(x)
+    } else {
+        Option::None
     }
 }

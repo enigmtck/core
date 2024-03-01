@@ -11,7 +11,6 @@ use crate::{
         },
     },
     runner::cache::cache_content,
-    POOL,
 };
 
 async fn cache_actor(actor: &ApActor) -> &ApActor {
@@ -38,14 +37,7 @@ pub async fn get_actor(profile: Profile, id: String) -> Option<(RemoteActor, Opt
     // represented as a "remote_actor" when adding the Note to the local Timeline.  This function
     // updates that remote_actor record (or creates it).
     let remote_actor = {
-        if let Ok(remote_actor) = get_remote_actor_by_ap_id(
-            POOL.get()
-                .expect("failed to get database connection")
-                .into(),
-            id.clone(),
-        )
-        .await
-        {
+        if let Ok(remote_actor) = get_remote_actor_by_ap_id(None, id.clone()).await {
             let now = Utc::now();
             let updated = remote_actor.updated_at;
 
@@ -63,14 +55,7 @@ pub async fn get_actor(profile: Profile, id: String) -> Option<(RemoteActor, Opt
     if let Some(remote_actor) = remote_actor {
         Some((
             remote_actor,
-            get_leader_by_profile_id_and_ap_id(
-                POOL.get()
-                    .expect("failed to get database connection")
-                    .into(),
-                profile.id,
-                id,
-            )
-            .await,
+            get_leader_by_profile_id_and_ap_id(None, profile.id, id).await,
         ))
     } else {
         log::debug!("PERFORMING REMOTE LOOKUP FOR ACTOR: {id}");
@@ -82,15 +67,10 @@ pub async fn get_actor(profile: Profile, id: String) -> Option<(RemoteActor, Opt
                         if let Ok(new_remote_actor) =
                             NewRemoteActor::try_from(cache_actor(&actor).await.clone())
                         {
-                            create_or_update_remote_actor(
-                                POOL.get()
-                                    .expect("failed to get database connection")
-                                    .into(),
-                                new_remote_actor,
-                            )
-                            .await
-                            .ok()
-                            .map(|a| (a, None))
+                            create_or_update_remote_actor(None, new_remote_actor)
+                                .await
+                                .ok()
+                                .map(|a| (a, None))
                         } else {
                             log::debug!(
                                 "FAILED TO CONVERT AP_ACTOR TO NEW_REMOTE_ACTOR\n{actor:#?}"

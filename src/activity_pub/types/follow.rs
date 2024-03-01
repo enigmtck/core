@@ -51,7 +51,7 @@ impl Inbox for ApFollow {
         raw: Value,
     ) -> Result<Status, Status> {
         if let (Some(_), Some(profile_ap_id)) = (self.id.clone(), self.object.clone().reference()) {
-            if let Some(profile) = get_profile_by_ap_id(&conn, profile_ap_id.clone()).await {
+            if let Some(profile) = get_profile_by_ap_id(Some(&conn), profile_ap_id.clone()).await {
                 if let Ok(activity) = NewActivity::try_from((
                     ApActivity::Follow(self.clone()),
                     Some(ActivityTarget::from(profile)),

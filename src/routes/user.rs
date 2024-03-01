@@ -47,7 +47,7 @@ pub async fn get_followers(
         signed,
         get_profile_by_username((&conn).into(), username.clone()).await,
     ) {
-        let followers = get_followers_by_profile_id(&conn, profile.id).await;
+        let followers = get_followers_by_profile_id(Some(&conn), profile.id).await;
 
         Ok(ActivityJson(Json(ApCollection::from(ActorsPage {
             page: 0,
@@ -62,7 +62,7 @@ pub async fn get_followers(
                 .collect(),
         }))))
     } else if let Some(profile) = get_profile_by_username((&conn).into(), username).await {
-        let followers = get_followers_by_profile_id(&conn, profile.id).await;
+        let followers = get_followers_by_profile_id(Some(&conn), profile.id).await;
 
         Ok(ActivityJson(Json(ApCollection::from(FollowersPage {
             page: 0,

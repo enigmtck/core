@@ -82,6 +82,8 @@ fn build_verify_string(
         .collect::<Vec<String>>()
         .join("\n");
 
+    log::debug!("VERIFY STRING: {verify_string}");
+
     (
         verify_string,
         signature_map
@@ -147,7 +149,7 @@ pub async fn verify(conn: Db, params: VerifyParams) -> Result<VerificationType, 
         if let Some(username) = username {
             if let Some(profile) = get_profile_by_username((&conn).into(), username).await {
                 if let Some(public_key) = profile.client_public_key {
-                    RsaPublicKey::from_public_key_pem(&public_key)
+                    RsaPublicKey::from_public_key_pem(public_key.trim_end())
                         .map_err(|_| VerificationError::PublicKeyError)
                         .and_then(|pk| verify(&pk, &signature_str, &verify_string))?;
                     Ok(VerificationType::Local)
@@ -161,7 +163,7 @@ pub async fn verify(conn: Db, params: VerifyParams) -> Result<VerificationType, 
             Err(VerificationError::ProfileNotFound)
         }
     } else if let Some(actor) = retriever::get_actor(&conn, ap_id, Option::None, true).await {
-        RsaPublicKey::from_public_key_pem(&actor.public_key.public_key_pem)
+        RsaPublicKey::from_public_key_pem(actor.public_key.public_key_pem.trim_end())
             .map_err(|_| VerificationError::PublicKeyError)
             .and_then(|pk| verify(&pk, &signature_str, &verify_string))?;
         Ok(VerificationType::Remote)

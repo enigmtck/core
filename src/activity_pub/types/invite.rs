@@ -3,9 +3,12 @@ use std::fmt::Debug;
 
 use crate::{
     activity_pub::{ApAddress, ApContext, ApInstruments, ApObject, ApSession, Inbox, Outbox},
-    db::{create_remote_encrypted_session, Db},
+    db::Db,
     fairings::{events::EventChannels, faktory::FaktoryConnection},
-    models::profiles::{get_profile_by_ap_id, Profile},
+    models::{
+        profiles::{get_profile_by_ap_id, Profile},
+        remote_encrypted_sessions::create_remote_encrypted_session,
+    },
     to_faktory, MaybeMultiple, MaybeReference,
 };
 use rocket::http::Status;
@@ -48,7 +51,7 @@ impl Inbox for ApInvite {
         log::debug!("PROCESSING INVITE\n{self:#?}");
 
         if let Some(ApAddress::Address(to)) = self.to.clone().single() {
-            if let Some(profile) = get_profile_by_ap_id(&conn, to).await {
+            if let Some(profile) = get_profile_by_ap_id(Some(&conn), to).await {
                 if let Some(session) =
                     create_remote_encrypted_session(&conn, (self.clone(), profile.id).into()).await
                 {

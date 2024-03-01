@@ -4,9 +4,11 @@ use tokio::runtime::Runtime;
 
 use crate::{
     activity_pub::{ApActivity, ApAddress},
-    models::activities::{get_activity_by_uuid, revoke_activity_by_apid},
-    runner::{get_inboxes, send_to_inboxes, user::get_profile},
-    POOL,
+    models::{
+        activities::{get_activity_by_uuid, revoke_activity_by_apid},
+        profiles::get_profile,
+    },
+    runner::{get_inboxes, send_to_inboxes},
 };
 
 pub fn process_remote_undo_like(job: Job) -> io::Result<()> {
@@ -19,13 +21,7 @@ pub fn process_remote_undo_like(job: Job) -> io::Result<()> {
         log::debug!("looking for ap_id: {}", ap_id);
 
         if handle
-            .block_on(async {
-                revoke_activity_by_apid(
-                    POOL.get().expect("failed to get pool").into(),
-                    ap_id.clone(),
-                )
-                .await
-            })
+            .block_on(async { revoke_activity_by_apid(None, ap_id.clone()).await })
             .is_ok()
         {
             log::debug!("LIKE REVOKED: {ap_id}");
@@ -51,12 +47,12 @@ pub fn send_like(job: Job) -> io::Result<()> {
             target_remote_note,
             target_profile,
             target_remote_actor,
-        )) = handle.block_on(async {
-            get_activity_by_uuid(POOL.get().expect("failed to get pool").into(), uuid.clone()).await
-        }) {
+        )) = handle.block_on(async { get_activity_by_uuid(None, uuid.clone()).await })
+        {
             log::debug!("FOUND ACTIVITY\n{activity:#?}");
             if let Some(profile_id) = activity.profile_id {
-                if let Some(sender) = get_profile(profile_id) {
+                if let Some(sender) = handle.block_on(async { get_profile(None, profile_id).await })
+                {
                     if let Ok(activity) = ApActivity::try_from((
                         (
                             activity,

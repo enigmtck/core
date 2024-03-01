@@ -22,7 +22,10 @@ async fn get_notey(conn: &Db, id: String) -> (Option<Note>, Option<RemoteNote>) 
     if is_local(id.clone()) {
         if let Some(identifier) = get_local_identifier(id.clone()) {
             if identifier.kind == LocalIdentifierType::Note {
-                (get_note_by_uuid(conn, identifier.identifier).await, None)
+                (
+                    get_note_by_uuid(Some(conn), identifier.identifier).await,
+                    None,
+                )
             } else {
                 (None, None)
             }
@@ -30,7 +33,7 @@ async fn get_notey(conn: &Db, id: String) -> (Option<Note>, Option<RemoteNote>) 
             (None, None)
         }
     } else {
-        (None, get_remote_note_by_ap_id(conn, id).await)
+        (None, get_remote_note_by_ap_id(Some(conn), id).await)
     }
 }
 

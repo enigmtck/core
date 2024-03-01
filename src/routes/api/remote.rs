@@ -13,8 +13,8 @@ use crate::models::profiles::get_profile_by_username;
 
 /// This accepts an actor in URL form (e.g., https://enigmatick.social/user/justin).
 #[get("/api/remote/webfinger?<id>")]
-pub async fn remote_id(conn: Db, id: String) -> Result<String, Status> {
-    let id = urlencoding::decode(&id).map_err(|_| Status::new(525))?;
+pub async fn remote_id(conn: Db, id: &str) -> Result<String, Status> {
+    let id = urlencoding::decode(id).map_err(|_| Status::new(525))?;
     let id = (*id).to_string();
 
     get_actor(&conn, id, None, true)
@@ -28,15 +28,15 @@ pub async fn remote_id(conn: Db, id: String) -> Result<String, Status> {
 pub async fn remote_id_authenticated(
     signed: Signed,
     conn: Db,
-    username: String,
-    id: String,
+    username: &str,
+    id: &str,
 ) -> Result<String, Status> {
     if signed.local() {
-        let profile = get_profile_by_username((&conn).into(), username)
+        let profile = get_profile_by_username((&conn).into(), username.to_string())
             .await
             .ok_or(Status::NotFound)?;
 
-        let id = urlencoding::decode(&id).map_err(|_| Status::new(525))?;
+        let id = urlencoding::decode(id).map_err(|_| Status::new(525))?;
         let id = (*id).to_string();
 
         get_actor(&conn, id, Some(profile), true)
@@ -69,8 +69,8 @@ async fn remote_actor_response(conn: &Db, webfinger: String) -> Result<Json<ApAc
 
 /// This accepts an actor in webfinger form (e.g., justin@enigmatick.social).
 #[get("/api/remote/actor?<webfinger>")]
-pub async fn remote_actor(conn: Db, webfinger: String) -> Result<Json<ApActor>, Status> {
-    remote_actor_response(&conn, webfinger).await
+pub async fn remote_actor(conn: Db, webfinger: &str) -> Result<Json<ApActor>, Status> {
+    remote_actor_response(&conn, webfinger.to_string()).await
 }
 
 async fn remote_actor_authenticated_response(
@@ -101,27 +101,28 @@ async fn remote_actor_authenticated_response(
 pub async fn remote_actor_authenticated(
     signed: Signed,
     conn: Db,
-    username: String,
-    webfinger: String,
+    username: &str,
+    webfinger: &str,
 ) -> Result<Json<ApActor>, Status> {
-    remote_actor_authenticated_response(signed, &conn, username, webfinger).await
+    remote_actor_authenticated_response(signed, &conn, username.to_string(), webfinger.to_string())
+        .await
 }
 
 #[get("/api/remote/followers?<webfinger>&<page>")]
 pub async fn remote_followers(
     conn: Db,
-    webfinger: String,
-    page: Option<String>,
+    webfinger: &str,
+    page: Option<&str>,
 ) -> Result<Json<ApObject>, Status> {
-    if let Ok(Json(actor)) = remote_actor_response(&conn, webfinger).await {
+    if let Ok(Json(actor)) = remote_actor_response(&conn, webfinger.to_string()).await {
         let followers = actor.followers.ok_or(Status::new(523))?;
 
         if let Some(page) = page {
-            let url = urlencoding::decode(&page).map_err(|_| Status::new(524))?;
+            let url = urlencoding::decode(page).map_err(|_| Status::new(524))?;
             let url = &(*url).to_string();
 
             if url.contains(&followers) {
-                let collection = get_remote_collection_page(&conn, None, page)
+                let collection = get_remote_collection_page(&conn, None, page.to_string())
                     .await
                     .map_err(|_| Status::new(525))?;
 
@@ -150,26 +151,32 @@ pub async fn remote_followers(
 pub async fn remote_followers_authenticated(
     signed: Signed,
     conn: Db,
-    username: String,
-    webfinger: String,
-    page: Option<String>,
+    username: &str,
+    webfinger: &str,
+    page: Option<&str>,
 ) -> Result<Json<ApObject>, Status> {
     if signed.local() {
-        let profile = get_profile_by_username((&conn).into(), username.clone())
+        let profile = get_profile_by_username((&conn).into(), username.to_string())
             .await
             .ok_or(Status::NotFound)?;
-        if let Ok(Json(actor)) =
-            remote_actor_authenticated_response(signed, &conn, username, webfinger).await
+        if let Ok(Json(actor)) = remote_actor_authenticated_response(
+            signed,
+            &conn,
+            username.to_string(),
+            webfinger.to_string(),
+        )
+        .await
         {
             let followers = actor.followers.ok_or(Status::new(526))?;
             if let Some(page) = page {
-                let url = urlencoding::decode(&page).map_err(|_| Status::new(527))?;
+                let url = urlencoding::decode(page).map_err(|_| Status::new(527))?;
                 let url = &(*url).to_string();
 
                 if url.contains(&followers) {
-                    let collection = get_remote_collection_page(&conn, Some(profile), page)
-                        .await
-                        .map_err(|_| Status::NoContent)?;
+                    let collection =
+                        get_remote_collection_page(&conn, Some(profile), page.to_string())
+                            .await
+                            .map_err(|_| Status::NoContent)?;
                     Ok(Json(ApObject::CollectionPage(collection)))
                 } else {
                     Err(Status::NoContent)
@@ -197,17 +204,17 @@ pub async fn remote_followers_authenticated(
 #[get("/api/remote/following?<webfinger>&<page>")]
 pub async fn remote_following(
     conn: Db,
-    webfinger: String,
-    page: Option<String>,
+    webfinger: &str,
+    page: Option<&str>,
 ) -> Result<Json<ApObject>, Status> {
-    if let Ok(Json(actor)) = remote_actor_response(&conn, webfinger).await {
+    if let Ok(Json(actor)) = remote_actor_response(&conn, webfinger.to_string()).await {
         let following = actor.following.ok_or(Status::new(526))?;
         if let Some(page) = page {
-            let url = urlencoding::decode(&page).map_err(|_| Status::new(524))?;
+            let url = urlencoding::decode(page).map_err(|_| Status::new(524))?;
             let url = &(*url).to_string();
 
             if url.contains(&following) {
-                let collection = get_remote_collection_page(&conn, None, page)
+                let collection = get_remote_collection_page(&conn, None, page.to_string())
                     .await
                     .map_err(|_| Status::NoContent)?;
                 Ok(Json(ApObject::CollectionPage(collection)))
@@ -229,25 +236,30 @@ pub async fn remote_following(
 pub async fn remote_following_authenticated(
     signed: Signed,
     conn: Db,
-    username: String,
-    webfinger: String,
-    page: Option<String>,
+    username: &str,
+    webfinger: &str,
+    page: Option<&str>,
 ) -> Result<Json<ApObject>, Status> {
     if !signed.local() {
         Err(Status::Unauthorized)
-    } else if let Ok(Json(actor)) =
-        remote_actor_authenticated_response(signed, &conn, username.clone(), webfinger).await
+    } else if let Ok(Json(actor)) = remote_actor_authenticated_response(
+        signed,
+        &conn,
+        username.to_string(),
+        webfinger.to_string(),
+    )
+    .await
     {
-        let profile = get_profile_by_username((&conn).into(), username.clone())
+        let profile = get_profile_by_username((&conn).into(), username.to_string())
             .await
             .ok_or(Status::new(521))?;
 
         let following = actor.following.ok_or(Status::new(526))?;
         if let Some(page) = page {
-            let url = urlencoding::decode(&page).map_err(|_| Status::new(522))?;
+            let url = urlencoding::decode(page).map_err(|_| Status::new(522))?;
             let url = &(*url).to_string();
             if url.contains(&following) {
-                let collection = get_remote_collection_page(&conn, Some(profile), page)
+                let collection = get_remote_collection_page(&conn, Some(profile), page.to_string())
                     .await
                     .map_err(|_| Status::NoContent)?;
 
@@ -275,15 +287,15 @@ pub async fn remote_following_authenticated(
 #[get("/api/remote/outbox?<webfinger>&<page>")]
 pub async fn remote_outbox(
     conn: Db,
-    webfinger: String,
-    page: Option<String>,
+    webfinger: &str,
+    page: Option<&str>,
 ) -> Result<Json<ApObject>, Status> {
-    if let Ok(Json(actor)) = remote_actor_response(&conn, webfinger).await {
+    if let Ok(Json(actor)) = remote_actor_response(&conn, webfinger.to_string()).await {
         if let Some(page) = page {
-            let url = urlencoding::decode(&page).map_err(|_| Status::new(524))?;
+            let url = urlencoding::decode(page).map_err(|_| Status::new(524))?;
             let url = &(*url).to_string();
             if url.contains(&actor.outbox) {
-                let collection = get_remote_collection_page(&conn, None, page)
+                let collection = get_remote_collection_page(&conn, None, page.to_string())
                     .await
                     .map_err(|_| Status::NoContent)?;
 
@@ -306,21 +318,21 @@ pub async fn remote_outbox(
 pub async fn remote_outbox_authenticated(
     signed: Signed,
     conn: Db,
-    username: String,
-    webfinger: String,
-    page: Option<String>,
+    username: &str,
+    webfinger: &str,
+    page: Option<&str>,
 ) -> Result<Json<ApObject>, Status> {
     if !signed.local() {
         Err(Status::Unauthorized)
-    } else if let Ok(Json(actor)) = remote_actor_response(&conn, webfinger).await {
-        let profile = get_profile_by_username((&conn).into(), username.clone())
+    } else if let Ok(Json(actor)) = remote_actor_response(&conn, webfinger.to_string()).await {
+        let profile = get_profile_by_username((&conn).into(), username.to_string())
             .await
             .ok_or(Status::new(521))?;
         if let Some(page) = page {
-            let url = urlencoding::decode(&page).map_err(|_| Status::new(524))?;
+            let url = urlencoding::decode(page).map_err(|_| Status::new(524))?;
             let url = &(*url).to_string();
             if url.contains(&actor.outbox) {
-                let collection = get_remote_collection_page(&conn, Some(profile), page)
+                let collection = get_remote_collection_page(&conn, Some(profile), page.to_string())
                     .await
                     .map_err(|_| Status::new(523))?;
 
@@ -340,8 +352,8 @@ pub async fn remote_outbox_authenticated(
 }
 
 #[get("/api/remote/note?<id>")]
-pub async fn remote_note(conn: Db, id: String) -> Result<Json<ApNote>, Status> {
-    if let Ok(url) = urlencoding::decode(&id) {
+pub async fn remote_note(conn: Db, id: &str) -> Result<Json<ApNote>, Status> {
+    if let Ok(url) = urlencoding::decode(id) {
         let url = &(*url).to_string();
         if let Some(note) = get_note(&conn, None, url.to_string()).await {
             Ok(Json(note))
@@ -357,14 +369,14 @@ pub async fn remote_note(conn: Db, id: String) -> Result<Json<ApNote>, Status> {
 pub async fn remote_note_authenticated(
     signed: Signed,
     conn: Db,
-    username: String,
-    id: String,
+    username: &str,
+    id: &str,
 ) -> Result<Json<ApNote>, Status> {
     if signed.local() {
-        let profile = get_profile_by_username((&conn).into(), username)
+        let profile = get_profile_by_username((&conn).into(), username.to_string())
             .await
             .ok_or(Status::new(523))?;
-        let note = get_note(&conn, Some(profile), id)
+        let note = get_note(&conn, Some(profile), id.to_string())
             .await
             .ok_or(Status::new(524))?;
         Ok(Json(note))

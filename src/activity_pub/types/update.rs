@@ -78,7 +78,7 @@ impl Inbox for ApUpdate {
                         log::debug!("UPDATING NOTE: {}", id);
 
                         if note.clone().attributed_to == self.actor.clone()
-                            && create_or_update_remote_note(&conn, note.into())
+                            && create_or_update_remote_note(Some(&conn), note.into())
                                 .await
                                 .is_some()
                         {

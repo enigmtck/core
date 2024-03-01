@@ -1,7 +1,3 @@
-use std::io::ErrorKind;
-
-use diesel::prelude::*;
-
 use faktory::Job;
 use reqwest::{Client, StatusCode};
 use tokio::io;
@@ -10,7 +6,10 @@ use url::Url;
 
 use crate::activity_pub::retriever::signed_get;
 use crate::activity_pub::ApImage;
-use crate::models::profiles::guaranteed_profile;
+use crate::models::notes::delete_note_by_uuid;
+use crate::models::processing_queue::create_processing_item;
+use crate::models::profiles::{get_profile, get_profile_by_ap_id, guaranteed_profile};
+use crate::models::remote_notes::{create_or_update_remote_note, get_remote_note_by_ap_id};
 use crate::models::timeline::{create_timeline_item, delete_timeline_item_by_ap_id};
 use crate::runner::cache::cache_content;
 use crate::{
@@ -20,19 +19,16 @@ use crate::{
         activities::get_activity_by_uuid,
         notes::{Note, NoteType},
         profiles::Profile,
-        remote_notes::{NewRemoteNote, RemoteNote},
+        remote_notes::RemoteNote,
     },
     runner::{
         //encrypted::handle_encrypted_note,
         get_inboxes,
-        processing::create_processing_item,
         send_to_inboxes,
         send_to_mq,
-        user::{get_profile, get_profile_by_ap_id},
     },
-    schema::{notes, remote_notes},
     signing::{Method, SignParams},
-    MaybeReference, POOL,
+    MaybeReference,
 };
 
 use super::{actor::get_actor, timeline::add_to_timeline};
@@ -65,20 +61,6 @@ async fn cache_note(note: &'_ ApNote) -> &'_ ApNote {
     note
 }
 
-pub fn create_or_update_remote_note(note: NewRemoteNote) -> Option<RemoteNote> {
-    if let Ok(mut conn) = POOL.get() {
-        diesel::insert_into(remote_notes::table)
-            .values(&note)
-            .on_conflict(remote_notes::ap_id)
-            .do_update()
-            .set(&note)
-            .get_result::<RemoteNote>(&mut conn)
-            .ok()
-    } else {
-        None
-    }
-}
-
 pub fn delete_note(job: Job) -> io::Result<()> {
     log::debug!("DELETING NOTE");
     let runtime = Runtime::new().unwrap();
@@ -94,12 +76,14 @@ pub fn delete_note(job: Job) -> io::Result<()> {
             target_remote_note,
             target_profile,
             target_remote_actor,
-        )) = handle.block_on(async {
-            get_activity_by_uuid(POOL.get().expect("failed to get pool").into(), uuid.clone()).await
-        }) {
+        )) = handle.block_on(async { get_activity_by_uuid(None, uuid.clone()).await })
+        {
             log::debug!("FOUND ACTIVITY\n{activity:#?}");
             if let Some(profile_id) = activity.profile_id {
-                if let (Some(sender), Some(note)) = (get_profile(profile_id), target_note.clone()) {
+                if let (Some(sender), Some(note)) = (
+                    handle.block_on(async { get_profile(None, profile_id).await }),
+                    target_note.clone(),
+                ) {
                     if let Ok(activity) = ApActivity::try_from((
                         (
                             activity,
@@ -120,17 +104,13 @@ pub fn delete_note(job: Job) -> io::Result<()> {
                         let ap_id = get_note_ap_id_from_uuid(note.uuid.clone());
 
                         if let Ok(records) = handle.block_on(async move {
-                            delete_timeline_item_by_ap_id(
-                                POOL.get()
-                                    .expect("failed to get database connection")
-                                    .into(),
-                                ap_id,
-                            )
-                            .await
+                            delete_timeline_item_by_ap_id(None, ap_id).await
                         }) {
                             log::debug!("TIMELINE RECORDS DELETED: {records}");
 
-                            if let Ok(records) = delete_note_by_uuid(note.uuid) {
+                            if let Ok(records) = handle
+                                .block_on(async move { delete_note_by_uuid(None, note.uuid).await })
+                            {
                                 log::debug!("NOTE RECORDS DELETED: {records}");
                             }
                         }
@@ -157,11 +137,13 @@ pub fn process_outbound_note(job: Job) -> io::Result<()> {
             target_remote_note,
             target_profile,
             target_remote_actor,
-        )) = handle.block_on(async {
-            get_activity_by_uuid(POOL.get().expect("failed to get pool").into(), uuid).await
-        }) {
+        )) = handle.block_on(async { get_activity_by_uuid(None, uuid).await })
+        {
             if let Some(profile_id) = activity.profile_id {
-                if let (Some(sender), Some(note)) = (get_profile(profile_id), target_note.clone()) {
+                if let (Some(sender), Some(note)) = (
+                    handle.block_on(async { get_profile(None, profile_id).await }),
+                    target_note.clone(),
+                ) {
                     let activity = match note.kind {
                         NoteType::Note => {
                             if let Ok(activity) = ApActivity::try_from((
@@ -241,8 +223,7 @@ pub fn retrieve_context(job: Job) -> io::Result<()> {
 
     let rt = Runtime::new().unwrap();
     let handle = rt.handle();
-    let pool = POOL.get().map_err(|_| io::Error::from(ErrorKind::Other))?;
-    let profile = handle.block_on(async { guaranteed_profile(pool.into(), None).await });
+    let profile = handle.block_on(async { guaranteed_profile(None, None).await });
 
     for ap_id in job.args() {
         let ap_id = ap_id.as_str().unwrap().to_string();
@@ -272,7 +253,7 @@ pub async fn fetch_remote_note(id: String, profile: Profile) -> Option<RemoteNot
         match resp.status() {
             StatusCode::ACCEPTED | StatusCode::OK => match resp.json().await {
                 Ok(ApObject::Note(note)) => {
-                    create_or_update_remote_note(cache_note(&note).await.clone().into())
+                    create_or_update_remote_note(None, cache_note(&note).await.clone().into()).await
                 }
                 Err(e) => {
                     log::error!("FAILED TO DECODE REMOTE NOTE\n{e:#?}");
@@ -295,21 +276,6 @@ pub async fn fetch_remote_note(id: String, profile: Profile) -> Option<RemoteNot
     }
 }
 
-pub fn get_note_by_uuid(uuid: String) -> Option<Note> {
-    if let Ok(mut conn) = POOL.get() {
-        match notes::table
-            .filter(notes::uuid.eq(uuid))
-            .first::<Note>(&mut conn)
-            .optional()
-        {
-            Ok(x) => x,
-            Err(_) => Option::None,
-        }
-    } else {
-        Option::None
-    }
-}
-
 async fn add_note_to_timeline(note: Note, sender: Profile) {
     // Add to local timeline - this checks to be sure that the profile is represented as a remote_actor
     // locally before adding the Note to the Timeline. This is important as the Timeline only uses the
@@ -325,16 +291,22 @@ async fn add_note_to_timeline(note: Note, sender: Profile) {
     }
 }
 
-pub async fn handle_remote_note(remote_note: RemoteNote) -> anyhow::Result<RemoteNote> {
+pub async fn handle_remote_note(
+    remote_note: RemoteNote,
+    announcer: Option<String>,
+) -> anyhow::Result<RemoteNote> {
     log::debug!("HANDLING REMOTE NOTE");
 
     let note: ApNote = remote_note.clone().into();
-    let pool = POOL.get()?;
-    let profile = guaranteed_profile(pool.into(), None);
+    let profile = guaranteed_profile(None, None);
 
     let _ = get_actor(profile.await, note.attributed_to.to_string()).await;
 
-    let note = cache_note(&note).await.clone();
+    let mut note = cache_note(&note).await.clone();
+
+    if let Some(announcer) = announcer {
+        note.ephemeral_announces = Some(vec![announcer]);
+    }
 
     if let Ok(timeline_item) = create_timeline_item(None, (None, note.clone()).into()).await {
         add_to_timeline(
@@ -352,6 +324,8 @@ pub async fn handle_remote_note(remote_note: RemoteNote) -> anyhow::Result<Remot
 
 fn handle_remote_encrypted_note(remote_note: RemoteNote) -> io::Result<()> {
     log::debug!("adding to processing queue");
+    let rt = Runtime::new().unwrap();
+    let handle = rt.handle();
 
     if let Some(ap_to) = remote_note.clone().ap_to {
         let to_vec: Vec<String> = match serde_json::from_value(ap_to) {
@@ -361,9 +335,13 @@ fn handle_remote_encrypted_note(remote_note: RemoteNote) -> io::Result<()> {
 
         to_vec
             .iter()
-            .filter_map(|ap_id| get_profile_by_ap_id(ap_id.to_string()))
+            .filter_map(|ap_id| {
+                handle.block_on(async { get_profile_by_ap_id(None, ap_id.to_string()).await })
+            })
             .for_each(|profile| {
-                create_processing_item((remote_note.clone(), profile.id).into());
+                handle.block_on(async {
+                    create_processing_item(None, (remote_note.clone(), profile.id).into()).await;
+                });
             });
     }
 
@@ -374,51 +352,29 @@ pub fn process_remote_note(job: Job) -> io::Result<()> {
     log::debug!("running process_remote_note job");
 
     let ap_ids = job.args();
-    if let Ok(mut conn) = POOL.get() {
-        let rt = Runtime::new().unwrap();
-        let handle = rt.handle();
+    let rt = Runtime::new().unwrap();
+    let handle = rt.handle();
 
-        for ap_id in ap_ids {
-            let ap_id = ap_id.as_str().unwrap().to_string();
-            log::debug!("looking for ap_id: {}", ap_id);
+    for ap_id in ap_ids {
+        let ap_id = ap_id.as_str().unwrap().to_string();
+        log::debug!("looking for ap_id: {}", ap_id);
 
-            match remote_notes::table
-                .filter(remote_notes::ap_id.eq(ap_id))
-                .first::<RemoteNote>(&mut conn)
-            {
-                Ok(remote_note) => {
-                    if remote_note.kind == "Note" {
-                        handle.block_on(async {
-                            let _ = handle_remote_note(remote_note.clone()).await;
-                        });
-                    } else if remote_note.kind == "EncryptedNote" {
-                        handle_remote_encrypted_note(remote_note)?;
-                    }
+        let remote_note = handle.block_on(async { get_remote_note_by_ap_id(None, ap_id).await });
+
+        if let Some(remote_note) = remote_note {
+            match remote_note.kind {
+                NoteType::Note => {
+                    handle.block_on(async {
+                        let _ = handle_remote_note(remote_note.clone(), None).await;
+                    });
                 }
-                Err(e) => return Err(io::Error::new(io::ErrorKind::Other, e)),
+                NoteType::EncryptedNote => {
+                    handle_remote_encrypted_note(remote_note)?;
+                }
+                _ => (),
             }
         }
     }
 
     Ok(())
-}
-
-#[derive(Debug)]
-pub enum DeleteNoteError {
-    ConnectionError,
-    DatabaseError(diesel::result::Error),
-}
-
-pub fn delete_note_by_uuid(uuid: String) -> Result<usize, DeleteNoteError> {
-    if let Ok(mut conn) = POOL.get() {
-        match diesel::delete(notes::table.filter(notes::uuid.eq(uuid))).execute(&mut conn) {
-            Ok(x) => Ok(x),
-            Err(e) => {
-                log::error!("FAILED TO DELETE\n{e:#?}");
-                Err(DeleteNoteError::DatabaseError(e))
-            }
-        }
-    } else {
-        Err(DeleteNoteError::ConnectionError)
-    }
 }

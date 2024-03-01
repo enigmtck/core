@@ -1,6 +1,7 @@
 use clap::{Args, Parser, Subcommand};
 use diesel_migrations::{embed_migrations, EmbeddedMigrations, MigrationHarness};
 use enigmatick::{admin::NewUser, runner, server};
+use enigmatick::{POOL, SYSTEM_USER};
 use rand::distributions::{Alphanumeric, DistString};
 use serde::Deserialize;
 use tokio::runtime::Runtime;
@@ -27,6 +28,7 @@ pub enum Commands {
     Runner,
     Server,
     Migrations,
+    //Test,
 }
 
 #[derive(Parser)] // requires `derive` feature
@@ -45,20 +47,23 @@ fn main() {
         Commands::Runner => runner::start(),
         Commands::Server => server::start(),
         Commands::Migrations => handle_migrations(),
+        //Commands::Test => handle_test(),
     }
 }
 
+// fn handle_test() {
+
+// }
+
 fn handle_migrations() {
     println!("running database migrations.");
-    let conn = &mut (*enigmatick::POOL)
-        .get()
-        .expect("failed to retrieve database connection");
+    let conn = &mut POOL.get().expect("failed to retrieve database connection");
 
     conn.run_pending_migrations(MIGRATIONS).ok();
 }
 
 fn handle_setup(args: SetupArgs) {
-    let system_user = &*enigmatick::SYSTEM_USER;
+    let system_user = (*SYSTEM_USER).clone();
 
     if let Some(command) = args.command {
         match command {

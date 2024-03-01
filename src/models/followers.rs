@@ -2,7 +2,7 @@ use crate::activity_pub::ApFollow;
 use crate::db::Db;
 use crate::helper::{get_local_identifier, LocalIdentifierType};
 use crate::schema::{followers, remote_actors};
-use crate::{db::FlexibleDb, MaybeReference};
+use crate::{MaybeReference, POOL};
 use diesel::prelude::*;
 
 use chrono::{DateTime, Utc};
@@ -79,9 +79,9 @@ pub struct Follower {
     pub uuid: String,
 }
 
-pub async fn create_follower(conn: FlexibleDb<'_>, follower: NewFollower) -> Option<Follower> {
+pub async fn create_follower(conn: Option<&Db>, follower: NewFollower) -> Option<Follower> {
     match conn {
-        FlexibleDb::Db(conn) => conn
+        Some(conn) => conn
             .run(move |c| {
                 diesel::insert_into(followers::table)
                     .values(&follower)
@@ -89,10 +89,13 @@ pub async fn create_follower(conn: FlexibleDb<'_>, follower: NewFollower) -> Opt
             })
             .await
             .ok(),
-        FlexibleDb::Pool(mut pool) => diesel::insert_into(followers::table)
-            .values(&follower)
-            .get_result::<Follower>(&mut pool)
-            .ok(),
+        None => {
+            let mut pool = POOL.get().ok()?;
+            diesel::insert_into(followers::table)
+                .values(&follower)
+                .get_result::<Follower>(&mut pool)
+                .ok()
+        }
     }
 }
 
@@ -106,9 +109,9 @@ pub async fn get_follower_by_uuid(conn: &Db, uuid: String) -> Option<Follower> {
     .ok()
 }
 
-pub async fn delete_follower_by_ap_id(conn: FlexibleDb<'_>, ap_id: String) -> bool {
+pub async fn delete_follower_by_ap_id(conn: Option<&Db>, ap_id: String) -> bool {
     match conn {
-        FlexibleDb::Db(conn) => conn
+        Some(conn) => conn
             .run(move |c| {
                 diesel::delete(followers::table)
                     .filter(followers::ap_id.eq(ap_id))
@@ -116,24 +119,37 @@ pub async fn delete_follower_by_ap_id(conn: FlexibleDb<'_>, ap_id: String) -> bo
             })
             .await
             .is_ok(),
-        FlexibleDb::Pool(mut pool) => diesel::delete(followers::table)
-            .filter(followers::ap_id.eq(ap_id))
-            .execute(&mut pool)
-            .is_ok(),
+        None => POOL.get().map_or(false, |mut pool| {
+            diesel::delete(followers::table)
+                .filter(followers::ap_id.eq(ap_id))
+                .execute(&mut pool)
+                .is_ok()
+        }),
     }
 }
 
 pub async fn get_followers_by_profile_id(
-    conn: &Db,
+    conn: Option<&Db>,
     profile_id: i32,
 ) -> Vec<(Follower, Option<RemoteActor>)> {
-    conn.run(move |c| {
-        followers::table
-            .filter(followers::profile_id.eq(profile_id))
-            .left_join(remote_actors::table.on(followers::actor.eq(remote_actors::ap_id)))
-            .order_by(followers::created_at.desc())
-            .get_results::<(Follower, Option<RemoteActor>)>(c)
-    })
-    .await
-    .unwrap_or(vec![])
+    match conn {
+        Some(conn) => conn
+            .run(move |c| {
+                followers::table
+                    .filter(followers::profile_id.eq(profile_id))
+                    .left_join(remote_actors::table.on(followers::actor.eq(remote_actors::ap_id)))
+                    .order_by(followers::created_at.desc())
+                    .get_results::<(Follower, Option<RemoteActor>)>(c)
+            })
+            .await
+            .unwrap_or(vec![]),
+        None => POOL.get().map_or(vec![], |mut pool| {
+            followers::table
+                .filter(followers::profile_id.eq(profile_id))
+                .left_join(remote_actors::table.on(followers::actor.eq(remote_actors::ap_id)))
+                .order_by(followers::created_at.desc())
+                .get_results::<(Follower, Option<RemoteActor>)>(&mut pool)
+                .unwrap_or(vec![])
+        }),
+    }
 }

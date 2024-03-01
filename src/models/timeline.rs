@@ -1,5 +1,5 @@
 use crate::activity_pub::{ApAnnounce, ApNote};
-use crate::db::{Db, FlexibleDb};
+use crate::db::Db;
 use crate::helper::get_ap_id_from_username;
 use crate::schema::{activities, timeline, timeline_cc, timeline_to};
 use crate::POOL;
@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use super::activities::Activity;
-use super::notes::Note;
+use super::notes::{Note, NoteType};
 use super::profiles::Profile;
 use super::remote_notes::RemoteNote;
 
@@ -21,7 +21,7 @@ pub struct NewTimelineItem {
     pub tag: Option<Value>,
     pub attributed_to: String,
     pub ap_id: String,
-    pub kind: String,
+    pub kind: NoteType,
     pub url: Option<String>,
     pub published: Option<String>,
     pub replies: Option<Value>,
@@ -77,7 +77,7 @@ impl From<ApNote> for NewTimelineItem {
             tag: serde_json::to_value(&note.tag).ok(),
             attributed_to: note.clone().attributed_to.to_string(),
             ap_id: note.clone().id.unwrap(),
-            kind: note.kind.to_string(),
+            kind: note.clone().kind.into(),
             url: note.clone().url,
             published: Some(note.clone().published),
             replies: serde_json::to_value(&note.replies).ok(),
@@ -119,7 +119,7 @@ impl From<SynthesizedAnnounce> for NewTimelineItem {
             tag: Option::from(serde_json::to_value(&note.tag).unwrap_or_default()),
             attributed_to: note.clone().attributed_to.to_string(),
             ap_id: note.clone().id.unwrap(),
-            kind: note.kind.to_string(),
+            kind: note.clone().kind.into(),
             url: note.clone().url,
             published: activity.map_or(Some(note.clone().published), |x| Some(x.published)),
             replies: Option::from(serde_json::to_value(&note.replies).unwrap_or_default()),
@@ -159,7 +159,7 @@ pub struct TimelineItem {
     pub tag: Option<Value>,
     pub attributed_to: String,
     pub ap_id: String,
-    pub kind: String,
+    pub kind: NoteType,
     pub url: Option<String>,
     pub published: Option<String>,
     pub replies: Option<Value>,
@@ -332,7 +332,7 @@ pub async fn create_timeline_item(
         })
         .await
     } else {
-        let mut pool = POOL.get().expect("failed to retrieve database connection");
+        let mut pool = POOL.get().map_err(anyhow::Error::msg)?;
 
         diesel::insert_into(timeline::table)
             .values(&timeline_item)
@@ -345,13 +345,13 @@ pub async fn create_timeline_item(
 }
 
 pub async fn create_timeline_item_to(
-    conn: FlexibleDb<'_>,
+    conn: Option<&Db>,
     timeline_item_to: (TimelineItem, String),
 ) -> bool {
     let timeline_item_to = NewTimelineItemTo::from(timeline_item_to);
 
     match conn {
-        FlexibleDb::Db(conn) => conn
+        Some(conn) => conn
             .run(move |c| {
                 diesel::insert_into(timeline_to::table)
                     .values(&timeline_item_to)
@@ -362,24 +362,26 @@ pub async fn create_timeline_item_to(
             })
             .await
             .is_ok(),
-        FlexibleDb::Pool(mut pool) => diesel::insert_into(timeline_to::table)
-            .values(&timeline_item_to)
-            .on_conflict((timeline_to::timeline_id, timeline_to::ap_id))
-            .do_update()
-            .set(&timeline_item_to)
-            .get_result::<TimelineItemTo>(&mut pool)
-            .is_ok(),
+        None => POOL.get().map_or(false, |mut pool| {
+            diesel::insert_into(timeline_to::table)
+                .values(&timeline_item_to)
+                .on_conflict((timeline_to::timeline_id, timeline_to::ap_id))
+                .do_update()
+                .set(&timeline_item_to)
+                .get_result::<TimelineItemTo>(&mut pool)
+                .is_ok()
+        }),
     }
 }
 
 pub async fn create_timeline_item_cc(
-    conn: FlexibleDb<'_>,
+    conn: Option<&Db>,
     timeline_item_cc: (TimelineItem, String),
 ) -> bool {
     let timeline_item_cc = NewTimelineItemCc::from(timeline_item_cc);
 
     match conn {
-        FlexibleDb::Db(conn) => conn
+        Some(conn) => conn
             .run(move |c| {
                 diesel::insert_into(timeline_cc::table)
                     .values(&timeline_item_cc)
@@ -390,13 +392,15 @@ pub async fn create_timeline_item_cc(
             })
             .await
             .is_ok(),
-        FlexibleDb::Pool(mut pool) => diesel::insert_into(timeline_cc::table)
-            .values(&timeline_item_cc)
-            .on_conflict((timeline_cc::timeline_id, timeline_cc::ap_id))
-            .do_update()
-            .set(&timeline_item_cc)
-            .get_result::<TimelineItemCc>(&mut pool)
-            .is_ok(),
+        None => POOL.get().map_or(false, |mut pool| {
+            diesel::insert_into(timeline_cc::table)
+                .values(&timeline_item_cc)
+                .on_conflict((timeline_cc::timeline_id, timeline_cc::ap_id))
+                .do_update()
+                .set(&timeline_item_cc)
+                .get_result::<TimelineItemCc>(&mut pool)
+                .is_ok()
+        }),
     }
 }
 
@@ -406,31 +410,26 @@ pub enum TimelineDeleteError {
     DatabaseError(diesel::result::Error),
 }
 
-pub async fn delete_timeline_item_by_ap_id(
-    conn: FlexibleDb<'_>,
-    ap_id: String,
-) -> Result<usize, TimelineDeleteError> {
+pub async fn delete_timeline_item_by_ap_id(conn: Option<&Db>, ap_id: String) -> Result<usize> {
     match conn {
-        FlexibleDb::Db(conn) => conn
+        Some(conn) => conn
             .run(move |c| {
                 diesel::delete(timeline::table.filter(timeline::ap_id.eq(ap_id))).execute(c)
             })
             .await
-            .map_err(TimelineDeleteError::DatabaseError),
-        FlexibleDb::Pool(mut pool) => {
+            .map_err(anyhow::Error::msg),
+        None => {
+            let mut pool = POOL.get().map_err(anyhow::Error::msg)?;
             diesel::delete(timeline::table.filter(timeline::ap_id.eq(ap_id)))
                 .execute(&mut pool)
-                .map_err(TimelineDeleteError::DatabaseError)
+                .map_err(anyhow::Error::msg)
         }
     }
 }
 
-pub async fn get_timeline_item_by_ap_id(
-    conn: FlexibleDb<'_>,
-    ap_id: String,
-) -> Option<TimelineItem> {
+pub async fn get_timeline_item_by_ap_id(conn: Option<&Db>, ap_id: String) -> Option<TimelineItem> {
     match conn {
-        FlexibleDb::Db(conn) => conn
+        Some(conn) => conn
             .run(move |c| {
                 timeline::table
                     .filter(timeline::ap_id.eq(ap_id))
@@ -438,19 +437,22 @@ pub async fn get_timeline_item_by_ap_id(
             })
             .await
             .ok(),
-        FlexibleDb::Pool(mut pool) => timeline::table
-            .filter(timeline::ap_id.eq(ap_id))
-            .first::<TimelineItem>(&mut pool)
-            .ok(),
+        None => {
+            let mut pool = POOL.get().ok()?;
+            timeline::table
+                .filter(timeline::ap_id.eq(ap_id))
+                .first::<TimelineItem>(&mut pool)
+                .ok()
+        }
     }
 }
 
 pub async fn update_timeline_items(
-    conn: FlexibleDb<'_>,
+    conn: Option<&Db>,
     timeline_item: NewTimelineItem,
 ) -> Vec<TimelineItem> {
     match conn {
-        FlexibleDb::Db(conn) => conn
+        Some(conn) => conn
             .run(move |c| {
                 diesel::update(timeline::table.filter(timeline::ap_id.eq(timeline_item.ap_id)))
                     .set(timeline::content.eq(timeline_item.content))
@@ -458,11 +460,11 @@ pub async fn update_timeline_items(
             })
             .await
             .unwrap_or(vec![]),
-        FlexibleDb::Pool(mut pool) => {
+        None => POOL.get().map_or(vec![], |mut pool| {
             diesel::update(timeline::table.filter(timeline::ap_id.eq(timeline_item.ap_id)))
                 .set(timeline::content.eq(timeline_item.content))
                 .get_results::<TimelineItem>(&mut pool)
                 .unwrap_or(vec![])
-        }
+        }),
     }
 }

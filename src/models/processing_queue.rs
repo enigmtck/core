@@ -1,6 +1,7 @@
 use crate::activity_pub::{ApNote, ApSession};
 use crate::db::Db;
 use crate::schema::processing_queue;
+use crate::POOL;
 use chrono::{DateTime, Utc};
 use diesel::prelude::*;
 use diesel::{AsChangeset, Identifiable, Insertable, Queryable};
@@ -32,7 +33,7 @@ impl From<IdentifiedRemoteNote> for NewProcessingItem {
 
         NewProcessingItem {
             profile_id,
-            kind: note.clone().kind,
+            kind: note.clone().kind.to_string(),
             ap_id: format!("{}#processing", note.ap_id),
             ap_to: note.clone().ap_to.unwrap(),
             attributed_to: note.clone().attributed_to,
@@ -78,16 +79,26 @@ pub struct ProcessingItem {
 }
 
 pub async fn create_processing_item(
-    conn: &Db,
+    conn: Option<&Db>,
     processing_item: NewProcessingItem,
 ) -> Option<ProcessingItem> {
-    conn.run(move |c| {
-        diesel::insert_into(processing_queue::table)
-            .values(&processing_item)
-            .get_result::<ProcessingItem>(c)
-    })
-    .await
-    .ok()
+    match conn {
+        Some(conn) => conn
+            .run(move |c| {
+                diesel::insert_into(processing_queue::table)
+                    .values(&processing_item)
+                    .get_result::<ProcessingItem>(c)
+            })
+            .await
+            .ok(),
+        None => {
+            let mut pool = POOL.get().ok()?;
+            diesel::insert_into(processing_queue::table)
+                .values(&processing_item)
+                .get_result::<ProcessingItem>(&mut pool)
+                .ok()
+        }
+    }
 }
 
 pub async fn get_unprocessed_items_by_profile_id(conn: &Db, id: i32) -> Vec<ProcessingItem> {

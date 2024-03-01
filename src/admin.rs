@@ -6,7 +6,6 @@ use serde::Deserialize;
 use uuid::Uuid;
 
 use crate::db::Db;
-use crate::db::FlexibleDb;
 use crate::models::profiles::{create_profile, get_profile_by_username, NewProfile, Profile};
 
 struct KeyPair {
@@ -77,7 +76,7 @@ pub struct NewUser {
     pub salt: Option<String>,
 }
 
-pub async fn create_user(conn: FlexibleDb<'_>, user: NewUser) -> Option<Profile> {
+pub async fn create_user(conn: Option<&Db>, user: NewUser) -> Option<Profile> {
     let key_pair = get_key_pair();
 
     if let Ok(password) = pwhash::Password::from_slice(user.password.as_bytes()) {

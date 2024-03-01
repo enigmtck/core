@@ -1,6 +1,7 @@
 use crate::activity_pub::ApSession;
-use crate::db::{Db, FlexibleDb};
+use crate::db::Db;
 use crate::schema::{encrypted_sessions, olm_sessions};
+use crate::POOL;
 use chrono::{DateTime, Utc};
 use diesel::prelude::*;
 use diesel::{AsChangeset, Identifiable, Insertable, Queryable};
@@ -51,11 +52,11 @@ pub struct EncryptedSession {
 }
 
 pub async fn create_encrypted_session(
-    conn: FlexibleDb<'_>,
+    conn: Option<&Db>,
     encrypted_session: NewEncryptedSession,
 ) -> Option<EncryptedSession> {
     match conn {
-        FlexibleDb::Db(conn) => conn
+        Some(conn) => conn
             .run(move |c| {
                 diesel::insert_into(encrypted_sessions::table)
                     .values(&encrypted_session)
@@ -63,10 +64,13 @@ pub async fn create_encrypted_session(
             })
             .await
             .ok(),
-        FlexibleDb::Pool(mut pool) => diesel::insert_into(encrypted_sessions::table)
-            .values(&encrypted_session)
-            .get_result::<EncryptedSession>(&mut pool)
-            .ok(),
+        None => {
+            let mut pool = POOL.get().ok()?;
+            diesel::insert_into(encrypted_sessions::table)
+                .values(&encrypted_session)
+                .get_result::<EncryptedSession>(&mut pool)
+                .ok()
+        }
     }
 }
 
@@ -88,12 +92,12 @@ pub async fn get_encrypted_sessions_by_profile_id(
 }
 
 pub async fn get_encrypted_session_by_profile_id_and_ap_to(
-    conn: FlexibleDb<'_>,
+    conn: Option<&Db>,
     id: i32,
     ap_to: String,
 ) -> Option<(EncryptedSession, Option<OlmSession>)> {
     match conn {
-        FlexibleDb::Db(conn) => conn
+        Some(conn) => conn
             .run(move |c| {
                 encrypted_sessions::table
                     .left_join(
@@ -107,25 +111,28 @@ pub async fn get_encrypted_session_by_profile_id_and_ap_to(
             })
             .await
             .ok(),
-        FlexibleDb::Pool(mut pool) => encrypted_sessions::table
-            .left_join(
-                olm_sessions::table
-                    .on(encrypted_sessions::id.eq(olm_sessions::encrypted_session_id)),
-            )
-            .filter(encrypted_sessions::profile_id.eq(id))
-            .filter(encrypted_sessions::ap_to.eq(ap_to))
-            .order_by(encrypted_sessions::updated_at.desc())
-            .first::<(EncryptedSession, Option<OlmSession>)>(&mut pool)
-            .ok(),
+        None => {
+            let mut pool = POOL.get().ok()?;
+            encrypted_sessions::table
+                .left_join(
+                    olm_sessions::table
+                        .on(encrypted_sessions::id.eq(olm_sessions::encrypted_session_id)),
+                )
+                .filter(encrypted_sessions::profile_id.eq(id))
+                .filter(encrypted_sessions::ap_to.eq(ap_to))
+                .order_by(encrypted_sessions::updated_at.desc())
+                .first::<(EncryptedSession, Option<OlmSession>)>(&mut pool)
+                .ok()
+        }
     }
 }
 
 pub async fn get_encrypted_session_by_uuid(
-    conn: FlexibleDb<'_>,
+    conn: Option<&Db>,
     uuid: String,
 ) -> Option<(EncryptedSession, Option<OlmSession>)> {
     match conn {
-        FlexibleDb::Db(conn) => conn
+        Some(conn) => conn
             .run(move |c| {
                 encrypted_sessions::table
                     .left_join(
@@ -138,15 +145,18 @@ pub async fn get_encrypted_session_by_uuid(
             })
             .await
             .ok(),
-        FlexibleDb::Pool(mut pool) => encrypted_sessions::table
-            .left_join(
-                olm_sessions::table
-                    .on(encrypted_sessions::id.eq(olm_sessions::encrypted_session_id)),
-            )
-            .filter(encrypted_sessions::uuid.eq(uuid))
-            .order_by(encrypted_sessions::updated_at.desc())
-            .first::<(EncryptedSession, Option<OlmSession>)>(&mut pool)
-            .ok(),
+        None => {
+            let mut pool = POOL.get().ok()?;
+            encrypted_sessions::table
+                .left_join(
+                    olm_sessions::table
+                        .on(encrypted_sessions::id.eq(olm_sessions::encrypted_session_id)),
+                )
+                .filter(encrypted_sessions::uuid.eq(uuid))
+                .order_by(encrypted_sessions::updated_at.desc())
+                .first::<(EncryptedSession, Option<OlmSession>)>(&mut pool)
+                .ok()
+        }
     }
 }
 

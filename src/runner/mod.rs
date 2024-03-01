@@ -34,7 +34,6 @@ pub mod encrypted;
 pub mod follow;
 pub mod like;
 pub mod note;
-pub mod processing;
 pub mod timeline;
 pub mod undo;
 pub mod user;

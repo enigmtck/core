@@ -1,6 +1,6 @@
 use crate::{
     activity_pub::{ApActor, ApAddress, ApNote, ApSession},
-    db::{create_note, Db},
+    db::Db,
     fairings::{
         events::EventChannels,
         faktory::{assign_to_faktory, FaktoryConnection},
@@ -9,7 +9,7 @@ use crate::{
     models::{
         activities::{create_activity, ActivityType, NewActivity},
         encrypted_sessions::{create_encrypted_session, NewEncryptedSession},
-        notes::NewNote,
+        notes::{create_note, NewNote},
         profiles::Profile,
     },
     MaybeMultiple,

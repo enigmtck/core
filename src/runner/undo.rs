@@ -5,10 +5,13 @@ use tokio::runtime::Runtime;
 use crate::{
     activity_pub::{ApActivity, ApAddress},
     helper::{get_local_identifier, LocalIdentifierType},
-    models::activities::{get_activity, get_activity_by_uuid, revoke_activity_by_uuid},
-    models::leaders::delete_leader_by_ap_id_and_profile_id,
-    runner::{get_inboxes, send_to_inboxes, user::get_profile},
-    MaybeReference, POOL,
+    models::{
+        activities::{get_activity, get_activity_by_uuid, revoke_activity_by_uuid},
+        leaders::delete_leader_by_ap_id_and_profile_id,
+        profiles::get_profile,
+    },
+    runner::{get_inboxes, send_to_inboxes},
+    MaybeReference,
 };
 
 pub fn process_outbound_undo(job: Job) -> io::Result<()> {
@@ -26,16 +29,14 @@ pub fn process_outbound_undo(job: Job) -> io::Result<()> {
             target_remote_note,
             target_profile,
             target_remote_actor,
-        )) = handle.block_on(async {
-            get_activity_by_uuid(POOL.get().expect("failed to get pool").into(), uuid.clone()).await
-        }) {
+        )) = handle.block_on(async { get_activity_by_uuid(None, uuid.clone()).await })
+        {
             if let Some(profile_id) = activity.profile_id {
-                if let (Some(sender), Some(id)) =
-                    (get_profile(profile_id), activity.target_activity_id)
-                {
-                    let target_activity = handle.block_on(async {
-                        get_activity(POOL.get().expect("failed to get pool").into(), id).await
-                    });
+                if let (Some(sender), Some(id)) = (
+                    handle.block_on(async { get_profile(None, profile_id).await }),
+                    activity.target_activity_id,
+                ) {
+                    let target_activity = handle.block_on(async { get_activity(None, id).await });
 
                     if let Ok(ap_activity) = ApActivity::try_from((
                         (
@@ -70,15 +71,19 @@ pub fn process_outbound_undo(job: Job) -> io::Result<()> {
                                                     if let MaybeReference::Reference(ap_id) =
                                                         follow.object
                                                     {
-                                                        if handle.block_on(async { delete_leader_by_ap_id_and_profile_id(
-                                                            POOL.get().expect("failed to get database connection").into(),
-                                                            ap_id, profile_id,
-                                                        ).await })
-                                                            && handle.block_on(async { revoke_activity_by_uuid(
-                                                                POOL.get().expect("failed to get pool").into(),
+                                                        if handle.block_on(async {
+                                                            delete_leader_by_ap_id_and_profile_id(
+                                                                None, ap_id, profile_id,
+                                                            )
+                                                            .await
+                                                        }) && handle.block_on(async {
+                                                            revoke_activity_by_uuid(
+                                                                None,
                                                                 identifier.identifier,
-                                                            ).await.is_ok() })
-                                                        {
+                                                            )
+                                                            .await
+                                                            .is_ok()
+                                                        }) {
                                                             log::info!("LEADER DELETED");
                                                         }
                                                     }
@@ -95,9 +100,7 @@ pub fn process_outbound_undo(job: Job) -> io::Result<()> {
                                                     && handle
                                                         .block_on(async {
                                                             revoke_activity_by_uuid(
-                                                                POOL.get()
-                                                                    .expect("failed to get pool")
-                                                                    .into(),
+                                                                None,
                                                                 identifier.identifier,
                                                             )
                                                             .await
@@ -118,9 +121,7 @@ pub fn process_outbound_undo(job: Job) -> io::Result<()> {
                                                     && handle
                                                         .block_on(async {
                                                             revoke_activity_by_uuid(
-                                                                POOL.get()
-                                                                    .expect("failed to get pool")
-                                                                    .into(),
+                                                                None,
                                                                 identifier.identifier,
                                                             )
                                                             .await

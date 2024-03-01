@@ -8,7 +8,8 @@ extern crate diesel;
 
 use activity_pub::{ApActivity, ApObject};
 use anyhow::Result;
-use diesel::r2d2::{ConnectionManager, Pool};
+use db::Pool;
+use diesel::r2d2::ConnectionManager;
 use diesel::PgConnection;
 use dotenvy::dotenv;
 use fairings::faktory::assign_to_faktory;
@@ -36,7 +37,7 @@ pub mod signing;
 pub mod webfinger;
 
 lazy_static! {
-    pub static ref POOL: Pool<ConnectionManager<PgConnection>> = {
+    pub static ref POOL: Pool = {
         dotenv().ok();
         Pool::new(ConnectionManager::<PgConnection>::new(
             env::var("DATABASE_URL").expect("DATABASE_URL must be set"),

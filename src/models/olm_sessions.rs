@@ -1,6 +1,7 @@
 use crate::activity_pub::ApInstrument;
-use crate::db::{Db, FlexibleDb};
+use crate::db::Db;
 use crate::schema::{encrypted_sessions, olm_sessions};
+use crate::POOL;
 use chrono::{DateTime, Utc};
 use diesel::prelude::*;
 use diesel::{AsChangeset, Identifiable, Insertable, Queryable};
@@ -45,11 +46,11 @@ impl From<LinkedApInstrument> for NewOlmSession {
 }
 
 pub async fn create_olm_session(
-    conn: FlexibleDb<'_>,
+    conn: Option<&Db>,
     olm_session: NewOlmSession,
 ) -> Option<OlmSession> {
     match conn {
-        FlexibleDb::Db(conn) => conn
+        Some(conn) => conn
             .run(move |c| {
                 diesel::insert_into(olm_sessions::table)
                     .values(&olm_session)
@@ -57,10 +58,13 @@ pub async fn create_olm_session(
             })
             .await
             .ok(),
-        FlexibleDb::Pool(mut pool) => diesel::insert_into(olm_sessions::table)
-            .values(&olm_session)
-            .get_result::<OlmSession>(&mut pool)
-            .ok(),
+        None => {
+            let mut pool = POOL.get().ok()?;
+            diesel::insert_into(olm_sessions::table)
+                .values(&olm_session)
+                .get_result::<OlmSession>(&mut pool)
+                .ok()
+        }
     }
 }
 
@@ -120,13 +124,13 @@ pub async fn update_olm_session_by_encrypted_session_id(
 }
 
 pub async fn update_olm_session(
-    conn: FlexibleDb<'_>,
+    conn: Option<&Db>,
     uuid: String,
     session_data: String,
     session_hash: String,
 ) -> Option<OlmSession> {
     match conn {
-        FlexibleDb::Db(conn) => conn
+        Some(conn) => conn
             .run(move |c| {
                 diesel::update(olm_sessions::table.filter(olm_sessions::uuid.eq(uuid)))
                     .set((
@@ -137,7 +141,8 @@ pub async fn update_olm_session(
             })
             .await
             .ok(),
-        FlexibleDb::Pool(mut pool) => {
+        None => {
+            let mut pool = POOL.get().ok()?;
             diesel::update(olm_sessions::table.filter(olm_sessions::uuid.eq(uuid)))
                 .set((
                     olm_sessions::session_data.eq(session_data),

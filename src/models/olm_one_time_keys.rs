@@ -1,5 +1,6 @@
-use crate::db::{Db, FlexibleDb};
+use crate::db::Db;
 use crate::schema::olm_one_time_keys;
+use crate::POOL;
 use chrono::{DateTime, Utc};
 use diesel::prelude::*;
 use diesel::{AsChangeset, Identifiable, Insertable, Queryable};
@@ -79,11 +80,11 @@ pub async fn get_olm_one_time_keys_by_profile_id(
 }
 
 pub async fn get_olm_one_time_key_by_profile_id(
-    conn: FlexibleDb<'_>,
+    conn: Option<&Db>,
     profile_id: i32,
 ) -> Option<OlmOneTimeKey> {
     match conn {
-        FlexibleDb::Db(conn) => {
+        Some(conn) => {
             let otk = conn
                 .run(move |c| {
                     olm_one_time_keys::table
@@ -107,16 +108,20 @@ pub async fn get_olm_one_time_key_by_profile_id(
                 None
             }
         }
-        FlexibleDb::Pool(mut pool) => olm_one_time_keys::table
-            .filter(olm_one_time_keys::profile_id.eq(profile_id))
-            .filter(olm_one_time_keys::distributed.eq(false))
-            .order(olm_one_time_keys::created_at.asc())
-            .first::<OlmOneTimeKey>(&mut pool)
-            .and_then(|otk| {
-                diesel::update(olm_one_time_keys::table.find(otk.id))
-                    .set(olm_one_time_keys::distributed.eq(true))
-                    .get_result::<OlmOneTimeKey>(&mut pool)
-            })
-            .ok(),
+        None => {
+            let mut pool = POOL.get().ok()?;
+
+            olm_one_time_keys::table
+                .filter(olm_one_time_keys::profile_id.eq(profile_id))
+                .filter(olm_one_time_keys::distributed.eq(false))
+                .order(olm_one_time_keys::created_at.asc())
+                .first::<OlmOneTimeKey>(&mut pool)
+                .and_then(|otk| {
+                    diesel::update(olm_one_time_keys::table.find(otk.id))
+                        .set(olm_one_time_keys::distributed.eq(true))
+                        .get_result::<OlmOneTimeKey>(&mut pool)
+                })
+                .ok()
+        }
     }
 }

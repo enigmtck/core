@@ -7,7 +7,10 @@ use crate::{
     },
     db::Db,
     fairings::{events::EventChannels, faktory::FaktoryConnection},
-    helper::{get_activity_ap_id_from_uuid, get_ap_id_from_username, get_note_ap_id_from_uuid},
+    helper::{
+        get_activity_ap_id_from_uuid, get_ap_id_from_username, get_note_ap_id_from_uuid,
+        get_note_url_from_uuid,
+    },
     models::{
         activities::{Activity, ActivityType},
         cache::{cache_content, Cache},
@@ -32,6 +35,7 @@ pub enum ApNoteType {
     Note,
     EncryptedNote,
     VaultNote,
+    Question,
 }
 
 impl fmt::Display for ApNoteType {
@@ -46,6 +50,7 @@ impl From<NoteType> for ApNoteType {
             NoteType::Note => ApNoteType::Note,
             NoteType::EncryptedNote => ApNoteType::EncryptedNote,
             NoteType::VaultNote => ApNoteType::VaultNote,
+            NoteType::Question => ApNoteType::Question,
         }
     }
 }
@@ -467,9 +472,7 @@ impl From<Note> for ApNote {
                 .ap_id
                 .clone()
                 .map_or(Some(get_note_ap_id_from_uuid(note.uuid.clone())), Some),
-            url: note
-                .ap_id
-                .map_or(Some(get_note_ap_id_from_uuid(note.uuid)), Some),
+            url: Some(get_note_url_from_uuid(note.uuid)),
             kind: note.kind.into(),
             to: match serde_json::from_value(note.ap_to) {
                 Ok(x) => x,
@@ -519,9 +522,9 @@ fn metadata(remote_note: &RemoteNote) -> Vec<Metadata> {
 
 impl From<RemoteNote> for ApNote {
     fn from(remote_note: RemoteNote) -> ApNote {
-        let kind = match remote_note.kind.as_str() {
-            "Note" => ApNoteType::Note,
-            "EncryptedNote" => ApNoteType::EncryptedNote,
+        let kind = match remote_note.kind {
+            NoteType::Note => ApNoteType::Note,
+            NoteType::EncryptedNote => ApNoteType::EncryptedNote,
             _ => ApNoteType::default(),
         };
 

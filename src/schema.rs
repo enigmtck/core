@@ -290,11 +290,14 @@ diesel::table! {
 }
 
 diesel::table! {
+    use diesel::sql_types::*;
+    use super::sql_types::NoteType;
+
     remote_notes (id) {
         id -> Int4,
         created_at -> Timestamptz,
         updated_at -> Timestamptz,
-        kind -> Varchar,
+        kind -> NoteType,
         ap_id -> Varchar,
         published -> Nullable<Varchar>,
         url -> Nullable<Varchar>,
@@ -317,6 +320,9 @@ diesel::table! {
 }
 
 diesel::table! {
+    use diesel::sql_types::*;
+    use super::sql_types::NoteType;
+
     timeline (id) {
         id -> Int4,
         created_at -> Timestamptz,
@@ -324,7 +330,7 @@ diesel::table! {
         tag -> Nullable<Jsonb>,
         attributed_to -> Varchar,
         ap_id -> Varchar,
-        kind -> Varchar,
+        kind -> NoteType,
         url -> Nullable<Varchar>,
         published -> Nullable<Varchar>,
         replies -> Nullable<Jsonb>,

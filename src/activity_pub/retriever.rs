@@ -98,7 +98,7 @@ pub async fn get_remote_webfinger(acct: String) -> Option<WebFinger> {
 }
 
 pub async fn get_note(conn: &Db, profile: Option<Profile>, id: String) -> Option<ApNote> {
-    match get_remote_note_by_ap_id(conn, id.clone()).await {
+    match get_remote_note_by_ap_id(Some(conn), id.clone()).await {
         Some(remote_note) => Some(ApNote::from(remote_note).cache(conn).await.clone()),
         None => match signed_get(guaranteed_profile(conn.into(), profile).await, id, false).await {
             Ok(resp) => match resp.status() {
@@ -107,7 +107,7 @@ pub async fn get_note(conn: &Db, profile: Option<Profile>, id: String) -> Option
                     let note = serde_json::from_str::<ApNote>(&text).ok()?;
 
                     create_or_update_remote_note(
-                        conn,
+                        Some(conn),
                         NewRemoteNote::from(note.cache(conn).await.clone()),
                     )
                     .await
@@ -132,7 +132,7 @@ pub async fn get_local_or_cached_actor(
     profile: Option<Profile>,
     update: bool,
 ) -> Option<ApActor> {
-    if let Some(actor_profile) = get_profile_by_ap_id(conn, id.clone()).await {
+    if let Some(actor_profile) = get_profile_by_ap_id(Some(conn), id.clone()).await {
         if let Some(profile) = profile.clone() {
             Some(ApActor::from((
                 actor_profile,

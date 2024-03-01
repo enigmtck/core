@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use crate::activity_pub::ApNote;
 use crate::db::Db;
 use crate::schema::remote_notes;
-use crate::MaybeMultiple;
+use crate::{MaybeMultiple, POOL};
 use chrono::{DateTime, Utc};
 use diesel::prelude::*;
 use diesel::{AsChangeset, Identifiable, Insertable, Queryable};
@@ -11,10 +11,12 @@ use maplit::{hashmap, hashset};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+use super::notes::NoteType;
+
 #[derive(Serialize, Deserialize, Insertable, Default, Debug, AsChangeset)]
 #[diesel(table_name = remote_notes)]
 pub struct NewRemoteNote {
-    pub kind: String,
+    pub kind: NoteType,
     pub ap_id: String,
     pub published: Option<String>,
     pub url: Option<String>,
@@ -67,7 +69,7 @@ impl From<ApNote> for NewRemoteNote {
         NewRemoteNote {
             url: note.clone().url,
             published,
-            kind: note.clone().kind.to_string(),
+            kind: note.clone().kind.into(),
             ap_id: note.clone().id.unwrap(),
             attributed_to: Some(note.attributed_to.to_string()),
             ap_to: Option::from(serde_json::to_value(&note.to).unwrap()),
@@ -101,7 +103,7 @@ pub struct RemoteNote {
     pub id: i32,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
-    pub kind: String,
+    pub kind: NoteType,
     pub ap_id: String,
     pub published: Option<String>,
     pub url: Option<String>,
@@ -139,14 +141,24 @@ impl RemoteNote {
     }
 }
 
-pub async fn get_remote_note_by_ap_id(conn: &crate::db::Db, ap_id: String) -> Option<RemoteNote> {
-    conn.run(move |c| {
-        remote_notes::table
-            .filter(remote_notes::ap_id.eq(ap_id))
-            .first::<RemoteNote>(c)
-    })
-    .await
-    .ok()
+pub async fn get_remote_note_by_ap_id(conn: Option<&Db>, ap_id: String) -> Option<RemoteNote> {
+    match conn {
+        Some(conn) => conn
+            .run(move |c| {
+                remote_notes::table
+                    .filter(remote_notes::ap_id.eq(ap_id))
+                    .first::<RemoteNote>(c)
+            })
+            .await
+            .ok(),
+        None => {
+            let mut pool = POOL.get().ok()?;
+            remote_notes::table
+                .filter(remote_notes::ap_id.eq(ap_id))
+                .first::<RemoteNote>(&mut pool)
+                .ok()
+        }
+    }
 }
 
 pub async fn delete_remote_note_by_ap_id(conn: &Db, ap_id: String) -> bool {
@@ -157,15 +169,31 @@ pub async fn delete_remote_note_by_ap_id(conn: &Db, ap_id: String) -> bool {
     .is_ok()
 }
 
-pub async fn create_or_update_remote_note(conn: &Db, note: NewRemoteNote) -> Option<RemoteNote> {
-    conn.run(move |c| {
-        diesel::insert_into(remote_notes::table)
-            .values(&note)
-            .on_conflict(remote_notes::ap_id)
-            .do_update()
-            .set(&note)
-            .get_result::<RemoteNote>(c)
-    })
-    .await
-    .ok()
+pub async fn create_or_update_remote_note(
+    conn: Option<&Db>,
+    note: NewRemoteNote,
+) -> Option<RemoteNote> {
+    match conn {
+        Some(conn) => conn
+            .run(move |c| {
+                diesel::insert_into(remote_notes::table)
+                    .values(&note)
+                    .on_conflict(remote_notes::ap_id)
+                    .do_update()
+                    .set(&note)
+                    .get_result::<RemoteNote>(c)
+            })
+            .await
+            .ok(),
+        None => {
+            let mut pool = POOL.get().ok()?;
+            diesel::insert_into(remote_notes::table)
+                .values(&note)
+                .on_conflict(remote_notes::ap_id)
+                .do_update()
+                .set(&note)
+                .get_result::<RemoteNote>(&mut pool)
+                .ok()
+        }
+    }
 }

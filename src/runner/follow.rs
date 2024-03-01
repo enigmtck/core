@@ -1,5 +1,5 @@
 use faktory::Job;
-use std::io::{self, ErrorKind};
+use std::io;
 use tokio::runtime::Runtime;
 
 use crate::{
@@ -9,13 +9,10 @@ use crate::{
         followers::{create_follower, delete_follower_by_ap_id, NewFollower},
         //follows::Follow,
         leaders::{create_leader, NewLeader},
+        profiles::{get_profile, get_profile_by_ap_id},
     },
-    runner::{
-        actor::get_actor,
-        get_inboxes, send_to_inboxes,
-        user::{get_profile, get_profile_by_ap_id},
-    },
-    MaybeReference, POOL,
+    runner::{actor::get_actor, get_inboxes, send_to_inboxes},
+    MaybeReference,
 };
 
 pub fn process_follow(job: Job) -> io::Result<()> {
@@ -27,7 +24,6 @@ pub fn process_follow(job: Job) -> io::Result<()> {
     for uuid in job.args() {
         let uuid = uuid.as_str().unwrap().to_string();
         log::debug!("LOOKING FOR UUID {uuid}");
-        let pool = POOL.get().map_err(|_| io::Error::from(ErrorKind::Other))?;
 
         if let Some((
             activity,
@@ -35,11 +31,12 @@ pub fn process_follow(job: Job) -> io::Result<()> {
             target_remote_note,
             target_profile,
             target_remote_actor,
-        )) = handle.block_on(async { get_activity_by_uuid(pool.into(), uuid.clone()).await })
+        )) = handle.block_on(async { get_activity_by_uuid(None, uuid.clone()).await })
         {
             log::debug!("FOUND ACTIVITY\n{activity:#?}");
             if let Some(profile_id) = activity.profile_id {
-                if let Some(sender) = get_profile(profile_id) {
+                if let Some(sender) = handle.block_on(async { get_profile(None, profile_id).await })
+                {
                     if let Ok(activity) = ApActivity::try_from((
                         (
                             activity,
@@ -75,30 +72,28 @@ pub fn process_accept(job: Job) -> io::Result<()> {
         let uuid = uuid.as_str().unwrap().to_string();
         log::debug!("UUID: {uuid}");
 
-        if let Some(extended_accept) = handle.block_on(async {
-            get_activity_by_uuid(POOL.get().expect("failed to get pool").into(), uuid).await
-        }) {
+        if let Some(extended_accept) =
+            handle.block_on(async { get_activity_by_uuid(None, uuid).await })
+        {
             if let Some(follow_id) = extended_accept.0.target_activity_id {
-                if let Some(extended_follow) = handle.block_on(async {
-                    get_activity(POOL.get().expect("failed to get pool").into(), follow_id).await
-                }) {
+                if let Some(extended_follow) =
+                    handle.block_on(async { get_activity(None, follow_id).await })
+                {
                     if let Ok(ApActivity::Accept(accept)) =
                         (extended_accept, Some(extended_follow)).try_into()
                     {
                         if let MaybeReference::Actual(ApActivity::Follow(follow)) =
                             accept.object.clone()
                         {
-                            if let Some(profile) = get_profile_by_ap_id(follow.actor.to_string()) {
+                            if let Some(profile) = handle.block_on(async {
+                                get_profile_by_ap_id(None, follow.actor.to_string()).await
+                            }) {
                                 if let Ok(mut leader) = NewLeader::try_from(*accept.clone()) {
                                     leader.link(profile);
 
-                                    if let Some(leader) = handle.block_on(async {
-                                        create_leader(
-                                            POOL.get().expect("failed to get pool").into(),
-                                            leader,
-                                        )
-                                        .await
-                                    }) {
+                                    if let Some(leader) =
+                                        handle.block_on(async { create_leader(None, leader).await })
+                                    {
                                         log::debug!("LEADER CREATED: {}", leader.uuid);
                                     }
                                 }
@@ -135,15 +130,7 @@ pub fn process_remote_undo_follow(job: Job) -> io::Result<()> {
         let ap_id = ap_id.as_str().unwrap().to_string();
         log::debug!("APID: {ap_id}");
 
-        if handle.block_on(async {
-            delete_follower_by_ap_id(
-                POOL.get()
-                    .expect("failed to get database connection")
-                    .into(),
-                ap_id.clone(),
-            )
-            .await
-        }) {
+        if handle.block_on(async { delete_follower_by_ap_id(None, ap_id.clone()).await }) {
             log::info!("FOLLOWER RECORD DELETED: {ap_id}");
         }
     }
@@ -163,12 +150,14 @@ pub fn acknowledge_followers(job: Job) -> io::Result<()> {
         let uuid = uuid.as_str().unwrap().to_string();
         log::debug!("UUID: {uuid}");
 
-        if let Some(extended_follow) = handle.block_on(async {
-            get_activity_by_uuid(POOL.get().expect("failed to get pool").into(), uuid).await
-        }) {
+        if let Some(extended_follow) =
+            handle.block_on(async { get_activity_by_uuid(None, uuid).await })
+        {
             if let Ok(follow) = ApFollow::try_from(extended_follow) {
                 if let Ok(accept) = ApAccept::try_from(follow.clone()) {
-                    if let Some(profile) = get_profile_by_ap_id(accept.actor.clone().to_string()) {
+                    if let Some(profile) = handle.block_on(async {
+                        get_profile_by_ap_id(None, accept.actor.clone().to_string()).await
+                    }) {
                         if let Some((actor, _)) = handle.block_on(async {
                             get_actor(profile.clone(), follow.actor.clone().to_string()).await
                         }) {
@@ -191,11 +180,7 @@ pub fn acknowledge_followers(job: Job) -> io::Result<()> {
                                         log::debug!("NEW FOLLOWER\n{follower:#?}");
                                         if handle
                                             .block_on(async {
-                                                create_follower(
-                                                    POOL.get().expect("failed to get pool").into(),
-                                                    follower,
-                                                )
-                                                .await
+                                                create_follower(None, follower).await
                                             })
                                             .is_some()
                                         {

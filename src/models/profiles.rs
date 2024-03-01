@@ -2,9 +2,9 @@ use std::collections::HashSet;
 
 use crate::activity_pub::ApAddress;
 use crate::db::Db;
-use crate::db::FlexibleDb;
 use crate::helper::{get_local_identifier, LocalIdentifierType};
 use crate::schema::{self, profiles};
+use crate::POOL;
 use chrono::{DateTime, Utc};
 use diesel::prelude::*;
 use diesel::{AsChangeset, Identifiable, Insertable, Queryable};
@@ -59,9 +59,9 @@ pub struct Profile {
     pub summary_markdown: Option<String>,
 }
 
-pub async fn create_profile(conn: FlexibleDb<'_>, profile: NewProfile) -> Option<Profile> {
+pub async fn create_profile(conn: Option<&Db>, profile: NewProfile) -> Option<Profile> {
     match conn {
-        FlexibleDb::Db(conn) => conn
+        Some(conn) => conn
             .run(move |c| {
                 diesel::insert_into(profiles::table)
                     .values(&profile)
@@ -69,22 +69,32 @@ pub async fn create_profile(conn: FlexibleDb<'_>, profile: NewProfile) -> Option
             })
             .await
             .ok(),
-        FlexibleDb::Pool(mut pool) => diesel::insert_into(profiles::table)
-            .values(&profile)
-            .get_result::<Profile>(&mut pool)
-            .ok(),
+        None => {
+            let mut pool = POOL.get().ok()?;
+            diesel::insert_into(profiles::table)
+                .values(&profile)
+                .get_result::<Profile>(&mut pool)
+                .ok()
+        }
     }
 }
 
-pub async fn get_profile(conn: &Db, id: i32) -> Option<Profile> {
-    conn.run(move |c| profiles::table.find(id).first::<Profile>(c))
-        .await
-        .ok()
+pub async fn get_profile(conn: Option<&Db>, id: i32) -> Option<Profile> {
+    match conn {
+        Some(conn) => conn
+            .run(move |c| profiles::table.find(id).first::<Profile>(c))
+            .await
+            .ok(),
+        None => {
+            let mut pool = POOL.get().ok()?;
+            profiles::table.find(id).first::<Profile>(&mut pool).ok()
+        }
+    }
 }
 
-pub async fn get_profile_by_username(conn: FlexibleDb<'_>, username: String) -> Option<Profile> {
+pub async fn get_profile_by_username(conn: Option<&Db>, username: String) -> Option<Profile> {
     match conn {
-        FlexibleDb::Db(conn) => conn
+        Some(conn) => conn
             .run(move |c| {
                 profiles::table
                     .filter(profiles::username.eq(username))
@@ -92,17 +102,40 @@ pub async fn get_profile_by_username(conn: FlexibleDb<'_>, username: String) -> 
             })
             .await
             .ok(),
-        FlexibleDb::Pool(mut pool) => profiles::table
-            .filter(profiles::username.eq(username))
-            .first::<Profile>(&mut pool)
-            .ok(),
+        None => {
+            let mut pool = POOL.get().ok()?;
+            profiles::table
+                .filter(profiles::username.eq(username))
+                .first::<Profile>(&mut pool)
+                .ok()
+        }
     }
 }
 
-pub async fn get_profile_by_ap_id(conn: &Db, ap_id: String) -> Option<Profile> {
+pub async fn get_profile_by_uuid(conn: Option<&Db>, uuid: String) -> Option<Profile> {
+    match conn {
+        Some(conn) => conn
+            .run(move |c| {
+                profiles::table
+                    .filter(profiles::uuid.eq(uuid))
+                    .first::<Profile>(c)
+            })
+            .await
+            .ok(),
+        None => {
+            let mut pool = POOL.get().ok()?;
+            profiles::table
+                .filter(profiles::uuid.eq(uuid))
+                .first::<Profile>(&mut pool)
+                .ok()
+        }
+    }
+}
+
+pub async fn get_profile_by_ap_id(conn: Option<&Db>, ap_id: String) -> Option<Profile> {
     if let Some(x) = get_local_identifier(ap_id) {
         if x.kind == LocalIdentifierType::User {
-            get_profile_by_username(conn.into(), x.identifier).await
+            get_profile_by_username(conn, x.identifier).await
         } else {
             None
         }
@@ -111,7 +144,7 @@ pub async fn get_profile_by_ap_id(conn: &Db, ap_id: String) -> Option<Profile> {
     }
 }
 
-pub async fn get_follower_inboxes(conn: &Db, profile: Profile) -> Vec<ApAddress> {
+pub async fn get_follower_inboxes(conn: Option<&Db>, profile: Profile) -> Vec<ApAddress> {
     let mut inboxes: HashSet<ApAddress> = HashSet::new();
 
     for (_follower, remote_actor) in get_followers_by_profile_id(conn, profile.id).await {
@@ -211,7 +244,7 @@ pub async fn update_password_by_username(
     .ok()
 }
 
-pub async fn guaranteed_profile(conn: FlexibleDb<'_>, profile: Option<Profile>) -> Profile {
+pub async fn guaranteed_profile(conn: Option<&Db>, profile: Option<Profile>) -> Profile {
     match profile {
         Some(profile) => profile,
         None => get_profile_by_username(conn, (*crate::SYSTEM_USER).clone())

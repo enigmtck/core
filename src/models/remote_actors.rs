@@ -1,6 +1,7 @@
 use crate::activity_pub::ApContext;
-use crate::db::{Db, FlexibleDb};
+use crate::db::Db;
 use crate::schema::{leaders, profiles, remote_actors};
+use crate::POOL;
 use crate::{activity_pub::ApActor, helper::handle_option};
 use anyhow::Result;
 use chrono::{DateTime, Utc};
@@ -143,11 +144,11 @@ pub async fn get_remote_actor_by_url(conn: &Db, url: String) -> Option<RemoteAct
 }
 
 pub async fn create_or_update_remote_actor(
-    conn: FlexibleDb<'_>,
+    conn: Option<&Db>,
     actor: NewRemoteActor,
 ) -> Result<RemoteActor> {
     match conn {
-        FlexibleDb::Db(conn) => {
+        Some(conn) => {
             conn.run(move |c| {
                 diesel::insert_into(remote_actors::table)
                     .values(&actor)
@@ -159,13 +160,16 @@ pub async fn create_or_update_remote_actor(
             })
             .await
         }
-        FlexibleDb::Pool(mut pool) => diesel::insert_into(remote_actors::table)
-            .values(&actor)
-            .on_conflict(remote_actors::ap_id)
-            .do_update()
-            .set((&actor, remote_actors::checked_at.eq(Utc::now())))
-            .get_result::<RemoteActor>(&mut pool)
-            .map_err(anyhow::Error::msg),
+        None => {
+            let mut pool = POOL.get().map_err(anyhow::Error::msg)?;
+            diesel::insert_into(remote_actors::table)
+                .values(&actor)
+                .on_conflict(remote_actors::ap_id)
+                .do_update()
+                .set((&actor, remote_actors::checked_at.eq(Utc::now())))
+                .get_result::<RemoteActor>(&mut pool)
+                .map_err(anyhow::Error::msg)
+        }
     }
 }
 
@@ -178,9 +182,9 @@ pub async fn delete_remote_actor_by_ap_id(conn: &Db, remote_actor_ap_id: String)
     .is_ok()
 }
 
-pub async fn get_remote_actor_by_ap_id(conn: FlexibleDb<'_>, apid: String) -> Result<RemoteActor> {
+pub async fn get_remote_actor_by_ap_id(conn: Option<&Db>, apid: String) -> Result<RemoteActor> {
     match conn {
-        FlexibleDb::Db(conn) => {
+        Some(conn) => {
             conn.run(move |c| {
                 remote_actors::table
                     .filter(remote_actors::ap_id.eq(apid))
@@ -189,10 +193,13 @@ pub async fn get_remote_actor_by_ap_id(conn: FlexibleDb<'_>, apid: String) -> Re
             })
             .await
         }
-        FlexibleDb::Pool(mut pool) => remote_actors::table
-            .filter(remote_actors::ap_id.eq(apid))
-            .first::<RemoteActor>(&mut pool)
-            .map_err(anyhow::Error::msg),
+        None => {
+            let mut pool = POOL.get().map_err(anyhow::Error::msg)?;
+            remote_actors::table
+                .filter(remote_actors::ap_id.eq(apid))
+                .first::<RemoteActor>(&mut pool)
+                .map_err(anyhow::Error::msg)
+        }
     }
 }
 
@@ -207,11 +214,11 @@ pub async fn get_remote_actor_by_webfinger(conn: &Db, webfinger: String) -> Opti
 }
 
 pub async fn get_leader_by_endpoint(
-    conn: FlexibleDb<'_>,
+    conn: Option<&Db>,
     endpoint: String,
 ) -> Option<(RemoteActor, Leader)> {
     match conn {
-        FlexibleDb::Db(conn) => conn
+        Some(conn) => conn
             .run(move |c| {
                 remote_actors::table
                     .inner_join(leaders::table.on(leaders::leader_ap_id.eq(remote_actors::ap_id)))
@@ -220,20 +227,23 @@ pub async fn get_leader_by_endpoint(
             })
             .await
             .ok(),
-        FlexibleDb::Pool(mut pool) => remote_actors::table
-            .inner_join(leaders::table.on(leaders::leader_ap_id.eq(remote_actors::ap_id)))
-            .filter(remote_actors::followers.eq(endpoint))
-            .first::<(RemoteActor, Leader)>(&mut pool)
-            .ok(),
+        None => {
+            let mut pool = POOL.get().ok()?;
+            remote_actors::table
+                .inner_join(leaders::table.on(leaders::leader_ap_id.eq(remote_actors::ap_id)))
+                .filter(remote_actors::followers.eq(endpoint))
+                .first::<(RemoteActor, Leader)>(&mut pool)
+                .ok()
+        }
     }
 }
 
 pub async fn get_follower_profiles_by_endpoint(
-    conn: FlexibleDb<'_>,
+    conn: Option<&Db>,
     endpoint: String,
 ) -> Vec<(RemoteActor, Leader, Option<Profile>)> {
     match conn {
-        FlexibleDb::Db(conn) => conn
+        Some(conn) => conn
             .run(move |c| {
                 remote_actors::table
                     .inner_join(leaders::table.on(leaders::leader_ap_id.eq(remote_actors::ap_id)))
@@ -243,11 +253,13 @@ pub async fn get_follower_profiles_by_endpoint(
             })
             .await
             .unwrap_or(vec![]),
-        FlexibleDb::Pool(mut pool) => remote_actors::table
-            .inner_join(leaders::table.on(leaders::leader_ap_id.eq(remote_actors::ap_id)))
-            .left_join(profiles::table.on(leaders::profile_id.eq(profiles::id)))
-            .filter(remote_actors::followers.eq(endpoint))
-            .get_results::<(RemoteActor, Leader, Option<Profile>)>(&mut pool)
-            .unwrap_or(vec![]),
+        None => POOL.get().map_or(vec![], |mut pool| {
+            remote_actors::table
+                .inner_join(leaders::table.on(leaders::leader_ap_id.eq(remote_actors::ap_id)))
+                .left_join(profiles::table.on(leaders::profile_id.eq(profiles::id)))
+                .filter(remote_actors::followers.eq(endpoint))
+                .get_results::<(RemoteActor, Leader, Option<Profile>)>(&mut pool)
+                .unwrap_or(vec![])
+        }),
     }
 }

@@ -70,7 +70,7 @@ impl Inbox for ApCreate {
 
                 // creating Activity after RemoteNote is weird, but currently necessary
                 // see comment in models/activities.rs on TryFrom<ApActivity>
-                if let Some(created_note) = create_or_update_remote_note(&conn, n).await {
+                if let Some(created_note) = create_or_update_remote_note(Some(&conn), n).await {
                     if let Ok(activity) = NewActivity::try_from((
                         ApActivity::Create(self.clone()),
                         Some(ActivityTarget::from(created_note.clone())),
