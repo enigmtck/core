@@ -1,5 +1,6 @@
 use std::collections::{hash_map::Entry, HashMap};
 
+use anyhow::Result;
 use rocket::futures::future::join_all;
 use rocket::futures::stream::{self, StreamExt};
 
@@ -15,7 +16,8 @@ use crate::{
         profiles::Profile,
         timeline::{
             get_authenticated_timeline_items, get_public_timeline_items,
-            get_timeline_items_by_conversation, AuthenticatedTimelineItem, TimelineItem,
+            get_timeline_items_by_conversation, AuthenticatedTimelineItem, TimelineFilters,
+            TimelineItem,
         },
     },
 };
@@ -25,17 +27,34 @@ pub async fn timeline(conn: &Db, limit: i64, offset: i64) -> ApObject {
 
     let items = timeline
         .iter()
-        .map(|(timeline, activity)| (timeline.clone(), activity.clone(), None))
+        .map(|(timeline, activity)| {
+            (
+                timeline.clone(),
+                activity.clone(),
+                None,
+                None,
+                None,
+                None,
+                None,
+            )
+        })
         .collect();
 
     process(conn, items, None).await
 }
 
-pub async fn inbox(conn: &Db, limit: i64, offset: i64, profile: Profile) -> ApObject {
+pub async fn inbox(
+    conn: &Db,
+    limit: i64,
+    offset: i64,
+    profile: Profile,
+    filters: TimelineFilters,
+) -> ApObject {
     // the timeline vec will include duplicates due to the table joins
+
     process(
         conn,
-        get_authenticated_timeline_items(conn, limit, offset, profile.clone()).await,
+        get_authenticated_timeline_items(conn, limit, offset, profile.clone(), filters).await,
         Some(profile),
     )
     .await
@@ -63,19 +82,21 @@ async fn process_notes(
     timeline_items: &[AuthenticatedTimelineItem],
     profile: Option<Profile>,
 ) -> Vec<ApNote> {
-    join_all(timeline_items.iter().map(|(timeline_item, activity, cc)| {
-        let profile = profile.clone();
-        async move {
-            let ap_ids = gather_ap_ids(timeline_item);
-            let ap_actors = get_ap_actors(conn, ap_ids).await;
-            let fully_qualified_timeline_item: FullyQualifiedTimelineItem = (
-                (timeline_item.clone(), activity.clone(), cc.clone()),
-                Some(ap_actors),
-                profile,
-            );
-            fully_qualified_timeline_item.into()
-        }
-    }))
+    join_all(timeline_items.iter().map(
+        |(timeline_item, activity, _activity_to, _activity_cc, _to, cc, _hashtag)| {
+            let profile = profile.clone();
+            async move {
+                let ap_ids = gather_ap_ids(timeline_item);
+                let ap_actors = get_ap_actors(conn, ap_ids).await;
+                let fully_qualified_timeline_item: FullyQualifiedTimelineItem = (
+                    (timeline_item.clone(), activity.clone(), cc.clone()),
+                    Some(ap_actors),
+                    profile,
+                );
+                fully_qualified_timeline_item.into()
+            }
+        },
+    ))
     .await
 }
 
@@ -166,22 +187,23 @@ pub async fn conversation(
     conversation: String,
     limit: i64,
     offset: i64,
-) -> ApObject {
-    let conversation = get_timeline_items_by_conversation(conn, conversation, limit, offset).await;
+) -> Result<ApObject> {
+    let conversations =
+        get_timeline_items_by_conversation(Some(conn), conversation.clone(), limit, offset)
+            .await
+            .unwrap_or(vec![]);
 
-    match assign_to_faktory(
+    assign_to_faktory(
         faktory,
         String::from("retrieve_context"),
-        vec![conversation[0].clone().ap_id],
-    ) {
-        Ok(_) => log::debug!("ASSIGNED TO FAKTORY"),
-        Err(e) => log::error!("FAILED TO ASSIGN TO FAKTORY\n{e:#?}"),
-    }
+        vec![conversation],
+    )
+    .map_err(|_| anyhow::Error::msg("failed to assign to faktory"))?;
 
-    ApObject::Collection(ApCollection::from(
-        conversation
+    Ok(ApObject::Collection(ApCollection::from(
+        conversations
             .iter()
             .map(|x| ApObject::Note(ApNote::from((x.clone(), None))))
             .collect::<Vec<ApObject>>(),
-    ))
+    )))
 }

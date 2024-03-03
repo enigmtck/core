@@ -40,6 +40,26 @@ diesel::table! {
 }
 
 diesel::table! {
+    activities_cc (id) {
+        id -> Int4,
+        created_at -> Timestamptz,
+        updated_at -> Timestamptz,
+        activity_id -> Int4,
+        ap_id -> Varchar,
+    }
+}
+
+diesel::table! {
+    activities_to (id) {
+        id -> Int4,
+        created_at -> Timestamptz,
+        updated_at -> Timestamptz,
+        activity_id -> Int4,
+        ap_id -> Varchar,
+    }
+}
+
+diesel::table! {
     announces (id) {
         id -> Int4,
         created_at -> Timestamptz,
@@ -107,6 +127,17 @@ diesel::table! {
 }
 
 diesel::table! {
+    hashtag_trend (id) {
+        id -> Int4,
+        created_at -> Timestamptz,
+        updated_at -> Timestamptz,
+        period -> Int4,
+        hashtag -> Varchar,
+        update_count -> Int4,
+    }
+}
+
+diesel::table! {
     leaders (id) {
         id -> Int4,
         created_at -> Timestamptz,
@@ -131,6 +162,16 @@ diesel::table! {
         ap_to -> Varchar,
         actor -> Varchar,
         object_ap_id -> Varchar,
+    }
+}
+
+diesel::table! {
+    note_hashtags (id) {
+        id -> Int4,
+        created_at -> Timestamptz,
+        updated_at -> Timestamptz,
+        hashtag -> Varchar,
+        note_id -> Int4,
     }
 }
 
@@ -215,6 +256,16 @@ diesel::table! {
 }
 
 diesel::table! {
+    profile_hashtags (id) {
+        id -> Int4,
+        created_at -> Timestamptz,
+        updated_at -> Timestamptz,
+        hashtag -> Varchar,
+        profile_id -> Int4,
+    }
+}
+
+diesel::table! {
     profiles (id) {
         id -> Int4,
         created_at -> Timestamptz,
@@ -235,6 +286,16 @@ diesel::table! {
         olm_pickled_account_hash -> Nullable<Varchar>,
         olm_identity_key -> Nullable<Varchar>,
         summary_markdown -> Nullable<Varchar>,
+    }
+}
+
+diesel::table! {
+    remote_actor_hashtags (id) {
+        id -> Int4,
+        created_at -> Timestamptz,
+        updated_at -> Timestamptz,
+        hashtag -> Varchar,
+        remote_actor_id -> Int4,
     }
 }
 
@@ -286,6 +347,16 @@ diesel::table! {
         attributed_to -> Varchar,
         instrument -> Jsonb,
         reference -> Nullable<Varchar>,
+    }
+}
+
+diesel::table! {
+    remote_note_hashtags (id) {
+        id -> Int4,
+        created_at -> Timestamptz,
+        updated_at -> Timestamptz,
+        hashtag -> Varchar,
+        remote_note_id -> Int4,
     }
 }
 
@@ -360,6 +431,16 @@ diesel::table! {
 }
 
 diesel::table! {
+    timeline_hashtags (id) {
+        id -> Int4,
+        created_at -> Timestamptz,
+        updated_at -> Timestamptz,
+        hashtag -> Varchar,
+        timeline_id -> Int4,
+    }
+}
+
+diesel::table! {
     timeline_to (id) {
         id -> Int4,
         created_at -> Timestamptz,
@@ -382,37 +463,52 @@ diesel::table! {
     }
 }
 
+diesel::joinable!(activities_cc -> activities (activity_id));
+diesel::joinable!(activities_to -> activities (activity_id));
 diesel::joinable!(encrypted_sessions -> profiles (profile_id));
 diesel::joinable!(followers -> profiles (profile_id));
 diesel::joinable!(leaders -> profiles (profile_id));
+diesel::joinable!(note_hashtags -> remote_notes (note_id));
 diesel::joinable!(notes -> profiles (profile_id));
 diesel::joinable!(olm_one_time_keys -> profiles (profile_id));
 diesel::joinable!(olm_sessions -> encrypted_sessions (encrypted_session_id));
+diesel::joinable!(profile_hashtags -> profiles (profile_id));
+diesel::joinable!(remote_actor_hashtags -> remote_actors (remote_actor_id));
 diesel::joinable!(remote_encrypted_sessions -> profiles (profile_id));
+diesel::joinable!(remote_note_hashtags -> remote_notes (remote_note_id));
 diesel::joinable!(timeline_cc -> timeline (timeline_id));
+diesel::joinable!(timeline_hashtags -> timeline (timeline_id));
 diesel::joinable!(timeline_to -> timeline (timeline_id));
 diesel::joinable!(vault -> profiles (profile_id));
 
 diesel::allow_tables_to_appear_in_same_query!(
     activities,
+    activities_cc,
+    activities_to,
     announces,
     cache,
     encrypted_sessions,
     followers,
     follows,
+    hashtag_trend,
     leaders,
     likes,
+    note_hashtags,
     notes,
     notifications,
     olm_one_time_keys,
     olm_sessions,
     processing_queue,
+    profile_hashtags,
     profiles,
+    remote_actor_hashtags,
     remote_actors,
     remote_encrypted_sessions,
+    remote_note_hashtags,
     remote_notes,
     timeline,
     timeline_cc,
+    timeline_hashtags,
     timeline_to,
     vault,
 );

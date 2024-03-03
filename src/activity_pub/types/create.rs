@@ -7,7 +7,8 @@ use crate::{
     fairings::{events::EventChannels, faktory::FaktoryConnection},
     models::{
         activities::{
-            create_activity, ActivityTarget, ApActivityTarget, ExtendedActivity, NewActivity,
+            create_activity, create_activity_cc, create_activity_to, ActivityTarget,
+            ApActivityTarget, ExtendedActivity, NewActivity,
         },
         profiles::Profile,
         remote_notes::{create_or_update_remote_note, NewRemoteNote},
@@ -67,18 +68,37 @@ impl Inbox for ApCreate {
         match self.clone().object {
             MaybeReference::Actual(ApObject::Note(x)) => {
                 let n = NewRemoteNote::from(x.clone());
+                let ap_activity = ApActivity::Create(self.clone());
 
                 // creating Activity after RemoteNote is weird, but currently necessary
                 // see comment in models/activities.rs on TryFrom<ApActivity>
                 if let Some(created_note) = create_or_update_remote_note(Some(&conn), n).await {
                     if let Ok(activity) = NewActivity::try_from((
-                        ApActivity::Create(self.clone()),
+                        ap_activity.clone(),
                         Some(ActivityTarget::from(created_note.clone())),
                     )
                         as ApActivityTarget)
                     {
                         log::debug!("ACTIVITY\n{activity:#?}");
-                        if create_activity((&conn).into(), activity).await.is_some() {
+                        if let Some(created) = create_activity((&conn).into(), activity).await {
+                            if let ApActivity::Create(create) = ap_activity {
+                                for to in create.to.multiple() {
+                                    create_activity_to(
+                                        Some(&conn),
+                                        (created.clone(), to.to_string()),
+                                    )
+                                    .await;
+                                }
+                                if let Some(cc) = create.cc {
+                                    for cc in cc.multiple() {
+                                        create_activity_cc(
+                                            Some(&conn),
+                                            (created.clone(), cc.to_string()),
+                                        )
+                                        .await;
+                                    }
+                                }
+                            }
                             to_faktory(faktory, "process_remote_note", created_note.ap_id)
                         } else {
                             log::error!("FAILED TO INSERT ACTIVITY");

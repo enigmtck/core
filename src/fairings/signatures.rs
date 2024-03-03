@@ -19,6 +19,10 @@ impl Signed {
     pub fn remote(&self) -> bool {
         matches!(self, Signed(true, VerificationType::Remote))
     }
+
+    pub fn any(&self) -> bool {
+        matches!(self, Signed(true, _))
+    }
 }
 
 #[derive(Debug)]

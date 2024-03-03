@@ -1,4 +1,5 @@
 {
     "name":"enigmatick-core",
-    "ns":"enigmatick"
+    "ns":"enigmatick",
+    "helm":"coreVersion"
 }

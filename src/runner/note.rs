@@ -1,16 +1,21 @@
 use faktory::Job;
 use reqwest::{Client, StatusCode};
+use rocket::futures::future::join_all;
+use std::io::{Error, ErrorKind};
 use tokio::io;
 use tokio::runtime::Runtime;
 use url::Url;
 
 use crate::activity_pub::retriever::signed_get;
 use crate::activity_pub::ApImage;
+use crate::models::note_hashtags::{create_note_hashtag, NewNoteHashtag};
 use crate::models::notes::delete_note_by_uuid;
 use crate::models::processing_queue::create_processing_item;
 use crate::models::profiles::{get_profile, get_profile_by_ap_id, guaranteed_profile};
+use crate::models::remote_note_hashtags::{create_remote_note_hashtag, NewRemoteNoteHashtag};
 use crate::models::remote_notes::{create_or_update_remote_note, get_remote_note_by_ap_id};
-use crate::models::timeline::{create_timeline_item, delete_timeline_item_by_ap_id};
+use crate::models::timeline::{create_timeline_item, delete_timeline_item_by_ap_id, TimelineItem};
+use crate::models::timeline_hashtags::{create_timeline_hashtag, NewTimelineHashtag};
 use crate::runner::cache::cache_content;
 use crate::{
     activity_pub::{ApActivity, ApAddress, ApNote, ApObject},
@@ -139,76 +144,89 @@ pub fn process_outbound_note(job: Job) -> io::Result<()> {
             target_remote_actor,
         )) = handle.block_on(async { get_activity_by_uuid(None, uuid).await })
         {
-            if let Some(profile_id) = activity.profile_id {
-                if let (Some(sender), Some(note)) = (
-                    handle.block_on(async { get_profile(None, profile_id).await }),
-                    target_note.clone(),
-                ) {
-                    let activity = match note.kind {
-                        NoteType::Note => {
-                            if let Ok(activity) = ApActivity::try_from((
-                                (
-                                    activity,
-                                    target_note,
-                                    target_remote_note,
-                                    target_profile,
-                                    target_remote_actor,
-                                ),
-                                None,
-                            )) {
-                                Some(activity)
-                            } else {
-                                None
-                            }
+            let profile_id = activity
+                .profile_id
+                .ok_or(Error::new(ErrorKind::Other, "no profile_id"))?;
+
+            if let (Some(sender), Some(note)) = (
+                handle.block_on(async { get_profile(None, profile_id).await }),
+                target_note.clone(),
+            ) {
+                let new_tags: Vec<NewNoteHashtag> = note.clone().into();
+                handle.block_on(async {
+                    join_all(
+                        new_tags
+                            .iter()
+                            .map(|tag| async { create_note_hashtag(None, tag.clone()).await }),
+                    )
+                    .await
+                });
+                let activity = match note.kind {
+                    NoteType::Note => {
+                        if let Ok(activity) = ApActivity::try_from((
+                            (
+                                activity,
+                                target_note,
+                                target_remote_note,
+                                target_profile,
+                                target_remote_actor,
+                            ),
+                            None,
+                        )) {
+                            Some(activity)
+                        } else {
+                            None
                         }
-                        // NoteType::EncryptedNote => {
-                        //     handle_encrypted_note(&mut note, sender.clone())
-                        //         .map(ApActivity::Create(ApCreate::from))
-                        // }
-                        _ => None,
-                    };
+                    }
+                    // NoteType::EncryptedNote => {
+                    //     handle_encrypted_note(&mut note, sender.clone())
+                    //         .map(ApActivity::Create(ApCreate::from))
+                    // }
+                    _ => None,
+                };
 
-                    handle.block_on(async { add_note_to_timeline(note, sender.clone()).await });
+                handle.block_on(async { add_note_to_timeline(note, sender.clone()).await });
 
-                    if let Some(activity) = activity {
-                        let inboxes: Vec<ApAddress> = handle.block_on(async {
-                            get_inboxes(activity.clone(), sender.clone()).await
-                        });
+                let activity = activity.ok_or(Error::new(ErrorKind::Other, "no activity"))?;
 
-                        log::debug!("SENDING ACTIVITY\n{activity:#?}");
-                        log::debug!("INBOXES\n{inboxes:#?}");
+                let inboxes: Vec<ApAddress> =
+                    handle.block_on(async { get_inboxes(activity.clone(), sender.clone()).await });
 
-                        for url_str in inboxes {
-                            let body = Option::from(serde_json::to_string(&activity).unwrap());
-                            let method = Method::Post;
+                log::debug!("SENDING ACTIVITY\n{activity:#?}");
+                log::debug!("INBOXES\n{inboxes:#?}");
 
-                            if let Ok(url) = Url::parse(&url_str.clone().to_string()) {
-                                if let Ok(signature) = crate::signing::sign(SignParams {
-                                    profile: sender.clone(),
-                                    url: url.clone(),
-                                    body: body.clone(),
-                                    method,
-                                }) {
-                                    let client = Client::new()
-                                        .post(&url_str.to_string())
-                                        .header("Date", signature.date)
-                                        .header("Digest", signature.digest.unwrap())
-                                        .header("Signature", &signature.signature)
-                                        .header("Content-Type", "application/activity+json")
-                                        .body(body.unwrap());
+                for url_str in inboxes {
+                    let body = Option::from(serde_json::to_string(&activity).unwrap());
+                    let method = Method::Post;
 
-                                    if let Ok(resp) = handle.block_on(async { client.send().await })
-                                    {
-                                        match resp.status() {
-                                            StatusCode::ACCEPTED | StatusCode::OK => {
-                                                log::debug!("SENT TO {url}")
-                                            }
-                                            _ => log::error!("ERROR SENDING TO {url}"),
-                                        }
-                                    }
-                                }
-                            }
+                    let url = Url::parse(&url_str.clone().to_string())
+                        .map_err(|e| Error::new(ErrorKind::Other, e))?;
+
+                    let signature = crate::signing::sign(SignParams {
+                        profile: sender.clone(),
+                        url: url.clone(),
+                        body: body.clone(),
+                        method,
+                    })
+                    .map_err(|e| Error::new(ErrorKind::Other, e))?;
+
+                    let client = Client::new()
+                        .post(&url_str.to_string())
+                        .header("Date", signature.date)
+                        .header("Digest", signature.digest.unwrap())
+                        .header("Signature", &signature.signature)
+                        .header("Content-Type", "application/activity+json")
+                        .body(body.unwrap());
+
+                    let resp = handle
+                        .block_on(async { client.send().await })
+                        .map_err(|e| Error::new(ErrorKind::Other, e))?;
+
+                    match resp.status() {
+                        StatusCode::ACCEPTED | StatusCode::OK => {
+                            log::debug!("SENT TO {url}")
                         }
+                        _ => log::error!("ERROR SENDING TO {url}"),
                     }
                 }
             }
@@ -291,6 +309,28 @@ async fn add_note_to_timeline(note: Note, sender: Profile) {
     }
 }
 
+pub async fn create_remote_note_tags(remote_note: RemoteNote) {
+    let new_tags: Vec<NewRemoteNoteHashtag> = remote_note.clone().into();
+
+    join_all(
+        new_tags
+            .iter()
+            .map(|tag| async { create_remote_note_hashtag(None, tag.clone()).await }),
+    )
+    .await;
+}
+
+pub async fn create_timeline_tags(timeline_item: TimelineItem) {
+    let new_tags: Vec<NewTimelineHashtag> = timeline_item.clone().into();
+
+    join_all(
+        new_tags
+            .iter()
+            .map(|tag| async { create_timeline_hashtag(None, tag.clone()).await }),
+    )
+    .await;
+}
+
 pub async fn handle_remote_note(
     remote_note: RemoteNote,
     announcer: Option<String>,
@@ -308,7 +348,11 @@ pub async fn handle_remote_note(
         note.ephemeral_announces = Some(vec![announcer]);
     }
 
+    create_remote_note_tags(remote_note.clone()).await;
+
     if let Ok(timeline_item) = create_timeline_item(None, (None, note.clone()).into()).await {
+        create_timeline_tags(timeline_item.clone()).await;
+
         add_to_timeline(
             remote_note.clone().ap_to,
             remote_note.clone().cc,

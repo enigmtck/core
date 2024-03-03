@@ -240,7 +240,7 @@ pub async fn upload_banner(
         let filename = uuid::Uuid::new_v4().to_string();
 
         if let Ok(file) = media
-            .open(4.mebibytes())
+            .open(20.mebibytes())
             .into_file(&format!("{}/banners/{}", *crate::MEDIA_DIR, filename))
             .await
         {

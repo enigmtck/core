@@ -1,7 +1,9 @@
 use crate::activity_pub::{ApAnnounce, ApNote};
 use crate::db::Db;
 use crate::helper::get_ap_id_from_username;
-use crate::schema::{activities, timeline, timeline_cc, timeline_to};
+use crate::schema::{
+    activities, activities_cc, activities_to, timeline, timeline_cc, timeline_hashtags, timeline_to,
+};
 use crate::POOL;
 use anyhow::Result;
 use chrono::{DateTime, Utc};
@@ -10,10 +12,12 @@ use diesel::{AsChangeset, Identifiable, Insertable, Queryable};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use super::activities::Activity;
+use super::activities::{Activity, ActivityCc, ActivityTo};
 use super::notes::{Note, NoteType};
 use super::profiles::Profile;
 use super::remote_notes::RemoteNote;
+use super::timeline_hashtags::TimelineHashtag;
+use crate::routes::inbox::InboxView;
 
 #[derive(Serialize, Deserialize, Insertable, Default, Debug, Clone, AsChangeset)]
 #[diesel(table_name = timeline)]
@@ -235,38 +239,86 @@ impl From<IdentifiedTimelineItem> for NewTimelineItemTo {
     }
 }
 
+#[derive(Eq, PartialEq)]
+pub enum TimelineView {
+    Home(Vec<String>),
+    Local,
+    Global,
+}
+
+impl From<InboxView> for TimelineView {
+    fn from(view: InboxView) -> Self {
+        match view {
+            InboxView::Local => TimelineView::Local,
+            InboxView::Global => TimelineView::Global,
+            InboxView::Home => TimelineView::Home(vec![]),
+        }
+    }
+}
+
+pub struct TimelineFilters {
+    pub view: TimelineView,
+    pub hashtags: Vec<String>,
+}
 // this is used in inbox/retrieve to accommodate authenticated calls for
 // more detailed timeline data (e.g., to include whether or not I've liked
-// a post)
-pub type AuthenticatedTimelineItem = (TimelineItem, Option<Activity>, Option<TimelineItemCc>);
+// a post - Activity will include CREATE, LIKE, etc from the activities table)
+pub type AuthenticatedTimelineItem = (
+    TimelineItem,
+    Option<Activity>,
+    Option<ActivityTo>,
+    Option<ActivityCc>,
+    Option<TimelineItemTo>,
+    Option<TimelineItemCc>,
+    Option<TimelineHashtag>,
+);
 
 pub async fn get_authenticated_timeline_items(
     conn: &Db,
     limit: i64,
     offset: i64,
     profile: Profile,
+    filters: TimelineFilters,
 ) -> Vec<AuthenticatedTimelineItem> {
     conn.run(move |c| {
         let ap_id = get_ap_id_from_username(profile.username.clone());
-        let query = timeline::table
+
+        let mut query = timeline::table
             .left_join(
                 activities::table.on(activities::target_ap_id
                     .eq(timeline::ap_id.nullable())
                     .and(activities::revoked.eq(false))),
             )
-            .left_join(
-                timeline_cc::table.on(timeline_cc::id
-                    .eq(timeline::id)
-                    .and(timeline_cc::ap_id.eq(ap_id.clone()))),
-            )
-            .filter(timeline::ap_public.eq(true))
-            .or_filter(timeline_cc::ap_id.eq(ap_id))
+            .left_join(activities_to::table.on(activities_to::activity_id.eq(activities::id)))
+            .left_join(activities_cc::table.on(activities_cc::activity_id.eq(activities::id)))
+            .left_join(timeline_to::table.on(timeline_to::timeline_id.eq(timeline::id)))
+            .left_join(timeline_cc::table.on(timeline_cc::timeline_id.eq(timeline::id)))
+            .left_join(timeline_hashtags::table.on(timeline_hashtags::timeline_id.eq(timeline::id)))
+            .into_boxed();
+
+        match filters.view {
+            TimelineView::Global => {
+                query = query
+                    .filter(timeline::ap_public.eq(true))
+                    .or_filter(timeline_cc::ap_id.eq(ap_id))
+            }
+            TimelineView::Local => {
+                // I think this is best handled with a 'local' boolean on timelineitem set by runner
+            }
+            TimelineView::Home(leaders) => {
+                query = query
+                    .filter(timeline_cc::ap_id.eq(ap_id.clone()))
+                    .or_filter(timeline_cc::ap_id.eq_any(leaders.clone()))
+                    .or_filter(timeline_to::ap_id.eq(ap_id))
+                    .or_filter(timeline_to::ap_id.eq_any(leaders))
+            }
+        }
+
+        query
             .order(timeline::created_at.desc())
             .limit(limit)
             .offset(offset)
-            .into_boxed();
-
-        query.get_results::<AuthenticatedTimelineItem>(c)
+            .get_results::<AuthenticatedTimelineItem>(c)
     })
     .await
     .unwrap_or(vec![])
@@ -296,24 +348,56 @@ pub async fn get_public_timeline_items(
     .unwrap_or(vec![])
 }
 
+pub async fn get_timeline_conversation_count(
+    conn: Option<&Db>,
+    conversation: String,
+) -> Result<i64> {
+    if let Some(conn) = conn {
+        conn.run(move |c| {
+            timeline::table
+                .filter(timeline::conversation.eq(conversation))
+                .count()
+                .get_result::<i64>(c)
+                .map_err(anyhow::Error::msg)
+        })
+        .await
+    } else {
+        let mut pool = POOL.get().map_err(anyhow::Error::msg)?;
+        timeline::table
+            .filter(timeline::conversation.eq(conversation))
+            .count()
+            .get_result::<i64>(&mut pool)
+            .map_err(anyhow::Error::msg)
+    }
+}
+
 pub async fn get_timeline_items_by_conversation(
-    conn: &Db,
+    conn: Option<&Db>,
     conversation: String,
     limit: i64,
     offset: i64,
-) -> Vec<TimelineItem> {
-    conn.run(move |c| {
-        let query = timeline::table
+) -> Result<Vec<TimelineItem>> {
+    if let Some(conn) = conn {
+        conn.run(move |c| {
+            timeline::table
+                .filter(timeline::conversation.eq(conversation))
+                .order(timeline::created_at.asc())
+                .limit(limit)
+                .offset(offset)
+                .get_results::<TimelineItem>(c)
+                .map_err(anyhow::Error::msg)
+        })
+        .await
+    } else {
+        let mut pool = POOL.get().map_err(anyhow::Error::msg)?;
+        timeline::table
             .filter(timeline::conversation.eq(conversation))
             .order(timeline::created_at.asc())
             .limit(limit)
             .offset(offset)
-            .into_boxed();
-
-        query.get_results::<TimelineItem>(c)
-    })
-    .await
-    .unwrap_or(vec![])
+            .get_results::<TimelineItem>(&mut pool)
+            .map_err(anyhow::Error::msg)
+    }
 }
 
 pub async fn create_timeline_item(

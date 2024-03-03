@@ -8,28 +8,57 @@ use crate::db::Db;
 use crate::fairings::faktory::FaktoryConnection;
 use crate::fairings::signatures::Signed;
 use crate::inbox;
-use crate::models::profiles::get_profile_by_username;
+use crate::models::leaders::get_leaders_by_profile_id;
+use crate::models::{
+    profiles::get_profile_by_username, timeline::TimelineFilters, timeline::TimelineView,
+};
 //use crate::models::remote_activities::create_remote_activity;
-use crate::signing::VerificationType;
 
 use super::ActivityJson;
 
-#[get("/user/<username>/inbox?<offset>&<limit>")]
+#[derive(FromFormField, Eq, PartialEq)]
+pub enum InboxView {
+    Home,
+    Local,
+    Global,
+}
+
+#[get("/user/<username>/inbox?<offset>&<limit>&<view>")]
 pub async fn inbox_get(
     signed: Signed,
     conn: Db,
     username: String,
     offset: u16,
     limit: u8,
+    view: InboxView,
 ) -> Result<ActivityJson<ApObject>, Status> {
-    if let (Some(profile), Signed(true, VerificationType::Local)) = (
-        get_profile_by_username((&conn).into(), username).await,
-        signed,
-    ) {
-        let inbox = inbox::retrieve::inbox(&conn, limit.into(), offset.into(), profile).await;
-        Ok(ActivityJson(Json(inbox)))
+    if signed.local() {
+        let profile = get_profile_by_username((&conn).into(), username)
+            .await
+            .ok_or(Status::new(520))?;
+
+        let filters = TimelineFilters {
+            view: {
+                if view == InboxView::Home {
+                    TimelineView::Home(
+                        get_leaders_by_profile_id(&conn, profile.id)
+                            .await
+                            .iter()
+                            .map(|leader| leader.0.leader_ap_id.clone())
+                            .collect(),
+                    )
+                } else {
+                    view.into()
+                }
+            },
+            hashtags: vec![],
+        };
+
+        Ok(ActivityJson(Json(
+            inbox::retrieve::inbox(&conn, limit.into(), offset.into(), profile, filters).await,
+        )))
     } else {
-        Err(Status::NoContent)
+        Err(Status::Unauthorized)
     }
 }
 
@@ -57,23 +86,16 @@ pub async fn shared_inbox_post(
     faktory: FaktoryConnection,
     activity: String,
 ) -> Result<Status, Status> {
-    if let Ok(raw) = serde_json::from_str::<Value>(&activity) {
-        if let Ok(activity) = serde_json::from_str::<ApActivity>(&activity) {
-            log::debug!("POSTING TO INBOX\n{activity:#?}");
+    let raw = serde_json::from_str::<Value>(&activity).map_err(|_| Status::BadRequest)?;
+    let activity = serde_json::from_str::<ApActivity>(&activity).map_err(|_| Status::BadRequest)?;
 
-            if let Signed(true, _) = signed {
-                activity.inbox(conn, faktory, raw).await
-            } else {
-                log::debug!("REQUEST WAS UNSIGNED OR MALFORMED");
-                Err(Status::NoContent)
-            }
-        } else {
-            log::debug!("UNKNOWN OR MALFORMED ACTIVITY\n{raw:#?}");
-            Err(Status::BadRequest)
-        }
+    log::debug!("POSTING TO INBOX\n{activity:#?}");
+
+    if signed.any() {
+        activity.inbox(conn, faktory, raw).await
     } else {
-        log::debug!("FAILED TO DECODE JSON\n{activity:#?}");
-        Err(Status::BadRequest)
+        log::debug!("REQUEST WAS UNSIGNED OR MALFORMED");
+        Err(Status::NoContent)
     }
 }
 
@@ -87,25 +109,28 @@ pub async fn conversation_get(
     limit: u8,
     conversation: String,
 ) -> Result<ActivityJson<ApObject>, Status> {
-    if let (Some(_profile), Signed(true, VerificationType::Local)) = (
-        get_profile_by_username((&conn).into(), username).await,
-        signed,
-    ) {
-        if let Ok(conversation) = urlencoding::decode(&conversation.clone()) {
-            let inbox = inbox::retrieve::conversation(
+    if signed.local() {
+        if get_profile_by_username((&conn).into(), username)
+            .await
+            .is_some()
+        {
+            let decoded = urlencoding::decode(&conversation).map_err(|_| Status::new(524))?;
+
+            inbox::retrieve::conversation(
                 &conn,
                 faktory,
-                conversation.to_string(),
+                decoded.to_string(),
                 limit.into(),
                 offset.into(),
             )
-            .await;
-            Ok(ActivityJson(Json(inbox)))
+            .await
+            .map(|inbox| ActivityJson(Json(inbox)))
+            .map_err(|_| Status::new(525))
         } else {
-            Err(Status::NoContent)
+            Err(Status::new(526))
         }
     } else {
-        Err(Status::NoContent)
+        Err(Status::Unauthorized)
     }
 }
 
@@ -117,7 +142,8 @@ pub async fn conversation_get_local(
 ) -> Result<ActivityJson<ApObject>, Status> {
     let conversation = format!("{}/conversation/{}", *crate::SERVER_URL, uuid);
 
-    Ok(ActivityJson(Json(
-        inbox::retrieve::conversation(&conn, faktory, conversation.to_string(), 40, 0).await,
-    )))
+    inbox::retrieve::conversation(&conn, faktory, conversation.to_string(), 40, 0)
+        .await
+        .map(|conversation| ActivityJson(Json(conversation)))
+        .map_err(|_| Status::new(525))
 }

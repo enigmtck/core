@@ -6,7 +6,9 @@ use crate::db::Db;
 use crate::helper::{
     get_activity_ap_id_from_uuid, get_ap_id_from_username, get_note_ap_id_from_uuid,
 };
-use crate::schema::{activities, notes, profiles, remote_actors, remote_notes};
+use crate::schema::{
+    activities, activities_cc, activities_to, notes, profiles, remote_actors, remote_notes,
+};
 use crate::{MaybeReference, POOL};
 use anyhow::Result;
 use chrono::{DateTime, NaiveDateTime, Utc};
@@ -418,6 +420,118 @@ pub struct Activity {
     pub target_remote_actor_id: Option<i32>,
     pub revoked: bool,
     pub ap_id: Option<String>,
+}
+
+type AssignedActivity = (Activity, String);
+
+impl From<AssignedActivity> for NewActivityCc {
+    fn from(assigned_activity: AssignedActivity) -> Self {
+        NewActivityCc {
+            activity_id: assigned_activity.0.id,
+            ap_id: assigned_activity.1,
+        }
+    }
+}
+
+impl From<AssignedActivity> for NewActivityTo {
+    fn from(assigned_activity: AssignedActivity) -> Self {
+        NewActivityTo {
+            activity_id: assigned_activity.0.id,
+            ap_id: assigned_activity.1,
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Insertable, AsChangeset, Default, Debug, Clone)]
+#[diesel(table_name = activities_cc)]
+pub struct NewActivityCc {
+    pub activity_id: i32,
+    pub ap_id: String,
+}
+
+#[derive(Identifiable, Queryable, AsChangeset, Associations, Serialize, Clone, Default, Debug)]
+#[diesel(belongs_to(Activity, foreign_key = activity_id))]
+#[diesel(table_name = activities_cc)]
+pub struct ActivityCc {
+    #[serde(skip_serializing)]
+    pub id: i32,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+    pub activity_id: i32,
+    pub ap_id: String,
+}
+
+pub async fn create_activity_cc(conn: Option<&Db>, activity_cc: (Activity, String)) -> bool {
+    let activity_cc = NewActivityCc::from(activity_cc);
+
+    match conn {
+        Some(conn) => conn
+            .run(move |c| {
+                diesel::insert_into(activities_cc::table)
+                    .values(&activity_cc)
+                    .on_conflict((activities_cc::activity_id, activities_cc::ap_id))
+                    .do_update()
+                    .set(&activity_cc)
+                    .get_result::<ActivityCc>(c)
+            })
+            .await
+            .is_ok(),
+        None => POOL.get().map_or(false, |mut pool| {
+            diesel::insert_into(activities_cc::table)
+                .values(&activity_cc)
+                .on_conflict((activities_cc::activity_id, activities_cc::ap_id))
+                .do_update()
+                .set(&activity_cc)
+                .get_result::<ActivityCc>(&mut pool)
+                .is_ok()
+        }),
+    }
+}
+
+#[derive(Serialize, Deserialize, Insertable, AsChangeset, Default, Debug, Clone)]
+#[diesel(table_name = activities_to)]
+pub struct NewActivityTo {
+    pub activity_id: i32,
+    pub ap_id: String,
+}
+
+#[derive(Identifiable, Queryable, AsChangeset, Associations, Serialize, Clone, Default, Debug)]
+#[diesel(belongs_to(Activity, foreign_key = activity_id))]
+#[diesel(table_name = activities_to)]
+pub struct ActivityTo {
+    #[serde(skip_serializing)]
+    pub id: i32,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+    pub activity_id: i32,
+    pub ap_id: String,
+}
+
+pub async fn create_activity_to(conn: Option<&Db>, activity_to: (Activity, String)) -> bool {
+    let activity_to = NewActivityTo::from(activity_to);
+
+    match conn {
+        Some(conn) => conn
+            .run(move |c| {
+                diesel::insert_into(activities_to::table)
+                    .values(&activity_to)
+                    .on_conflict((activities_to::activity_id, activities_to::ap_id))
+                    .do_update()
+                    .set(&activity_to)
+                    .get_result::<ActivityTo>(c)
+            })
+            .await
+            .is_ok(),
+        None => POOL.get().map_or(false, |mut pool| {
+            diesel::insert_into(activities_to::table)
+                .values(&activity_to)
+                .on_conflict((activities_to::activity_id, activities_to::ap_id))
+                .do_update()
+                .set(&activity_to)
+                .get_result::<ActivityTo>(&mut pool)
+                .is_ok()
+        }),
+    }
 }
 
 pub async fn create_activity(conn: Option<&Db>, activity: NewActivity) -> Option<Activity> {

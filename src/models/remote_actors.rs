@@ -4,7 +4,7 @@ use crate::schema::{leaders, profiles, remote_actors};
 use crate::POOL;
 use crate::{activity_pub::ApActor, helper::handle_option};
 use anyhow::Result;
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Duration, Utc};
 use diesel::prelude::*;
 use diesel::{AsChangeset, Identifiable, Insertable, Queryable};
 use serde::{Deserialize, Serialize};
@@ -131,6 +131,12 @@ pub struct RemoteActor {
     pub capabilities: Option<Value>,
     pub checked_at: DateTime<Utc>,
     pub webfinger: Option<String>,
+}
+
+impl RemoteActor {
+    pub fn is_stale(&self) -> bool {
+        Utc::now() - self.updated_at > Duration::days(7)
+    }
 }
 
 pub async fn get_remote_actor_by_url(conn: &Db, url: String) -> Option<RemoteActor> {
