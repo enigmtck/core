@@ -7,6 +7,7 @@ extern crate rocket;
 extern crate diesel;
 
 use activity_pub::{ApActivity, ApObject};
+use anyhow::anyhow;
 use anyhow::Result;
 use db::Pool;
 use diesel::r2d2::ConnectionManager;
@@ -175,17 +176,17 @@ impl<T> From<Vec<T>> for MaybeMultiple<T> {
 }
 
 impl<T: Clone> MaybeMultiple<T> {
-    pub fn single(&self) -> Option<T> {
+    pub fn single(&self) -> Result<T> {
         match self {
             MaybeMultiple::Multiple(s) => {
                 if s.len() == 1 {
-                    Some(s[0].clone())
+                    Ok(s[0].clone())
                 } else {
-                    None
+                    Err(anyhow!("MaybeMultiple is Multiple"))
                 }
             }
-            MaybeMultiple::Single(s) => Some(s.clone()),
-            MaybeMultiple::None => None,
+            MaybeMultiple::Single(s) => Ok(s.clone()),
+            MaybeMultiple::None => Err(anyhow!("MaybeMultiple is None")),
         }
     }
 

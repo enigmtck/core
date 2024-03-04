@@ -71,7 +71,7 @@ impl Inbox for Box<ApLike> {
                     log::debug!("ACTIVITY\n{activity:#?}");
                     if create_activity((&conn).into(), activity.clone())
                         .await
-                        .is_some()
+                        .is_ok()
                     {
                         Ok(Status::Accepted)
                     } else {

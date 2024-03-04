@@ -130,7 +130,7 @@ impl From<SynthesizedAnnounce> for NewTimelineItem {
             in_reply_to: note.clone().in_reply_to,
             content: Option::from(note.clone().content),
             ap_public: {
-                if let Some(address) = note.to.single() {
+                if let Ok(address) = note.to.single() {
                     address.is_public()
                 } else {
                     false
@@ -298,20 +298,28 @@ pub async fn get_authenticated_timeline_items(
 
         match filters.view {
             TimelineView::Global => {
-                query = query
-                    .filter(timeline::ap_public.eq(true))
-                    .or_filter(timeline_cc::ap_id.eq(ap_id))
+                query = query.filter(timeline::ap_public.eq(true));
             }
             TimelineView::Local => {
                 // I think this is best handled with a 'local' boolean on timelineitem set by runner
             }
             TimelineView::Home(leaders) => {
-                query = query
-                    .filter(timeline_cc::ap_id.eq(ap_id.clone()))
-                    .or_filter(timeline_cc::ap_id.eq_any(leaders.clone()))
-                    .or_filter(timeline_to::ap_id.eq(ap_id))
-                    .or_filter(timeline_to::ap_id.eq_any(leaders))
+                query = query.filter(
+                    timeline_cc::ap_id
+                        .eq(ap_id.clone())
+                        .or(timeline_cc::ap_id.eq_any(leaders.clone()))
+                        .or(timeline_to::ap_id.eq(ap_id.clone()))
+                        .or(timeline_to::ap_id.eq_any(leaders.clone()))
+                        .or(activities_to::ap_id.eq(ap_id.clone()))
+                        .or(activities_to::ap_id.eq_any(leaders.clone()))
+                        .or(activities_cc::ap_id.eq(ap_id))
+                        .or(activities_cc::ap_id.eq_any(leaders)),
+                );
             }
+        }
+
+        if !filters.hashtags.is_empty() {
+            query = query.filter(timeline_hashtags::hashtag.eq_any(filters.hashtags));
         }
 
         query

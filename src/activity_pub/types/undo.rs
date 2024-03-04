@@ -74,10 +74,7 @@ async fn process_undo_activity(
 
             if let Ok(activity) = NewActivity::try_from(activity_and_target) {
                 log::debug!("ACTIVITY\n{activity:#?}");
-                if create_activity(conn.into(), activity.clone())
-                    .await
-                    .is_some()
-                {
+                if create_activity(conn.into(), activity.clone()).await.is_ok() {
                     match ap_target {
                         ApActivity::Like(_) => {
                             to_faktory(faktory, "process_remote_undo_like", apid.clone())

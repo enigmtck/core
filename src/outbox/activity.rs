@@ -89,7 +89,7 @@ pub async fn undo(
         if let Some((target_activity, _, _, _, _)) =
             get_activity_by_uuid(conn.into(), target_ap_id).await
         {
-            if let Some(activity) = create_activity(
+            if let Ok(activity) = create_activity(
                 conn.into(),
                 NewActivity::from((
                     target_activity,
@@ -131,7 +131,7 @@ pub async fn follow(
         let (actor, remote_actor) = get_actory(conn, id).await;
 
         if actor.is_some() || remote_actor.is_some() {
-            if let Some(activity) = create_activity(
+            if let Ok(activity) = create_activity(
                 conn.into(),
                 NewActivity::from((
                     actor.clone(),
@@ -174,7 +174,7 @@ pub async fn like(
         let (note, remote_note) = get_notey(conn, id).await;
 
         if note.is_some() || remote_note.is_some() {
-            if let Some(activity) = create_activity(
+            if let Ok(activity) = create_activity(
                 conn.into(),
                 NewActivity::from((
                     note.clone(),
@@ -217,7 +217,7 @@ pub async fn announce(
         let (note, remote_note) = get_notey(conn, id).await;
 
         if note.is_some() || remote_note.is_some() {
-            if let Some(activity) = create_activity(
+            if let Ok(activity) = create_activity(
                 conn.into(),
                 NewActivity::from((
                     note.clone(),
@@ -258,7 +258,7 @@ pub async fn delete(
 ) -> Result<String, Status> {
     if let MaybeReference::Reference(id) = delete.object {
         if let (Some(note), None) = get_notey(conn, id).await {
-            if let Some(activity) = create_activity(
+            if let Ok(activity) = create_activity(
                 conn.into(),
                 NewActivity::from((
                     Some(note.clone()),

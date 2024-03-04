@@ -9,8 +9,8 @@ use crate::helper::{
 use crate::schema::{
     activities, activities_cc, activities_to, notes, profiles, remote_actors, remote_notes,
 };
-use crate::{MaybeReference, POOL};
-use anyhow::Result;
+use crate::{MaybeMultiple, MaybeReference, POOL};
+use anyhow::{anyhow, Result};
 use chrono::{DateTime, NaiveDateTime, Utc};
 use diesel::prelude::*;
 use diesel::{AsChangeset, Identifiable, Insertable, Queryable};
@@ -461,17 +461,14 @@ pub struct ActivityCc {
     pub ap_id: String,
 }
 
-pub async fn create_activity_cc(conn: Option<&Db>, activity_cc: (Activity, String)) -> bool {
-    let activity_cc = NewActivityCc::from(activity_cc);
+async fn create_activity_cc(conn: Option<&Db>, activity_cc: NewActivityCc) -> bool {
+    log::debug!("INSERTING ACTIVITY_CC: {activity_cc:#?}");
 
     match conn {
         Some(conn) => conn
             .run(move |c| {
                 diesel::insert_into(activities_cc::table)
                     .values(&activity_cc)
-                    .on_conflict((activities_cc::activity_id, activities_cc::ap_id))
-                    .do_update()
-                    .set(&activity_cc)
                     .get_result::<ActivityCc>(c)
             })
             .await
@@ -479,9 +476,6 @@ pub async fn create_activity_cc(conn: Option<&Db>, activity_cc: (Activity, Strin
         None => POOL.get().map_or(false, |mut pool| {
             diesel::insert_into(activities_cc::table)
                 .values(&activity_cc)
-                .on_conflict((activities_cc::activity_id, activities_cc::ap_id))
-                .do_update()
-                .set(&activity_cc)
                 .get_result::<ActivityCc>(&mut pool)
                 .is_ok()
         }),
@@ -507,51 +501,66 @@ pub struct ActivityTo {
     pub ap_id: String,
 }
 
-pub async fn create_activity_to(conn: Option<&Db>, activity_to: (Activity, String)) -> bool {
-    let activity_to = NewActivityTo::from(activity_to);
+async fn create_activity_to(conn: Option<&Db>, activity_to: NewActivityTo) -> Result<ActivityTo> {
+    log::debug!("INSERTING ACTIVITY_TO: {activity_to:#?}");
 
     match conn {
-        Some(conn) => conn
-            .run(move |c| {
+        Some(conn) => {
+            conn.run(move |c| {
                 diesel::insert_into(activities_to::table)
                     .values(&activity_to)
-                    .on_conflict((activities_to::activity_id, activities_to::ap_id))
-                    .do_update()
-                    .set(&activity_to)
                     .get_result::<ActivityTo>(c)
+                    .map_err(anyhow::Error::msg)
             })
             .await
-            .is_ok(),
-        None => POOL.get().map_or(false, |mut pool| {
-            diesel::insert_into(activities_to::table)
-                .values(&activity_to)
-                .on_conflict((activities_to::activity_id, activities_to::ap_id))
-                .do_update()
-                .set(&activity_to)
-                .get_result::<ActivityTo>(&mut pool)
-                .is_ok()
-        }),
+        }
+        None => POOL.get().map_or(
+            Err(anyhow!("failed to retrieve database connection")),
+            |mut pool| {
+                diesel::insert_into(activities_to::table)
+                    .values(&activity_to)
+                    .get_result::<ActivityTo>(&mut pool)
+                    .map_err(anyhow::Error::msg)
+            },
+        ),
     }
 }
 
-pub async fn create_activity(conn: Option<&Db>, activity: NewActivity) -> Option<Activity> {
-    match conn {
-        Some(conn) => conn
-            .run(move |c| {
+pub async fn create_activity(conn: Option<&Db>, activity: NewActivity) -> Result<Activity> {
+    let activity = match conn {
+        Some(conn) => {
+            conn.run(move |c| {
                 diesel::insert_into(activities::table)
                     .values(&activity)
                     .get_result::<Activity>(c)
             })
-            .await
-            .ok(),
+            .await?
+        }
         None => {
-            let mut pool = POOL.get().ok()?;
+            let mut pool = POOL.get()?;
             diesel::insert_into(activities::table)
                 .values(&activity)
-                .get_result::<Activity>(&mut pool)
-                .ok()
+                .get_result::<Activity>(&mut pool)?
+        }
+    };
+
+    if let Some(ap_to) = activity.clone().ap_to {
+        let to: MaybeMultiple<String> = serde_json::from_value(ap_to).map_err(|e| anyhow!(e))?;
+
+        for to in to.multiple() {
+            let _ = create_activity_to(conn, (activity.clone(), to).into()).await;
         }
     }
+
+    if let Some(cc) = activity.clone().cc {
+        let cc: MaybeMultiple<String> = serde_json::from_value(cc).map_err(|e| anyhow!(e))?;
+
+        for cc in cc.multiple() {
+            let _ = create_activity_cc(conn, (activity.clone(), cc).into()).await;
+        }
+    }
+
+    Ok(activity)
 }
 
 pub type ExtendedActivity = (

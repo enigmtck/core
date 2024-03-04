@@ -63,7 +63,7 @@ impl Inbox for ApAnnounce {
             log::debug!("ACTIVITY\n{activity:#?}");
             if create_activity((&conn).into(), activity.clone())
                 .await
-                .is_some()
+                .is_ok()
             {
                 to_faktory(faktory, "process_remote_announce", activity.uuid.clone())
             } else {

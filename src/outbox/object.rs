@@ -26,8 +26,7 @@ pub async fn note(
     // ApNote -> NewNote -> ApNote -> ApActivity
     // UUID is set in NewNote
 
-    if let (Some(to), Some(followers)) =
-        (note.to.single(), ApActor::from(profile.clone()).followers)
+    if let (Ok(to), Some(followers)) = (note.to.single(), ApActor::from(profile.clone()).followers)
     {
         if to.is_public() {
             if let Some(cc) = note.cc {
@@ -54,7 +53,7 @@ pub async fn note(
     let new_note = NewNote::from((note.clone(), profile.id));
 
     if let Some(created_note) = create_note(conn, new_note.clone()).await {
-        if let Some(activity) = create_activity(
+        if let Ok(activity) = create_activity(
             conn.into(),
             NewActivity::from((
                 Some(created_note.clone()),

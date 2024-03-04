@@ -58,7 +58,7 @@ impl Inbox for ApFollow {
                 ) as ApActivityTarget)
                 {
                     log::debug!("ACTIVITY\n{activity:#?}");
-                    if let Some(activity) = create_activity((&conn).into(), activity).await {
+                    if let Ok(activity) = create_activity((&conn).into(), activity).await {
                         to_faktory(faktory, "acknowledge_followers", activity.uuid)
                     } else {
                         log::error!("FAILED TO HANDLE ACTIVITY\n{raw}");

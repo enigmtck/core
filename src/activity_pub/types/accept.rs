@@ -70,7 +70,7 @@ impl Inbox for Box<ApAccept> {
                     log::debug!("ACTIVITY\n{activity:#?}");
                     if create_activity((&conn).into(), activity.clone())
                         .await
-                        .is_some()
+                        .is_ok()
                     {
                         to_faktory(faktory, "process_accept", activity.uuid)
                     } else {

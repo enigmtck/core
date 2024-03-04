@@ -50,7 +50,7 @@ impl Inbox for ApJoin {
     ) -> Result<Status, Status> {
         log::debug!("PROCESSING JOIN ACTIVITY\n{self:#?}");
 
-        if let Some(ApAddress::Address(to)) = self.to.clone().single() {
+        if let Ok(ApAddress::Address(to)) = self.to.clone().single() {
             if let Some(profile) = get_profile_by_ap_id(Some(&conn), to.clone()).await {
                 if create_remote_encrypted_session(&conn, (self.clone(), profile.id).into())
                     .await
