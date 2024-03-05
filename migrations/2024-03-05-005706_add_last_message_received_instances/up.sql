@@ -1,0 +1,1 @@
+ALTER TABLE instances ADD COLUMN last_message_at TIMESTAMPTZ NOT NULL DEFAULT NOW();

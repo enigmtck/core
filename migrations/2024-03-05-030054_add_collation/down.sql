@@ -1,0 +1,1 @@
+ALTER TABLE instances ALTER COLUMN domain_name SET DATA TYPE VARCHAR;

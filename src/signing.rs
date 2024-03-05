@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use crate::activity_pub::{retriever, ApActor};
 use crate::db::Db;
 use crate::models::profiles::{get_profile_by_username, Profile};
+use crate::{ASSIGNMENT_RE, LOCAL_USER_KEY_ID_RE};
 use base64::{engine::general_purpose, engine::Engine as _};
 use rsa::pkcs1v15::{Signature, SigningKey};
 use rsa::signature::{RandomizedSigner, SignatureEncoding, Verifier};
@@ -29,9 +30,8 @@ fn build_verify_string(
     params: VerifyParams,
 ) -> (String, String, String, Option<String>, bool, Option<String>) {
     let mut signature_map = HashMap::<String, String>::new();
-    let parts_re = regex::Regex::new(r#"(\w+)="(.+?)""#).expect("Invalid regex pattern");
 
-    for cap in parts_re.captures_iter(&params.signature) {
+    for cap in ASSIGNMENT_RE.captures_iter(&params.signature) {
         signature_map.insert(cap[1].to_string(), cap[2].to_string());
     }
 
@@ -44,14 +44,11 @@ fn build_verify_string(
         .expect("Failed to parse ap_id")
         .to_string();
 
-    let local_pattern = format!(r#"(\w+://{}/user/(.+?))#(.+)"#, &*crate::SERVER_NAME);
-    let local_re = regex::Regex::new(local_pattern.as_str()).unwrap();
-
     let mut local = false;
     let mut username = Option::<String>::None;
     let mut key_selector = Option::<String>::None;
 
-    if let Some(captures) = local_re.captures(key_id) {
+    if let Some(captures) = LOCAL_USER_KEY_ID_RE.captures(key_id) {
         local = true;
         username = Option::from(captures[2].to_string());
         key_selector = Option::from(captures[3].to_string());

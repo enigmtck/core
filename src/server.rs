@@ -3,17 +3,22 @@ use rocket::{Build, Rocket};
 
 use crate::{
     db::Db,
-    fairings::{events::EventChannels, faktory::FaktoryConnection, mq::MqConnection},
-    routes::api::{
-        admin::*, authentication::*, encryption::*, image::*, profile::*, remote::*, stream::*,
-        vault::*,
+    fairings::{
+        access_control::BlockList, events::EventChannels, faktory::FaktoryConnection,
+        mq::MqConnection,
     },
-    routes::inbox::*,
-    routes::instance::*,
-    routes::notes::*,
-    routes::outbox::*,
-    routes::user::*,
-    routes::webfinger::*,
+    routes::{
+        api::{
+            admin::*, authentication::*, encryption::*, image::*, profile::*, remote::*, stream::*,
+            vault::*,
+        },
+        inbox::*,
+        instance::*,
+        notes::*,
+        outbox::*,
+        user::*,
+        webfinger::*,
+    },
 };
 
 #[launch]
@@ -34,6 +39,7 @@ fn rocket() -> Rocket<Build> {
         .attach(FaktoryConnection::fairing())
         .attach(EventChannels::fairing())
         .attach(Db::fairing())
+        .attach(BlockList::fairing())
         .attach(MqConnection::fairing())
         .mount(
             "/",

@@ -12,7 +12,7 @@ use diesel::{AsChangeset, Identifiable, Insertable, Queryable};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use super::activities::{Activity, ActivityCc, ActivityTo};
+use super::activities::{Activity, ActivityCc, ActivityTo, ActivityType};
 use super::notes::{Note, NoteType};
 use super::profiles::Profile;
 use super::remote_notes::RemoteNote;
@@ -141,13 +141,13 @@ impl From<SynthesizedAnnounce> for NewTimelineItem {
             atom_uri: note.atom_uri,
             in_reply_to_atom_uri: note.in_reply_to_atom_uri,
             conversation: note.conversation,
-            content_map: Option::from(
+            content_map: Some(
                 serde_json::to_value(note.content_map.unwrap_or_default()).unwrap_or_default(),
             ),
-            attachment: Option::from(
+            attachment: Some(
                 serde_json::to_value(note.attachment.unwrap_or_default()).unwrap_or_default(),
             ),
-            ap_object: Option::None,
+            ap_object: None,
             metadata: serde_json::to_value(&note.ephemeral_metadata).ok(),
         }
     }
@@ -265,61 +265,70 @@ pub struct TimelineFilters {
 // a post - Activity will include CREATE, LIKE, etc from the activities table)
 pub type AuthenticatedTimelineItem = (
     TimelineItem,
-    Option<Activity>,
-    Option<ActivityTo>,
+    Activity,
+    ActivityTo,
     Option<ActivityCc>,
-    Option<TimelineItemTo>,
+    TimelineItemTo,
     Option<TimelineItemCc>,
     Option<TimelineHashtag>,
 );
 
-pub async fn get_authenticated_timeline_items(
+pub async fn get_timeline_items(
     conn: &Db,
     limit: i64,
     offset: i64,
-    profile: Profile,
-    filters: TimelineFilters,
+    profile: Option<Profile>,
+    filters: Option<TimelineFilters>,
 ) -> Vec<AuthenticatedTimelineItem> {
     conn.run(move |c| {
-        let ap_id = get_ap_id_from_username(profile.username.clone());
-
         let mut query = timeline::table
-            .left_join(
+            .inner_join(
                 activities::table.on(activities::target_ap_id
                     .eq(timeline::ap_id.nullable())
-                    .and(activities::revoked.eq(false))),
+                    .and(activities::revoked.eq(false))
+                    .and(
+                        activities::kind.eq_any(vec![ActivityType::Create, ActivityType::Announce]),
+                    )
+                    .and(timeline::in_reply_to.is_null())),
             )
-            .left_join(activities_to::table.on(activities_to::activity_id.eq(activities::id)))
+            .inner_join(activities_to::table.on(activities_to::activity_id.eq(activities::id)))
             .left_join(activities_cc::table.on(activities_cc::activity_id.eq(activities::id)))
-            .left_join(timeline_to::table.on(timeline_to::timeline_id.eq(timeline::id)))
+            .inner_join(timeline_to::table.on(timeline_to::timeline_id.eq(timeline::id)))
             .left_join(timeline_cc::table.on(timeline_cc::timeline_id.eq(timeline::id)))
             .left_join(timeline_hashtags::table.on(timeline_hashtags::timeline_id.eq(timeline::id)))
             .into_boxed();
 
-        match filters.view {
-            TimelineView::Global => {
-                query = query.filter(timeline::ap_public.eq(true));
-            }
-            TimelineView::Local => {
-                // I think this is best handled with a 'local' boolean on timelineitem set by runner
-            }
-            TimelineView::Home(leaders) => {
-                query = query.filter(
-                    timeline_cc::ap_id
-                        .eq(ap_id.clone())
-                        .or(timeline_cc::ap_id.eq_any(leaders.clone()))
-                        .or(timeline_to::ap_id.eq(ap_id.clone()))
-                        .or(timeline_to::ap_id.eq_any(leaders.clone()))
-                        .or(activities_to::ap_id.eq(ap_id.clone()))
-                        .or(activities_to::ap_id.eq_any(leaders.clone()))
-                        .or(activities_cc::ap_id.eq(ap_id))
-                        .or(activities_cc::ap_id.eq_any(leaders)),
-                );
-            }
-        }
+        if let Some(filters) = filters {
+            match filters.view {
+                TimelineView::Global => {
+                    query = query.filter(timeline::ap_public.eq(true));
+                }
+                TimelineView::Local => {
+                    query = query.filter(activities::profile_id.is_not_null());
+                }
+                TimelineView::Home(leaders) => {
+                    if let Some(profile) = profile {
+                        let ap_id = get_ap_id_from_username(profile.username.clone());
 
-        if !filters.hashtags.is_empty() {
-            query = query.filter(timeline_hashtags::hashtag.eq_any(filters.hashtags));
+                        query = query.filter(
+                            timeline_cc::ap_id
+                                .eq(ap_id.clone())
+                                .or(timeline_cc::ap_id.eq_any(leaders.clone()))
+                                .or(timeline_to::ap_id.eq(ap_id.clone()))
+                                .or(timeline_to::ap_id.eq_any(leaders.clone()))
+                                .or(activities_to::ap_id.eq(ap_id.clone()))
+                                .or(activities_to::ap_id.eq_any(leaders.clone()))
+                                .or(activities_cc::ap_id.eq(ap_id))
+                                .or(activities_cc::ap_id.eq_any(leaders)),
+                        );
+                    }
+                }
+            }
+            if !filters.hashtags.is_empty() {
+                query = query.filter(timeline_hashtags::hashtag.eq_any(filters.hashtags));
+            }
+        } else {
+            query = query.filter(timeline::ap_public.eq(true));
         }
 
         query
@@ -327,30 +336,6 @@ pub async fn get_authenticated_timeline_items(
             .limit(limit)
             .offset(offset)
             .get_results::<AuthenticatedTimelineItem>(c)
-    })
-    .await
-    .unwrap_or(vec![])
-}
-
-pub async fn get_public_timeline_items(
-    conn: &Db,
-    limit: i64,
-    offset: i64,
-) -> Vec<(TimelineItem, Option<Activity>)> {
-    conn.run(move |c| {
-        let query = timeline::table
-            .left_join(
-                activities::table.on(activities::target_ap_id
-                    .eq(timeline::ap_id.nullable())
-                    .and(activities::revoked.eq(false))),
-            )
-            .filter(timeline::ap_public.eq(true))
-            .order(timeline::created_at.desc())
-            .limit(limit)
-            .offset(offset)
-            .into_boxed();
-
-        query.get_results::<(TimelineItem, Option<Activity>)>(c)
     })
     .await
     .unwrap_or(vec![])

@@ -12,6 +12,7 @@ use crate::models::followers::get_followers_by_profile_id;
 use crate::models::leaders::{get_leaders_by_profile_id, Leader};
 use crate::models::profiles::{get_profile_by_ap_id, Profile};
 use crate::models::remote_actors::RemoteActor;
+use crate::DOMAIN_RE;
 use rocket::http::Status;
 use serde::{Deserialize, Serialize};
 use serde_with::serde_as;
@@ -292,26 +293,9 @@ impl ApActor {
     }
 
     pub fn get_webfinger(&self) -> Option<String> {
-        if let Some(id) = self.id.clone() {
-            let id_re = regex::Regex::new(r#"https://([a-zA-Z0-9\-\.]+?)/.+"#).unwrap();
-            if let Some(captures) = id_re.captures(&id.to_string()) {
-                if let Some(server_name) = captures.get(1) {
-                    Option::from(format!(
-                        "@{}@{}",
-                        self.preferred_username,
-                        server_name.as_str()
-                    ))
-                } else {
-                    log::error!("INSUFFICIENT REGEX CAPTURES");
-                    None
-                }
-            } else {
-                log::error!("FAILED TO MATCH PATTERN");
-                None
-            }
-        } else {
-            None
-        }
+        let id = self.id.clone()?.to_string();
+        let server_name = DOMAIN_RE.captures(&id)?.get(1)?.as_str();
+        Some(format!("@{}@{}", self.preferred_username, server_name))
     }
 }
 

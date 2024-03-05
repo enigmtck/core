@@ -21,6 +21,7 @@ use crate::models::remote_notes::get_remote_note_by_ap_id;
 use crate::models::remote_notes::NewRemoteNote;
 use crate::signing::{sign, Method, SignParams};
 use crate::webfinger::WebFinger;
+use crate::WEBFINGER_RE;
 
 use super::ApCollection;
 use super::ApCollectionPage;
@@ -69,14 +70,12 @@ pub async fn get_ap_id_from_webfinger(acct: String) -> Option<String> {
         .next()
 }
 
-pub async fn get_remote_webfinger(acct: String) -> Option<WebFinger> {
-    let webfinger_re = regex::Regex::new(r#"@(.+?)@(.+)"#).unwrap();
-
+async fn get_remote_webfinger(acct: String) -> Option<WebFinger> {
     let mut username = Option::<String>::None;
     let mut server = Option::<String>::None;
 
-    if webfinger_re.captures_len() == 3 {
-        for cap in webfinger_re.captures_iter(&acct) {
+    if WEBFINGER_RE.captures_len() == 3 {
+        for cap in WEBFINGER_RE.captures_iter(&acct) {
             username = Some(cap[1].to_string());
             server = Some(cap[2].to_string());
         }

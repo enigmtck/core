@@ -4,6 +4,8 @@ use crate::activity_pub::retriever::{
 };
 use crate::activity_pub::{ApActor, ApNote, ApObject};
 use crate::db::Db;
+use crate::fairings::access_control::BlockList;
+use crate::helper::{get_domain_from_url, get_domain_from_webfinger};
 use crate::models::remote_actors::get_remote_actor_by_webfinger;
 use rocket::http::Status;
 use rocket::{get, serde::json::Json};
@@ -13,31 +15,38 @@ use crate::models::profiles::get_profile_by_username;
 
 /// This accepts an actor in URL form (e.g., https://enigmatick.social/user/justin).
 #[get("/api/remote/webfinger?<id>")]
-pub async fn remote_id(conn: Db, id: &str) -> Result<String, Status> {
+pub async fn remote_id(blocks: BlockList, conn: Db, id: &str) -> Result<String, Status> {
     let id = urlencoding::decode(id).map_err(|_| Status::new(525))?;
     let id = (*id).to_string();
 
-    get_actor(&conn, id, None, true)
-        .await
-        .and_then(|actor| actor.get_webfinger())
-        .ok_or(Status::NotFound)
+    if blocks.is_blocked(get_domain_from_url(id.clone())) {
+        Err(Status::Forbidden)
+    } else {
+        get_actor(&conn, id, None, true)
+            .await
+            .and_then(|actor| actor.get_webfinger())
+            .ok_or(Status::NotFound)
+    }
 }
 
 /// This accepts an actor in URL form (e.g., https://enigmatick.social/user/justin).
 #[get("/api/user/<username>/remote/webfinger?<id>")]
 pub async fn remote_id_authenticated(
+    blocks: BlockList,
     signed: Signed,
     conn: Db,
     username: &str,
     id: &str,
 ) -> Result<String, Status> {
-    if signed.local() {
+    let id = urlencoding::decode(id).map_err(|_| Status::new(525))?;
+    let id = (*id).to_string();
+
+    if blocks.is_blocked(get_domain_from_url(id.clone())) {
+        Err(Status::Forbidden)
+    } else if signed.local() {
         let profile = get_profile_by_username((&conn).into(), username.to_string())
             .await
             .ok_or(Status::NotFound)?;
-
-        let id = urlencoding::decode(id).map_err(|_| Status::new(525))?;
-        let id = (*id).to_string();
 
         get_actor(&conn, id, Some(profile), true)
             .await
@@ -45,7 +54,7 @@ pub async fn remote_id_authenticated(
             .ok_or(Status::NotFound)
     } else {
         log::error!("BAD SIGNATURE");
-        Err(Status::Forbidden)
+        Err(Status::Unauthorized)
     }
 }
 
@@ -69,8 +78,16 @@ async fn remote_actor_response(conn: &Db, webfinger: String) -> Result<Json<ApAc
 
 /// This accepts an actor in webfinger form (e.g., justin@enigmatick.social).
 #[get("/api/remote/actor?<webfinger>")]
-pub async fn remote_actor(conn: Db, webfinger: &str) -> Result<Json<ApActor>, Status> {
-    remote_actor_response(&conn, webfinger.to_string()).await
+pub async fn remote_actor(
+    blocks: BlockList,
+    conn: Db,
+    webfinger: &str,
+) -> Result<Json<ApActor>, Status> {
+    if blocks.is_blocked(get_domain_from_webfinger(webfinger.to_string())) {
+        Err(Status::Forbidden)
+    } else {
+        remote_actor_response(&conn, webfinger.to_string()).await
+    }
 }
 
 async fn remote_actor_authenticated_response(
@@ -99,22 +116,35 @@ async fn remote_actor_authenticated_response(
 
 #[get("/api/user/<username>/remote/actor?<webfinger>")]
 pub async fn remote_actor_authenticated(
+    blocks: BlockList,
     signed: Signed,
     conn: Db,
     username: &str,
     webfinger: &str,
 ) -> Result<Json<ApActor>, Status> {
-    remote_actor_authenticated_response(signed, &conn, username.to_string(), webfinger.to_string())
+    if blocks.is_blocked(get_domain_from_webfinger(webfinger.to_string())) {
+        Err(Status::Forbidden)
+    } else {
+        remote_actor_authenticated_response(
+            signed,
+            &conn,
+            username.to_string(),
+            webfinger.to_string(),
+        )
         .await
+    }
 }
 
 #[get("/api/remote/followers?<webfinger>&<page>")]
 pub async fn remote_followers(
+    blocks: BlockList,
     conn: Db,
     webfinger: &str,
     page: Option<&str>,
 ) -> Result<Json<ApObject>, Status> {
-    if let Ok(Json(actor)) = remote_actor_response(&conn, webfinger.to_string()).await {
+    if blocks.is_blocked(get_domain_from_webfinger(webfinger.to_string())) {
+        Err(Status::Forbidden)
+    } else if let Ok(Json(actor)) = remote_actor_response(&conn, webfinger.to_string()).await {
         let followers = actor.followers.ok_or(Status::new(523))?;
 
         if let Some(page) = page {
@@ -137,7 +167,7 @@ pub async fn remote_followers(
             Ok(Json(ApObject::Collection(collection)))
         }
     } else {
-        Err(Status::NoContent)
+        Err(Status::new(520))
     }
 }
 
@@ -149,13 +179,16 @@ pub async fn remote_followers(
 /// that would interfere with the match (`?`, `:`, `/`, and `=`);
 #[get("/api/user/<username>/remote/followers?<webfinger>&<page>")]
 pub async fn remote_followers_authenticated(
+    blocks: BlockList,
     signed: Signed,
     conn: Db,
     username: &str,
     webfinger: &str,
     page: Option<&str>,
 ) -> Result<Json<ApObject>, Status> {
-    if signed.local() {
+    if blocks.is_blocked(get_domain_from_webfinger(webfinger.to_string())) {
+        Err(Status::Forbidden)
+    } else if signed.local() {
         let profile = get_profile_by_username((&conn).into(), username.to_string())
             .await
             .ok_or(Status::NotFound)?;
@@ -203,11 +236,14 @@ pub async fn remote_followers_authenticated(
 /// that would interfere with the match (`?`, `:`, `/`, and `=`);
 #[get("/api/remote/following?<webfinger>&<page>")]
 pub async fn remote_following(
+    blocks: BlockList,
     conn: Db,
     webfinger: &str,
     page: Option<&str>,
 ) -> Result<Json<ApObject>, Status> {
-    if let Ok(Json(actor)) = remote_actor_response(&conn, webfinger.to_string()).await {
+    if blocks.is_blocked(get_domain_from_webfinger(webfinger.to_string())) {
+        Err(Status::Forbidden)
+    } else if let Ok(Json(actor)) = remote_actor_response(&conn, webfinger.to_string()).await {
         let following = actor.following.ok_or(Status::new(526))?;
         if let Some(page) = page {
             let url = urlencoding::decode(page).map_err(|_| Status::new(524))?;
@@ -228,19 +264,22 @@ pub async fn remote_following(
             Ok(Json(ApObject::Collection(collection)))
         }
     } else {
-        Err(Status::NoContent)
+        Err(Status::new(520))
     }
 }
 
 #[get("/api/user/<username>/remote/following?<webfinger>&<page>")]
 pub async fn remote_following_authenticated(
+    blocks: BlockList,
     signed: Signed,
     conn: Db,
     username: &str,
     webfinger: &str,
     page: Option<&str>,
 ) -> Result<Json<ApObject>, Status> {
-    if !signed.local() {
+    if blocks.is_blocked(get_domain_from_webfinger(webfinger.to_string())) {
+        Err(Status::Forbidden)
+    } else if !signed.local() {
         Err(Status::Unauthorized)
     } else if let Ok(Json(actor)) = remote_actor_authenticated_response(
         signed,
@@ -286,11 +325,14 @@ pub async fn remote_following_authenticated(
 /// that would interfere with the match (`?`, `:`, `/`, and `=`);
 #[get("/api/remote/outbox?<webfinger>&<page>")]
 pub async fn remote_outbox(
+    blocks: BlockList,
     conn: Db,
     webfinger: &str,
     page: Option<&str>,
 ) -> Result<Json<ApObject>, Status> {
-    if let Ok(Json(actor)) = remote_actor_response(&conn, webfinger.to_string()).await {
+    if blocks.is_blocked(get_domain_from_webfinger(webfinger.to_string())) {
+        Err(Status::Forbidden)
+    } else if let Ok(Json(actor)) = remote_actor_response(&conn, webfinger.to_string()).await {
         if let Some(page) = page {
             let url = urlencoding::decode(page).map_err(|_| Status::new(524))?;
             let url = &(*url).to_string();
@@ -310,19 +352,22 @@ pub async fn remote_outbox(
             Ok(Json(ApObject::Collection(collection)))
         }
     } else {
-        Err(Status::NoContent)
+        Err(Status::new(520))
     }
 }
 
 #[get("/api/user/<username>/remote/outbox?<webfinger>&<page>")]
 pub async fn remote_outbox_authenticated(
+    blocks: BlockList,
     signed: Signed,
     conn: Db,
     username: &str,
     webfinger: &str,
     page: Option<&str>,
 ) -> Result<Json<ApObject>, Status> {
-    if !signed.local() {
+    if blocks.is_blocked(get_domain_from_webfinger(webfinger.to_string())) {
+        Err(Status::Forbidden)
+    } else if !signed.local() {
         Err(Status::Unauthorized)
     } else if let Ok(Json(actor)) = remote_actor_response(&conn, webfinger.to_string()).await {
         let profile = get_profile_by_username((&conn).into(), username.to_string())
@@ -347,40 +392,49 @@ pub async fn remote_outbox_authenticated(
             Ok(Json(ApObject::Collection(collection)))
         }
     } else {
-        Err(Status::NoContent)
+        Err(Status::new(520))
     }
 }
 
 #[get("/api/remote/note?<id>")]
-pub async fn remote_note(conn: Db, id: &str) -> Result<Json<ApNote>, Status> {
+pub async fn remote_note(blocks: BlockList, conn: Db, id: &str) -> Result<Json<ApNote>, Status> {
     if let Ok(url) = urlencoding::decode(id) {
         let url = &(*url).to_string();
-        if let Some(note) = get_note(&conn, None, url.to_string()).await {
+
+        if blocks.is_blocked(get_domain_from_url(id.to_string())) {
+            Err(Status::Forbidden)
+        } else if let Some(note) = get_note(&conn, None, url.to_string()).await {
             Ok(Json(note))
         } else {
-            Err(Status::NoContent)
+            Err(Status::new(520))
         }
     } else {
-        Err(Status::NoContent)
+        Err(Status::UnprocessableEntity)
     }
 }
 
 #[get("/api/user/<username>/remote/note?<id>")]
 pub async fn remote_note_authenticated(
+    blocks: BlockList,
     signed: Signed,
     conn: Db,
     username: &str,
     id: &str,
 ) -> Result<Json<ApNote>, Status> {
-    if signed.local() {
+    // it feels like id should be encoded, but it doesn't look like I wrote this to be
+    // will need to revisit
+    if blocks.is_blocked(get_domain_from_url(id.to_string())) {
+        Err(Status::Forbidden)
+    } else if signed.local() {
         let profile = get_profile_by_username((&conn).into(), username.to_string())
             .await
             .ok_or(Status::new(523))?;
+
         let note = get_note(&conn, Some(profile), id.to_string())
             .await
             .ok_or(Status::new(524))?;
         Ok(Json(note))
     } else {
-        Err(Status::NoContent)
+        Err(Status::Unauthorized)
     }
 }

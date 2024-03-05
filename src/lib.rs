@@ -16,6 +16,7 @@ use dotenvy::dotenv;
 use fairings::faktory::assign_to_faktory;
 use fairings::faktory::FaktoryConnection;
 use lazy_static::lazy_static;
+use regex::Regex;
 use rocket::http::Status;
 use serde::{Deserialize, Serialize};
 use std::env;
@@ -38,6 +39,24 @@ pub mod signing;
 pub mod webfinger;
 
 lazy_static! {
+    pub static ref ANCHOR_RE: Regex =
+        Regex::new(r#"<a href="(.+?)".*?>"#).expect("invalid anchor regex");
+    pub static ref WEBFINGER_RE: Regex =
+        Regex::new(r#"@(.+?)@(.+)"#).expect("invalid webfinger regex");
+    pub static ref LOCAL_RE: Regex =
+        Regex::new(&format!(r#"\w+?://{}/(.+)"#, *SERVER_NAME)).expect("invalid local regex");
+    pub static ref LOCAL_URL_RE: Regex = Regex::new(&format!(
+        r#"^{}/(user|notes|session|collections|activities)/(.+)$"#,
+        *SERVER_URL
+    ))
+    .expect("invalid local url regex");
+    pub static ref LOCAL_USER_KEY_ID_RE: Regex =
+        Regex::new(&format!(r#"(\w+://{}/user/(.+?))#(.+)"#, *SERVER_NAME))
+            .expect("invalid local user key id regex");
+    pub static ref DOMAIN_RE: Regex =
+        Regex::new(r#"https://(.+?)/.+"#).expect("invalid domain name regex");
+    pub static ref ASSIGNMENT_RE: Regex =
+        Regex::new(r#"(\w+)="(.+?)""#).expect("invalid assignment regex");
     pub static ref POOL: Pool = {
         dotenv().ok();
         Pool::new(ConnectionManager::<PgConnection>::new(

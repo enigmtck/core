@@ -1,20 +1,30 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-pub fn is_local(ap_id: String) -> bool {
-    let pattern = format!(r#"\w+?://{}/(.+)"#, *crate::SERVER_NAME);
+use crate::{DOMAIN_RE, LOCAL_RE, LOCAL_URL_RE, WEBFINGER_RE};
 
-    if let Ok(re) = regex::Regex::new(&pattern) {
-        if re.is_match(&ap_id) {
-            log::debug!("looks local");
-            true
-        } else {
-            log::debug!("looks remote");
-            false
-        }
+pub fn is_local(ap_id: String) -> bool {
+    if LOCAL_RE.is_match(&ap_id) {
+        log::debug!("looks local");
+        true
     } else {
+        log::debug!("looks remote");
         false
     }
+}
+
+pub fn get_domain_from_url(url: String) -> String {
+    DOMAIN_RE
+        .captures(&url)
+        .expect("unable to locate domain name")[1]
+        .to_string()
+}
+
+pub fn get_domain_from_webfinger(webfinger: String) -> String {
+    WEBFINGER_RE
+        .captures(&webfinger)
+        .expect("unable to locate domain name")[2]
+        .to_string()
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq, Eq)]
@@ -49,21 +59,12 @@ pub struct LocalIdentifier {
 }
 
 pub fn get_local_identifier(ap_id: String) -> Option<LocalIdentifier> {
-    let pattern = format!(
-        r#"^{}/(user|notes|session|collections|activities)/(.+)$"#,
-        *crate::SERVER_URL
-    );
-
-    if let Ok(re) = regex::Regex::new(&pattern) {
-        if let Some(ap_id_match) = re.captures(&ap_id) {
-            log::debug!("IDENTIFIER MATCH: {ap_id_match:#?}");
-            Some(LocalIdentifier {
-                identifier: ap_id_match.get(2).unwrap().as_str().to_string(),
-                kind: ap_id_match.get(1).unwrap().as_str().into(),
-            })
-        } else {
-            None
-        }
+    if let Some(ap_id_match) = LOCAL_URL_RE.captures(&ap_id) {
+        log::debug!("IDENTIFIER MATCH: {ap_id_match:#?}");
+        Some(LocalIdentifier {
+            identifier: ap_id_match.get(2).unwrap().as_str().to_string(),
+            kind: ap_id_match.get(1).unwrap().as_str().into(),
+        })
     } else {
         None
     }

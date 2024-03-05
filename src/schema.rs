@@ -138,6 +138,18 @@ diesel::table! {
 }
 
 diesel::table! {
+    instances (id) {
+        id -> Int4,
+        created_at -> Timestamptz,
+        updated_at -> Timestamptz,
+        domain_name -> Varchar,
+        json -> Nullable<Jsonb>,
+        blocked -> Bool,
+        last_message_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
     leaders (id) {
         id -> Int4,
         created_at -> Timestamptz,
@@ -491,6 +503,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     followers,
     follows,
     hashtag_trend,
+    instances,
     leaders,
     likes,
     note_hashtags,

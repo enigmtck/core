@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::activity_pub::ApNote;
+use crate::activity_pub::{ApAddress, ApNote};
 use crate::db::Db;
 use crate::schema::remote_notes;
 use crate::{MaybeMultiple, POOL};
@@ -125,19 +125,26 @@ pub struct RemoteNote {
 }
 
 impl RemoteNote {
-    // TODO: This should probably be handled by ApAddress
     pub fn is_public(&self) -> bool {
-        if let Ok(to) = serde_json::from_value::<MaybeMultiple<String>>(self.ap_to.clone().into()) {
-            match to {
-                MaybeMultiple::Multiple(n) => {
-                    n.contains(&"https://www.w3.org/ns/activitystreams#Public".to_string())
+        if let Ok(to) =
+            serde_json::from_value::<MaybeMultiple<ApAddress>>(self.ap_to.clone().into())
+        {
+            for address in to.multiple() {
+                if address.is_public() {
+                    return true;
                 }
-                MaybeMultiple::Single(n) => n == *"https://www.w3.org/ns/activitystreams#Public",
-                MaybeMultiple::None => false,
             }
-        } else {
-            false
         }
+
+        if let Ok(cc) = serde_json::from_value::<MaybeMultiple<ApAddress>>(self.cc.clone().into()) {
+            for address in cc.multiple() {
+                if address.is_public() {
+                    return true;
+                }
+            }
+        }
+
+        false
     }
 }
 

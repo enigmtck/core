@@ -5,6 +5,7 @@ use serde_json::Value;
 
 use crate::activity_pub::{ApActivity, ApObject, Inbox};
 use crate::db::Db;
+use crate::fairings::access_control::Permitted;
 use crate::fairings::faktory::FaktoryConnection;
 use crate::fairings::signatures::Signed;
 use crate::inbox;
@@ -71,31 +72,39 @@ pub async fn timeline(conn: Db, offset: u16, limit: u8) -> Result<ActivityJson<A
 
 #[post("/user/<_>/inbox", data = "<activity>")]
 pub async fn inbox_post(
+    permitted: Permitted,
     signed: Signed,
     conn: Db,
     faktory: FaktoryConnection,
     activity: String,
 ) -> Result<Status, Status> {
-    shared_inbox_post(signed, conn, faktory, activity).await
+    shared_inbox_post(permitted, signed, conn, faktory, activity).await
 }
 
 #[post("/inbox", data = "<activity>")]
 pub async fn shared_inbox_post(
+    permitted: Permitted,
     signed: Signed,
     conn: Db,
     faktory: FaktoryConnection,
     activity: String,
 ) -> Result<Status, Status> {
-    let raw = serde_json::from_str::<Value>(&activity).map_err(|_| Status::BadRequest)?;
-    let activity = serde_json::from_str::<ApActivity>(&activity).map_err(|_| Status::BadRequest)?;
+    if let Permitted(true) = permitted {
+        let raw = serde_json::from_str::<Value>(&activity).map_err(|_| Status::BadRequest)?;
+        let activity =
+            serde_json::from_str::<ApActivity>(&activity).map_err(|_| Status::BadRequest)?;
 
-    log::debug!("POSTING TO INBOX\n{activity:#?}");
+        log::debug!("POSTING TO INBOX\n{activity:#?}");
 
-    if signed.any() {
-        activity.inbox(conn, faktory, raw).await
+        if signed.any() {
+            activity.inbox(conn, faktory, raw).await
+        } else {
+            log::debug!("REQUEST WAS UNSIGNED OR MALFORMED");
+            Err(Status::NoContent)
+        }
     } else {
-        log::debug!("REQUEST WAS UNSIGNED OR MALFORMED");
-        Err(Status::NoContent)
+        log::debug!("REQUEST WAS EXPLICITLY PROHIBITED");
+        Err(Status::Unauthorized)
     }
 }
 

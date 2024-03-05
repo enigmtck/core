@@ -20,7 +20,7 @@ use crate::{
         timeline::{TimelineItem, TimelineItemCc},
         vault::VaultItem,
     },
-    outbox, MaybeMultiple,
+    outbox, MaybeMultiple, ANCHOR_RE,
 };
 use chrono::{DateTime, Utc};
 use rocket::http::Status;
@@ -497,9 +497,8 @@ impl From<Note> for ApNote {
 // That would suck. I wish the Webpage crate had a size limit (i.e., load pages with
 // a maximum size of 10MB or whatever a reasonable amount would be).
 fn get_links(text: String) -> Vec<String> {
-    let re = regex::Regex::new(r#"<a href="(.+?)".*?>"#).unwrap();
-
-    re.captures_iter(&text)
+    ANCHOR_RE
+        .captures_iter(&text)
         .filter(|cap| {
             !cap[0].to_lowercase().contains("mention")
                 && !cap[0].to_lowercase().contains("u-url")

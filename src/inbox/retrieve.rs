@@ -15,32 +15,16 @@ use crate::{
         cache::Cache,
         profiles::Profile,
         timeline::{
-            get_authenticated_timeline_items, get_public_timeline_items,
-            get_timeline_items_by_conversation, AuthenticatedTimelineItem, TimelineFilters,
-            TimelineItem,
+            get_timeline_items, get_timeline_items_by_conversation, AuthenticatedTimelineItem,
+            TimelineFilters, TimelineItem,
         },
     },
 };
 
 pub async fn timeline(conn: &Db, limit: i64, offset: i64) -> ApObject {
-    let timeline = get_public_timeline_items(conn, limit, offset).await;
+    let timeline = get_timeline_items(conn, limit, offset, None, None).await;
 
-    let items = timeline
-        .iter()
-        .map(|(timeline, activity)| {
-            (
-                timeline.clone(),
-                activity.clone(),
-                None,
-                None,
-                None,
-                None,
-                None,
-            )
-        })
-        .collect();
-
-    process(conn, items, None).await
+    process(conn, timeline, None).await
 }
 
 pub async fn inbox(
@@ -54,7 +38,7 @@ pub async fn inbox(
 
     process(
         conn,
-        get_authenticated_timeline_items(conn, limit, offset, profile.clone(), filters).await,
+        get_timeline_items(conn, limit, offset, Some(profile.clone()), Some(filters)).await,
         Some(profile),
     )
     .await
@@ -89,7 +73,7 @@ async fn process_notes(
                 let ap_ids = gather_ap_ids(timeline_item);
                 let ap_actors = get_ap_actors(conn, ap_ids).await;
                 let fully_qualified_timeline_item: FullyQualifiedTimelineItem = (
-                    (timeline_item.clone(), activity.clone(), cc.clone()),
+                    (timeline_item.clone(), Some(activity.clone()), cc.clone()),
                     Some(ap_actors),
                     profile,
                 );
