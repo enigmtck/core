@@ -24,13 +24,10 @@ use std::fmt;
 
 pub mod activity_pub;
 pub mod admin;
-pub mod api;
 pub mod db;
 pub mod fairings;
 pub mod helper;
-pub mod inbox;
 pub mod models;
-pub mod outbox;
 pub mod routes;
 pub mod runner;
 pub mod schema;

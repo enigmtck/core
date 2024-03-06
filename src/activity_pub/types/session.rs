@@ -1,12 +1,16 @@
 use crate::{
     activity_pub::{ApAddress, ApContext, Outbox},
     db::Db,
-    fairings::{events::EventChannels, faktory::FaktoryConnection},
+    fairings::{
+        events::EventChannels,
+        faktory::{assign_to_faktory, FaktoryConnection},
+    },
     models::{
-        encrypted_sessions::EncryptedSession, olm_sessions::OlmSession, profiles::Profile,
+        encrypted_sessions::{create_encrypted_session, EncryptedSession, NewEncryptedSession},
+        olm_sessions::OlmSession,
+        profiles::Profile,
         remote_encrypted_sessions::RemoteEncryptedSession,
     },
-    outbox,
 };
 use rocket::http::Status;
 use serde::{Deserialize, Serialize};
@@ -38,7 +42,7 @@ impl Outbox for ApSession {
         _events: EventChannels,
         profile: Profile,
     ) -> Result<String, Status> {
-        outbox::object::session(&conn, faktory, self.clone(), profile).await
+        handle_session(&conn, faktory, self.clone(), profile).await
     }
 }
 
@@ -210,5 +214,30 @@ impl From<RemoteEncryptedSession> for ApSession {
             instrument,
             ..Default::default()
         }
+    }
+}
+
+async fn handle_session(
+    conn: &Db,
+    faktory: FaktoryConnection,
+    session: ApSession,
+    profile: Profile,
+) -> Result<String, Status> {
+    let encrypted_session: NewEncryptedSession = (session.clone(), profile.id).into();
+
+    if let Some(session) = create_encrypted_session(conn.into(), encrypted_session.clone()).await {
+        if assign_to_faktory(
+            faktory,
+            String::from("send_kexinit"),
+            vec![session.uuid.clone()],
+        )
+        .is_ok()
+        {
+            Ok(session.uuid)
+        } else {
+            Err(Status::NoContent)
+        }
+    } else {
+        Err(Status::NoContent)
     }
 }

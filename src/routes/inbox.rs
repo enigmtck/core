@@ -8,14 +8,13 @@ use crate::db::Db;
 use crate::fairings::access_control::Permitted;
 use crate::fairings::faktory::FaktoryConnection;
 use crate::fairings::signatures::Signed;
-use crate::inbox;
 use crate::models::leaders::get_leaders_by_profile_id;
 use crate::models::{
     profiles::get_profile_by_username, timeline::TimelineFilters, timeline::TimelineView,
 };
 //use crate::models::remote_activities::create_remote_activity;
 
-use super::ActivityJson;
+use super::{retrieve, ActivityJson};
 
 #[derive(FromFormField, Eq, PartialEq)]
 pub enum InboxView {
@@ -56,7 +55,7 @@ pub async fn inbox_get(
         };
 
         Ok(ActivityJson(Json(
-            inbox::retrieve::inbox(&conn, limit.into(), offset.into(), profile, filters).await,
+            retrieve::inbox(&conn, limit.into(), offset.into(), profile, filters).await,
         )))
     } else {
         Err(Status::Unauthorized)
@@ -66,7 +65,7 @@ pub async fn inbox_get(
 #[get("/api/timeline?<offset>&<limit>")]
 pub async fn timeline(conn: Db, offset: u16, limit: u8) -> Result<ActivityJson<ApObject>, Status> {
     Ok(ActivityJson(Json(
-        inbox::retrieve::timeline(&conn, limit.into(), offset.into()).await,
+        retrieve::timeline(&conn, limit.into(), offset.into()).await,
     )))
 }
 
@@ -89,7 +88,7 @@ pub async fn shared_inbox_post(
     faktory: FaktoryConnection,
     activity: String,
 ) -> Result<Status, Status> {
-    if let Permitted(true) = permitted {
+    if permitted.is_permitted() {
         let raw = serde_json::from_str::<Value>(&activity).map_err(|_| Status::BadRequest)?;
         let activity =
             serde_json::from_str::<ApActivity>(&activity).map_err(|_| Status::BadRequest)?;
@@ -125,7 +124,7 @@ pub async fn conversation_get(
         {
             let decoded = urlencoding::decode(&conversation).map_err(|_| Status::new(524))?;
 
-            inbox::retrieve::conversation(
+            retrieve::conversation(
                 &conn,
                 faktory,
                 decoded.to_string(),
@@ -151,7 +150,7 @@ pub async fn conversation_get_local(
 ) -> Result<ActivityJson<ApObject>, Status> {
     let conversation = format!("{}/conversation/{}", *crate::SERVER_URL, uuid);
 
-    inbox::retrieve::conversation(&conn, faktory, conversation.to_string(), 40, 0)
+    retrieve::conversation(&conn, faktory, conversation.to_string(), 40, 0)
         .await
         .map(|conversation| ActivityJson(Json(conversation)))
         .map_err(|_| Status::new(525))

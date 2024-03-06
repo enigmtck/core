@@ -7,13 +7,16 @@ use crate::{
     },
     db::Db,
     fairings::{events::EventChannels, faktory::FaktoryConnection},
+    helper::{get_activity_ap_id_from_uuid, get_ap_id_from_username},
     models::{
+        activities::{create_activity, ActivityType, NewActivity},
+        notes::{get_notey, NoteLike},
         profiles::Profile,
         remote_actors::delete_remote_actor_by_ap_id,
         remote_notes::{delete_remote_note_by_ap_id, get_remote_note_by_ap_id},
         timeline::delete_timeline_item_by_ap_id,
     },
-    outbox, MaybeMultiple, MaybeReference,
+    to_faktory, MaybeMultiple, MaybeReference,
 };
 use rocket::http::Status;
 // use rsa::pkcs8::DecodePrivateKey;
@@ -154,7 +157,48 @@ impl Outbox for Box<ApDelete> {
         _events: EventChannels,
         profile: Profile,
     ) -> Result<String, Status> {
-        outbox::activity::delete(&conn, faktory, *self.clone(), profile).await
+        outbox(&conn, faktory, *self.clone(), profile).await
+    }
+}
+
+async fn outbox(
+    conn: &Db,
+    faktory: FaktoryConnection,
+    delete: ApDelete,
+    profile: Profile,
+) -> Result<String, Status> {
+    if let MaybeReference::Reference(id) = delete.object {
+        if let Some(NoteLike::Note(note)) = get_notey(conn, id).await {
+            if let Ok(activity) = create_activity(
+                conn.into(),
+                NewActivity::from((
+                    Some(note.clone()),
+                    None,
+                    ActivityType::Delete,
+                    ApAddress::Address(get_ap_id_from_username(profile.username.clone())),
+                ))
+                .link_profile(conn)
+                .await,
+            )
+            .await
+            {
+                if to_faktory(faktory, "delete_note", activity.uuid.clone()).is_ok() {
+                    Ok(get_activity_ap_id_from_uuid(activity.uuid))
+                } else {
+                    log::error!("FAILED TO ASSIGN DELETE TO FAKTORY");
+                    Err(Status::NoContent)
+                }
+            } else {
+                log::error!("FAILED CREATE DELETE ACTIVITY");
+                Err(Status::NoContent)
+            }
+        } else {
+            log::error!("FAILED TO RETRIEVE DELETE TARGET NOTE BY UUID");
+            Err(Status::NoContent)
+        }
+    } else {
+        log::error!("DELETE OBJECT IS NOT A REFERENCE");
+        Err(Status::NoContent)
     }
 }
 

@@ -5,13 +5,14 @@ use crate::{
     activity_pub::{ApActivity, ApAddress, ApContext, ApNote, ApObject, Inbox, Outbox, Temporal},
     db::Db,
     fairings::{events::EventChannels, faktory::FaktoryConnection},
+    helper::{get_activity_ap_id_from_uuid, get_ap_id_from_username},
     models::{
         activities::{create_activity, ActivityType, ExtendedActivity, NewActivity},
-        profiles::Profile,
-        //announces::Announce,
-        //remote_announces::RemoteAnnounce,
+        notes::{get_notey, NoteLike},
+        profiles::Profile, //announces::Announce,
+                           //remote_announces::RemoteAnnounce,
     },
-    outbox, to_faktory, MaybeMultiple, MaybeReference,
+    to_faktory, MaybeMultiple, MaybeReference,
 };
 use chrono::{DateTime, Utc};
 use rocket::http::Status;
@@ -85,7 +86,55 @@ impl Outbox for ApAnnounce {
         _events: EventChannels,
         profile: Profile,
     ) -> Result<String, Status> {
-        outbox::activity::announce(&conn, faktory, self.clone(), profile).await
+        outbox(&conn, faktory, self.clone(), profile).await
+    }
+}
+
+async fn outbox(
+    conn: &Db,
+    faktory: FaktoryConnection,
+    announce: ApAnnounce,
+    profile: Profile,
+) -> Result<String, Status> {
+    if let MaybeReference::Reference(id) = announce.object {
+        let note_like = get_notey(conn, id).await;
+
+        if let Some(note_like) = note_like {
+            let (note, remote_note) = match note_like {
+                NoteLike::Note(note) => (Some(note), None),
+                NoteLike::RemoteNote(remote_note) => (None, Some(remote_note)),
+            };
+
+            if let Ok(activity) = create_activity(
+                conn.into(),
+                NewActivity::from((
+                    note.clone(),
+                    remote_note.clone(),
+                    ActivityType::Announce,
+                    ApAddress::Address(get_ap_id_from_username(profile.username.clone())),
+                ))
+                .link_profile(conn)
+                .await,
+            )
+            .await
+            {
+                if to_faktory(faktory, "send_announce", activity.uuid.clone()).is_ok() {
+                    Ok(get_activity_ap_id_from_uuid(activity.uuid))
+                } else {
+                    log::error!("FAILED TO ASSIGN ANNOUNCE TO FAKTORY");
+                    Err(Status::NoContent)
+                }
+            } else {
+                log::error!("FAILED TO CREATE ANNOUNCE ACTIVITY");
+                Err(Status::NoContent)
+            }
+        } else {
+            log::error!("NOTE AND REMOTE_NOTE CANNOT BOTH BE NONE");
+            Err(Status::NoContent)
+        }
+    } else {
+        log::error!("ANNOUNCE OBJECT IS NOT A REFERENCE");
+        Err(Status::NoContent)
     }
 }
 

@@ -6,21 +6,24 @@ use crate::{
         ApActor, ApAttachment, ApCollection, ApContext, ApImage, ApInstruments, ApTag, Outbox,
     },
     db::Db,
-    fairings::{events::EventChannels, faktory::FaktoryConnection},
+    fairings::{
+        events::EventChannels,
+        faktory::{assign_to_faktory, FaktoryConnection},
+    },
     helper::{
         get_activity_ap_id_from_uuid, get_ap_id_from_username, get_note_ap_id_from_uuid,
         get_note_url_from_uuid,
     },
     models::{
-        activities::{Activity, ActivityType},
+        activities::{create_activity, Activity, ActivityType, NewActivity},
         cache::{cache_content, Cache},
-        notes::{NewNote, Note, NoteType},
+        notes::{create_note, NewNote, Note, NoteType},
         profiles::Profile,
         remote_notes::RemoteNote,
         timeline::{TimelineItem, TimelineItemCc},
         vault::VaultItem,
     },
-    outbox, MaybeMultiple, ANCHOR_RE,
+    MaybeMultiple, ANCHOR_RE,
 };
 use chrono::{DateTime, Utc};
 use rocket::http::Status;
@@ -210,11 +213,9 @@ impl Outbox for ApNote {
         profile: Profile,
     ) -> Result<String, Status> {
         match self.kind {
-            ApNoteType::Note => {
-                outbox::object::note(&conn, faktory, events, self.clone(), profile).await
-            }
+            ApNoteType::Note => handle_note(&conn, faktory, events, self.clone(), profile).await,
             ApNoteType::EncryptedNote => {
-                outbox::object::encrypted_note(&conn, faktory, events, self.clone(), profile).await
+                handle_encrypted_note(&conn, faktory, events, self.clone(), profile).await
             }
             _ => Err(Status::NoContent),
         }
@@ -562,5 +563,113 @@ impl From<RemoteNote> for ApNote {
             ephemeral_metadata: Some(metadata(&remote_note)),
             ..Default::default()
         }
+    }
+}
+
+async fn handle_note(
+    conn: &Db,
+    faktory: FaktoryConnection,
+    _events: EventChannels,
+    mut note: ApNote,
+    profile: Profile,
+) -> Result<String, Status> {
+    // ApNote -> NewNote -> ApNote -> ApActivity
+    // UUID is set in NewNote
+
+    let mut is_public = false;
+    let mut followers_included = false;
+    let mut addresses_cc: Vec<ApAddress> = note.cc.clone().unwrap_or(vec![].into()).multiple();
+    let followers = ApActor::from(profile.clone()).followers;
+
+    if let Some(followers) = followers {
+        // look for the public and followers group address aliases in the to vec
+        for to in note.to.multiple().iter() {
+            if to.is_public() {
+                is_public = true;
+                if to.to_string().to_lowercase() == followers.to_lowercase() {
+                    followers_included = true;
+                }
+            }
+        }
+
+        // look for the public and followers group address aliases in the cc vec
+        for cc in addresses_cc.iter() {
+            if cc.is_public() {
+                is_public = true;
+                if cc.to_string().to_lowercase() == followers.to_lowercase() {
+                    followers_included = true;
+                }
+            }
+        }
+
+        // if the note is public and if it's not already included, add the sender's followers group
+        if is_public && !followers_included {
+            addresses_cc.push(followers.into());
+            note.cc = Some(MaybeMultiple::Multiple(addresses_cc));
+        }
+    }
+
+    let created_note = create_note(conn, NewNote::from((note.clone(), profile.id)))
+        .await
+        .ok_or(Status::new(520))?;
+
+    let activity = create_activity(
+        conn.into(),
+        NewActivity::from((
+            Some(created_note.clone()),
+            None,
+            ActivityType::Create,
+            ApAddress::Address(get_ap_id_from_username(profile.username.clone())),
+        ))
+        .link_profile(conn)
+        .await,
+    )
+    .await
+    .map_err(|_| Status::new(521))?;
+
+    if assign_to_faktory(
+        faktory,
+        String::from("process_outbound_note"),
+        vec![activity.uuid.clone()],
+    )
+    .is_ok()
+    {
+        Ok(activity.uuid)
+    } else {
+        Err(Status::new(522))
+    }
+}
+
+async fn handle_encrypted_note(
+    conn: &Db,
+    faktory: FaktoryConnection,
+    _events: EventChannels,
+    note: ApNote,
+    profile: Profile,
+) -> Result<String, Status> {
+    // ApNote -> NewNote -> ApNote -> ApActivity
+    // UUID is set in NewNote
+    let n = NewNote::from((note.clone(), profile.id));
+
+    if let Some(created_note) = create_note(conn, n.clone()).await {
+        log::debug!("created_note\n{created_note:#?}");
+
+        // let ap_note = ApNote::from(created_note.clone());
+        // let mut events = events;
+        // events.send(serde_json::to_string(&ap_note).unwrap());
+
+        if assign_to_faktory(
+            faktory,
+            String::from("process_outbound_note"),
+            vec![created_note.uuid.clone()],
+        )
+        .is_ok()
+        {
+            Ok(created_note.uuid)
+        } else {
+            Err(Status::NoContent)
+        }
+    } else {
+        Err(Status::NoContent)
     }
 }

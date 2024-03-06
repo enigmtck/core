@@ -1,6 +1,8 @@
 use crate::activity_pub::{ApNote, ApNoteType};
 use crate::db::Db;
-use crate::helper::{get_note_ap_id_from_uuid, handle_option};
+use crate::helper::{
+    get_local_identifier, get_note_ap_id_from_uuid, handle_option, is_local, LocalIdentifierType,
+};
 use crate::schema::notes;
 use crate::POOL;
 use anyhow::Result;
@@ -10,6 +12,8 @@ use diesel::{AsChangeset, Identifiable, Insertable, Queryable};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::fmt;
+
+use super::remote_notes::{get_remote_note_by_ap_id, RemoteNote};
 
 #[derive(
     diesel_derive_enum::DbEnum, Debug, Serialize, Deserialize, Default, Clone, Eq, PartialEq,
@@ -193,5 +197,26 @@ pub async fn delete_note_by_uuid(conn: Option<&Db>, uuid: String) -> Result<usiz
                 .execute(&mut pool)
                 .map_err(anyhow::Error::msg)
         }
+    }
+}
+
+#[derive(Clone)]
+pub enum NoteLike {
+    Note(Note),
+    RemoteNote(RemoteNote),
+}
+
+pub async fn get_notey(conn: &Db, id: String) -> Option<NoteLike> {
+    if is_local(id.clone()) {
+        let identifier = get_local_identifier(id.clone())?;
+        if identifier.kind == LocalIdentifierType::Note {
+            let note = get_note_by_uuid(Some(conn), identifier.identifier).await?;
+            Some(NoteLike::Note(note))
+        } else {
+            None
+        }
+    } else {
+        let remote_note = get_remote_note_by_ap_id(Some(conn), id).await?;
+        Some(NoteLike::RemoteNote(remote_note))
     }
 }

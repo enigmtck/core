@@ -16,8 +16,17 @@ pub enum AccessControlError {
     Prohibited,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Eq, PartialEq)]
 pub struct Permitted(pub bool);
+
+impl Permitted {
+    pub fn is_permitted(&self) -> bool {
+        match self {
+            Permitted(true) => true,
+            _ => false,
+        }
+    }
+}
 
 #[rocket::async_trait]
 impl<'r> FromRequest<'r> for Permitted {
@@ -75,7 +84,7 @@ impl BlockList {
     }
 
     pub fn is_blocked(&self, server: String) -> bool {
-        log::debug!("checking {server} to BlockList");
+        log::debug!("checking {server} against BlockList");
         if let Some(x) = self.blocked_servers.try_lock() {
             x.contains(&server)
         } else {

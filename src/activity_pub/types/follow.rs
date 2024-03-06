@@ -5,14 +5,15 @@ use crate::{
     activity_pub::{ApActivity, ApActor, ApAddress, ApContext, ApObject, Inbox, Outbox},
     db::Db,
     fairings::{events::EventChannels, faktory::FaktoryConnection},
+    helper::{get_activity_ap_id_from_uuid, get_ap_id_from_username},
     models::{
         activities::{
             create_activity, ActivityTarget, ActivityType, ApActivityTarget, ExtendedActivity,
             NewActivity,
         },
-        profiles::{get_profile_by_ap_id, Profile},
+        profiles::{get_actory, get_profile_by_ap_id, ActorLike, Profile},
     },
-    outbox, to_faktory, MaybeReference,
+    to_faktory, MaybeReference,
 };
 use rocket::http::Status;
 use serde::{Deserialize, Serialize};
@@ -87,7 +88,55 @@ impl Outbox for ApFollow {
         _events: EventChannels,
         profile: Profile,
     ) -> Result<String, Status> {
-        outbox::activity::follow(&conn, faktory, self.clone(), profile).await
+        outbox(&conn, faktory, self.clone(), profile).await
+    }
+}
+
+async fn outbox(
+    conn: &Db,
+    faktory: FaktoryConnection,
+    follow: ApFollow,
+    profile: Profile,
+) -> Result<String, Status> {
+    if let MaybeReference::Reference(id) = follow.object {
+        let actor_like = get_actory(conn, id).await;
+
+        if let Some(actor_like) = actor_like {
+            let (actor, remote_actor) = match actor_like {
+                ActorLike::Profile(profile) => (Some(profile), None),
+                ActorLike::RemoteActor(remote_actor) => (None, Some(remote_actor)),
+            };
+
+            if let Ok(activity) = create_activity(
+                conn.into(),
+                NewActivity::from((
+                    actor.clone(),
+                    remote_actor.clone(),
+                    ActivityType::Follow,
+                    ApAddress::Address(get_ap_id_from_username(profile.username.clone())),
+                ))
+                .link_profile(conn)
+                .await,
+            )
+            .await
+            {
+                if to_faktory(faktory, "process_follow", activity.uuid.clone()).is_ok() {
+                    Ok(get_activity_ap_id_from_uuid(activity.uuid))
+                } else {
+                    log::error!("FAILED TO ASSIGN FOLLOW TO FAKTORY");
+                    Err(Status::NoContent)
+                }
+            } else {
+                log::error!("FAILED TO CREATE FOLLOW ACTIVITY");
+                Err(Status::NoContent)
+            }
+        } else {
+            log::error!("ACTOR AND REMOTE_ACTOR CANNOT BOTH BE NONE");
+            Err(Status::NoContent)
+        }
+    } else {
+        log::error!("FOLLOW OBJECT IS NOT A REFERENCE");
+        Err(Status::NoContent)
     }
 }
 

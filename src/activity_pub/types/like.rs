@@ -5,15 +5,16 @@ use crate::{
     activity_pub::{ApActivity, ApAddress, ApContext, ApNote, ApObject, Inbox, Outbox},
     db::Db,
     fairings::{events::EventChannels, faktory::FaktoryConnection},
+    helper::{get_activity_ap_id_from_uuid, get_ap_id_from_username},
     models::{
         activities::{
             create_activity, ActivityTarget, ActivityType, ApActivityTarget, ExtendedActivity,
             NewActivity,
         },
-        notes::get_note_by_apid,
+        notes::{get_note_by_apid, get_notey, NoteLike},
         profiles::Profile,
     },
-    outbox, MaybeMultiple, MaybeReference,
+    to_faktory, MaybeMultiple, MaybeReference,
 };
 use rocket::http::Status;
 use serde::{Deserialize, Serialize};
@@ -101,7 +102,62 @@ impl Outbox for Box<ApLike> {
         _events: EventChannels,
         profile: Profile,
     ) -> Result<String, Status> {
-        outbox::activity::like(&conn, faktory, *self.clone(), profile).await
+        handle_like_outbox(&conn, faktory, *self.clone(), profile).await
+    }
+}
+
+async fn handle_like_outbox(
+    conn: &Db,
+    faktory: FaktoryConnection,
+    like: ApLike,
+    profile: Profile,
+) -> Result<String, Status> {
+    if let MaybeReference::Reference(id) = like.object {
+        let note_like = get_notey(conn, id).await;
+
+        if let Some(note_like) = note_like {
+            let note = if let NoteLike::Note(note) = note_like.clone() {
+                Some(note)
+            } else {
+                None
+            };
+
+            let remote_note = if let NoteLike::RemoteNote(remote_note) = note_like {
+                Some(remote_note)
+            } else {
+                None
+            };
+
+            if let Ok(activity) = create_activity(
+                conn.into(),
+                NewActivity::from((
+                    note.clone(),
+                    remote_note.clone(),
+                    ActivityType::Like,
+                    ApAddress::Address(get_ap_id_from_username(profile.username.clone())),
+                ))
+                .link_profile(conn)
+                .await,
+            )
+            .await
+            {
+                if to_faktory(faktory, "send_like", activity.uuid.clone()).is_ok() {
+                    Ok(get_activity_ap_id_from_uuid(activity.uuid))
+                } else {
+                    log::error!("FAILED TO ASSIGN LIKE TO FAKTORY");
+                    Err(Status::NoContent)
+                }
+            } else {
+                log::error!("FAILED TO CREATE LIKE ACTIVITY");
+                Err(Status::NoContent)
+            }
+        } else {
+            log::error!("NOTE AND REMOTE_NOTE CANNOT BOTH BE NONE");
+            Err(Status::NoContent)
+        }
+    } else {
+        log::error!("LIKE OBJECT IS NOT A REFERENCE");
+        Err(Status::NoContent)
     }
 }
 

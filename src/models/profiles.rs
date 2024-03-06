@@ -2,7 +2,7 @@ use std::collections::HashSet;
 
 use crate::activity_pub::ApAddress;
 use crate::db::Db;
-use crate::helper::{get_local_identifier, LocalIdentifierType};
+use crate::helper::{get_local_identifier, is_local, LocalIdentifierType};
 use crate::schema::{self, profiles};
 use crate::POOL;
 use chrono::{DateTime, Utc};
@@ -12,6 +12,7 @@ use rocket_sync_db_pools::diesel;
 use serde::{Deserialize, Serialize};
 
 use super::followers::get_followers_by_profile_id;
+use super::remote_actors::{get_remote_actor_by_ap_id, RemoteActor};
 
 #[derive(Serialize, Deserialize, Insertable, Default)]
 #[diesel(table_name = profiles)]
@@ -250,5 +251,27 @@ pub async fn guaranteed_profile(conn: Option<&Db>, profile: Option<Profile>) -> 
         None => get_profile_by_username(conn, (*crate::SYSTEM_USER).clone())
             .await
             .expect("unable to retrieve system user"),
+    }
+}
+
+#[allow(clippy::large_enum_variant)]
+#[derive(Clone)]
+pub enum ActorLike {
+    RemoteActor(RemoteActor),
+    Profile(Profile),
+}
+
+pub async fn get_actory(conn: &Db, id: String) -> Option<ActorLike> {
+    if is_local(id.clone()) {
+        let identifier = get_local_identifier(id.clone())?;
+        if identifier.kind == LocalIdentifierType::User {
+            let profile = get_profile_by_username(conn.into(), identifier.identifier).await?;
+            Some(ActorLike::Profile(profile))
+        } else {
+            None
+        }
+    } else {
+        let remote_actor = get_remote_actor_by_ap_id(conn.into(), id).await.ok()?;
+        Some(ActorLike::RemoteActor(remote_actor))
     }
 }

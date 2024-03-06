@@ -2,7 +2,6 @@ use std::collections::HashMap;
 
 use crate::{
     activity_pub::{ApCollection, ApObject, ApSession},
-    api::processing_queue,
     db::Db,
     fairings::signatures::Signed,
     models::{
@@ -12,7 +11,7 @@ use crate::{
         },
         olm_one_time_keys::create_olm_one_time_key,
         olm_sessions::OlmSession,
-        processing_queue::resolve_processed_item_by_ap_id_and_profile_id,
+        processing_queue::{self, resolve_processed_item_by_ap_id_and_profile_id},
         profiles::{get_profile_by_username, update_olm_account_by_username},
     },
     signing::VerificationType,

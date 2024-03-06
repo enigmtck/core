@@ -5,13 +5,15 @@ use crate::{
     activity_pub::{ApActivity, ApAddress, ApContext, ApFollow, Inbox, Outbox},
     db::Db,
     fairings::{events::EventChannels, faktory::FaktoryConnection},
+    helper::{get_activity_ap_id_from_uuid, get_ap_id_from_username, get_uuid},
     models::{
         activities::{
-            create_activity, get_activity_by_apid, ActivityTarget, ApActivityTarget, NewActivity,
+            create_activity, get_activity_by_apid, get_activity_by_uuid, ActivityTarget,
+            ActivityType, ApActivityTarget, NewActivity,
         },
         profiles::Profile,
     },
-    outbox, to_faktory, MaybeReference,
+    to_faktory, MaybeReference,
 };
 use rocket::http::Status;
 use serde::{Deserialize, Serialize};
@@ -59,45 +61,36 @@ async fn process_undo_activity(
     ap_target: &ApActivity,
     undo: &ApUndo,
 ) -> Result<Status, Status> {
-    if let Some(ref apid) = undo_target_apid(ap_target) {
-        log::debug!("APID: {apid}");
-        // retrieve the activity to undo from the database (models/activities)
-        if let Some(target) = get_activity_by_apid(conn, apid.clone()).await {
-            log::debug!("TARGET: {target:#?}");
-            // set up the parameters necessary to create an Activity in the database with linked
-            // target activity; NewActivity::try_from creates the link given the appropriate database
-            // in the parameterized enum
-            let activity_and_target = (
-                ApActivity::Undo(Box::new(undo.clone())),
-                Some(ActivityTarget::from(target.0)),
-            ) as ApActivityTarget;
+    let apid = undo_target_apid(ap_target).ok_or(Status::new(520))?;
+    log::debug!("APID: {apid}");
+    // retrieve the activity to undo from the database (models/activities)
+    let target = get_activity_by_apid(conn, apid.clone())
+        .await
+        .ok_or(Status::new(521))?;
+    log::debug!("TARGET: {target:#?}");
+    // set up the parameters necessary to create an Activity in the database with linked
+    // target activity; NewActivity::try_from creates the link given the appropriate database
+    // in the parameterized enum
+    let activity_and_target = (
+        ApActivity::Undo(Box::new(undo.clone())),
+        Some(ActivityTarget::from(target.0)),
+    ) as ApActivityTarget;
 
-            if let Ok(activity) = NewActivity::try_from(activity_and_target) {
-                log::debug!("ACTIVITY\n{activity:#?}");
-                if create_activity(conn.into(), activity.clone()).await.is_ok() {
-                    match ap_target {
-                        ApActivity::Like(_) => {
-                            to_faktory(faktory, "process_remote_undo_like", apid.clone())
-                        }
-                        ApActivity::Follow(_) => {
-                            to_faktory(faktory, "process_remote_undo_follow", apid.clone())
-                        }
-                        ApActivity::Announce(_) => {
-                            to_faktory(faktory, "process_remote_undo_announce", apid.clone())
-                        }
-                        _ => Err(Status::NoContent),
-                    }
-                } else {
-                    Err(Status::NoContent)
-                }
-            } else {
-                Err(Status::NoContent)
+    let activity = NewActivity::try_from(activity_and_target).map_err(|_| Status::new(522))?;
+    log::debug!("ACTIVITY\n{activity:#?}");
+    if create_activity(conn.into(), activity.clone()).await.is_ok() {
+        match ap_target {
+            ApActivity::Like(_) => to_faktory(faktory, "process_remote_undo_like", apid.clone()),
+            ApActivity::Follow(_) => {
+                to_faktory(faktory, "process_remote_undo_follow", apid.clone())
             }
-        } else {
-            Err(Status::NoContent)
+            ApActivity::Announce(_) => {
+                to_faktory(faktory, "process_remote_undo_announce", apid.clone())
+            }
+            _ => Err(Status::new(523)),
         }
     } else {
-        Err(Status::NoContent)
+        Err(Status::new(524))
     }
 }
 
@@ -138,7 +131,60 @@ impl Outbox for Box<ApUndo> {
         _events: EventChannels,
         profile: Profile,
     ) -> Result<String, Status> {
-        outbox::activity::undo(&conn, faktory, *self.clone(), profile).await
+        handle_undo(&conn, faktory, *self.clone(), profile).await
+    }
+}
+
+async fn handle_undo(
+    conn: &Db,
+    faktory: FaktoryConnection,
+    undo: ApUndo,
+    profile: Profile,
+) -> Result<String, Status> {
+    let target_ap_id = match undo.object {
+        MaybeReference::Actual(object) => match object {
+            ApActivity::Follow(follow) => follow.id.and_then(get_uuid),
+            ApActivity::Like(like) => like.id.and_then(get_uuid),
+            ApActivity::Announce(announce) => announce.id.and_then(get_uuid),
+            _ => None,
+        },
+        _ => None,
+    };
+
+    log::debug!("TARGET_AP_ID: {target_ap_id:#?}");
+    if let Some(target_ap_id) = target_ap_id {
+        if let Some((target_activity, _, _, _, _)) =
+            get_activity_by_uuid(conn.into(), target_ap_id).await
+        {
+            if let Ok(activity) = create_activity(
+                conn.into(),
+                NewActivity::from((
+                    target_activity,
+                    ActivityType::Undo,
+                    ApAddress::Address(get_ap_id_from_username(profile.username.clone())),
+                ))
+                .link_profile(conn)
+                .await,
+            )
+            .await
+            {
+                if to_faktory(faktory, "process_undo", activity.uuid.clone()).is_ok() {
+                    Ok(get_activity_ap_id_from_uuid(activity.uuid))
+                } else {
+                    log::error!("FAILED TO ASSIGN UNDO TO FAKTORY");
+                    Err(Status::NoContent)
+                }
+            } else {
+                log::error!("FAILED TO CREATE UNDO ACTIVITY");
+                Err(Status::NoContent)
+            }
+        } else {
+            log::error!("FAILED TO RETRIEVE TARGET ACTIVITY");
+            Err(Status::NoContent)
+        }
+    } else {
+        log::error!("FAILED TO CONVERT OBJECT TO RELEVANT ACTIVITY");
+        Err(Status::NoContent)
     }
 }
 

@@ -93,3 +93,13 @@ pub fn handle_option(v: Value) -> Option<Value> {
         Some(v)
     }
 }
+
+pub fn get_uuid(id: String) -> Option<String> {
+    let identifier = get_local_identifier(id)?;
+
+    if identifier.kind == LocalIdentifierType::Activity {
+        Some(identifier.identifier)
+    } else {
+        None
+    }
+}
