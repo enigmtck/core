@@ -82,7 +82,7 @@ impl Inbox for ApUpdate {
                                 .await
                                 .is_some()
                         {
-                            to_faktory(faktory, "update_timeline_record", id)
+                            to_faktory(faktory, "update_timeline_record", vec![id])
                         } else {
                             log::error!("FAILED TO HANDLE ACTIVITY\n{raw}");
                             Err(Status::NoContent)

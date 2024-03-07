@@ -96,15 +96,12 @@ impl Inbox for Box<ApDelete> {
         match self.object.clone() {
             MaybeReference::Actual(actual) => match actual {
                 ApObject::Tombstone(tombstone) => {
-                    if let Some(remote_note) =
-                        get_remote_note_by_ap_id(Some(&conn), tombstone.id.clone()).await
-                    {
-                        if remote_note.attributed_to == self.actor.clone().to_string() {
-                            if delete_note(&conn, tombstone.id.clone()).await.is_ok() {
-                                delete_timeline(&conn, tombstone.id).await
-                            } else {
-                                Err(Status::NoContent)
-                            }
+                    let remote_note = get_remote_note_by_ap_id(Some(&conn), tombstone.id.clone())
+                        .await
+                        .ok_or(Status::new(520))?;
+                    if remote_note.attributed_to == self.actor.clone().to_string() {
+                        if delete_note(&conn, tombstone.id.clone()).await.is_ok() {
+                            delete_timeline(&conn, tombstone.id).await
                         } else {
                             Err(Status::NoContent)
                         }
@@ -169,7 +166,7 @@ async fn outbox(
 ) -> Result<String, Status> {
     if let MaybeReference::Reference(id) = delete.object {
         if let Some(NoteLike::Note(note)) = get_notey(conn, id).await {
-            if let Ok(activity) = create_activity(
+            let activity = create_activity(
                 conn.into(),
                 NewActivity::from((
                     Some(note.clone()),
@@ -181,20 +178,13 @@ async fn outbox(
                 .await,
             )
             .await
-            {
-                if to_faktory(faktory, "delete_note", activity.uuid.clone()).is_ok() {
-                    Ok(get_activity_ap_id_from_uuid(activity.uuid))
-                } else {
-                    log::error!("FAILED TO ASSIGN DELETE TO FAKTORY");
-                    Err(Status::NoContent)
-                }
-            } else {
-                log::error!("FAILED CREATE DELETE ACTIVITY");
-                Err(Status::NoContent)
-            }
+            .map_err(|_| Status::new(520))?;
+
+            let _ = to_faktory(faktory, "delete_note", vec![activity.uuid.clone()])
+                .map_err(|_| Status::new(522));
+            Ok(get_activity_ap_id_from_uuid(activity.uuid))
         } else {
-            log::error!("FAILED TO RETRIEVE DELETE TARGET NOTE BY UUID");
-            Err(Status::NoContent)
+            Err(Status::new(520))
         }
     } else {
         log::error!("DELETE OBJECT IS NOT A REFERENCE");
@@ -255,20 +245,19 @@ impl TryFrom<ApNote> for ApDelete {
     type Error = &'static str;
 
     fn try_from(note: ApNote) -> Result<Self, Self::Error> {
-        if let (Some(id), Ok(tombstone)) = (note.id.clone(), ApTombstone::try_from(note.clone())) {
-            Ok(ApDelete {
-                context: Some(ApContext::default()),
-                actor: note.attributed_to.clone(),
-                kind: ApDeleteType::Delete,
-                id: Some(format!("{id}#delete")),
-                object: MaybeReference::Actual(ApObject::Tombstone(tombstone)),
-                signature: None,
-                to: note.to,
-                cc: note.cc,
-            })
-        } else {
-            Err("ApNote must have an ID")
-        }
+        let id = note.id.clone().ok_or("ApNote must have an ID")?;
+        let tombstone =
+            ApTombstone::try_from(note.clone()).map_err(|_| "ApNote must have an ID")?;
+        Ok(ApDelete {
+            context: Some(ApContext::default()),
+            actor: note.attributed_to.clone(),
+            kind: ApDeleteType::Delete,
+            id: Some(format!("{id}#delete")),
+            object: MaybeReference::Actual(ApObject::Tombstone(tombstone)),
+            signature: None,
+            to: note.to,
+            cc: note.cc,
+        })
     }
 }
 

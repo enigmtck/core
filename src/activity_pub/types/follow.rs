@@ -60,7 +60,7 @@ impl Inbox for ApFollow {
                 {
                     log::debug!("ACTIVITY\n{activity:#?}");
                     if let Ok(activity) = create_activity((&conn).into(), activity).await {
-                        to_faktory(faktory, "acknowledge_followers", activity.uuid)
+                        to_faktory(faktory, "acknowledge_followers", vec![activity.uuid])
                     } else {
                         log::error!("FAILED TO HANDLE ACTIVITY\n{raw}");
                         Err(Status::NoContent)
@@ -120,7 +120,7 @@ async fn outbox(
             )
             .await
             {
-                if to_faktory(faktory, "process_follow", activity.uuid.clone()).is_ok() {
+                if to_faktory(faktory, "process_follow", vec![activity.uuid.clone()]).is_ok() {
                     Ok(get_activity_ap_id_from_uuid(activity.uuid))
                 } else {
                     log::error!("FAILED TO ASSIGN FOLLOW TO FAKTORY");

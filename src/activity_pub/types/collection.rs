@@ -19,12 +19,11 @@ pub trait Collectible {
 
 impl Cache for ApCollectionPage {
     async fn cache(&self, conn: &Db) -> &Self {
-        if let Some(items) = self.items() {
-            for item in items {
-                if let ActivityPub::Activity(ApActivity::Create(create)) = item {
-                    if let MaybeReference::Actual(ApObject::Note(note)) = create.object {
-                        note.cache(conn).await;
-                    }
+        let items = self.items().unwrap_or_default();
+        for item in items {
+            if let ActivityPub::Activity(ApActivity::Create(create)) = item {
+                if let MaybeReference::Actual(ApObject::Note(note)) = create.object {
+                    note.cache(conn).await;
                 }
             }
         }
@@ -35,12 +34,11 @@ impl Cache for ApCollectionPage {
 
 impl Cache for ApCollection {
     async fn cache(&self, conn: &Db) -> &Self {
-        if let Some(items) = self.items() {
-            for item in items {
-                if let ActivityPub::Activity(ApActivity::Create(create)) = item {
-                    if let MaybeReference::Actual(ApObject::Note(note)) = create.object {
-                        note.cache(conn).await;
-                    }
+        let items = self.items().unwrap_or_default();
+        for item in items {
+            if let ActivityPub::Activity(ApActivity::Create(create)) = item {
+                if let MaybeReference::Actual(ApObject::Note(note)) = create.object {
+                    note.cache(conn).await;
                 }
             }
         }

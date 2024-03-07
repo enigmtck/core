@@ -47,6 +47,7 @@ pub struct ApAccept {
 }
 
 impl Inbox for Box<ApAccept> {
+    #[allow(unused_variables)]
     async fn inbox(
         &self,
         conn: Db,
@@ -60,34 +61,24 @@ impl Inbox for Box<ApAccept> {
             _ => None,
         };
 
-        if let Some(follow_apid) = follow_apid {
-            if let Some(target) = get_activity_by_apid(&conn, follow_apid).await {
-                if let Ok(activity) = NewActivity::try_from((
-                    ApActivity::Accept(self.clone()),
-                    Some(ActivityTarget::from(target.0)),
-                ) as ApActivityTarget)
-                {
-                    log::debug!("ACTIVITY\n{activity:#?}");
-                    if create_activity((&conn).into(), activity.clone())
-                        .await
-                        .is_ok()
-                    {
-                        to_faktory(faktory, "process_accept", activity.uuid)
-                    } else {
-                        log::error!("FAILED TO CREATE ACTIVITY RECORD");
-                        Err(Status::NoContent)
-                    }
-                } else {
-                    log::error!("FAILED TO CONVERT ACTIVITY RECORD");
-                    Err(Status::NoContent)
-                }
-            } else {
-                log::error!("FAILED TO LOCATE FOLLOW ACTIVITY");
-                Err(Status::NoContent)
-            }
+        let follow_apid = follow_apid.ok_or(Status::new(520))?;
+        let target = get_activity_by_apid(&conn, follow_apid)
+            .await
+            .ok_or(Status::new(521))?;
+
+        let activity = NewActivity::try_from((
+            ApActivity::Accept(self.clone()),
+            Some(ActivityTarget::from(target.0)),
+        ) as ApActivityTarget)
+        .map_err(|_| Status::new(522))?;
+        log::debug!("ACTIVITY\n{activity:#?}");
+        if create_activity((&conn).into(), activity.clone())
+            .await
+            .is_ok()
+        {
+            to_faktory(faktory, "process_accept", vec![activity.uuid])
         } else {
-            log::error!("FAILED TO DECODE OBJECT REFERENCE");
-            log::error!("{raw}");
+            log::error!("FAILED TO CREATE ACTIVITY RECORD");
             Err(Status::NoContent)
         }
     }
@@ -111,58 +102,31 @@ impl TryFrom<RecursiveActivity> for ApAccept {
     fn try_from(
         ((activity, _note, _remote_note, _profile, _remote_actor), recursive): RecursiveActivity,
     ) -> Result<Self, Self::Error> {
-        if let Some(recursive) = recursive {
-            if let Ok(recursive_activity) = ApActivity::try_from((recursive.clone(), None)) {
-                match recursive_activity {
-                    ApActivity::Follow(follow) => Ok(ApAccept {
-                        context: Some(ApContext::default()),
-                        kind: ApAcceptType::default(),
-                        actor: activity.actor.clone().into(),
-                        id: activity.ap_id.map_or(
-                            Some(format!(
-                                "{}/activities/{}",
-                                *crate::SERVER_URL,
-                                activity.uuid
-                            )),
-                            Some,
-                        ),
-                        object: MaybeReference::Actual(ApActivity::Follow(follow)),
-                    }),
-                    _ => {
-                        log::error!("FAILED TO MATCH IMPLEMENTED ACCEPT: {activity:#?}");
-                        Err("FAILED TO MATCH IMPLEMENTED ACCEPT")
-                    }
-                }
-            } else {
-                log::error!("FAILED TO CONVERT ACTIVITY: {recursive:#?}");
-                Err("FAILED TO CONVERT ACTIVITY")
+        let recursive = recursive.ok_or("RECURSIVE CANNOT BE NONE")?;
+        let recursive_activity = ApActivity::try_from((recursive.clone(), None))
+            .map_err(|_| "FAILED TO CONVERT ACTIVITY")?;
+        match recursive_activity {
+            ApActivity::Follow(follow) => Ok(ApAccept {
+                context: Some(ApContext::default()),
+                kind: ApAcceptType::default(),
+                actor: activity.actor.clone().into(),
+                id: activity.ap_id.map_or(
+                    Some(format!(
+                        "{}/activities/{}",
+                        *crate::SERVER_URL,
+                        activity.uuid
+                    )),
+                    Some,
+                ),
+                object: MaybeReference::Actual(ApActivity::Follow(follow)),
+            }),
+            _ => {
+                log::error!("FAILED TO MATCH IMPLEMENTED ACCEPT: {activity:#?}");
+                Err("FAILED TO MATCH IMPLEMENTED ACCEPT")
             }
-        } else {
-            log::error!("RECURSIVE CANNOT BE NONE");
-            Err("RECURSIVE CANNOT BE NONE")
         }
     }
 }
-
-// impl TryFrom<RemoteActivity> for ApAccept {
-//     type Error = &'static str;
-
-//     fn try_from(activity: RemoteActivity) -> Result<Self, Self::Error> {
-//         if activity.kind == "Accept" {
-//             Ok(ApAccept {
-//                 context: activity
-//                     .context
-//                     .map(|ctx| serde_json::from_value(ctx).unwrap()),
-//                 kind: ApAcceptType::default(),
-//                 actor: ApAddress::Address(activity.actor),
-//                 id: Some(activity.ap_id),
-//                 object: serde_json::from_value(activity.ap_object.into()).unwrap(),
-//             })
-//         } else {
-//             Err("ACTIVITY COULD NOT BE CONVERTED TO ACCEPT")
-//         }
-//     }
-// }
 
 impl TryFrom<ApFollow> for ApAccept {
     type Error = &'static str;

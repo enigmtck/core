@@ -294,9 +294,9 @@ impl From<String> for MaybeReference<String> {
 pub fn to_faktory(
     faktory: FaktoryConnection,
     operation: &str,
-    id: String,
+    params: Vec<String>,
 ) -> Result<Status, Status> {
-    match assign_to_faktory(faktory, String::from(operation), vec![id]) {
+    match assign_to_faktory(faktory, String::from(operation), params) {
         Ok(_) => Ok(Status::Accepted),
         Err(e) => {
             log::error!("FAILED TO ASSIGN TO FAKTORY\n{e:#?}");

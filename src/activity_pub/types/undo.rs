@@ -80,12 +80,14 @@ async fn process_undo_activity(
     log::debug!("ACTIVITY\n{activity:#?}");
     if create_activity(conn.into(), activity.clone()).await.is_ok() {
         match ap_target {
-            ApActivity::Like(_) => to_faktory(faktory, "process_remote_undo_like", apid.clone()),
+            ApActivity::Like(_) => {
+                to_faktory(faktory, "process_remote_undo_like", vec![apid.clone()])
+            }
             ApActivity::Follow(_) => {
-                to_faktory(faktory, "process_remote_undo_follow", apid.clone())
+                to_faktory(faktory, "process_remote_undo_follow", vec![apid.clone()])
             }
             ApActivity::Announce(_) => {
-                to_faktory(faktory, "process_remote_undo_announce", apid.clone())
+                to_faktory(faktory, "process_remote_undo_announce", vec![apid.clone()])
             }
             _ => Err(Status::new(523)),
         }
@@ -168,7 +170,7 @@ async fn handle_undo(
             )
             .await
             {
-                if to_faktory(faktory, "process_undo", activity.uuid.clone()).is_ok() {
+                if to_faktory(faktory, "process_undo", vec![activity.uuid.clone()]).is_ok() {
                     Ok(get_activity_ap_id_from_uuid(activity.uuid))
                 } else {
                     log::error!("FAILED TO ASSIGN UNDO TO FAKTORY");

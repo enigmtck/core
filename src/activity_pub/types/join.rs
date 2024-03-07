@@ -61,7 +61,7 @@ impl Inbox for ApJoin {
                         if let Some(ap_id) = session.id {
                             log::debug!("ASSIGNING JOIN ACTIVITY TO FAKTORY");
 
-                            to_faktory(faktory, "process_join", ap_id)
+                            to_faktory(faktory, "process_join", vec![ap_id])
                         } else {
                             log::error!("MISSING ID");
                             Err(Status::NoContent)

@@ -291,6 +291,12 @@ impl From<IdentifiedVaultItem> for ApNote {
     }
 }
 
+impl From<&TimelineItem> for ApNote {
+    fn from(timeline: &TimelineItem) -> Self {
+        ApNote::from(((timeline.clone(), None, None), None, None))
+    }
+}
+
 impl From<TimelineItem> for ApNote {
     fn from(timeline: TimelineItem) -> Self {
         ApNote::from(((timeline, None, None), None, None))

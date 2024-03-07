@@ -9,8 +9,7 @@ use crate::{
     models::{
         activities::{create_activity, ActivityType, ExtendedActivity, NewActivity},
         notes::{get_notey, NoteLike},
-        profiles::Profile, //announces::Announce,
-                           //remote_announces::RemoteAnnounce,
+        profiles::Profile,
     },
     to_faktory, MaybeMultiple, MaybeReference,
 };
@@ -60,20 +59,21 @@ impl Inbox for ApAnnounce {
         faktory: FaktoryConnection,
         raw: Value,
     ) -> Result<Status, Status> {
-        if let Ok(activity) = NewActivity::try_from((ApActivity::Announce(self.clone()), None)) {
-            log::debug!("ACTIVITY\n{activity:#?}");
-            if create_activity((&conn).into(), activity.clone())
-                .await
-                .is_ok()
-            {
-                to_faktory(faktory, "process_remote_announce", activity.uuid.clone())
-            } else {
-                log::error!("FAILED TO CREATE ACTIVITY\n{raw}");
-                Err(Status::NoContent)
-            }
+        let activity = NewActivity::try_from((ApActivity::Announce(self.clone()), None))
+            .map_err(|_| Status::new(520))?;
+        log::debug!("ACTIVITY\n{activity:#?}");
+        if create_activity((&conn).into(), activity.clone())
+            .await
+            .is_ok()
+        {
+            to_faktory(
+                faktory,
+                "process_remote_announce",
+                vec![activity.uuid.clone()],
+            )
         } else {
             log::error!("FAILED TO CREATE ACTIVITY\n{raw}");
-            Err(Status::NoContent)
+            Err(Status::new(521))
         }
     }
 }
@@ -99,42 +99,35 @@ async fn outbox(
     if let MaybeReference::Reference(id) = announce.object {
         let note_like = get_notey(conn, id).await;
 
-        if let Some(note_like) = note_like {
-            let (note, remote_note) = match note_like {
-                NoteLike::Note(note) => (Some(note), None),
-                NoteLike::RemoteNote(remote_note) => (None, Some(remote_note)),
-            };
+        let note_like = note_like.ok_or(Status::new(520))?;
+        let (note, remote_note) = match note_like {
+            NoteLike::Note(note) => (Some(note), None),
+            NoteLike::RemoteNote(remote_note) => (None, Some(remote_note)),
+        };
 
-            if let Ok(activity) = create_activity(
-                conn.into(),
-                NewActivity::from((
-                    note.clone(),
-                    remote_note.clone(),
-                    ActivityType::Announce,
-                    ApAddress::Address(get_ap_id_from_username(profile.username.clone())),
-                ))
-                .link_profile(conn)
-                .await,
-            )
-            .await
-            {
-                if to_faktory(faktory, "send_announce", activity.uuid.clone()).is_ok() {
-                    Ok(get_activity_ap_id_from_uuid(activity.uuid))
-                } else {
-                    log::error!("FAILED TO ASSIGN ANNOUNCE TO FAKTORY");
-                    Err(Status::NoContent)
-                }
-            } else {
-                log::error!("FAILED TO CREATE ANNOUNCE ACTIVITY");
-                Err(Status::NoContent)
-            }
+        let activity = create_activity(
+            conn.into(),
+            NewActivity::from((
+                note.clone(),
+                remote_note.clone(),
+                ActivityType::Announce,
+                ApAddress::Address(get_ap_id_from_username(profile.username.clone())),
+            ))
+            .link_profile(conn)
+            .await,
+        )
+        .await
+        .map_err(|_| Status::new(521))?;
+
+        if to_faktory(faktory, "send_announce", vec![activity.uuid.clone()]).is_ok() {
+            Ok(get_activity_ap_id_from_uuid(activity.uuid))
         } else {
-            log::error!("NOTE AND REMOTE_NOTE CANNOT BOTH BE NONE");
-            Err(Status::NoContent)
+            log::error!("FAILED TO ASSIGN ANNOUNCE TO FAKTORY");
+            Err(Status::new(522))
         }
     } else {
         log::error!("ANNOUNCE OBJECT IS NOT A REFERENCE");
-        Err(Status::NoContent)
+        Err(Status::new(523))
     }
 }
 

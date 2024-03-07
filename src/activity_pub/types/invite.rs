@@ -55,7 +55,7 @@ impl Inbox for ApInvite {
                 if let Some(session) =
                     create_remote_encrypted_session(&conn, (self.clone(), profile.id).into()).await
                 {
-                    to_faktory(faktory, "provide_one_time_key", session.ap_id)
+                    to_faktory(faktory, "provide_one_time_key", vec![session.ap_id])
                 } else {
                     log::error!("FAILED TO HANDLE ACTIVITY\n{raw}");
                     Err(Status::NoContent)

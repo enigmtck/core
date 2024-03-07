@@ -1,3 +1,4 @@
+use crate::activity_pub::ApNote;
 use crate::fairings::events::EventChannels;
 use futures_lite::stream::StreamExt;
 use lapin::options::{BasicAckOptions, BasicConsumeOptions, QueueDeclareOptions};
@@ -54,10 +55,13 @@ impl Fairing for MqConnectionFairing {
                         tokio::spawn(async move {
                             while let Some(delivery) = consumer.next().await {
                                 if let Ok(delivery) = delivery {
+                                    let (stream, note) =
+                                        serde_json::from_str::<(Option<String>, ApNote)>(
+                                            &String::from_utf8(delivery.data.clone()).unwrap(),
+                                        )
+                                        .unwrap();
                                     if delivery.ack(BasicAckOptions::default()).await.is_ok() {
-                                        state.send(
-                                            String::from_utf8(delivery.data.clone()).unwrap(),
-                                        );
+                                        state.send(stream, serde_json::to_string(&note).unwrap());
                                     }
                                 }
                             }

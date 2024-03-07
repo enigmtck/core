@@ -141,7 +141,7 @@ async fn handle_like_outbox(
             )
             .await
             {
-                if to_faktory(faktory, "send_like", activity.uuid.clone()).is_ok() {
+                if to_faktory(faktory, "send_like", vec![activity.uuid.clone()]).is_ok() {
                     Ok(get_activity_ap_id_from_uuid(activity.uuid))
                 } else {
                     log::error!("FAILED TO ASSIGN LIKE TO FAKTORY");

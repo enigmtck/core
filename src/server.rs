@@ -91,7 +91,7 @@ fn rocket() -> Rocket<Build> {
                 conversation_get_local,
                 authorize_stream,
                 host_meta,
-                cached_image
+                cached_image,
             ],
         )
 }

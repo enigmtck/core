@@ -47,7 +47,7 @@ pub fn clean_text(text: String) -> String {
     ammonia.clean(&text).to_string()
 }
 
-pub async fn send_to_mq(note: ApNote) {
+pub async fn send_to_mq(notes: Vec<(String, ApNote)>) {
     let mq = lapin::Connection::connect(&crate::AMQP_URL, ConnectionProperties::default())
         .await
         .unwrap();
@@ -63,18 +63,20 @@ pub async fn send_to_mq(note: ApNote) {
     //     .await
     //     .unwrap();
 
-    let _confirm = channel
-        .basic_publish(
-            "",
-            "events",
-            BasicPublishOptions::default(),
-            &serde_json::to_vec(&note).unwrap(),
-            BasicProperties::default(),
-        )
-        .await
-        .unwrap()
-        .await
-        .unwrap();
+    for note in notes.iter() {
+        let _confirm = channel
+            .basic_publish(
+                "",
+                "events",
+                BasicPublishOptions::default(),
+                &serde_json::to_vec(&note).unwrap(),
+                BasicProperties::default(),
+            )
+            .await
+            .unwrap()
+            .await
+            .unwrap();
+    }
 }
 
 pub async fn send_to_inboxes(inboxes: Vec<ApAddress>, profile: Profile, message: ApActivity) {

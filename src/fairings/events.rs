@@ -100,22 +100,29 @@ impl EventChannels {
         (uuid, rx)
     }
 
-    pub fn send(&mut self, message: String) {
+    pub fn send(&mut self, stream: Option<String>, message: String) {
         log::debug!("send called");
         if let Some(mut x) = self.sending_channels.try_lock() {
             for (uuid, identified_sender) in (*x).clone() {
                 if identified_sender.authorized {
-                    log::debug!("SENDING EVENT");
+                    match stream.clone() {
+                        Some(stream) => {
+                            if stream == uuid {
+                                log::debug!("SENDING EVENT");
 
-                    match identified_sender.sender.try_send(message.clone()) {
-                        Ok(_) => {
-                            log::debug!("SENT {uuid:#?} {:#?}", identified_sender.username);
+                                if identified_sender.sender.try_send(message.clone()).is_err() {
+                                    x.remove(&uuid);
+                                };
+                            }
                         }
-                        Err(e) => {
-                            log::error!("REMOVING {e:#?}");
-                            x.remove(&uuid);
+                        None => {
+                            log::debug!("SENDING EVENT");
+
+                            if identified_sender.sender.try_send(message.clone()).is_err() {
+                                x.remove(&uuid);
+                            };
                         }
-                    };
+                    }
                 } else {
                     log::debug!("{uuid} NOT YET AUTHORIZED");
                 }

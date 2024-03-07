@@ -21,10 +21,7 @@ pub struct Permitted(pub bool);
 
 impl Permitted {
     pub fn is_permitted(&self) -> bool {
-        match self {
-            Permitted(true) => true,
-            _ => false,
-        }
+        matches!(self, Permitted(true))
     }
 }
 

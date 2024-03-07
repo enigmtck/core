@@ -1,6 +1,7 @@
+use async_mutex::Mutex;
 use faktory::{Job, Producer};
 use std::net::TcpStream;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use rocket::fairing::{self, Fairing, Info, Kind};
 use rocket::http::Status;
@@ -63,9 +64,9 @@ pub fn assign_to_faktory(
     job_args: Vec<String>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     match faktory.producer.try_lock() {
-        Ok(mut x) => x
+        Some(mut x) => x
             .enqueue(Job::new(job_name, job_args))
             .map_err(|e| e.into()),
-        Err(e) => Err(Box::from(e.to_string())),
+        None => Err(Box::from("failed to acquire lock")),
     }
 }

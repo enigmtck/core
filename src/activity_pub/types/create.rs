@@ -71,26 +71,21 @@ impl Inbox for ApCreate {
 
                 // creating Activity after RemoteNote is weird, but currently necessary
                 // see comment in models/activities.rs on TryFrom<ApActivity>
-                if let Some(created_note) = create_or_update_remote_note(Some(&conn), n).await {
-                    if let Ok(activity) = NewActivity::try_from((
-                        ApActivity::Create(self.clone()),
-                        Some(ActivityTarget::from(created_note.clone())),
-                    )
-                        as ApActivityTarget)
-                    {
-                        log::debug!("ACTIVITY\n{activity:#?}");
-                        if create_activity((&conn).into(), activity).await.is_ok() {
-                            to_faktory(faktory, "process_remote_note", created_note.ap_id)
-                        } else {
-                            log::error!("FAILED TO INSERT ACTIVITY");
-                            Err(Status::NoContent)
-                        }
-                    } else {
-                        log::error!("FAILED TO CREATE ACTIVITY\n{raw}");
-                        Err(Status::NoContent)
-                    }
+                let created_note = create_or_update_remote_note(Some(&conn), n)
+                    .await
+                    .ok_or(Status::new(520))?;
+                let activity = NewActivity::try_from((
+                    ApActivity::Create(self.clone()),
+                    Some(ActivityTarget::from(created_note.clone())),
+                ) as ApActivityTarget)
+                .map_err(|_| Status::new(521))?;
+
+                log::debug!("ACTIVITY\n{activity:#?}");
+
+                if create_activity((&conn).into(), activity).await.is_ok() {
+                    to_faktory(faktory, "process_remote_note", vec![created_note.ap_id])
                 } else {
-                    log::error!("FAILED TO CREATE ACTIVITY\n{raw}");
+                    log::error!("FAILED TO INSERT ACTIVITY");
                     Err(Status::NoContent)
                 }
             }
@@ -120,53 +115,27 @@ impl TryFrom<ExtendedActivity> for ApCreate {
     fn try_from(
         (activity, note, _remote_note, _profile, _remote_actor): ExtendedActivity,
     ) -> Result<Self, Self::Error> {
-        if let Some(note) = note {
-            if let Some(ap_to) = activity.ap_to {
-                Ok(ApCreate {
-                    context: Some(ApContext::default()),
-                    kind: ApCreateType::default(),
-                    actor: ApAddress::Address(activity.actor.clone()),
-                    id: Some(format!(
-                        "{}/activities/{}",
-                        *crate::SERVER_URL,
-                        activity.uuid
-                    )),
-                    object: ApObject::Note(ApNote::from(note)).into(),
-                    to: serde_json::from_value(ap_to).unwrap(),
-                    cc: activity.cc.map(|cc| serde_json::from_value(cc).unwrap()),
-                    signature: None,
-                    published: Some(activity.created_at.to_rfc3339()),
-                    ephemeral_created_at: Some(activity.created_at),
-                    ephemeral_updated_at: Some(activity.updated_at),
-                })
-            } else {
-                log::error!("ACTIVITY DOES NOT HAVE A TO FIELD");
-                Err("ACTIVITY DOES NOT HAVE A TO FIELD")
-            }
-        } else {
-            log::error!("ACTIVITY MUST INCLUDE A LOCALLY CREATED NOTE");
-            Err("ACTIVITY MUST INCLUDE A LOCALLY CREATED NOTE")
-        }
+        let note = note.ok_or("ACTIVITY MUST INCLUDE A LOCALLY CREATED NOTE")?;
+        let ap_to = activity.ap_to.ok_or("ACTIVITY DOES NOT HAVE A TO FIELD")?;
+        Ok(ApCreate {
+            context: Some(ApContext::default()),
+            kind: ApCreateType::default(),
+            actor: ApAddress::Address(activity.actor.clone()),
+            id: Some(format!(
+                "{}/activities/{}",
+                *crate::SERVER_URL,
+                activity.uuid
+            )),
+            object: ApObject::Note(ApNote::from(note)).into(),
+            to: serde_json::from_value(ap_to).unwrap(),
+            cc: activity.cc.map(|cc| serde_json::from_value(cc).unwrap()),
+            signature: None,
+            published: Some(activity.created_at.to_rfc3339()),
+            ephemeral_created_at: Some(activity.created_at),
+            ephemeral_updated_at: Some(activity.updated_at),
+        })
     }
 }
-
-// impl From<ApNote> for ApCreate {
-//     fn from(note: ApNote) -> Self {
-//         ApCreate {
-//             context: Some(ApContext::default()),
-//             kind: ApCreateType::default(),
-//             actor: note.attributed_to.clone(),
-//             id: note.id.clone().map(|id| format!("{id}#create")),
-//             object: ApObject::Note(note.clone()).into(),
-//             to: note.to.clone(),
-//             cc: note.cc.clone(),
-//             signature: None,
-//             published: note.published,
-//             ephemeral_created_at: None,
-//             ephemeral_updated_at: None,
-//         }
-//     }
-// }
 
 impl Temporal for ApCreate {
     fn published(&self) -> String {

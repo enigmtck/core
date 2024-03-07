@@ -177,12 +177,14 @@ pub async fn conversation(
             .await
             .unwrap_or(vec![]);
 
-    assign_to_faktory(
-        faktory,
-        String::from("retrieve_context"),
-        vec![conversation],
-    )
-    .map_err(|_| anyhow::Error::msg("failed to assign to faktory"))?;
+    if let Some(top) = conversations.first() {
+        assign_to_faktory(
+            faktory,
+            String::from("retrieve_context"),
+            vec![top.ap_id.clone()],
+        )
+        .map_err(|_| anyhow::Error::msg("failed to assign to faktory"))?;
+    }
 
     Ok(ApObject::Collection(ApCollection::from(
         conversations

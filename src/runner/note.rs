@@ -360,7 +360,7 @@ pub async fn handle_remote_note(
         )
         .await;
 
-        send_to_mq(note.clone()).await;
+        send_to_mq(vec![(String::new(), note.clone())]).await;
     }
 
     Ok(remote_note)
