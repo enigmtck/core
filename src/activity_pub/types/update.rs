@@ -49,6 +49,7 @@ impl Inbox for ApUpdate {
     async fn inbox(
         &self,
         conn: Db,
+        channels: EventChannels,
         _faktory: FaktoryConnection,
         raw: Value,
     ) -> Result<Status, Status> {
@@ -85,6 +86,7 @@ impl Inbox for ApUpdate {
                             runner::run(
                                 runner::timeline::update_timeline_record_task,
                                 Some(conn),
+                                Some(channels),
                                 vec![id],
                             )
                             .await;

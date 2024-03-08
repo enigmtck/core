@@ -60,6 +60,7 @@ impl Inbox for ApCreate {
     async fn inbox(
         &self,
         conn: Db,
+        channels: EventChannels,
         _faktory: FaktoryConnection,
         raw: Value,
     ) -> Result<Status, Status> {
@@ -86,6 +87,7 @@ impl Inbox for ApCreate {
                     runner::run(
                         runner::note::remote_note_task,
                         Some(conn),
+                        Some(channels),
                         vec![created_note.ap_id],
                     )
                     .await;

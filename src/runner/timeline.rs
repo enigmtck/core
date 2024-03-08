@@ -5,6 +5,7 @@ use std::io;
 use tokio::runtime::Runtime;
 
 use crate::db::Db;
+use crate::fairings::events::EventChannels;
 use crate::models::{
     notes::NoteType,
     remote_actors::{get_follower_profiles_by_endpoint, get_leader_by_endpoint},
@@ -18,6 +19,7 @@ use super::TaskError;
 
 pub async fn update_timeline_record_task(
     conn: Option<Db>,
+    channels: Option<EventChannels>,
     ap_ids: Vec<String>,
 ) -> Result<(), TaskError> {
     let conn = conn.as_ref();
@@ -45,8 +47,12 @@ pub fn update_timeline_record(job: Job) -> io::Result<()> {
 
     handle
         .block_on(async {
-            update_timeline_record_task(None, serde_json::from_value(job.args().into()).unwrap())
-                .await
+            update_timeline_record_task(
+                None,
+                None,
+                serde_json::from_value(job.args().into()).unwrap(),
+            )
+            .await
         })
         .map_err(|e| io::Error::new(io::ErrorKind::Other, e))
 }

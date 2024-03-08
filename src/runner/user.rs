@@ -8,6 +8,7 @@ use crate::{
     activity_pub::{ApActivity, ApActor, ApAddress, ApUpdate},
     admin::{create_user, NewUser},
     db::Db,
+    fairings::events::EventChannels,
     models::{
         followers::get_followers_by_profile_id,
         profiles::{get_profile_by_uuid, Profile},
@@ -37,6 +38,7 @@ pub async fn get_follower_inboxes(profile: Profile) -> Vec<ApAddress> {
 
 pub async fn send_profile_update_task(
     conn: Option<Db>,
+    channels: Option<EventChannels>,
     uuids: Vec<String>,
 ) -> Result<(), TaskError> {
     let conn = conn.as_ref();
@@ -70,7 +72,12 @@ pub fn send_profile_update(job: Job) -> io::Result<()> {
 
     handle
         .block_on(async {
-            send_profile_update_task(None, serde_json::from_value(job.args().into()).unwrap()).await
+            send_profile_update_task(
+                None,
+                None,
+                serde_json::from_value(job.args().into()).unwrap(),
+            )
+            .await
         })
         .map_err(|e| io::Error::new(io::ErrorKind::Other, e))
 }

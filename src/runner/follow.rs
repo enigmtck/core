@@ -6,6 +6,7 @@ use tokio::runtime::Runtime;
 use crate::{
     activity_pub::{sender::send_activity, ApAccept, ApActivity, ApAddress, ApFollow},
     db::Db,
+    fairings::events::EventChannels,
     models::{
         activities::{get_activity, get_activity_by_uuid},
         followers::{create_follower, delete_follower_by_ap_id, NewFollower},
@@ -17,7 +18,11 @@ use crate::{
     MaybeReference,
 };
 
-pub async fn process_follow_task(conn: Option<Db>, uuids: Vec<String>) -> Result<(), TaskError> {
+pub async fn process_follow_task(
+    conn: Option<Db>,
+    channels: Option<EventChannels>,
+    uuids: Vec<String>,
+) -> Result<(), TaskError> {
     let conn = conn.as_ref();
 
     for uuid in uuids {
@@ -61,12 +66,21 @@ pub fn process_follow(job: Job) -> io::Result<()> {
 
     handle
         .block_on(async {
-            process_follow_task(None, serde_json::from_value(job.args().into()).unwrap()).await
+            process_follow_task(
+                None,
+                None,
+                serde_json::from_value(job.args().into()).unwrap(),
+            )
+            .await
         })
         .map_err(|e| io::Error::new(io::ErrorKind::Other, e))
 }
 
-pub async fn process_accept_task(conn: Option<Db>, uuids: Vec<String>) -> Result<(), TaskError> {
+pub async fn process_accept_task(
+    conn: Option<Db>,
+    channels: Option<EventChannels>,
+    uuids: Vec<String>,
+) -> Result<(), TaskError> {
     let conn = conn.as_ref();
 
     for uuid in uuids {
@@ -111,7 +125,12 @@ pub fn process_accept(job: Job) -> io::Result<()> {
 
     handle
         .block_on(async {
-            process_accept_task(None, serde_json::from_value(job.args().into()).unwrap()).await
+            process_accept_task(
+                None,
+                None,
+                serde_json::from_value(job.args().into()).unwrap(),
+            )
+            .await
         })
         .map_err(|e| io::Error::new(io::ErrorKind::Other, e))
 }
@@ -130,6 +149,7 @@ pub enum DeleteFollowerError {
 
 pub async fn process_remote_undo_follow_task(
     conn: Option<Db>,
+    channels: Option<EventChannels>,
     ap_ids: Vec<String>,
 ) -> Result<(), TaskError> {
     let conn = conn.as_ref();
@@ -155,6 +175,7 @@ pub fn process_remote_undo_follow(job: Job) -> io::Result<()> {
         .block_on(async {
             process_remote_undo_follow_task(
                 None,
+                None,
                 serde_json::from_value(job.args().into()).unwrap(),
             )
             .await
@@ -170,14 +191,19 @@ pub fn acknowledge_followers(job: Job) -> io::Result<()> {
 
     handle
         .block_on(async {
-            acknowledge_followers_task(None, serde_json::from_value(job.args().into()).unwrap())
-                .await
+            acknowledge_followers_task(
+                None,
+                None,
+                serde_json::from_value(job.args().into()).unwrap(),
+            )
+            .await
         })
         .map_err(|e| io::Error::new(io::ErrorKind::Other, e))
 }
 
 pub async fn acknowledge_followers_task(
     conn: Option<Db>,
+    channels: Option<EventChannels>,
     uuids: Vec<String>,
 ) -> Result<(), TaskError> {
     log::debug!("PROCESSING INCOMING FOLLOW REQUEST");

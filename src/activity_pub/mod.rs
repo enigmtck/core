@@ -63,6 +63,7 @@ pub trait Inbox {
     async fn inbox(
         &self,
         conn: Db,
+        channels: EventChannels,
         faktory: FaktoryConnection,
         raw: Value,
     ) -> Result<Status, Status>;

@@ -6,6 +6,7 @@ use tokio::runtime::Runtime;
 use crate::{
     activity_pub::{ApActivity, ApAddress},
     db::Db,
+    fairings::events::EventChannels,
     models::{
         activities::{get_activity_by_uuid, revoke_activity_by_apid, update_target_remote_note},
         profiles::{get_profile, guaranteed_profile},
@@ -20,8 +21,13 @@ use crate::{
 
 use super::TaskError;
 
-pub async fn send_announce_task(conn: Option<Db>, uuids: Vec<String>) -> Result<(), TaskError> {
+pub async fn send_announce_task(
+    conn: Option<Db>,
+    channels: Option<EventChannels>,
+    uuids: Vec<String>,
+) -> Result<(), TaskError> {
     let conn = conn.as_ref();
+    let channels = channels.as_ref();
 
     for uuid in uuids {
         log::debug!("LOOKING FOR UUID {uuid}");
@@ -62,13 +68,19 @@ pub fn send_announce(job: Job) -> io::Result<()> {
 
     handle
         .block_on(async {
-            send_announce_task(None, serde_json::from_value(job.args().into()).unwrap()).await
+            send_announce_task(
+                None,
+                None,
+                serde_json::from_value(job.args().into()).unwrap(),
+            )
+            .await
         })
         .map_err(|e| io::Error::new(io::ErrorKind::Other, e))
 }
 
 pub async fn remote_undo_announce_task(
     conn: Option<Db>,
+    channels: Option<EventChannels>,
     ap_ids: Vec<String>,
 ) -> Result<(), TaskError> {
     let conn = conn.as_ref();
@@ -92,46 +104,53 @@ pub fn process_remote_undo_announce(job: Job) -> io::Result<()> {
 
     handle
         .block_on(async {
-            remote_undo_announce_task(None, serde_json::from_value(job.args().into()).unwrap())
-                .await
+            remote_undo_announce_task(
+                None,
+                None,
+                serde_json::from_value(job.args().into()).unwrap(),
+            )
+            .await
         })
         .map_err(|e| io::Error::new(io::ErrorKind::Other, e))
 }
 
-pub async fn remote_announce_task(conn: Option<Db>, uuids: Vec<String>) -> Result<(), TaskError> {
+pub async fn remote_announce_task(
+    conn: Option<Db>,
+    channels: Option<EventChannels>,
+    uuids: Vec<String>,
+) -> Result<(), TaskError> {
     let conn = conn.as_ref();
 
     let profile = guaranteed_profile(None, None).await;
 
-    for uuid in uuids {
-        log::debug!("RETRIEVING ANNOUNCE: {uuid}");
+    let uuid = uuids.first().unwrap();
+    log::debug!("RETRIEVING ANNOUNCE: {uuid}");
 
-        let profile = profile.clone();
+    let profile = profile.clone();
 
-        let (activity, _, _, _, _) = get_activity_by_uuid(conn, uuid.to_string())
+    let (activity, _, _, _, _) = get_activity_by_uuid(conn, uuid.to_string())
+        .await
+        .ok_or(TaskError::TaskFailed)?;
+
+    let target_ap_id = activity.clone().target_ap_id.ok_or(TaskError::TaskFailed)?;
+
+    if get_timeline_item_by_ap_id(conn, target_ap_id.clone())
+        .await
+        .is_none()
+    {
+        let remote_note = fetch_remote_note(target_ap_id.clone(), profile.clone())
             .await
             .ok_or(TaskError::TaskFailed)?;
 
-        let target_ap_id = activity.clone().target_ap_id.ok_or(TaskError::TaskFailed)?;
-
-        if get_timeline_item_by_ap_id(conn, target_ap_id.clone())
-            .await
-            .is_none()
-        {
-            let remote_note = fetch_remote_note(target_ap_id.clone(), profile.clone())
+        update_target_remote_note(
+            conn,
+            activity.clone(),
+            handle_remote_note(channels, remote_note, Some(activity.actor))
                 .await
-                .ok_or(TaskError::TaskFailed)?;
-
-            update_target_remote_note(
-                conn,
-                activity.clone(),
-                handle_remote_note(remote_note, Some(activity.actor))
-                    .await
-                    .map_err(|_| TaskError::TaskFailed)?,
-            )
-            .await;
-        };
-    }
+                .map_err(|_| TaskError::TaskFailed)?,
+        )
+        .await;
+    };
 
     Ok(())
 }
@@ -144,7 +163,12 @@ pub fn process_remote_announce(job: Job) -> io::Result<()> {
 
     handle
         .block_on(async {
-            remote_announce_task(None, serde_json::from_value(job.args().into()).unwrap()).await
+            remote_announce_task(
+                None,
+                None,
+                serde_json::from_value(job.args().into()).unwrap(),
+            )
+            .await
         })
         .map_err(|e| io::Error::new(io::ErrorKind::Other, e))
 }

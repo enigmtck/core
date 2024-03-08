@@ -1,7 +1,7 @@
 use crate::{
     activity_pub::{ApImage, ApImageType},
     db::Db,
-    fairings::faktory::{assign_to_faktory, FaktoryConnection},
+    fairings::{events::EventChannels, faktory::FaktoryConnection},
     models::profiles::{update_avatar_by_username, update_banner_by_username},
     runner,
 };
@@ -35,6 +35,7 @@ pub struct SummaryUpdate {
 pub async fn update_summary(
     signed: Signed,
     conn: Db,
+    channels: EventChannels,
     faktory: FaktoryConnection,
     username: String,
     summary: Result<Json<SummaryUpdate>, Error<'_>>,
@@ -49,6 +50,7 @@ pub async fn update_summary(
                 runner::run(
                     runner::user::send_profile_update_task,
                     Some(conn),
+                    Some(channels),
                     vec![profile.uuid.clone()],
                 )
                 .await;

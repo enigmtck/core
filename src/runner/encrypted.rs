@@ -10,6 +10,7 @@ use crate::{
         ApInvite, ApJoin, ApNote, ApSession, JoinData,
     },
     db::Db,
+    fairings::events::EventChannels,
     helper::{get_local_identifier, is_local, LocalIdentifierType},
     models::{
         encrypted_sessions::{
@@ -102,7 +103,11 @@ pub async fn handle_encrypted_note(
     }
 }
 
-pub async fn process_join_task(conn: Option<Db>, ap_ids: Vec<String>) -> Result<(), TaskError> {
+pub async fn process_join_task(
+    conn: Option<Db>,
+    channels: Option<EventChannels>,
+    ap_ids: Vec<String>,
+) -> Result<(), TaskError> {
     log::debug!("RUNNING process_join JOB");
 
     let conn = conn.as_ref();
@@ -142,12 +147,21 @@ pub fn process_join(job: Job) -> io::Result<()> {
 
     handle
         .block_on(async {
-            process_join_task(None, serde_json::from_value(job.args().into()).unwrap()).await
+            process_join_task(
+                None,
+                None,
+                serde_json::from_value(job.args().into()).unwrap(),
+            )
+            .await
         })
         .map_err(|e| io::Error::new(io::ErrorKind::Other, e))
 }
 
-pub async fn send_kexinit_task(conn: Option<Db>, uuids: Vec<String>) -> Result<(), TaskError> {
+pub async fn send_kexinit_task(
+    conn: Option<Db>,
+    channels: Option<EventChannels>,
+    uuids: Vec<String>,
+) -> Result<(), TaskError> {
     log::debug!("RUNNING send_kexinit JOB");
 
     let conn = conn.as_ref();
@@ -202,7 +216,12 @@ pub fn send_kexinit(job: Job) -> io::Result<()> {
 
     handle
         .block_on(async {
-            send_kexinit_task(None, serde_json::from_value(job.args().into()).unwrap()).await
+            send_kexinit_task(
+                None,
+                None,
+                serde_json::from_value(job.args().into()).unwrap(),
+            )
+            .await
         })
         .map_err(|e| io::Error::new(io::ErrorKind::Other, e))
 }
@@ -215,14 +234,19 @@ pub fn provide_one_time_key(job: Job) -> io::Result<()> {
 
     handle
         .block_on(async {
-            provide_one_time_key_task(None, serde_json::from_value(job.args().into()).unwrap())
-                .await
+            provide_one_time_key_task(
+                None,
+                None,
+                serde_json::from_value(job.args().into()).unwrap(),
+            )
+            .await
         })
         .map_err(|e| io::Error::new(io::ErrorKind::Other, e))
 }
 
 pub async fn provide_one_time_key_task(
     conn: Option<Db>,
+    channels: Option<EventChannels>,
     ap_ids: Vec<String>,
 ) -> Result<(), TaskError> {
     log::debug!("RUNNING provide_one_time_key JOB");

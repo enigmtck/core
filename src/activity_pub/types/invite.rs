@@ -45,6 +45,7 @@ impl Inbox for ApInvite {
     async fn inbox(
         &self,
         conn: Db,
+        channels: EventChannels,
         _faktory: FaktoryConnection,
         raw: Value,
     ) -> Result<Status, Status> {
@@ -58,6 +59,7 @@ impl Inbox for ApInvite {
                     runner::run(
                         runner::encrypted::provide_one_time_key_task,
                         Some(conn),
+                        Some(channels),
                         vec![session.ap_id],
                     )
                     .await;

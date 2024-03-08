@@ -57,6 +57,7 @@ fn undo_target_apid(activity: &ApActivity) -> Option<String> {
 
 async fn process_undo_activity(
     conn: Db,
+    channels: EventChannels,
     faktory: FaktoryConnection,
     ap_target: &ApActivity,
     undo: &ApUndo,
@@ -84,6 +85,7 @@ async fn process_undo_activity(
                 runner::run(
                     runner::like::process_remote_undo_like_task,
                     Some(conn),
+                    Some(channels),
                     vec![apid.clone()],
                 )
                 .await;
@@ -94,6 +96,7 @@ async fn process_undo_activity(
                 runner::run(
                     runner::follow::process_remote_undo_follow_task,
                     Some(conn),
+                    Some(channels),
                     vec![apid.clone()],
                 )
                 .await;
@@ -104,6 +107,7 @@ async fn process_undo_activity(
                 runner::run(
                     runner::announce::remote_undo_announce_task,
                     Some(conn),
+                    Some(channels),
                     vec![apid.clone()],
                 )
                 .await;
@@ -121,12 +125,13 @@ impl Inbox for Box<ApUndo> {
     async fn inbox(
         &self,
         conn: Db,
+        channels: EventChannels,
         faktory: FaktoryConnection,
         raw: Value,
     ) -> Result<Status, Status> {
         match self.object.clone() {
             MaybeReference::Actual(actual) => {
-                process_undo_activity(conn, faktory, &actual, self).await
+                process_undo_activity(conn, channels, faktory, &actual, self).await
             }
             MaybeReference::Reference(_) => {
                 log::warn!(
@@ -151,15 +156,16 @@ impl Outbox for Box<ApUndo> {
         &self,
         conn: Db,
         faktory: FaktoryConnection,
-        _events: EventChannels,
+        events: EventChannels,
         profile: Profile,
     ) -> Result<String, Status> {
-        handle_undo(conn, faktory, *self.clone(), profile).await
+        handle_undo(conn, events, faktory, *self.clone(), profile).await
     }
 }
 
 async fn handle_undo(
     conn: Db,
+    channels: EventChannels,
     faktory: FaktoryConnection,
     undo: ApUndo,
     profile: Profile,
@@ -194,6 +200,7 @@ async fn handle_undo(
                 runner::run(
                     runner::undo::process_outbound_undo_task,
                     Some(conn),
+                    Some(channels),
                     vec![activity.uuid.clone()],
                 )
                 .await;

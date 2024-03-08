@@ -2,13 +2,13 @@ use anyhow::Result;
 use faktory::Job;
 use reqwest::{Client, StatusCode};
 use rocket::futures::future::join_all;
-use std::io::{Error, ErrorKind};
 use tokio::io;
 use tokio::runtime::Runtime;
 use url::Url;
 
 use crate::activity_pub::retriever::signed_get;
 use crate::activity_pub::ApImage;
+use crate::fairings::events::EventChannels;
 use crate::models::note_hashtags::{create_note_hashtag, NewNoteHashtag};
 use crate::models::notes::delete_note_by_uuid;
 use crate::models::processing_queue::create_processing_item;
@@ -69,7 +69,11 @@ async fn cache_note(note: &'_ ApNote) -> &'_ ApNote {
     note
 }
 
-pub async fn delete_note_task(conn: Option<Db>, uuids: Vec<String>) -> Result<(), TaskError> {
+pub async fn delete_note_task(
+    conn: Option<Db>,
+    channels: Option<EventChannels>,
+    uuids: Vec<String>,
+) -> Result<(), TaskError> {
     let conn = conn.as_ref();
 
     for uuid in uuids {
@@ -125,12 +129,21 @@ pub fn delete_note(job: Job) -> io::Result<()> {
 
     handle
         .block_on(async {
-            delete_note_task(None, serde_json::from_value(job.args().into()).unwrap()).await
+            delete_note_task(
+                None,
+                None,
+                serde_json::from_value(job.args().into()).unwrap(),
+            )
+            .await
         })
         .map_err(|e| io::Error::new(io::ErrorKind::Other, e))
 }
 
-pub async fn outbound_note_task(conn: Option<Db>, uuids: Vec<String>) -> Result<(), TaskError> {
+pub async fn outbound_note_task(
+    conn: Option<Db>,
+    channels: Option<EventChannels>,
+    uuids: Vec<String>,
+) -> Result<(), TaskError> {
     let conn = conn.as_ref();
 
     for uuid in uuids {
@@ -229,12 +242,21 @@ pub fn process_outbound_note(job: Job) -> io::Result<()> {
 
     handle
         .block_on(async {
-            outbound_note_task(None, serde_json::from_value(job.args().into()).unwrap()).await
+            outbound_note_task(
+                None,
+                None,
+                serde_json::from_value(job.args().into()).unwrap(),
+            )
+            .await
         })
         .map_err(|e| io::Error::new(io::ErrorKind::Other, e))
 }
 
-pub async fn retrieve_context_task(conn: Option<Db>, ap_ids: Vec<String>) -> Result<(), TaskError> {
+pub async fn retrieve_context_task(
+    conn: Option<Db>,
+    channels: Option<EventChannels>,
+    ap_ids: Vec<String>,
+) -> Result<(), TaskError> {
     //let conn = conn.as_ref();
 
     let profile = guaranteed_profile(None, None).await;
@@ -261,7 +283,12 @@ pub fn retrieve_context(job: Job) -> io::Result<()> {
     let handle = rt.handle();
     handle
         .block_on(async {
-            retrieve_context_task(None, serde_json::from_value(job.args().into()).unwrap()).await
+            retrieve_context_task(
+                None,
+                None,
+                serde_json::from_value(job.args().into()).unwrap(),
+            )
+            .await
         })
         .map_err(|e| io::Error::new(io::ErrorKind::Other, e))
 }
@@ -337,6 +364,7 @@ pub async fn create_timeline_tags(timeline_item: TimelineItem) {
 }
 
 pub async fn handle_remote_note(
+    channels: Option<EventChannels>,
     remote_note: RemoteNote,
     announcer: Option<String>,
 ) -> anyhow::Result<RemoteNote> {
@@ -365,7 +393,10 @@ pub async fn handle_remote_note(
         )
         .await;
 
-        send_to_mq(vec![(String::new(), note.clone())]).await;
+        if let Some(mut channels) = channels {
+            channels.send(None, serde_json::to_string(&note.clone()).unwrap());
+        }
+        //send_to_mq(vec![(String::new(), note.clone())]).await;
     }
 
     Ok(remote_note)
@@ -405,27 +436,36 @@ pub fn process_remote_note(job: Job) -> io::Result<()> {
 
     handle
         .block_on(async {
-            remote_note_task(None, serde_json::from_value(job.args().into()).unwrap()).await
+            remote_note_task(
+                None,
+                None,
+                serde_json::from_value(job.args().into()).unwrap(),
+            )
+            .await
         })
         .map_err(|e| io::Error::new(io::ErrorKind::Other, e))
 }
 
-pub async fn remote_note_task(conn: Option<Db>, ap_ids: Vec<String>) -> Result<(), TaskError> {
+pub async fn remote_note_task(
+    conn: Option<Db>,
+    channels: Option<EventChannels>,
+    ap_ids: Vec<String>,
+) -> Result<(), TaskError> {
     let conn = conn.as_ref();
 
-    for ap_id in ap_ids {
-        log::debug!("looking for ap_id: {}", ap_id);
+    let ap_id = ap_ids.first().unwrap().clone();
 
-        if let Some(remote_note) = get_remote_note_by_ap_id(conn, ap_id).await {
-            match remote_note.kind {
-                NoteType::Note => {
-                    let _ = handle_remote_note(remote_note.clone(), None).await;
-                }
-                NoteType::EncryptedNote => {
-                    let _ = handle_remote_encrypted_note(remote_note);
-                }
-                _ => (),
+    log::debug!("looking for ap_id: {}", ap_id);
+
+    if let Some(remote_note) = get_remote_note_by_ap_id(conn, ap_id).await {
+        match remote_note.kind {
+            NoteType::Note => {
+                let _ = handle_remote_note(channels, remote_note.clone(), None).await;
             }
+            NoteType::EncryptedNote => {
+                let _ = handle_remote_encrypted_note(remote_note);
+            }
+            _ => (),
         }
     }
 

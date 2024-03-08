@@ -49,6 +49,7 @@ impl Inbox for Box<ApAccept> {
     async fn inbox(
         &self,
         conn: Db,
+        channels: EventChannels,
         faktory: FaktoryConnection,
         raw: Value,
     ) -> Result<Status, Status> {
@@ -77,6 +78,7 @@ impl Inbox for Box<ApAccept> {
             runner::run(
                 runner::follow::process_accept_task,
                 Some(conn),
+                Some(channels),
                 vec![activity.uuid.clone()],
             )
             .await;

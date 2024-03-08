@@ -51,6 +51,7 @@ impl Inbox for Box<ApLike> {
     async fn inbox(
         &self,
         conn: Db,
+        channels: EventChannels,
         _faktory: FaktoryConnection,
         raw: Value,
     ) -> Result<Status, Status> {
@@ -99,15 +100,16 @@ impl Outbox for Box<ApLike> {
         &self,
         conn: Db,
         faktory: FaktoryConnection,
-        _events: EventChannels,
+        events: EventChannels,
         profile: Profile,
     ) -> Result<String, Status> {
-        handle_like_outbox(conn, faktory, *self.clone(), profile).await
+        handle_like_outbox(conn, events, faktory, *self.clone(), profile).await
     }
 }
 
 async fn handle_like_outbox(
     conn: Db,
+    channels: EventChannels,
     faktory: FaktoryConnection,
     like: ApLike,
     profile: Profile,
@@ -144,6 +146,7 @@ async fn handle_like_outbox(
                 runner::run(
                     runner::like::send_like_task,
                     Some(conn),
+                    Some(channels),
                     vec![activity.uuid.clone()],
                 )
                 .await;

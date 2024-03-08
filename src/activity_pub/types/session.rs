@@ -40,10 +40,10 @@ impl Outbox for ApSession {
         &self,
         conn: Db,
         faktory: FaktoryConnection,
-        _events: EventChannels,
+        events: EventChannels,
         profile: Profile,
     ) -> Result<String, Status> {
-        handle_session(conn, faktory, self.clone(), profile).await
+        handle_session(conn, events, faktory, self.clone(), profile).await
     }
 }
 
@@ -220,6 +220,7 @@ impl From<RemoteEncryptedSession> for ApSession {
 
 async fn handle_session(
     conn: Db,
+    channels: EventChannels,
     faktory: FaktoryConnection,
     session: ApSession,
     profile: Profile,
@@ -230,6 +231,7 @@ async fn handle_session(
         runner::run(
             runner::encrypted::send_kexinit_task,
             Some(conn),
+            Some(channels),
             vec![session.uuid.clone()],
         )
         .await;

@@ -12,6 +12,7 @@ use url::Url;
 use crate::{
     activity_pub::{ApActivity, ApActor, ApAddress, ApNote},
     db::Db,
+    fairings::events::EventChannels,
     models::profiles::Profile,
     runner::{
         announce::{process_remote_announce, process_remote_undo_announce, send_announce},
@@ -256,10 +257,14 @@ impl fmt::Display for TaskError {
 
 impl Error for TaskError {}
 
-pub async fn run<Fut, F>(f: F, conn: Option<Db>, params: Vec<String>)
-where
-    F: Fn(Option<Db>, Vec<String>) -> Fut,
+pub async fn run<Fut, F>(
+    f: F,
+    conn: Option<Db>,
+    channels: Option<EventChannels>,
+    params: Vec<String>,
+) where
+    F: Fn(Option<Db>, Option<EventChannels>, Vec<String>) -> Fut,
     Fut: Future<Output = Result<(), TaskError>> + Send + 'static,
 {
-    tokio::spawn(f(conn, params));
+    tokio::spawn(f(conn, channels, params));
 }

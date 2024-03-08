@@ -56,6 +56,7 @@ impl Inbox for ApAnnounce {
     async fn inbox(
         &self,
         conn: Db,
+        channels: EventChannels,
         _faktory: FaktoryConnection,
         raw: Value,
     ) -> Result<Status, Status> {
@@ -69,6 +70,7 @@ impl Inbox for ApAnnounce {
             runner::run(
                 runner::announce::remote_announce_task,
                 Some(conn),
+                Some(channels),
                 vec![activity.uuid.clone()],
             )
             .await;
@@ -90,15 +92,16 @@ impl Outbox for ApAnnounce {
         &self,
         conn: Db,
         faktory: FaktoryConnection,
-        _events: EventChannels,
+        events: EventChannels,
         profile: Profile,
     ) -> Result<String, Status> {
-        outbox(conn, faktory, self.clone(), profile).await
+        outbox(conn, events, faktory, self.clone(), profile).await
     }
 }
 
 async fn outbox(
     conn: Db,
+    channels: EventChannels,
     faktory: FaktoryConnection,
     announce: ApAnnounce,
     profile: Profile,
@@ -129,6 +132,7 @@ async fn outbox(
         runner::run(
             runner::announce::send_announce_task,
             Some(conn),
+            Some(channels),
             vec![activity.uuid.clone()],
         )
         .await;

@@ -48,6 +48,7 @@ impl Inbox for ApFollow {
     async fn inbox(
         &self,
         conn: Db,
+        channels: EventChannels,
         _faktory: FaktoryConnection,
         _raw: Value,
     ) -> Result<Status, Status> {
@@ -72,6 +73,7 @@ impl Inbox for ApFollow {
         runner::run(
             runner::follow::acknowledge_followers_task,
             Some(conn),
+            Some(channels),
             vec![activity.uuid],
         )
         .await;
@@ -85,15 +87,16 @@ impl Outbox for ApFollow {
         &self,
         conn: Db,
         faktory: FaktoryConnection,
-        _events: EventChannels,
+        events: EventChannels,
         profile: Profile,
     ) -> Result<String, Status> {
-        outbox(conn, faktory, self.clone(), profile).await
+        outbox(conn, events, faktory, self.clone(), profile).await
     }
 }
 
 async fn outbox(
     conn: Db,
+    channels: EventChannels,
     faktory: FaktoryConnection,
     follow: ApFollow,
     profile: Profile,
@@ -123,6 +126,7 @@ async fn outbox(
                 runner::run(
                     runner::follow::process_follow_task,
                     Some(conn),
+                    Some(channels),
                     vec![activity.uuid.clone()],
                 )
                 .await;

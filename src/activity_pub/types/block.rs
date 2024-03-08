@@ -40,6 +40,7 @@ impl Inbox for ApBlock {
     async fn inbox(
         &self,
         _conn: Db,
+        _channels: EventChannels,
         _faktory: FaktoryConnection,
         raw: Value,
     ) -> Result<Status, Status> {

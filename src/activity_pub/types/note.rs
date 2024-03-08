@@ -575,7 +575,7 @@ impl From<RemoteNote> for ApNote {
 async fn handle_note(
     conn: Db,
     faktory: FaktoryConnection,
-    _events: EventChannels,
+    channels: EventChannels,
     mut note: ApNote,
     profile: Profile,
 ) -> Result<String, Status> {
@@ -636,6 +636,7 @@ async fn handle_note(
     runner::run(
         runner::note::outbound_note_task,
         Some(conn),
+        Some(channels),
         vec![activity.uuid.clone()],
     )
     .await;
@@ -657,7 +658,7 @@ async fn handle_note(
 async fn handle_encrypted_note(
     conn: Db,
     faktory: FaktoryConnection,
-    _events: EventChannels,
+    channels: EventChannels,
     note: ApNote,
     profile: Profile,
 ) -> Result<String, Status> {
@@ -675,6 +676,7 @@ async fn handle_encrypted_note(
         runner::run(
             runner::note::outbound_note_task,
             Some(conn),
+            Some(channels),
             vec![created_note.uuid.clone()],
         )
         .await;

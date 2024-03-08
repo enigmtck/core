@@ -60,6 +60,7 @@ impl Inbox for Box<ApDelete> {
     async fn inbox(
         &self,
         conn: Db,
+        channels: EventChannels,
         _faktory: FaktoryConnection,
         raw: Value,
     ) -> Result<Status, Status> {
@@ -151,15 +152,16 @@ impl Outbox for Box<ApDelete> {
         &self,
         conn: Db,
         faktory: FaktoryConnection,
-        _events: EventChannels,
+        events: EventChannels,
         profile: Profile,
     ) -> Result<String, Status> {
-        outbox(conn, faktory, *self.clone(), profile).await
+        outbox(conn, events, faktory, *self.clone(), profile).await
     }
 }
 
 async fn outbox(
     conn: Db,
+    channels: EventChannels,
     faktory: FaktoryConnection,
     delete: ApDelete,
     profile: Profile,
@@ -183,6 +185,7 @@ async fn outbox(
             runner::run(
                 runner::note::delete_note_task,
                 Some(conn),
+                Some(channels),
                 vec![activity.uuid.clone()],
             )
             .await;

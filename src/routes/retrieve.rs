@@ -4,6 +4,7 @@ use anyhow::Result;
 use rocket::futures::future::join_all;
 use rocket::futures::stream::{self, StreamExt};
 
+use crate::fairings::events::EventChannels;
 use crate::runner;
 use crate::{
     activity_pub::{
@@ -11,7 +12,7 @@ use crate::{
         FullyQualifiedTimelineItem,
     },
     db::Db,
-    fairings::faktory::{assign_to_faktory, FaktoryConnection},
+    fairings::faktory::FaktoryConnection,
     models::{
         cache::Cache,
         profiles::Profile,
@@ -168,6 +169,7 @@ fn consolidate_notes(notes: Vec<ApNote>) -> Vec<ApNote> {
 
 pub async fn conversation(
     conn: Db,
+    channels: EventChannels,
     faktory: FaktoryConnection,
     conversation: String,
     limit: i64,
@@ -182,6 +184,7 @@ pub async fn conversation(
         runner::run(
             runner::note::retrieve_context_task,
             Some(conn),
+            Some(channels),
             vec![top.ap_id.clone()],
         )
         .await;

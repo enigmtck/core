@@ -62,7 +62,10 @@ impl<'r> FromRequest<'r> for Signed {
 
         let date = match get_header("date").or_else(|| get_header("enigmatick-date")) {
             Some(val) => val,
-            None => return Outcome::Error((Status::BadRequest, SignatureError::NoDateProvided)),
+            None => {
+                log::debug!("NO DATE PROVIDED");
+                return Outcome::Error((Status::BadRequest, SignatureError::NoDateProvided));
+            }
         };
 
         let digest = get_header("digest");
@@ -95,9 +98,13 @@ impl<'r> FromRequest<'r> for Signed {
                         }
                     }
                 }
-                _ => Outcome::Error((Status::BadRequest, SignatureError::MultipleSignatures)),
+                _ => {
+                    log::debug!("MULTIPLE SIGNATURES");
+                    Outcome::Error((Status::BadRequest, SignatureError::MultipleSignatures))
+                }
             }
         } else {
+            log::debug!("NO CONTENT-TYPE SPECIFIED");
             Outcome::Success(Signed(false, VerificationType::None))
         }
     }

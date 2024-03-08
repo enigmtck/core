@@ -45,6 +45,7 @@ impl Inbox for ApJoin {
     async fn inbox(
         &self,
         conn: Db,
+        channels: EventChannels,
         _faktory: FaktoryConnection,
         raw: Value,
     ) -> Result<Status, Status> {
@@ -64,6 +65,7 @@ impl Inbox for ApJoin {
                             runner::run(
                                 runner::encrypted::process_join_task,
                                 Some(conn),
+                                Some(channels),
                                 vec![ap_id],
                             )
                             .await;
