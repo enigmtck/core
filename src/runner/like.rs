@@ -4,27 +4,74 @@ use tokio::runtime::Runtime;
 
 use crate::{
     activity_pub::{ApActivity, ApAddress},
+    db::Db,
     models::{
         activities::{get_activity_by_uuid, revoke_activity_by_apid},
         profiles::get_profile,
     },
-    runner::{get_inboxes, send_to_inboxes},
+    runner::{get_inboxes, send_to_inboxes, TaskError},
 };
+
+pub async fn process_remote_undo_like_task(
+    conn: Option<Db>,
+    ap_ids: Vec<String>,
+) -> Result<(), TaskError> {
+    let conn = conn.as_ref();
+
+    for ap_id in ap_ids {
+        log::debug!("looking for ap_id: {}", ap_id);
+
+        if revoke_activity_by_apid(conn, ap_id.clone()).await.is_ok() {
+            log::debug!("LIKE REVOKED: {ap_id}");
+        }
+    }
+
+    Ok(())
+}
 
 pub fn process_remote_undo_like(job: Job) -> io::Result<()> {
     log::debug!("running process_remote_undo_like job");
     let runtime = Runtime::new().unwrap();
     let handle = runtime.handle();
 
-    for ap_id in job.args() {
-        let ap_id = ap_id.as_str().unwrap().to_string();
-        log::debug!("looking for ap_id: {}", ap_id);
+    handle
+        .block_on(async {
+            process_remote_undo_like_task(None, serde_json::from_value(job.args().into()).unwrap())
+                .await
+        })
+        .map_err(|e| io::Error::new(io::ErrorKind::Other, e))
+}
 
-        if handle
-            .block_on(async { revoke_activity_by_apid(None, ap_id.clone()).await })
-            .is_ok()
-        {
-            log::debug!("LIKE REVOKED: {ap_id}");
+pub async fn send_like_task(conn: Option<Db>, uuids: Vec<String>) -> Result<(), TaskError> {
+    let conn = conn.as_ref();
+
+    for uuid in uuids {
+        log::debug!("LOOKING FOR UUID {uuid}");
+
+        let (activity, target_note, target_remote_note, target_profile, target_remote_actor) =
+            get_activity_by_uuid(conn, uuid.clone())
+                .await
+                .ok_or(TaskError::TaskFailed)?;
+
+        log::debug!("FOUND ACTIVITY\n{activity:#?}");
+        if let Some(profile_id) = activity.profile_id {
+            if let Some(sender) = get_profile(conn, profile_id).await {
+                if let Ok(activity) = ApActivity::try_from((
+                    (
+                        activity,
+                        target_note,
+                        target_remote_note,
+                        target_profile,
+                        target_remote_actor,
+                    ),
+                    None,
+                )) {
+                    let inboxes: Vec<ApAddress> =
+                        get_inboxes(activity.clone(), sender.clone()).await;
+
+                    send_to_inboxes(inboxes, sender, activity.clone()).await;
+                }
+            }
         }
     }
 
@@ -37,43 +84,9 @@ pub fn send_like(job: Job) -> io::Result<()> {
     let runtime = Runtime::new().unwrap();
     let handle = runtime.handle();
 
-    for uuid in job.args() {
-        let uuid = uuid.as_str().unwrap().to_string();
-        log::debug!("LOOKING FOR UUID {uuid}");
-
-        if let Some((
-            activity,
-            target_note,
-            target_remote_note,
-            target_profile,
-            target_remote_actor,
-        )) = handle.block_on(async { get_activity_by_uuid(None, uuid.clone()).await })
-        {
-            log::debug!("FOUND ACTIVITY\n{activity:#?}");
-            if let Some(profile_id) = activity.profile_id {
-                if let Some(sender) = handle.block_on(async { get_profile(None, profile_id).await })
-                {
-                    if let Ok(activity) = ApActivity::try_from((
-                        (
-                            activity,
-                            target_note,
-                            target_remote_note,
-                            target_profile,
-                            target_remote_actor,
-                        ),
-                        None,
-                    )) {
-                        let inboxes: Vec<ApAddress> = handle.block_on(async {
-                            get_inboxes(activity.clone(), sender.clone()).await
-                        });
-                        handle.block_on(async {
-                            send_to_inboxes(inboxes, sender, activity.clone()).await
-                        });
-                    }
-                }
-            }
-        }
-    }
-
-    Ok(())
+    handle
+        .block_on(async {
+            send_like_task(None, serde_json::from_value(job.args().into()).unwrap()).await
+        })
+        .map_err(|e| io::Error::new(io::ErrorKind::Other, e))
 }

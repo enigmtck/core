@@ -1,8 +1,10 @@
+use anyhow::Result;
 use faktory::Job;
 use serde_json::Value;
 use std::io;
 use tokio::runtime::Runtime;
 
+use crate::db::Db;
 use crate::models::{
     notes::NoteType,
     remote_actors::{get_follower_profiles_by_endpoint, get_leader_by_endpoint},
@@ -12,30 +14,41 @@ use crate::models::{
     },
 };
 
-pub fn update_timeline_record(job: Job) -> io::Result<()> {
-    log::debug!("running update_timeline_record job");
+use super::TaskError;
 
-    let ap_ids = job.args();
-
-    let runtime = Runtime::new().unwrap();
-    let handle = runtime.handle();
+pub async fn update_timeline_record_task(
+    conn: Option<Db>,
+    ap_ids: Vec<String>,
+) -> Result<(), TaskError> {
+    let conn = conn.as_ref();
 
     for ap_id in ap_ids {
-        let ap_id = ap_id.as_str().unwrap().to_string();
         log::debug!("looking for ap_id: {}", ap_id);
 
-        let remote_note = handle.block_on(async { get_remote_note_by_ap_id(None, ap_id).await });
+        let remote_note = get_remote_note_by_ap_id(conn, ap_id).await;
 
         if let Some(remote_note) = remote_note {
             if remote_note.kind == NoteType::Note {
-                handle.block_on(async {
-                    update_timeline_items(None, (None, remote_note.clone().into()).into()).await
-                });
+                update_timeline_items(conn, (None, remote_note.clone().into()).into()).await;
             }
         }
     }
 
     Ok(())
+}
+
+pub fn update_timeline_record(job: Job) -> io::Result<()> {
+    log::debug!("running update_timeline_record job");
+
+    let runtime = Runtime::new().unwrap();
+    let handle = runtime.handle();
+
+    handle
+        .block_on(async {
+            update_timeline_record_task(None, serde_json::from_value(job.args().into()).unwrap())
+                .await
+        })
+        .map_err(|e| io::Error::new(io::ErrorKind::Other, e))
 }
 
 async fn add_timeline_item_to_for_recipient(recipient: &str, timeline_item: &TimelineItem) {

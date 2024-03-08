@@ -1,3 +1,4 @@
+use anyhow::Result;
 use faktory::Job;
 use reqwest::{Client, StatusCode};
 use rocket::futures::future::join_all;
@@ -19,6 +20,7 @@ use crate::models::timeline_hashtags::{create_timeline_hashtag, NewTimelineHasht
 use crate::runner::cache::cache_content;
 use crate::{
     activity_pub::{ApActivity, ApAddress, ApNote, ApObject},
+    db::Db,
     helper::get_note_ap_id_from_uuid,
     models::{
         activities::get_activity_by_uuid,
@@ -36,6 +38,7 @@ use crate::{
     MaybeReference,
 };
 
+use super::TaskError;
 use super::{actor::get_actor, timeline::add_to_timeline};
 
 async fn cache_note(note: &'_ ApNote) -> &'_ ApNote {
@@ -66,61 +69,152 @@ async fn cache_note(note: &'_ ApNote) -> &'_ ApNote {
     note
 }
 
+pub async fn delete_note_task(conn: Option<Db>, uuids: Vec<String>) -> Result<(), TaskError> {
+    let conn = conn.as_ref();
+
+    for uuid in uuids {
+        log::debug!("LOOKING FOR UUID {uuid}");
+
+        let (activity, target_note, target_remote_note, target_profile, target_remote_actor) =
+            get_activity_by_uuid(conn, uuid.clone())
+                .await
+                .ok_or(TaskError::TaskFailed)?;
+
+        log::debug!("FOUND ACTIVITY\n{activity:#?}");
+        let profile_id = activity.profile_id.ok_or(TaskError::TaskFailed)?;
+        let sender = get_profile(conn, profile_id)
+            .await
+            .ok_or(TaskError::TaskFailed)?;
+        let note = target_note.clone().ok_or(TaskError::TaskFailed)?;
+
+        let activity = ApActivity::try_from((
+            (
+                activity,
+                target_note,
+                target_remote_note,
+                target_profile,
+                target_remote_actor,
+            ),
+            None,
+        ))
+        .map_err(|_| TaskError::TaskFailed)?;
+        let inboxes: Vec<ApAddress> = get_inboxes(activity.clone(), sender.clone()).await;
+
+        send_to_inboxes(inboxes, sender, activity.clone()).await;
+
+        let ap_id = get_note_ap_id_from_uuid(note.uuid.clone());
+
+        let records = delete_timeline_item_by_ap_id(conn, ap_id)
+            .await
+            .map_err(|_| TaskError::TaskFailed)?;
+        log::debug!("TIMELINE RECORDS DELETED: {records}");
+
+        let records = delete_note_by_uuid(conn, note.uuid)
+            .await
+            .map_err(|_| TaskError::TaskFailed)?;
+        log::debug!("NOTE RECORDS DELETED: {records}");
+    }
+
+    Ok(())
+}
+
 pub fn delete_note(job: Job) -> io::Result<()> {
     log::debug!("DELETING NOTE");
     let runtime = Runtime::new().unwrap();
     let handle = runtime.handle();
 
-    for uuid in job.args() {
-        let uuid = uuid.as_str().unwrap().to_string();
-        log::debug!("LOOKING FOR UUID {uuid}");
+    handle
+        .block_on(async {
+            delete_note_task(None, serde_json::from_value(job.args().into()).unwrap()).await
+        })
+        .map_err(|e| io::Error::new(io::ErrorKind::Other, e))
+}
 
-        if let Some((
-            activity,
-            target_note,
-            target_remote_note,
-            target_profile,
-            target_remote_actor,
-        )) = handle.block_on(async { get_activity_by_uuid(None, uuid.clone()).await })
-        {
-            log::debug!("FOUND ACTIVITY\n{activity:#?}");
-            if let Some(profile_id) = activity.profile_id {
-                if let (Some(sender), Some(note)) = (
-                    handle.block_on(async { get_profile(None, profile_id).await }),
-                    target_note.clone(),
-                ) {
-                    if let Ok(activity) = ApActivity::try_from((
-                        (
-                            activity,
-                            target_note,
-                            target_remote_note,
-                            target_profile,
-                            target_remote_actor,
-                        ),
-                        None,
-                    )) {
-                        let inboxes: Vec<ApAddress> = handle.block_on(async {
-                            get_inboxes(activity.clone(), sender.clone()).await
-                        });
-                        handle.block_on(async {
-                            send_to_inboxes(inboxes, sender, activity.clone()).await
-                        });
+pub async fn outbound_note_task(conn: Option<Db>, uuids: Vec<String>) -> Result<(), TaskError> {
+    let conn = conn.as_ref();
 
-                        let ap_id = get_note_ap_id_from_uuid(note.uuid.clone());
+    for uuid in uuids {
+        let (activity, target_note, target_remote_note, target_profile, target_remote_actor) =
+            get_activity_by_uuid(conn, uuid)
+                .await
+                .ok_or(TaskError::TaskFailed)?;
 
-                        if let Ok(records) = handle.block_on(async move {
-                            delete_timeline_item_by_ap_id(None, ap_id).await
-                        }) {
-                            log::debug!("TIMELINE RECORDS DELETED: {records}");
+        let profile_id = activity.profile_id.ok_or(TaskError::TaskFailed)?;
 
-                            if let Ok(records) = handle
-                                .block_on(async move { delete_note_by_uuid(None, note.uuid).await })
-                            {
-                                log::debug!("NOTE RECORDS DELETED: {records}");
-                            }
-                        }
-                    }
+        let sender = get_profile(None, profile_id)
+            .await
+            .ok_or(TaskError::TaskFailed)?;
+        let note = target_note.clone().ok_or(TaskError::TaskFailed)?;
+
+        let new_tags: Vec<NewNoteHashtag> = note.clone().into();
+
+        let _ = new_tags
+            .iter()
+            .map(|tag| async { create_note_hashtag(None, tag.clone()).await });
+
+        let activity = match note.kind {
+            NoteType::Note => {
+                if let Ok(activity) = ApActivity::try_from((
+                    (
+                        activity,
+                        target_note,
+                        target_remote_note,
+                        target_profile,
+                        target_remote_actor,
+                    ),
+                    None,
+                )) {
+                    Some(activity)
+                } else {
+                    None
                 }
+            }
+            // NoteType::EncryptedNote => {
+            //     handle_encrypted_note(&mut note, sender.clone())
+            //         .map(ApActivity::Create(ApCreate::from))
+            // }
+            _ => None,
+        };
+
+        add_note_to_timeline(note, sender.clone()).await;
+
+        let activity = activity.ok_or(TaskError::TaskFailed)?;
+
+        let inboxes: Vec<ApAddress> = get_inboxes(activity.clone(), sender.clone()).await;
+
+        log::debug!("SENDING ACTIVITY\n{activity:#?}");
+        log::debug!("INBOXES\n{inboxes:#?}");
+
+        for url_str in inboxes {
+            let body = Option::from(serde_json::to_string(&activity).unwrap());
+            let method = Method::Post;
+
+            let url =
+                Url::parse(&url_str.clone().to_string()).map_err(|_| TaskError::TaskFailed)?;
+
+            let signature = crate::signing::sign(SignParams {
+                profile: sender.clone(),
+                url: url.clone(),
+                body: body.clone(),
+                method,
+            })
+            .map_err(|_| TaskError::TaskFailed)?;
+
+            let client = Client::new()
+                .post(&url_str.to_string())
+                .header("Date", signature.date)
+                .header("Digest", signature.digest.unwrap())
+                .header("Signature", &signature.signature)
+                .header("Content-Type", "application/activity+json")
+                .body(body.unwrap());
+
+            let resp = client.send().await.map_err(|_| TaskError::TaskFailed)?;
+
+            match resp.status() {
+                StatusCode::ACCEPTED | StatusCode::OK => {
+                    log::debug!("SENT TO {url}")
+                }
+                _ => log::error!("ERROR SENDING TO {url}"),
             }
         }
     }
@@ -133,102 +227,26 @@ pub fn process_outbound_note(job: Job) -> io::Result<()> {
     let runtime = Runtime::new().unwrap();
     let handle = runtime.handle();
 
-    for uuid in job.args() {
-        let uuid = uuid.as_str().unwrap().to_string();
+    handle
+        .block_on(async {
+            outbound_note_task(None, serde_json::from_value(job.args().into()).unwrap()).await
+        })
+        .map_err(|e| io::Error::new(io::ErrorKind::Other, e))
+}
 
-        if let Some((
-            activity,
-            target_note,
-            target_remote_note,
-            target_profile,
-            target_remote_actor,
-        )) = handle.block_on(async { get_activity_by_uuid(None, uuid).await })
-        {
-            let profile_id = activity
-                .profile_id
-                .ok_or(Error::new(ErrorKind::Other, "no profile_id"))?;
+pub async fn retrieve_context_task(conn: Option<Db>, ap_ids: Vec<String>) -> Result<(), TaskError> {
+    //let conn = conn.as_ref();
 
-            if let (Some(sender), Some(note)) = (
-                handle.block_on(async { get_profile(None, profile_id).await }),
-                target_note.clone(),
-            ) {
-                let new_tags: Vec<NewNoteHashtag> = note.clone().into();
-                handle.block_on(async {
-                    join_all(
-                        new_tags
-                            .iter()
-                            .map(|tag| async { create_note_hashtag(None, tag.clone()).await }),
-                    )
-                    .await
-                });
-                let activity = match note.kind {
-                    NoteType::Note => {
-                        if let Ok(activity) = ApActivity::try_from((
-                            (
-                                activity,
-                                target_note,
-                                target_remote_note,
-                                target_profile,
-                                target_remote_actor,
-                            ),
-                            None,
-                        )) {
-                            Some(activity)
-                        } else {
-                            None
-                        }
-                    }
-                    // NoteType::EncryptedNote => {
-                    //     handle_encrypted_note(&mut note, sender.clone())
-                    //         .map(ApActivity::Create(ApCreate::from))
-                    // }
-                    _ => None,
-                };
+    let profile = guaranteed_profile(None, None).await;
 
-                handle.block_on(async { add_note_to_timeline(note, sender.clone()).await });
+    for ap_id in ap_ids {
+        let profile = profile.clone();
 
-                let activity = activity.ok_or(Error::new(ErrorKind::Other, "no activity"))?;
+        if let Some(note) = fetch_remote_note(ap_id.to_string(), profile).await {
+            log::debug!("REPLIES\n{:#?}", note.replies);
 
-                let inboxes: Vec<ApAddress> =
-                    handle.block_on(async { get_inboxes(activity.clone(), sender.clone()).await });
-
-                log::debug!("SENDING ACTIVITY\n{activity:#?}");
-                log::debug!("INBOXES\n{inboxes:#?}");
-
-                for url_str in inboxes {
-                    let body = Option::from(serde_json::to_string(&activity).unwrap());
-                    let method = Method::Post;
-
-                    let url = Url::parse(&url_str.clone().to_string())
-                        .map_err(|e| Error::new(ErrorKind::Other, e))?;
-
-                    let signature = crate::signing::sign(SignParams {
-                        profile: sender.clone(),
-                        url: url.clone(),
-                        body: body.clone(),
-                        method,
-                    })
-                    .map_err(|e| Error::new(ErrorKind::Other, e))?;
-
-                    let client = Client::new()
-                        .post(&url_str.to_string())
-                        .header("Date", signature.date)
-                        .header("Digest", signature.digest.unwrap())
-                        .header("Signature", &signature.signature)
-                        .header("Content-Type", "application/activity+json")
-                        .body(body.unwrap());
-
-                    let resp = handle
-                        .block_on(async { client.send().await })
-                        .map_err(|e| Error::new(ErrorKind::Other, e))?;
-
-                    match resp.status() {
-                        StatusCode::ACCEPTED | StatusCode::OK => {
-                            log::debug!("SENT TO {url}")
-                        }
-                        _ => log::error!("ERROR SENDING TO {url}"),
-                    }
-                }
+            if let Some(replies) = ApNote::from(note).replies {
+                if let Some(MaybeReference::Actual(_first)) = replies.first {}
             }
         }
     }
@@ -241,24 +259,11 @@ pub fn retrieve_context(job: Job) -> io::Result<()> {
 
     let rt = Runtime::new().unwrap();
     let handle = rt.handle();
-    let profile = handle.block_on(async { guaranteed_profile(None, None).await });
-
-    for ap_id in job.args() {
-        let ap_id = ap_id.as_str().unwrap().to_string();
-        let profile = profile.clone();
-
-        if let Some(note) =
-            handle.block_on(async { fetch_remote_note(ap_id.to_string(), profile).await })
-        {
-            log::debug!("REPLIES\n{:#?}", note.replies);
-
-            if let Some(replies) = ApNote::from(note).replies {
-                if let Some(MaybeReference::Actual(_first)) = replies.first {}
-            }
-        }
-    }
-
-    Ok(())
+    handle
+        .block_on(async {
+            retrieve_context_task(None, serde_json::from_value(job.args().into()).unwrap()).await
+        })
+        .map_err(|e| io::Error::new(io::ErrorKind::Other, e))
 }
 
 pub async fn fetch_remote_note(id: String, profile: Profile) -> Option<RemoteNote> {
@@ -366,7 +371,7 @@ pub async fn handle_remote_note(
     Ok(remote_note)
 }
 
-fn handle_remote_encrypted_note(remote_note: RemoteNote) -> io::Result<()> {
+pub fn handle_remote_encrypted_note(remote_note: RemoteNote) -> io::Result<()> {
     log::debug!("adding to processing queue");
     let rt = Runtime::new().unwrap();
     let handle = rt.handle();
@@ -395,25 +400,29 @@ fn handle_remote_encrypted_note(remote_note: RemoteNote) -> io::Result<()> {
 pub fn process_remote_note(job: Job) -> io::Result<()> {
     log::debug!("running process_remote_note job");
 
-    let ap_ids = job.args();
     let rt = Runtime::new().unwrap();
     let handle = rt.handle();
 
+    handle
+        .block_on(async {
+            remote_note_task(None, serde_json::from_value(job.args().into()).unwrap()).await
+        })
+        .map_err(|e| io::Error::new(io::ErrorKind::Other, e))
+}
+
+pub async fn remote_note_task(conn: Option<Db>, ap_ids: Vec<String>) -> Result<(), TaskError> {
+    let conn = conn.as_ref();
+
     for ap_id in ap_ids {
-        let ap_id = ap_id.as_str().unwrap().to_string();
         log::debug!("looking for ap_id: {}", ap_id);
 
-        let remote_note = handle.block_on(async { get_remote_note_by_ap_id(None, ap_id).await });
-
-        if let Some(remote_note) = remote_note {
+        if let Some(remote_note) = get_remote_note_by_ap_id(conn, ap_id).await {
             match remote_note.kind {
                 NoteType::Note => {
-                    handle.block_on(async {
-                        let _ = handle_remote_note(remote_note.clone(), None).await;
-                    });
+                    let _ = handle_remote_note(remote_note.clone(), None).await;
                 }
                 NoteType::EncryptedNote => {
-                    handle_remote_encrypted_note(remote_note)?;
+                    let _ = handle_remote_encrypted_note(remote_note);
                 }
                 _ => (),
             }

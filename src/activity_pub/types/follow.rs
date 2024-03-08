@@ -13,7 +13,7 @@ use crate::{
         },
         profiles::{get_actory, get_profile_by_ap_id, ActorLike, Profile},
     },
-    to_faktory, MaybeReference,
+    runner, to_faktory, MaybeReference,
 };
 use rocket::http::Status;
 use serde::{Deserialize, Serialize};
@@ -48,35 +48,35 @@ impl Inbox for ApFollow {
     async fn inbox(
         &self,
         conn: Db,
-        faktory: FaktoryConnection,
-        raw: Value,
+        _faktory: FaktoryConnection,
+        _raw: Value,
     ) -> Result<Status, Status> {
-        if let (Some(_), Some(profile_ap_id)) = (self.id.clone(), self.object.clone().reference()) {
-            if let Some(profile) = get_profile_by_ap_id(Some(&conn), profile_ap_id.clone()).await {
-                if let Ok(activity) = NewActivity::try_from((
-                    ApActivity::Follow(self.clone()),
-                    Some(ActivityTarget::from(profile)),
-                ) as ApActivityTarget)
-                {
-                    log::debug!("ACTIVITY\n{activity:#?}");
-                    if let Ok(activity) = create_activity((&conn).into(), activity).await {
-                        to_faktory(faktory, "acknowledge_followers", vec![activity.uuid])
-                    } else {
-                        log::error!("FAILED TO HANDLE ACTIVITY\n{raw}");
-                        Err(Status::NoContent)
-                    }
-                } else {
-                    log::error!("FAILED TO HANDLE ACTIVITY\n{raw}");
-                    Err(Status::NoContent)
-                }
-            } else {
-                log::error!("FAILED TO HANDLE ACTIVITY\n{raw}");
-                Err(Status::NoContent)
-            }
-        } else {
-            log::error!("FAILED TO HANDLE ACTIVITY\n{raw}");
-            Err(Status::NoContent)
-        }
+        let profile_ap_id = self.object.clone().reference().ok_or(Status::new(520))?;
+
+        if self.id.is_none() {
+            return Err(Status::new(524));
+        };
+        //if let (Some(_), Some(profile_ap_id)) = (self.id.clone(), self.object.clone().reference()) {
+        let profile = get_profile_by_ap_id(Some(&conn), profile_ap_id.clone())
+            .await
+            .ok_or(Status::new(521))?;
+        let activity = NewActivity::try_from((
+            ApActivity::Follow(self.clone()),
+            Some(ActivityTarget::from(profile)),
+        ) as ApActivityTarget)
+        .map_err(|_| Status::new(522))?;
+        log::debug!("ACTIVITY\n{activity:#?}");
+        let activity = create_activity((&conn).into(), activity)
+            .await
+            .map_err(|_| Status::new(523))?;
+        runner::run(
+            runner::follow::acknowledge_followers_task,
+            Some(conn),
+            vec![activity.uuid],
+        )
+        .await;
+        Ok(Status::Accepted)
+        //to_faktory(faktory, "acknowledge_followers", vec![activity.uuid])
     }
 }
 
@@ -88,18 +88,18 @@ impl Outbox for ApFollow {
         _events: EventChannels,
         profile: Profile,
     ) -> Result<String, Status> {
-        outbox(&conn, faktory, self.clone(), profile).await
+        outbox(conn, faktory, self.clone(), profile).await
     }
 }
 
 async fn outbox(
-    conn: &Db,
+    conn: Db,
     faktory: FaktoryConnection,
     follow: ApFollow,
     profile: Profile,
 ) -> Result<String, Status> {
     if let MaybeReference::Reference(id) = follow.object {
-        let actor_like = get_actory(conn, id).await;
+        let actor_like = get_actory(&conn, id).await;
 
         if let Some(actor_like) = actor_like {
             let (actor, remote_actor) = match actor_like {
@@ -108,24 +108,32 @@ async fn outbox(
             };
 
             if let Ok(activity) = create_activity(
-                conn.into(),
+                Some(&conn),
                 NewActivity::from((
                     actor.clone(),
                     remote_actor.clone(),
                     ActivityType::Follow,
                     ApAddress::Address(get_ap_id_from_username(profile.username.clone())),
                 ))
-                .link_profile(conn)
+                .link_profile(&conn)
                 .await,
             )
             .await
             {
-                if to_faktory(faktory, "process_follow", vec![activity.uuid.clone()]).is_ok() {
-                    Ok(get_activity_ap_id_from_uuid(activity.uuid))
-                } else {
-                    log::error!("FAILED TO ASSIGN FOLLOW TO FAKTORY");
-                    Err(Status::NoContent)
-                }
+                runner::run(
+                    runner::follow::process_follow_task,
+                    Some(conn),
+                    vec![activity.uuid.clone()],
+                )
+                .await;
+                Ok(get_activity_ap_id_from_uuid(activity.uuid))
+
+                // if to_faktory(faktory, "process_follow", vec![activity.uuid.clone()]).is_ok() {
+                //     Ok(get_activity_ap_id_from_uuid(activity.uuid))
+                // } else {
+                //     log::error!("FAILED TO ASSIGN FOLLOW TO FAKTORY");
+                //     Err(Status::NoContent)
+                // }
             } else {
                 log::error!("FAILED TO CREATE FOLLOW ACTIVITY");
                 Err(Status::NoContent)

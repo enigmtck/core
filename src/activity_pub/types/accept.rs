@@ -11,9 +11,7 @@ use crate::{
         },
         profiles::Profile,
     },
-    to_faktory,
-    //    models::remote_activities::RemoteActivity,
-    MaybeReference,
+    runner, to_faktory, MaybeReference,
 };
 use rocket::http::Status;
 use serde::{Deserialize, Serialize};
@@ -76,7 +74,14 @@ impl Inbox for Box<ApAccept> {
             .await
             .is_ok()
         {
-            to_faktory(faktory, "process_accept", vec![activity.uuid])
+            runner::run(
+                runner::follow::process_accept_task,
+                Some(conn),
+                vec![activity.uuid.clone()],
+            )
+            .await;
+            Ok(Status::Accepted)
+            //to_faktory(faktory, "process_accept", vec![activity.uuid])
         } else {
             log::error!("FAILED TO CREATE ACTIVITY RECORD");
             Err(Status::NoContent)

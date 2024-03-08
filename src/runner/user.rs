@@ -7,6 +7,7 @@ use tokio::runtime::Runtime;
 use crate::{
     activity_pub::{ApActivity, ApActor, ApAddress, ApUpdate},
     admin::{create_user, NewUser},
+    db::Db,
     models::{
         followers::get_followers_by_profile_id,
         profiles::{get_profile_by_uuid, Profile},
@@ -14,6 +15,8 @@ use crate::{
     },
     runner::send_to_inboxes,
 };
+
+use super::TaskError;
 
 pub async fn get_follower_inboxes(profile: Profile) -> Vec<ApAddress> {
     let mut inboxes: HashSet<ApAddress> = HashSet::new();
@@ -32,37 +35,44 @@ pub async fn get_follower_inboxes(profile: Profile) -> Vec<ApAddress> {
     Vec::from_iter(inboxes)
 }
 
+pub async fn send_profile_update_task(
+    conn: Option<Db>,
+    uuids: Vec<String>,
+) -> Result<(), TaskError> {
+    let conn = conn.as_ref();
+
+    for uuid in uuids {
+        log::debug!("LOOKING UP {uuid}");
+        let profile = get_profile_by_uuid(conn, uuid)
+            .await
+            .ok_or(TaskError::TaskFailed)?;
+        log::debug!("FOUND PROFILE");
+        let update = ApUpdate::try_from(ApActor::from(profile.clone()))
+            .map_err(|_| TaskError::TaskFailed)?;
+        log::debug!("UPDATE\n{update:#?}");
+
+        send_to_inboxes(
+            get_follower_inboxes(profile.clone()).await,
+            profile,
+            ApActivity::Update(update),
+        )
+        .await;
+    }
+
+    Ok(())
+}
+
 pub fn send_profile_update(job: Job) -> io::Result<()> {
     log::debug!("RUNNING SEND_PROFILE_UPDATE JOB");
 
     let rt = Runtime::new().unwrap();
     let handle = rt.handle();
 
-    let uuids = job.args();
-
-    log::debug!("UUIDS\n{uuids:#?}");
-
-    for uuid in uuids {
-        log::debug!("LOOKING UP {uuid}");
-        if let Some(profile) = handle
-            .block_on(async { get_profile_by_uuid(None, uuid.as_str().unwrap().to_string()).await })
-        {
-            log::debug!("FOUND PROFILE");
-            if let Ok(update) = ApUpdate::try_from(ApActor::from(profile.clone())) {
-                log::debug!("UPDATE\n{update:#?}");
-                handle.block_on(async {
-                    send_to_inboxes(
-                        get_follower_inboxes(profile.clone()).await,
-                        profile,
-                        ApActivity::Update(update),
-                    )
-                    .await
-                });
-            }
-        }
-    }
-
-    Ok(())
+    handle
+        .block_on(async {
+            send_profile_update_task(None, serde_json::from_value(job.args().into()).unwrap()).await
+        })
+        .map_err(|e| io::Error::new(io::ErrorKind::Other, e))
 }
 
 pub async fn create(user: NewUser) -> Option<Profile> {

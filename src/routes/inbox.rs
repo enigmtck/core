@@ -125,7 +125,7 @@ pub async fn conversation_get(
             let decoded = urlencoding::decode(&conversation).map_err(|_| Status::new(524))?;
 
             retrieve::conversation(
-                &conn,
+                conn,
                 faktory,
                 decoded.to_string(),
                 limit.into(),
@@ -150,7 +150,7 @@ pub async fn conversation_get_local(
 ) -> Result<ActivityJson<ApObject>, Status> {
     let conversation = format!("{}/conversation/{}", *crate::SERVER_URL, uuid);
 
-    retrieve::conversation(&conn, faktory, conversation.to_string(), 40, 0)
+    retrieve::conversation(conn, faktory, conversation.to_string(), 40, 0)
         .await
         .map(|conversation| ActivityJson(Json(conversation)))
         .map_err(|_| Status::new(525))

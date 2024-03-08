@@ -1,22 +1,24 @@
-use std::collections::HashSet;
+use std::{collections::HashSet, error::Error, fmt::Debug};
 
+use anyhow::Result;
 use diesel::{r2d2::ConnectionManager, PgConnection};
 use faktory::ConsumerBuilder;
+use futures_lite::Future;
 use lapin::{options::BasicPublishOptions, BasicProperties, ConnectionProperties};
 use reqwest::Client;
+use std::fmt;
 use url::Url;
 
 use crate::{
     activity_pub::{ApActivity, ApActor, ApAddress, ApNote},
+    db::Db,
     models::profiles::Profile,
     runner::{
         announce::{process_remote_announce, process_remote_undo_announce, send_announce},
-        encrypted::{process_join, provide_one_time_key, send_kexinit},
-        follow::{
-            acknowledge_followers, process_accept, process_follow, process_remote_undo_follow,
-        },
+        encrypted::{process_join, send_kexinit},
+        follow::{process_accept, process_follow, process_remote_undo_follow},
         like::{process_remote_undo_like, send_like},
-        note::{delete_note, process_outbound_note, process_remote_note, retrieve_context},
+        note::{delete_note, process_outbound_note, retrieve_context},
         timeline::update_timeline_record,
         undo::process_outbound_undo,
         user::send_profile_update,
@@ -213,30 +215,51 @@ pub fn start() {
 
     log::info!("STARTING FAKTORY CONSUMER: {}", faktory_url);
 
-    let mut consumer = ConsumerBuilder::default();
-    consumer.register("acknowledge_followers", acknowledge_followers);
-    consumer.register("provide_one_time_key", provide_one_time_key);
-    consumer.register("process_remote_note", process_remote_note);
-    consumer.register("process_join", process_join);
-    consumer.register("process_outbound_note", process_outbound_note);
-    consumer.register("process_remote_announce", process_remote_announce);
-    consumer.register("send_kexinit", send_kexinit);
-    consumer.register("update_timeline_record", update_timeline_record);
-    consumer.register("retrieve_context", retrieve_context);
-    consumer.register("send_like", send_like);
-    consumer.register("send_announce", send_announce);
-    consumer.register("delete_note", delete_note);
-    consumer.register("process_follow", process_follow);
-    consumer.register("process_accept", process_accept);
-    consumer.register("process_remote_undo_follow", process_remote_undo_follow);
-    consumer.register("send_profile_update", send_profile_update);
-    consumer.register("process_undo", process_outbound_undo);
-    consumer.register("process_remote_undo_announce", process_remote_undo_announce);
-    consumer.register("process_remote_undo_like", process_remote_undo_like);
+    //let mut consumer = ConsumerBuilder::default();
+    //consumer.register("acknowledge_followers", acknowledge_followers);
+    //consumer.register("provide_one_time_key", provide_one_time_key);
+    //consumer.register("process_remote_note", process_remote_note);
+    //consumer.register("process_join", process_join);
+    //consumer.register("process_outbound_note", process_outbound_note);
+    //consumer.register("process_remote_announce", process_remote_announce);
+    //consumer.register("send_kexinit", send_kexinit);
+    //consumer.register("update_timeline_record", update_timeline_record);
+    //consumer.register("retrieve_context", retrieve_context);
+    //consumer.register("send_like", send_like);
+    //consumer.register("send_announce", send_announce);
+    //consumer.register("delete_note", delete_note);
+    //consumer.register("process_follow", process_follow);
+    //consumer.register("process_accept", process_accept);
+    //consumer.register("process_remote_undo_follow", process_remote_undo_follow);
+    //consumer.register("send_profile_update", send_profile_update);
+    //consumer.register("process_undo", process_outbound_undo);
+    //consumer.register("process_remote_undo_announce", process_remote_undo_announce);
+    //consumer.register("process_remote_undo_like", process_remote_undo_like);
 
-    let mut consumer = consumer.connect(Some(faktory_url)).unwrap();
+    //let mut consumer = consumer.connect(Some(faktory_url)).unwrap();
 
-    if let Err(e) = consumer.run(&["default"]) {
-        log::error!("worker failed: {}", e);
+    // if let Err(e) = consumer.run(&["default"]) {
+    //     log::error!("worker failed: {}", e);
+    // }
+}
+
+#[derive(Eq, PartialEq, Clone, Debug)]
+pub enum TaskError {
+    TaskFailed,
+}
+
+impl fmt::Display for TaskError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        Debug::fmt(self, f)
     }
+}
+
+impl Error for TaskError {}
+
+pub async fn run<Fut, F>(f: F, conn: Option<Db>, params: Vec<String>)
+where
+    F: Fn(Option<Db>, Vec<String>) -> Fut,
+    Fut: Future<Output = Result<(), TaskError>> + Send + 'static,
+{
+    tokio::spawn(f(conn, params));
 }

@@ -9,6 +9,7 @@ use crate::{
         sender::send_activity, ApActivity, ApActor, ApInstrument, ApInstrumentType, ApInstruments,
         ApInvite, ApJoin, ApNote, ApSession, JoinData,
     },
+    db::Db,
     helper::{get_local_identifier, is_local, LocalIdentifierType},
     models::{
         encrypted_sessions::{
@@ -25,6 +26,8 @@ use crate::{
     },
     runner::actor::get_actor,
 };
+
+use super::TaskError;
 
 pub async fn handle_encrypted_note(
     note: &mut Note,
@@ -99,41 +102,93 @@ pub async fn handle_encrypted_note(
     }
 }
 
-pub fn process_join(job: Job) -> io::Result<()> {
-    let ap_ids = job.args();
+pub async fn process_join_task(conn: Option<Db>, ap_ids: Vec<String>) -> Result<(), TaskError> {
+    log::debug!("RUNNING process_join JOB");
 
+    let conn = conn.as_ref();
+
+    for ap_id in ap_ids {
+        let session = get_remote_encrypted_session_by_ap_id(conn, ap_id)
+            .await
+            .ok_or(TaskError::TaskFailed)?;
+        // this is the username of the Enigmatick user who received the Invite
+        let identifier =
+            get_local_identifier(session.clone().ap_to.clone()).ok_or(TaskError::TaskFailed)?;
+        if identifier.kind == LocalIdentifierType::User {
+            let username = identifier.identifier;
+            let _profile = get_profile_by_username(conn, username.clone())
+                .await
+                .ok_or(TaskError::TaskFailed)?;
+            let session_clone = session.clone();
+            let actor = get_remote_actor_by_ap_id(conn, session_clone.attributed_to)
+                .await
+                .map_err(|_| TaskError::TaskFailed)?;
+            log::debug!("ACTOR\n{actor:#?}");
+            //let session: ApSession = session.clone().into();
+
+            if let Some(item) = create_processing_item(conn, session.clone().into()).await {
+                log::debug!("PROCESSING ITEM\n{item:#?}");
+            }
+        }
+    }
+
+    Ok(())
+}
+
+pub fn process_join(job: Job) -> io::Result<()> {
     log::debug!("RUNNING process_join JOB");
     let rt = Runtime::new().unwrap();
     let handle = rt.handle();
 
-    for ap_id in ap_ids {
-        if let Some(session) = handle.block_on(async {
-            get_remote_encrypted_session_by_ap_id(None, ap_id.as_str().unwrap().to_string()).await
-        }) {
-            // this is the username of the Enigmatick user who received the Invite
-            if let Some(identifier) = get_local_identifier(session.clone().ap_to.clone()) {
-                if identifier.kind == LocalIdentifierType::User {
-                    let username = identifier.identifier;
-                    if let Some(_profile) = handle
-                        .block_on(async { get_profile_by_username(None, username.clone()).await })
-                    {
-                        let session_clone = session.clone();
-                        if let Ok(actor) = handle.block_on(async move {
-                            get_remote_actor_by_ap_id(None, session_clone.attributed_to).await
-                        }) {
-                            log::debug!("ACTOR\n{actor:#?}");
-                            //let session: ApSession = session.clone().into();
+    handle
+        .block_on(async {
+            process_join_task(None, serde_json::from_value(job.args().into()).unwrap()).await
+        })
+        .map_err(|e| io::Error::new(io::ErrorKind::Other, e))
+}
 
-                            if let Some(item) = handle.block_on(async {
-                                create_processing_item(None, session.clone().into()).await
-                            }) {
-                                log::debug!("PROCESSING ITEM\n{item:#?}");
-                            }
-                        }
+pub async fn send_kexinit_task(conn: Option<Db>, uuids: Vec<String>) -> Result<(), TaskError> {
+    log::debug!("RUNNING send_kexinit JOB");
+
+    let conn = conn.as_ref();
+
+    for uuid in uuids {
+        let (encrypted_session, _olm_session) = get_encrypted_session_by_uuid(conn, uuid)
+            .await
+            .ok_or(TaskError::TaskFailed)?;
+        let sender = get_profile(conn, encrypted_session.profile_id)
+            .await
+            .ok_or(TaskError::TaskFailed)?;
+
+        let mut session: ApSession = encrypted_session.clone().into();
+        session.id = Option::from(format!(
+            "{}/session/{}",
+            *crate::SERVER_URL,
+            encrypted_session.uuid
+        ));
+
+        let mut inbox = Option::<String>::None;
+
+        if is_local(session.to.clone().to_string()) {
+            if let Some(x) = get_local_identifier(session.to.clone().to_string()) {
+                if x.kind == LocalIdentifierType::User {
+                    if let Some(profile) = get_profile_by_username(conn, x.identifier).await {
+                        inbox = Option::from(ApActor::from(profile).inbox);
                     }
                 }
             }
+        } else if let Ok(actor) =
+            get_remote_actor_by_ap_id(conn, session.to.clone().to_string()).await
+        {
+            inbox = Option::from(actor.inbox);
         }
+
+        let inbox = inbox.ok_or(TaskError::TaskFailed)?;
+        let activity = ApInvite::try_from(session).map_err(|_| TaskError::TaskFailed)?;
+
+        send_activity(ApActivity::Invite(activity), sender, inbox.clone())
+            .await
+            .map_err(|_| TaskError::TaskFailed)?
     }
 
     Ok(())
@@ -145,201 +200,89 @@ pub fn send_kexinit(job: Job) -> io::Result<()> {
     let rt = Runtime::new().unwrap();
     let handle = rt.handle();
 
-    for uuid in job.args() {
-        let uuid = uuid.as_str().unwrap().to_string();
-
-        if let Some((encrypted_session, _olm_session)) =
-            handle.block_on(async { get_encrypted_session_by_uuid(None, uuid).await })
-        {
-            if let Some(sender) =
-                handle.block_on(async { get_profile(None, encrypted_session.profile_id).await })
-            {
-                let mut session: ApSession = encrypted_session.clone().into();
-                session.id = Option::from(format!(
-                    "{}/session/{}",
-                    *crate::SERVER_URL,
-                    encrypted_session.uuid
-                ));
-
-                let mut inbox = Option::<String>::None;
-
-                if is_local(session.to.clone().to_string()) {
-                    if let Some(x) = get_local_identifier(session.to.clone().to_string()) {
-                        if x.kind == LocalIdentifierType::User {
-                            if let Some(profile) = handle.block_on(async {
-                                get_profile_by_username(None, x.identifier).await
-                            }) {
-                                inbox = Option::from(ApActor::from(profile).inbox);
-                            }
-                        }
-                    }
-                } else if let Ok(actor) = handle.block_on(async {
-                    get_remote_actor_by_ap_id(None, session.to.clone().to_string()).await
-                }) {
-                    inbox = Option::from(actor.inbox);
-                }
-
-                if let Some(inbox) = inbox {
-                    if let Ok(activity) = ApInvite::try_from(session) {
-                        handle.block_on(async {
-                            match send_activity(ApActivity::Invite(activity), sender, inbox.clone())
-                                .await
-                            {
-                                Ok(_) => {
-                                    log::info!("INVITE SENT: {inbox:#?}");
-                                }
-                                Err(e) => log::error!("error: {:#?}", e),
-                            }
-                        });
-                    }
-                }
-            }
-        }
-    }
-
-    Ok(())
+    handle
+        .block_on(async {
+            send_kexinit_task(None, serde_json::from_value(job.args().into()).unwrap()).await
+        })
+        .map_err(|e| io::Error::new(io::ErrorKind::Other, e))
 }
 
-// ChatGPT generated some of this function; it looks good from a cursory
-// overview but the original is below for reference.
 pub fn provide_one_time_key(job: Job) -> io::Result<()> {
     log::debug!("RUNNING provide_one_time_key JOB");
 
     let rt = Runtime::new().unwrap();
     let handle = rt.handle();
 
-    for ap_id in job.args() {
-        let ap_id = ap_id.as_str().unwrap().to_string();
+    handle
+        .block_on(async {
+            provide_one_time_key_task(None, serde_json::from_value(job.args().into()).unwrap())
+                .await
+        })
+        .map_err(|e| io::Error::new(io::ErrorKind::Other, e))
+}
 
-        if let Some(session) =
-            handle.block_on(async { get_remote_encrypted_session_by_ap_id(None, ap_id).await })
-        {
-            if let (Some(identifier), Ok(actor)) = (
-                get_local_identifier(session.ap_to.clone()),
-                handle.block_on(async {
-                    get_remote_actor_by_ap_id(None, session.attributed_to.clone()).await
-                }),
-            ) {
-                if identifier.kind == LocalIdentifierType::User {
-                    let username = identifier.identifier;
-                    if let Some(profile) = handle
-                        .block_on(async { get_profile_by_username(None, username.clone()).await })
-                    {
-                        if let (Some(identity_key), Some(otk)) = (
-                            profile.olm_identity_key.clone(),
-                            handle.block_on(async {
-                                get_olm_one_time_key_by_profile_id(None, profile.id).await
-                            }),
-                        ) {
-                            let session = ApSession::from(JoinData {
-                                one_time_key: otk.key_data,
-                                identity_key,
-                                to: session.attributed_to,
-                                attributed_to: session.ap_to,
-                                reference: session.ap_id,
-                            });
+pub async fn provide_one_time_key_task(
+    conn: Option<Db>,
+    ap_ids: Vec<String>,
+) -> Result<(), TaskError> {
+    log::debug!("RUNNING provide_one_time_key JOB");
 
-                            if let Ok(activity) = ApJoin::try_from(session.clone()) {
-                                let encrypted_session: NewEncryptedSession =
-                                    (session.clone(), profile.id).into();
+    let conn = conn.as_ref();
 
-                                if handle.block_on(async {
-                                    create_encrypted_session(None, encrypted_session)
-                                        .await
-                                        .is_some()
-                                }) {
-                                    match handle.block_on(async {
-                                        send_activity(
-                                            ApActivity::Join(activity),
-                                            profile,
-                                            actor.inbox,
-                                        )
-                                        .await
-                                    }) {
-                                        Ok(_) => {
-                                            log::info!("JOIN SENT");
-                                        }
-                                        Err(e) => {
-                                            log::error!("ERROR SENDING JOIN: {e:#?}",)
-                                        }
-                                    }
-                                } else {
-                                    log::error!("FAILED TO SAVE ENCRYPTED SESSION");
-                                }
-                            }
-                        }
+    for ap_id in ap_ids {
+        let session = get_remote_encrypted_session_by_ap_id(conn, ap_id)
+            .await
+            .ok_or(TaskError::TaskFailed)?;
+
+        let identifier =
+            get_local_identifier(session.ap_to.clone()).ok_or(TaskError::TaskFailed)?;
+        let actor = get_remote_actor_by_ap_id(conn, session.attributed_to.clone())
+            .await
+            .map_err(|_| TaskError::TaskFailed)?;
+
+        if identifier.kind == LocalIdentifierType::User {
+            let username = identifier.identifier;
+            let profile = get_profile_by_username(conn, username.clone())
+                .await
+                .ok_or(TaskError::TaskFailed)?;
+
+            let identity_key = profile
+                .olm_identity_key
+                .clone()
+                .ok_or(TaskError::TaskFailed)?;
+            let otk = get_olm_one_time_key_by_profile_id(conn, profile.id)
+                .await
+                .ok_or(TaskError::TaskFailed)?;
+
+            let session = ApSession::from(JoinData {
+                one_time_key: otk.key_data,
+                identity_key,
+                to: session.attributed_to,
+                attributed_to: session.ap_to,
+                reference: session.ap_id,
+            });
+
+            let activity = ApJoin::try_from(session.clone()).map_err(|_| TaskError::TaskFailed)?;
+
+            let encrypted_session: NewEncryptedSession = (session.clone(), profile.id).into();
+
+            if create_encrypted_session(conn, encrypted_session)
+                .await
+                .is_some()
+            {
+                match send_activity(ApActivity::Join(activity), profile, actor.inbox).await {
+                    Ok(_) => {
+                        log::info!("JOIN SENT");
+                    }
+                    Err(e) => {
+                        log::error!("ERROR SENDING JOIN: {e:#?}",)
                     }
                 }
+            } else {
+                log::error!("FAILED TO SAVE ENCRYPTED SESSION");
             }
         }
     }
 
     Ok(())
 }
-
-// fn provide_one_time_key(job: Job) -> io::Result<()> {
-//     log::debug!("RUNNING provide_one_time_key JOB");
-
-//     // look up remote_encrypted_session with ap_id from job.args()
-
-//     let rt = Runtime::new().unwrap();
-//     let handle = rt.handle();
-
-//     for ap_id in job.args() {
-//         let ap_id = ap_id.as_str().unwrap().to_string();
-
-//         if let Some(session) = get_remote_encrypted_session_by_ap_id(ap_id) {
-//             // this is the username of the Enigmatick user who received the Invite
-//             log::debug!("SESSION\n{session:#?}");
-//             if let Some(username) = get_local_username_from_ap_id(session.ap_to.clone()) {
-//                 log::debug!("USERNAME: {username}");
-//                 if let Some(profile) = get_profile_by_username(username.clone()) {
-//                     log::debug!("PROFILE\n{profile:#?}");
-//                     if let Some(actor) = get_remote_actor_by_ap_id(session.attributed_to.clone()) {
-//                         log::debug!("ACTOR\n{actor:#?}");
-//                         // send Join activity with Identity and OTK to attributed_to
-
-//                         if let Some(identity_key) = profile.olm_identity_key.clone() {
-//                             log::debug!("IDENTITY KEY: {identity_key}");
-//                             if let Some(otk) = get_one_time_key(profile.id) {
-//                                 log::debug!("IDK\n{identity_key:#?}");
-//                                 log::debug!("OTK\n{otk:#?}");
-
-//                                 let session = ApSession::from(JoinData {
-//                                     one_time_key: otk.key_data,
-//                                     identity_key,
-//                                     to: session.attributed_to,
-//                                     attributed_to: session.ap_to,
-//                                     reference: session.ap_id,
-//                                 });
-
-//                                 let activity = ApActivity::from(session.clone());
-//                                 let encrypted_session: NewEncryptedSession =
-//                                     (session.clone(), profile.id).into();
-
-//                                 // this activity should be saved so that the id makes sense
-//                                 // but it's not right now
-//                                 log::debug!("JOIN ACTIVITY\n{activity:#?}");
-
-//                                 if create_encrypted_session(encrypted_session).is_some() {
-//                                     handle.block_on(async {
-//                                         match send_activity(activity, profile, actor.inbox).await {
-//                                             Ok(_) => {
-//                                                 info!("JOIN SENT");
-//                                             }
-//                                             Err(e) => error!("ERROR SENDING JOIN: {e:#?}"),
-//                                         }
-//                                     });
-//                                 } else {
-//                                     log::error!("FAILED TO SAVE ENCRYPTED SESSION");
-//                                 }
-//                             }
-//                         }
-//                     }
-//                 }
-//             }
-//         }
-//     }
-
-//     Ok(())
-// }

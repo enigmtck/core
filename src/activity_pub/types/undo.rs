@@ -13,7 +13,7 @@ use crate::{
         },
         profiles::Profile,
     },
-    to_faktory, MaybeReference,
+    runner, to_faktory, MaybeReference,
 };
 use rocket::http::Status;
 use serde::{Deserialize, Serialize};
@@ -56,17 +56,17 @@ fn undo_target_apid(activity: &ApActivity) -> Option<String> {
 }
 
 async fn process_undo_activity(
-    conn: &Db,
+    conn: Db,
     faktory: FaktoryConnection,
     ap_target: &ApActivity,
     undo: &ApUndo,
 ) -> Result<Status, Status> {
-    let apid = undo_target_apid(ap_target).ok_or(Status::new(520))?;
+    let apid = undo_target_apid(ap_target).ok_or(Status::NotImplemented)?;
     log::debug!("APID: {apid}");
     // retrieve the activity to undo from the database (models/activities)
-    let target = get_activity_by_apid(conn, apid.clone())
+    let target = get_activity_by_apid(&conn, apid.clone())
         .await
-        .ok_or(Status::new(521))?;
+        .ok_or(Status::NotFound)?;
     log::debug!("TARGET: {target:#?}");
     // set up the parameters necessary to create an Activity in the database with linked
     // target activity; NewActivity::try_from creates the link given the appropriate database
@@ -78,16 +78,37 @@ async fn process_undo_activity(
 
     let activity = NewActivity::try_from(activity_and_target).map_err(|_| Status::new(522))?;
     log::debug!("ACTIVITY\n{activity:#?}");
-    if create_activity(conn.into(), activity.clone()).await.is_ok() {
+    if create_activity(Some(&conn), activity.clone()).await.is_ok() {
         match ap_target {
             ApActivity::Like(_) => {
-                to_faktory(faktory, "process_remote_undo_like", vec![apid.clone()])
+                runner::run(
+                    runner::like::process_remote_undo_like_task,
+                    Some(conn),
+                    vec![apid.clone()],
+                )
+                .await;
+                Ok(Status::Accepted)
+                //to_faktory(faktory, "process_remote_undo_like", vec![apid.clone()])
             }
             ApActivity::Follow(_) => {
-                to_faktory(faktory, "process_remote_undo_follow", vec![apid.clone()])
+                runner::run(
+                    runner::follow::process_remote_undo_follow_task,
+                    Some(conn),
+                    vec![apid.clone()],
+                )
+                .await;
+                Ok(Status::Accepted)
+                //to_faktory(faktory, "process_remote_undo_follow", vec![apid.clone()])
             }
             ApActivity::Announce(_) => {
-                to_faktory(faktory, "process_remote_undo_announce", vec![apid.clone()])
+                runner::run(
+                    runner::announce::remote_undo_announce_task,
+                    Some(conn),
+                    vec![apid.clone()],
+                )
+                .await;
+                Ok(Status::Accepted)
+                //to_faktory(faktory, "process_remote_undo_announce", vec![apid.clone()])
             }
             _ => Err(Status::new(523)),
         }
@@ -105,7 +126,7 @@ impl Inbox for Box<ApUndo> {
     ) -> Result<Status, Status> {
         match self.object.clone() {
             MaybeReference::Actual(actual) => {
-                process_undo_activity(&conn, faktory, &actual, self).await
+                process_undo_activity(conn, faktory, &actual, self).await
             }
             MaybeReference::Reference(_) => {
                 log::warn!(
@@ -133,12 +154,12 @@ impl Outbox for Box<ApUndo> {
         _events: EventChannels,
         profile: Profile,
     ) -> Result<String, Status> {
-        handle_undo(&conn, faktory, *self.clone(), profile).await
+        handle_undo(conn, faktory, *self.clone(), profile).await
     }
 }
 
 async fn handle_undo(
-    conn: &Db,
+    conn: Db,
     faktory: FaktoryConnection,
     undo: ApUndo,
     profile: Profile,
@@ -156,26 +177,33 @@ async fn handle_undo(
     log::debug!("TARGET_AP_ID: {target_ap_id:#?}");
     if let Some(target_ap_id) = target_ap_id {
         if let Some((target_activity, _, _, _, _)) =
-            get_activity_by_uuid(conn.into(), target_ap_id).await
+            get_activity_by_uuid(Some(&conn), target_ap_id).await
         {
             if let Ok(activity) = create_activity(
-                conn.into(),
+                Some(&conn),
                 NewActivity::from((
                     target_activity,
                     ActivityType::Undo,
                     ApAddress::Address(get_ap_id_from_username(profile.username.clone())),
                 ))
-                .link_profile(conn)
+                .link_profile(&conn)
                 .await,
             )
             .await
             {
-                if to_faktory(faktory, "process_undo", vec![activity.uuid.clone()]).is_ok() {
-                    Ok(get_activity_ap_id_from_uuid(activity.uuid))
-                } else {
-                    log::error!("FAILED TO ASSIGN UNDO TO FAKTORY");
-                    Err(Status::NoContent)
-                }
+                runner::run(
+                    runner::undo::process_outbound_undo_task,
+                    Some(conn),
+                    vec![activity.uuid.clone()],
+                )
+                .await;
+                Ok(get_activity_ap_id_from_uuid(activity.uuid))
+                // if to_faktory(faktory, "process_undo", vec![activity.uuid.clone()]).is_ok() {
+                //     Ok(get_activity_ap_id_from_uuid(activity.uuid))
+                // } else {
+                //     log::error!("FAILED TO ASSIGN UNDO TO FAKTORY");
+                //     Err(Status::NoContent)
+                // }
             } else {
                 log::error!("FAILED TO CREATE UNDO ACTIVITY");
                 Err(Status::NoContent)

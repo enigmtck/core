@@ -11,7 +11,7 @@ use crate::{
         notes::{get_notey, NoteLike},
         profiles::Profile,
     },
-    to_faktory, MaybeMultiple, MaybeReference,
+    runner, to_faktory, MaybeMultiple, MaybeReference,
 };
 use chrono::{DateTime, Utc};
 use rocket::http::Status;
@@ -56,7 +56,7 @@ impl Inbox for ApAnnounce {
     async fn inbox(
         &self,
         conn: Db,
-        faktory: FaktoryConnection,
+        _faktory: FaktoryConnection,
         raw: Value,
     ) -> Result<Status, Status> {
         let activity = NewActivity::try_from((ApActivity::Announce(self.clone()), None))
@@ -66,11 +66,18 @@ impl Inbox for ApAnnounce {
             .await
             .is_ok()
         {
-            to_faktory(
-                faktory,
-                "process_remote_announce",
+            runner::run(
+                runner::announce::remote_announce_task,
+                Some(conn),
                 vec![activity.uuid.clone()],
             )
+            .await;
+            Ok(Status::Accepted)
+            // to_faktory(
+            //     faktory,
+            //     "process_remote_announce",
+            //     vec![activity.uuid.clone()],
+            // )
         } else {
             log::error!("FAILED TO CREATE ACTIVITY\n{raw}");
             Err(Status::new(521))
@@ -86,18 +93,18 @@ impl Outbox for ApAnnounce {
         _events: EventChannels,
         profile: Profile,
     ) -> Result<String, Status> {
-        outbox(&conn, faktory, self.clone(), profile).await
+        outbox(conn, faktory, self.clone(), profile).await
     }
 }
 
 async fn outbox(
-    conn: &Db,
+    conn: Db,
     faktory: FaktoryConnection,
     announce: ApAnnounce,
     profile: Profile,
 ) -> Result<String, Status> {
     if let MaybeReference::Reference(id) = announce.object {
-        let note_like = get_notey(conn, id).await;
+        let note_like = get_notey(&conn, id).await;
 
         let note_like = note_like.ok_or(Status::new(520))?;
         let (note, remote_note) = match note_like {
@@ -106,25 +113,33 @@ async fn outbox(
         };
 
         let activity = create_activity(
-            conn.into(),
+            Some(&conn),
             NewActivity::from((
                 note.clone(),
                 remote_note.clone(),
                 ActivityType::Announce,
                 ApAddress::Address(get_ap_id_from_username(profile.username.clone())),
             ))
-            .link_profile(conn)
+            .link_profile(&conn)
             .await,
         )
         .await
         .map_err(|_| Status::new(521))?;
 
-        if to_faktory(faktory, "send_announce", vec![activity.uuid.clone()]).is_ok() {
-            Ok(get_activity_ap_id_from_uuid(activity.uuid))
-        } else {
-            log::error!("FAILED TO ASSIGN ANNOUNCE TO FAKTORY");
-            Err(Status::new(522))
-        }
+        runner::run(
+            runner::announce::send_announce_task,
+            Some(conn),
+            vec![activity.uuid.clone()],
+        )
+        .await;
+        Ok(get_activity_ap_id_from_uuid(activity.uuid))
+
+        // if to_faktory(faktory, "send_announce", vec![activity.uuid.clone()]).is_ok() {
+        //     Ok(get_activity_ap_id_from_uuid(activity.uuid))
+        // } else {
+        //     log::error!("FAILED TO ASSIGN ANNOUNCE TO FAKTORY");
+        //     Err(Status::new(522))
+        // }
     } else {
         log::error!("ANNOUNCE OBJECT IS NOT A REFERENCE");
         Err(Status::new(523))

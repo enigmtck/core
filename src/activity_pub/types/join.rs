@@ -9,7 +9,7 @@ use crate::{
         profiles::{get_profile_by_ap_id, Profile},
         remote_encrypted_sessions::create_remote_encrypted_session,
     },
-    to_faktory, MaybeMultiple, MaybeReference,
+    runner, to_faktory, MaybeMultiple, MaybeReference,
 };
 use rocket::http::Status;
 use serde::{Deserialize, Serialize};
@@ -45,7 +45,7 @@ impl Inbox for ApJoin {
     async fn inbox(
         &self,
         conn: Db,
-        faktory: FaktoryConnection,
+        _faktory: FaktoryConnection,
         raw: Value,
     ) -> Result<Status, Status> {
         log::debug!("PROCESSING JOIN ACTIVITY\n{self:#?}");
@@ -61,7 +61,14 @@ impl Inbox for ApJoin {
                         if let Some(ap_id) = session.id {
                             log::debug!("ASSIGNING JOIN ACTIVITY TO FAKTORY");
 
-                            to_faktory(faktory, "process_join", vec![ap_id])
+                            runner::run(
+                                runner::encrypted::process_join_task,
+                                Some(conn),
+                                vec![ap_id],
+                            )
+                            .await;
+                            Ok(Status::Accepted)
+                            //to_faktory(faktory, "process_join", vec![ap_id])
                         } else {
                             log::error!("MISSING ID");
                             Err(Status::NoContent)

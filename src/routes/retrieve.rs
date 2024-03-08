@@ -4,6 +4,7 @@ use anyhow::Result;
 use rocket::futures::future::join_all;
 use rocket::futures::stream::{self, StreamExt};
 
+use crate::runner;
 use crate::{
     activity_pub::{
         retriever::get_actor, ApActor, ApCollection, ApNote, ApObject, ApTag,
@@ -166,24 +167,30 @@ fn consolidate_notes(notes: Vec<ApNote>) -> Vec<ApNote> {
 }
 
 pub async fn conversation(
-    conn: &Db,
+    conn: Db,
     faktory: FaktoryConnection,
     conversation: String,
     limit: i64,
     offset: i64,
 ) -> Result<ApObject> {
     let conversations =
-        get_timeline_items_by_conversation(Some(conn), conversation.clone(), limit, offset)
+        get_timeline_items_by_conversation(Some(&conn), conversation.clone(), limit, offset)
             .await
             .unwrap_or(vec![]);
 
     if let Some(top) = conversations.first() {
-        assign_to_faktory(
-            faktory,
-            String::from("retrieve_context"),
+        runner::run(
+            runner::note::retrieve_context_task,
+            Some(conn),
             vec![top.ap_id.clone()],
         )
-        .map_err(|_| anyhow::Error::msg("failed to assign to faktory"))?;
+        .await;
+        // assign_to_faktory(
+        //     faktory,
+        //     String::from("retrieve_context"),
+        //     vec![top.ap_id.clone()],
+        // )
+        // .map_err(|_| anyhow::Error::msg("failed to assign to faktory"))?;
     }
 
     Ok(ApObject::Collection(ApCollection::from(

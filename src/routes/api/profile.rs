@@ -3,6 +3,7 @@ use crate::{
     db::Db,
     fairings::faktory::{assign_to_faktory, FaktoryConnection},
     models::profiles::{update_avatar_by_username, update_banner_by_username},
+    runner,
 };
 use image::{imageops::FilterType, io::Reader, DynamicImage, ImageFormat};
 use rocket::{
@@ -45,17 +46,25 @@ pub async fn update_summary(
             if let Some(profile) =
                 update_summary_by_username(&conn, username, summary.content, summary.markdown).await
             {
-                if assign_to_faktory(
-                    faktory,
-                    String::from("send_profile_update"),
+                runner::run(
+                    runner::user::send_profile_update_task,
+                    Some(conn),
                     vec![profile.uuid.clone()],
                 )
-                .is_ok()
-                {
-                    Ok(Json(profile))
-                } else {
-                    Err(Status::NoContent)
-                }
+                .await;
+
+                Ok(Json(profile))
+                // if assign_to_faktory(
+                //     faktory,
+                //     String::from("send_profile_update"),
+                //     vec![profile.uuid.clone()],
+                // )
+                // .is_ok()
+                // {
+                //     Ok(Json(profile))
+                // } else {
+                //     Err(Status::NoContent)
+                // }
             } else {
                 Err(Status::NoContent)
             }

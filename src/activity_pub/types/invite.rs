@@ -9,7 +9,7 @@ use crate::{
         profiles::{get_profile_by_ap_id, Profile},
         remote_encrypted_sessions::create_remote_encrypted_session,
     },
-    to_faktory, MaybeMultiple, MaybeReference,
+    runner, MaybeMultiple, MaybeReference,
 };
 use rocket::http::Status;
 use serde::{Deserialize, Serialize};
@@ -45,7 +45,7 @@ impl Inbox for ApInvite {
     async fn inbox(
         &self,
         conn: Db,
-        faktory: FaktoryConnection,
+        _faktory: FaktoryConnection,
         raw: Value,
     ) -> Result<Status, Status> {
         log::debug!("PROCESSING INVITE\n{self:#?}");
@@ -55,7 +55,14 @@ impl Inbox for ApInvite {
                 if let Some(session) =
                     create_remote_encrypted_session(&conn, (self.clone(), profile.id).into()).await
                 {
-                    to_faktory(faktory, "provide_one_time_key", vec![session.ap_id])
+                    runner::run(
+                        runner::encrypted::provide_one_time_key_task,
+                        Some(conn),
+                        vec![session.ap_id],
+                    )
+                    .await;
+                    Ok(Status::Accepted)
+                    //to_faktory(faktory, "provide_one_time_key", vec![session.ap_id])
                 } else {
                     log::error!("FAILED TO HANDLE ACTIVITY\n{raw}");
                     Err(Status::NoContent)

@@ -12,7 +12,7 @@ use crate::{
         profiles::Profile,
         remote_notes::{create_or_update_remote_note, NewRemoteNote},
     },
-    to_faktory, MaybeMultiple, MaybeReference,
+    runner, MaybeMultiple, MaybeReference,
 };
 use chrono::{DateTime, Utc};
 use rocket::http::Status;
@@ -60,7 +60,7 @@ impl Inbox for ApCreate {
     async fn inbox(
         &self,
         conn: Db,
-        faktory: FaktoryConnection,
+        _faktory: FaktoryConnection,
         raw: Value,
     ) -> Result<Status, Status> {
         //inbox::activity::create(conn, faktory, self.clone()).await
@@ -83,7 +83,14 @@ impl Inbox for ApCreate {
                 log::debug!("ACTIVITY\n{activity:#?}");
 
                 if create_activity((&conn).into(), activity).await.is_ok() {
-                    to_faktory(faktory, "process_remote_note", vec![created_note.ap_id])
+                    runner::run(
+                        runner::note::remote_note_task,
+                        Some(conn),
+                        vec![created_note.ap_id],
+                    )
+                    .await;
+                    Ok(Status::Accepted)
+                    //to_faktory(faktory, "process_remote_note", vec![created_note.ap_id])
                 } else {
                     log::error!("FAILED TO INSERT ACTIVITY");
                     Err(Status::NoContent)

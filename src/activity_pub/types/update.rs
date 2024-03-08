@@ -10,7 +10,7 @@ use crate::{
         remote_actors::{create_or_update_remote_actor, NewRemoteActor},
         remote_notes::create_or_update_remote_note,
     },
-    to_faktory, MaybeMultiple, MaybeReference,
+    runner, MaybeMultiple, MaybeReference,
 };
 use rocket::http::Status;
 use serde::{Deserialize, Serialize};
@@ -49,7 +49,7 @@ impl Inbox for ApUpdate {
     async fn inbox(
         &self,
         conn: Db,
-        faktory: FaktoryConnection,
+        _faktory: FaktoryConnection,
         raw: Value,
     ) -> Result<Status, Status> {
         match self.clone().object {
@@ -82,7 +82,14 @@ impl Inbox for ApUpdate {
                                 .await
                                 .is_some()
                         {
-                            to_faktory(faktory, "update_timeline_record", vec![id])
+                            runner::run(
+                                runner::timeline::update_timeline_record_task,
+                                Some(conn),
+                                vec![id],
+                            )
+                            .await;
+                            Ok(Status::Accepted)
+                            //to_faktory(faktory, "update_timeline_record", vec![id])
                         } else {
                             log::error!("FAILED TO HANDLE ACTIVITY\n{raw}");
                             Err(Status::NoContent)

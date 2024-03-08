@@ -11,6 +11,7 @@ use crate::{
         profiles::Profile,
         remote_encrypted_sessions::RemoteEncryptedSession,
     },
+    runner,
 };
 use rocket::http::Status;
 use serde::{Deserialize, Serialize};
@@ -42,7 +43,7 @@ impl Outbox for ApSession {
         _events: EventChannels,
         profile: Profile,
     ) -> Result<String, Status> {
-        handle_session(&conn, faktory, self.clone(), profile).await
+        handle_session(conn, faktory, self.clone(), profile).await
     }
 }
 
@@ -218,25 +219,32 @@ impl From<RemoteEncryptedSession> for ApSession {
 }
 
 async fn handle_session(
-    conn: &Db,
+    conn: Db,
     faktory: FaktoryConnection,
     session: ApSession,
     profile: Profile,
 ) -> Result<String, Status> {
     let encrypted_session: NewEncryptedSession = (session.clone(), profile.id).into();
 
-    if let Some(session) = create_encrypted_session(conn.into(), encrypted_session.clone()).await {
-        if assign_to_faktory(
-            faktory,
-            String::from("send_kexinit"),
+    if let Some(session) = create_encrypted_session(Some(&conn), encrypted_session.clone()).await {
+        runner::run(
+            runner::encrypted::send_kexinit_task,
+            Some(conn),
             vec![session.uuid.clone()],
         )
-        .is_ok()
-        {
-            Ok(session.uuid)
-        } else {
-            Err(Status::NoContent)
-        }
+        .await;
+        Ok(session.uuid)
+        // if assign_to_faktory(
+        //     faktory,
+        //     String::from("send_kexinit"),
+        //     vec![session.uuid.clone()],
+        // )
+        // .is_ok()
+        // {
+        //     Ok(session.uuid)
+        // } else {
+        //     Err(Status::NoContent)
+        // }
     } else {
         Err(Status::NoContent)
     }

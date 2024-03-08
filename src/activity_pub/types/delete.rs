@@ -16,7 +16,7 @@ use crate::{
         remote_notes::{delete_remote_note_by_ap_id, get_remote_note_by_ap_id},
         timeline::delete_timeline_item_by_ap_id,
     },
-    to_faktory, MaybeMultiple, MaybeReference,
+    runner, to_faktory, MaybeMultiple, MaybeReference,
 };
 use rocket::http::Status;
 // use rsa::pkcs8::DecodePrivateKey;
@@ -98,15 +98,15 @@ impl Inbox for Box<ApDelete> {
                 ApObject::Tombstone(tombstone) => {
                     let remote_note = get_remote_note_by_ap_id(Some(&conn), tombstone.id.clone())
                         .await
-                        .ok_or(Status::new(520))?;
+                        .ok_or(Status::NotFound)?;
                     if remote_note.attributed_to == self.actor.clone().to_string() {
                         if delete_note(&conn, tombstone.id.clone()).await.is_ok() {
                             delete_timeline(&conn, tombstone.id).await
                         } else {
-                            Err(Status::NoContent)
+                            Err(Status::new(520))
                         }
                     } else {
-                        Err(Status::NoContent)
+                        Err(Status::Unauthorized)
                     }
                 }
                 ApObject::Identifier(obj) => {
@@ -117,7 +117,7 @@ impl Inbox for Box<ApDelete> {
                         if delete_note(&conn, obj.clone().id).await.is_ok() {
                             delete_timeline(&conn, obj.id).await
                         } else {
-                            Err(Status::NoContent)
+                            Err(Status::new(521))
                         }
                     }
                 }
@@ -134,13 +134,13 @@ impl Inbox for Box<ApDelete> {
                     if delete_note(&conn, ap_id.clone()).await.is_ok() {
                         delete_timeline(&conn, ap_id).await
                     } else {
-                        Err(Status::NoContent)
+                        Err(Status::new(522))
                     }
                 }
             }
             _ => {
                 log::error!("FAILED TO CREATE ACTIVITY\n{raw}");
-                Err(Status::NoContent)
+                Err(Status::NotImplemented)
             }
         }
     }
@@ -154,34 +154,40 @@ impl Outbox for Box<ApDelete> {
         _events: EventChannels,
         profile: Profile,
     ) -> Result<String, Status> {
-        outbox(&conn, faktory, *self.clone(), profile).await
+        outbox(conn, faktory, *self.clone(), profile).await
     }
 }
 
 async fn outbox(
-    conn: &Db,
+    conn: Db,
     faktory: FaktoryConnection,
     delete: ApDelete,
     profile: Profile,
 ) -> Result<String, Status> {
     if let MaybeReference::Reference(id) = delete.object {
-        if let Some(NoteLike::Note(note)) = get_notey(conn, id).await {
+        if let Some(NoteLike::Note(note)) = get_notey(&conn, id).await {
             let activity = create_activity(
-                conn.into(),
+                Some(&conn),
                 NewActivity::from((
                     Some(note.clone()),
                     None,
                     ActivityType::Delete,
                     ApAddress::Address(get_ap_id_from_username(profile.username.clone())),
                 ))
-                .link_profile(conn)
+                .link_profile(&conn)
                 .await,
             )
             .await
             .map_err(|_| Status::new(520))?;
 
-            let _ = to_faktory(faktory, "delete_note", vec![activity.uuid.clone()])
-                .map_err(|_| Status::new(522));
+            runner::run(
+                runner::note::delete_note_task,
+                Some(conn),
+                vec![activity.uuid.clone()],
+            )
+            .await;
+            // let _ = to_faktory(faktory, "delete_note", vec![activity.uuid.clone()])
+            //     .map_err(|_| Status::new(522));
             Ok(get_activity_ap_id_from_uuid(activity.uuid))
         } else {
             Err(Status::new(520))

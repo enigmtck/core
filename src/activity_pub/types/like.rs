@@ -14,7 +14,7 @@ use crate::{
         notes::{get_note_by_apid, get_notey, NoteLike},
         profiles::Profile,
     },
-    to_faktory, MaybeMultiple, MaybeReference,
+    runner, to_faktory, MaybeMultiple, MaybeReference,
 };
 use rocket::http::Status;
 use serde::{Deserialize, Serialize};
@@ -102,18 +102,18 @@ impl Outbox for Box<ApLike> {
         _events: EventChannels,
         profile: Profile,
     ) -> Result<String, Status> {
-        handle_like_outbox(&conn, faktory, *self.clone(), profile).await
+        handle_like_outbox(conn, faktory, *self.clone(), profile).await
     }
 }
 
 async fn handle_like_outbox(
-    conn: &Db,
+    conn: Db,
     faktory: FaktoryConnection,
     like: ApLike,
     profile: Profile,
 ) -> Result<String, Status> {
     if let MaybeReference::Reference(id) = like.object {
-        let note_like = get_notey(conn, id).await;
+        let note_like = get_notey(&conn, id).await;
 
         if let Some(note_like) = note_like {
             let note = if let NoteLike::Note(note) = note_like.clone() {
@@ -129,24 +129,32 @@ async fn handle_like_outbox(
             };
 
             if let Ok(activity) = create_activity(
-                conn.into(),
+                Some(&conn),
                 NewActivity::from((
                     note.clone(),
                     remote_note.clone(),
                     ActivityType::Like,
                     ApAddress::Address(get_ap_id_from_username(profile.username.clone())),
                 ))
-                .link_profile(conn)
+                .link_profile(&conn)
                 .await,
             )
             .await
             {
-                if to_faktory(faktory, "send_like", vec![activity.uuid.clone()]).is_ok() {
-                    Ok(get_activity_ap_id_from_uuid(activity.uuid))
-                } else {
-                    log::error!("FAILED TO ASSIGN LIKE TO FAKTORY");
-                    Err(Status::NoContent)
-                }
+                runner::run(
+                    runner::like::send_like_task,
+                    Some(conn),
+                    vec![activity.uuid.clone()],
+                )
+                .await;
+                Ok(get_activity_ap_id_from_uuid(activity.uuid))
+
+                // if to_faktory(faktory, "send_like", vec![activity.uuid.clone()]).is_ok() {
+                //     Ok(get_activity_ap_id_from_uuid(activity.uuid))
+                // } else {
+                //     log::error!("FAILED TO ASSIGN LIKE TO FAKTORY");
+                //     Err(Status::NoContent)
+                // }
             } else {
                 log::error!("FAILED TO CREATE LIKE ACTIVITY");
                 Err(Status::NoContent)
