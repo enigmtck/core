@@ -1,7 +1,7 @@
 use crate::{
     activity_pub::{ApImage, ApImageType},
     db::Db,
-    fairings::{events::EventChannels, faktory::FaktoryConnection},
+    fairings::events::EventChannels,
     models::profiles::{update_avatar_by_username, update_banner_by_username},
     runner,
 };
@@ -36,7 +36,6 @@ pub async fn update_summary(
     signed: Signed,
     conn: Db,
     channels: EventChannels,
-    faktory: FaktoryConnection,
     username: String,
     summary: Result<Json<SummaryUpdate>, Error<'_>>,
 ) -> Result<Json<Profile>, Status> {
@@ -100,36 +99,21 @@ fn banner(mut image: DynamicImage) -> DynamicImage {
 fn process_banner(filename: String) -> Option<ApImage> {
     let path = &format!("{}/banners/{}", *crate::MEDIA_DIR, filename);
 
-    if let Ok(meta) = rexiv2::Metadata::new_from_path(path) {
-        meta.clear();
-        if meta.save_to_file(path).is_ok() {
-            if let Ok(img) = Reader::open(path) {
-                if let Ok(img) = img.with_guessed_format() {
-                    if let Ok(decode) = img.decode() {
-                        let decode = banner(decode);
-                        let decode = decode.resize(1500, 500, FilterType::CatmullRom);
+    let meta = rexiv2::Metadata::new_from_path(path).ok()?;
+    meta.clear();
+    meta.save_to_file(path).ok()?;
+    let img = Reader::open(path).ok()?;
+    let img = img.with_guessed_format().ok()?;
+    let decode = img.decode().ok()?;
+    let decode = banner(decode);
+    let decode = decode.resize(1500, 500, FilterType::CatmullRom);
 
-                        if decode.save_with_format(path, ImageFormat::Png).is_ok() {
-                            Some(ApImage {
-                                kind: crate::activity_pub::ApImageType::Image,
-                                media_type: Some("image/png".to_string()),
-                                url: format!("{}/media/banners/{}", *crate::SERVER_URL, filename),
-                            })
-                        } else {
-                            None
-                        }
-                    } else {
-                        None
-                    }
-                } else {
-                    None
-                }
-            } else {
-                None
-            }
-        } else {
-            None
-        }
+    if decode.save_with_format(path, ImageFormat::Png).is_ok() {
+        Some(ApImage {
+            kind: crate::activity_pub::ApImageType::Image,
+            media_type: Some("image/png".to_string()),
+            url: format!("{}/media/banners/{}", *crate::SERVER_URL, filename),
+        })
     } else {
         None
     }
@@ -157,36 +141,21 @@ fn square(mut image: DynamicImage) -> DynamicImage {
 fn process_avatar(filename: String) -> Option<ApImage> {
     let path = &format!("{}/avatars/{}", *crate::MEDIA_DIR, filename);
 
-    if let Ok(meta) = rexiv2::Metadata::new_from_path(path) {
-        meta.clear();
-        if meta.save_to_file(path).is_ok() {
-            if let Ok(img) = Reader::open(path) {
-                if let Ok(img) = img.with_guessed_format() {
-                    if let Ok(decode) = img.decode() {
-                        let decode = square(decode);
-                        let decode = decode.resize(400, 400, FilterType::CatmullRom);
+    let meta = rexiv2::Metadata::new_from_path(path).ok()?;
+    meta.clear();
+    meta.save_to_file(path).ok()?;
+    let img = Reader::open(path).ok()?;
+    let img = img.with_guessed_format().ok()?;
+    let decode = img.decode().ok()?;
+    let decode = square(decode);
+    let decode = decode.resize(400, 400, FilterType::CatmullRom);
 
-                        if decode.save_with_format(path, ImageFormat::Png).is_ok() {
-                            Some(ApImage {
-                                kind: ApImageType::Image,
-                                media_type: Some("image/png".to_string()),
-                                url: format!("{}/media/avatars/{}", *crate::SERVER_URL, filename),
-                            })
-                        } else {
-                            None
-                        }
-                    } else {
-                        None
-                    }
-                } else {
-                    None
-                }
-            } else {
-                None
-            }
-        } else {
-            None
-        }
+    if decode.save_with_format(path, ImageFormat::Png).is_ok() {
+        Some(ApImage {
+            kind: ApImageType::Image,
+            media_type: Some("image/png".to_string()),
+            url: format!("{}/media/avatars/{}", *crate::SERVER_URL, filename),
+        })
     } else {
         None
     }

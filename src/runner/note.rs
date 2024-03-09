@@ -1,9 +1,6 @@
 use anyhow::Result;
-use faktory::Job;
 use reqwest::{Client, StatusCode};
 use rocket::futures::future::join_all;
-use tokio::io;
-use tokio::runtime::Runtime;
 use url::Url;
 
 use crate::activity_pub::retriever::signed_get;
@@ -11,8 +8,7 @@ use crate::activity_pub::ApImage;
 use crate::fairings::events::EventChannels;
 use crate::models::note_hashtags::{create_note_hashtag, NewNoteHashtag};
 use crate::models::notes::delete_note_by_uuid;
-use crate::models::processing_queue::create_processing_item;
-use crate::models::profiles::{get_profile, get_profile_by_ap_id, guaranteed_profile};
+use crate::models::profiles::{get_profile, guaranteed_profile};
 use crate::models::remote_note_hashtags::{create_remote_note_hashtag, NewRemoteNoteHashtag};
 use crate::models::remote_notes::{create_or_update_remote_note, get_remote_note_by_ap_id};
 use crate::models::timeline::{create_timeline_item, delete_timeline_item_by_ap_id, TimelineItem};
@@ -32,7 +28,6 @@ use crate::{
         //encrypted::handle_encrypted_note,
         get_inboxes,
         send_to_inboxes,
-        send_to_mq,
     },
     signing::{Method, SignParams},
     MaybeReference,
@@ -71,7 +66,7 @@ async fn cache_note(note: &'_ ApNote) -> &'_ ApNote {
 
 pub async fn delete_note_task(
     conn: Option<Db>,
-    channels: Option<EventChannels>,
+    _channels: Option<EventChannels>,
     uuids: Vec<String>,
 ) -> Result<(), TaskError> {
     let conn = conn.as_ref();
@@ -122,26 +117,9 @@ pub async fn delete_note_task(
     Ok(())
 }
 
-pub fn delete_note(job: Job) -> io::Result<()> {
-    log::debug!("DELETING NOTE");
-    let runtime = Runtime::new().unwrap();
-    let handle = runtime.handle();
-
-    handle
-        .block_on(async {
-            delete_note_task(
-                None,
-                None,
-                serde_json::from_value(job.args().into()).unwrap(),
-            )
-            .await
-        })
-        .map_err(|e| io::Error::new(io::ErrorKind::Other, e))
-}
-
 pub async fn outbound_note_task(
     conn: Option<Db>,
-    channels: Option<EventChannels>,
+    _channels: Option<EventChannels>,
     uuids: Vec<String>,
 ) -> Result<(), TaskError> {
     let conn = conn.as_ref();
@@ -235,26 +213,9 @@ pub async fn outbound_note_task(
     Ok(())
 }
 
-pub fn process_outbound_note(job: Job) -> io::Result<()> {
-    log::debug!("running process_outbound_note job");
-    let runtime = Runtime::new().unwrap();
-    let handle = runtime.handle();
-
-    handle
-        .block_on(async {
-            outbound_note_task(
-                None,
-                None,
-                serde_json::from_value(job.args().into()).unwrap(),
-            )
-            .await
-        })
-        .map_err(|e| io::Error::new(io::ErrorKind::Other, e))
-}
-
 pub async fn retrieve_context_task(
-    conn: Option<Db>,
-    channels: Option<EventChannels>,
+    _conn: Option<Db>,
+    _channels: Option<EventChannels>,
     ap_ids: Vec<String>,
 ) -> Result<(), TaskError> {
     //let conn = conn.as_ref();
@@ -274,23 +235,6 @@ pub async fn retrieve_context_task(
     }
 
     Ok(())
-}
-
-pub fn retrieve_context(job: Job) -> io::Result<()> {
-    log::debug!("running retrieve_context job");
-
-    let rt = Runtime::new().unwrap();
-    let handle = rt.handle();
-    handle
-        .block_on(async {
-            retrieve_context_task(
-                None,
-                None,
-                serde_json::from_value(job.args().into()).unwrap(),
-            )
-            .await
-        })
-        .map_err(|e| io::Error::new(io::ErrorKind::Other, e))
 }
 
 pub async fn fetch_remote_note(id: String, profile: Profile) -> Option<RemoteNote> {
@@ -396,54 +340,30 @@ pub async fn handle_remote_note(
         if let Some(mut channels) = channels {
             channels.send(None, serde_json::to_string(&note.clone()).unwrap());
         }
-        //send_to_mq(vec![(String::new(), note.clone())]).await;
     }
 
     Ok(remote_note)
 }
 
-pub fn handle_remote_encrypted_note(remote_note: RemoteNote) -> io::Result<()> {
+pub async fn handle_remote_encrypted_note_task(
+    _conn: Option<&Db>,
+    remote_note: RemoteNote,
+) -> Result<()> {
     log::debug!("adding to processing queue");
-    let rt = Runtime::new().unwrap();
-    let handle = rt.handle();
 
     if let Some(ap_to) = remote_note.clone().ap_to {
-        let to_vec: Vec<String> = match serde_json::from_value(ap_to) {
-            Ok(x) => x,
-            Err(e) => return Err(io::Error::new(io::ErrorKind::Other, e)),
-        };
+        let _to_vec: Vec<String> = serde_json::from_value(ap_to)?;
 
-        to_vec
-            .iter()
-            .filter_map(|ap_id| {
-                handle.block_on(async { get_profile_by_ap_id(None, ap_id.to_string()).await })
-            })
-            .for_each(|profile| {
-                handle.block_on(async {
-                    create_processing_item(None, (remote_note.clone(), profile.id).into()).await;
-                });
-            });
+        // need to refactor this because of the async in the closures
+        // to_vec
+        //     .iter()
+        //     .filter_map(|ap_id| get_profile_by_ap_id(conn, ap_id.to_string()).await)
+        //     .for_each(|profile| {
+        //         create_processing_item(None, (remote_note.clone(), profile.id).into()).await;
+        //     });
     }
 
     Ok(())
-}
-
-pub fn process_remote_note(job: Job) -> io::Result<()> {
-    log::debug!("running process_remote_note job");
-
-    let rt = Runtime::new().unwrap();
-    let handle = rt.handle();
-
-    handle
-        .block_on(async {
-            remote_note_task(
-                None,
-                None,
-                serde_json::from_value(job.args().into()).unwrap(),
-            )
-            .await
-        })
-        .map_err(|e| io::Error::new(io::ErrorKind::Other, e))
 }
 
 pub async fn remote_note_task(
@@ -463,7 +383,7 @@ pub async fn remote_note_task(
                 let _ = handle_remote_note(channels, remote_note.clone(), None).await;
             }
             NoteType::EncryptedNote => {
-                let _ = handle_remote_encrypted_note(remote_note);
+                let _ = handle_remote_encrypted_note_task(conn, remote_note).await;
             }
             _ => (),
         }

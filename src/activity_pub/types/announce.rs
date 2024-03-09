@@ -4,14 +4,14 @@ use std::fmt::Debug;
 use crate::{
     activity_pub::{ApActivity, ApAddress, ApContext, ApNote, ApObject, Inbox, Outbox, Temporal},
     db::Db,
-    fairings::{events::EventChannels, faktory::FaktoryConnection},
+    fairings::events::EventChannels,
     helper::{get_activity_ap_id_from_uuid, get_ap_id_from_username},
     models::{
         activities::{create_activity, ActivityType, ExtendedActivity, NewActivity},
         notes::{get_notey, NoteLike},
         profiles::Profile,
     },
-    runner, to_faktory, MaybeMultiple, MaybeReference,
+    runner, MaybeMultiple, MaybeReference,
 };
 use chrono::{DateTime, Utc};
 use rocket::http::Status;
@@ -53,13 +53,7 @@ pub struct ApAnnounce {
 }
 
 impl Inbox for ApAnnounce {
-    async fn inbox(
-        &self,
-        conn: Db,
-        channels: EventChannels,
-        _faktory: FaktoryConnection,
-        raw: Value,
-    ) -> Result<Status, Status> {
+    async fn inbox(&self, conn: Db, channels: EventChannels, raw: Value) -> Result<Status, Status> {
         let activity = NewActivity::try_from((ApActivity::Announce(self.clone()), None))
             .map_err(|_| Status::new(520))?;
         log::debug!("ACTIVITY\n{activity:#?}");
@@ -75,11 +69,6 @@ impl Inbox for ApAnnounce {
             )
             .await;
             Ok(Status::Accepted)
-            // to_faktory(
-            //     faktory,
-            //     "process_remote_announce",
-            //     vec![activity.uuid.clone()],
-            // )
         } else {
             log::error!("FAILED TO CREATE ACTIVITY\n{raw}");
             Err(Status::new(521))
@@ -91,18 +80,16 @@ impl Outbox for ApAnnounce {
     async fn outbox(
         &self,
         conn: Db,
-        faktory: FaktoryConnection,
         events: EventChannels,
         profile: Profile,
     ) -> Result<String, Status> {
-        outbox(conn, events, faktory, self.clone(), profile).await
+        outbox(conn, events, self.clone(), profile).await
     }
 }
 
 async fn outbox(
     conn: Db,
     channels: EventChannels,
-    faktory: FaktoryConnection,
     announce: ApAnnounce,
     profile: Profile,
 ) -> Result<String, Status> {
@@ -137,13 +124,6 @@ async fn outbox(
         )
         .await;
         Ok(get_activity_ap_id_from_uuid(activity.uuid))
-
-        // if to_faktory(faktory, "send_announce", vec![activity.uuid.clone()]).is_ok() {
-        //     Ok(get_activity_ap_id_from_uuid(activity.uuid))
-        // } else {
-        //     log::error!("FAILED TO ASSIGN ANNOUNCE TO FAKTORY");
-        //     Err(Status::new(522))
-        // }
     } else {
         log::error!("ANNOUNCE OBJECT IS NOT A REFERENCE");
         Err(Status::new(523))

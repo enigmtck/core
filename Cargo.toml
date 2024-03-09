@@ -26,7 +26,6 @@ url = "2.5"
 hex = "0.4"
 httpdate = "1"
 regex = "1"
-faktory = "0.12"
 async-mutex = "1.4"
 crossbeam-channel = "0.5"
 r2d2 = "0.8"
@@ -35,9 +34,7 @@ orion = "0.17"
 urlencoding = "2.1"
 ammonia = "3.3"
 maplit = "1.0"
-lapin = { version = "2.3.1" }
 futures-lite = "^2.2"
-bb8-lapin = "0.5"
 async_once = "0.2"
 webpage = { version = "2.0", features = ["serde"] }
 

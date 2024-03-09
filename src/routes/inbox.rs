@@ -7,7 +7,6 @@ use crate::activity_pub::{ApActivity, ApObject, Inbox};
 use crate::db::Db;
 use crate::fairings::access_control::Permitted;
 use crate::fairings::events::EventChannels;
-use crate::fairings::faktory::FaktoryConnection;
 use crate::fairings::signatures::Signed;
 use crate::models::leaders::get_leaders_by_profile_id;
 use crate::models::{
@@ -76,10 +75,9 @@ pub async fn inbox_post(
     signed: Signed,
     conn: Db,
     channels: EventChannels,
-    faktory: FaktoryConnection,
     activity: String,
 ) -> Result<Status, Status> {
-    shared_inbox_post(permitted, signed, conn, channels, faktory, activity).await
+    shared_inbox_post(permitted, signed, conn, channels, activity).await
 }
 
 #[post("/inbox", data = "<activity>")]
@@ -88,7 +86,6 @@ pub async fn shared_inbox_post(
     signed: Signed,
     conn: Db,
     channels: EventChannels,
-    faktory: FaktoryConnection,
     activity: String,
 ) -> Result<Status, Status> {
     if permitted.is_permitted() {
@@ -99,7 +96,7 @@ pub async fn shared_inbox_post(
         log::debug!("POSTING TO INBOX\n{activity:#?}");
 
         if signed.any() {
-            activity.inbox(conn, channels, faktory, raw).await
+            activity.inbox(conn, channels, raw).await
         } else {
             log::debug!("REQUEST WAS UNSIGNED OR MALFORMED");
             Err(Status::NoContent)
@@ -115,7 +112,6 @@ pub async fn conversation_get(
     signed: Signed,
     conn: Db,
     channels: EventChannels,
-    faktory: FaktoryConnection,
     username: String,
     offset: u16,
     limit: u8,
@@ -131,7 +127,6 @@ pub async fn conversation_get(
             retrieve::conversation(
                 conn,
                 channels,
-                faktory,
                 decoded.to_string(),
                 limit.into(),
                 offset.into(),
@@ -151,12 +146,11 @@ pub async fn conversation_get(
 pub async fn conversation_get_local(
     conn: Db,
     channels: EventChannels,
-    faktory: FaktoryConnection,
     uuid: String,
 ) -> Result<ActivityJson<ApObject>, Status> {
     let conversation = format!("{}/conversation/{}", *crate::SERVER_URL, uuid);
 
-    retrieve::conversation(conn, channels, faktory, conversation.to_string(), 40, 0)
+    retrieve::conversation(conn, channels, conversation.to_string(), 40, 0)
         .await
         .map(|conversation| ActivityJson(Json(conversation)))
         .map_err(|_| Status::new(525))

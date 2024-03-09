@@ -1,7 +1,6 @@
 use crate::activity_pub::{ApActor, ApCollection, ApInstrument, ApNote, Outbox};
 use crate::db::Db;
 use crate::fairings::events::EventChannels;
-use crate::fairings::faktory::FaktoryConnection;
 use crate::models::profiles::Profile;
 use crate::{Identifier, MaybeMultiple};
 
@@ -64,7 +63,6 @@ impl Outbox for String {
     async fn outbox(
         &self,
         _conn: Db,
-        _faktory: FaktoryConnection,
         _events: EventChannels,
         _profile: Profile,
     ) -> Result<String, Status> {
@@ -76,7 +74,6 @@ impl Outbox for Identifier {
     async fn outbox(
         &self,
         _conn: Db,
-        _faktory: FaktoryConnection,
         _events: EventChannels,
         _profile: Profile,
     ) -> Result<String, Status> {
@@ -88,7 +85,6 @@ impl Outbox for MaybeMultiple<Value> {
     async fn outbox(
         &self,
         _conn: Db,
-        _faktory: FaktoryConnection,
         _events: EventChannels,
         _profile: Profile,
     ) -> Result<String, Status> {
@@ -100,7 +96,6 @@ impl Outbox for ApBasicContent {
     async fn outbox(
         &self,
         _conn: Db,
-        _faktory: FaktoryConnection,
         _events: EventChannels,
         _profile: Profile,
     ) -> Result<String, Status> {
@@ -202,18 +197,10 @@ pub struct ApImage {
 }
 
 fn get_media_type(url: &str) -> Option<String> {
-    if let Ok(url) = Url::parse(url) {
-        if let Some(ext) = url.path().split('.').last() {
-            if ["png", "jpg", "jpeg", "gif", "bmp", "ico", "svg"]
-                .contains(&ext.to_lowercase().as_str())
-            {
-                ContentType::from_extension(ext).map(|x| x.to_string())
-            } else {
-                None
-            }
-        } else {
-            None
-        }
+    let url = Url::parse(url).ok()?;
+    let ext = url.path().split('.').last()?;
+    if ["png", "jpg", "jpeg", "gif", "bmp", "ico", "svg"].contains(&ext.to_lowercase().as_str()) {
+        ContentType::from_extension(ext).map(|x| x.to_string())
     } else {
         None
     }

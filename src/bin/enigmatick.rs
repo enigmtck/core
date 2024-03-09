@@ -1,6 +1,7 @@
 use clap::{Args, Parser, Subcommand};
 use diesel_migrations::{embed_migrations, EmbeddedMigrations, MigrationHarness};
-use enigmatick::{admin::NewUser, runner, server};
+use enigmatick::admin::create_user;
+use enigmatick::{admin::NewUser, server};
 use enigmatick::{POOL, SYSTEM_USER};
 use rand::distributions::{Alphanumeric, DistString};
 use serde::Deserialize;
@@ -25,7 +26,6 @@ pub struct SetupArgs {
 #[serde(rename_all = "lowercase")]
 pub enum Commands {
     Setup(SetupArgs),
-    Runner,
     Server,
     Migrations,
     //Test,
@@ -44,7 +44,6 @@ fn main() {
 
     match args.command {
         Commands::Setup(args) => handle_setup(args),
-        Commands::Runner => runner::start(),
         Commands::Server => server::start(),
         Commands::Migrations => handle_migrations(),
         //Commands::Test => handle_test(),
@@ -72,17 +71,20 @@ fn handle_setup(args: SetupArgs) {
                 let rt = Runtime::new().unwrap();
                 let handle = rt.handle();
                 handle.block_on(async {
-                    if runner::user::create(NewUser {
-                        username: system_user.clone(),
-                        password: Alphanumeric.sample_string(&mut rand::thread_rng(), 16),
-                        display_name: "System User".to_string(),
-                        client_public_key: None,
-                        client_private_key: None,
-                        olm_pickled_account: None,
-                        olm_pickled_account_hash: None,
-                        olm_identity_key: None,
-                        salt: None,
-                    })
+                    if create_user(
+                        None,
+                        NewUser {
+                            username: system_user.clone(),
+                            password: Alphanumeric.sample_string(&mut rand::thread_rng(), 16),
+                            display_name: "System User".to_string(),
+                            client_public_key: None,
+                            client_private_key: None,
+                            olm_pickled_account: None,
+                            olm_pickled_account_hash: None,
+                            olm_identity_key: None,
+                            salt: None,
+                        },
+                    )
                     .await
                     .is_some()
                     {

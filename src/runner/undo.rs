@@ -1,7 +1,3 @@
-use faktory::Job;
-use std::io;
-use tokio::runtime::Runtime;
-
 use crate::{
     activity_pub::{ApActivity, ApAddress},
     db::Db,
@@ -20,7 +16,7 @@ use super::TaskError;
 
 pub async fn process_outbound_undo_task(
     conn: Option<Db>,
-    channels: Option<EventChannels>,
+    _channels: Option<EventChannels>,
     uuids: Vec<String>,
 ) -> Result<(), TaskError> {
     let conn = conn.as_ref();
@@ -110,21 +106,4 @@ pub async fn process_outbound_undo_task(
     }
 
     Ok(())
-}
-
-pub fn process_outbound_undo(job: Job) -> io::Result<()> {
-    log::debug!("PROCESSING OUTGOING UNDO REQUEST");
-    let runtime = Runtime::new().unwrap();
-    let handle = runtime.handle();
-
-    handle
-        .block_on(async {
-            process_outbound_undo_task(
-                None,
-                None,
-                serde_json::from_value(job.args().into()).unwrap(),
-            )
-            .await
-        })
-        .map_err(|e| io::Error::new(io::ErrorKind::Other, e))
 }

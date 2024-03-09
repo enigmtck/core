@@ -12,7 +12,6 @@ use crate::{
         FullyQualifiedTimelineItem,
     },
     db::Db,
-    fairings::faktory::FaktoryConnection,
     models::{
         cache::Cache,
         profiles::Profile,
@@ -170,7 +169,6 @@ fn consolidate_notes(notes: Vec<ApNote>) -> Vec<ApNote> {
 pub async fn conversation(
     conn: Db,
     channels: EventChannels,
-    faktory: FaktoryConnection,
     conversation: String,
     limit: i64,
     offset: i64,
@@ -188,12 +186,6 @@ pub async fn conversation(
             vec![top.ap_id.clone()],
         )
         .await;
-        // assign_to_faktory(
-        //     faktory,
-        //     String::from("retrieve_context"),
-        //     vec![top.ap_id.clone()],
-        // )
-        // .map_err(|_| anyhow::Error::msg("failed to assign to faktory"))?;
     }
 
     Ok(ApObject::Collection(ApCollection::from(

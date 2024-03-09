@@ -4,7 +4,7 @@ use std::fmt::Debug;
 use crate::{
     activity_pub::{ApActivity, ApAddress, ApContext, ApNote, ApObject, Inbox, Outbox, Temporal},
     db::Db,
-    fairings::{events::EventChannels, faktory::FaktoryConnection},
+    fairings::events::EventChannels,
     models::{
         activities::{
             create_activity, ActivityTarget, ApActivityTarget, ExtendedActivity, NewActivity,
@@ -57,13 +57,7 @@ pub struct ApCreate {
 }
 
 impl Inbox for ApCreate {
-    async fn inbox(
-        &self,
-        conn: Db,
-        channels: EventChannels,
-        _faktory: FaktoryConnection,
-        raw: Value,
-    ) -> Result<Status, Status> {
+    async fn inbox(&self, conn: Db, channels: EventChannels, raw: Value) -> Result<Status, Status> {
         //inbox::activity::create(conn, faktory, self.clone()).await
         match self.clone().object {
             MaybeReference::Actual(ApObject::Note(x)) => {
@@ -110,7 +104,6 @@ impl Outbox for ApCreate {
     async fn outbox(
         &self,
         _conn: Db,
-        _faktory: FaktoryConnection,
         _events: EventChannels,
         _profile: Profile,
     ) -> Result<String, Status> {

@@ -1,7 +1,4 @@
 use anyhow::Result;
-use faktory::Job;
-use std::io;
-use tokio::runtime::Runtime;
 
 use crate::{
     activity_pub::{sender::send_activity, ApAccept, ApActivity, ApAddress, ApFollow},
@@ -20,7 +17,7 @@ use crate::{
 
 pub async fn process_follow_task(
     conn: Option<Db>,
-    channels: Option<EventChannels>,
+    _channels: Option<EventChannels>,
     uuids: Vec<String>,
 ) -> Result<(), TaskError> {
     let conn = conn.as_ref();
@@ -58,27 +55,9 @@ pub async fn process_follow_task(
     Ok(())
 }
 
-pub fn process_follow(job: Job) -> io::Result<()> {
-    log::debug!("PROCESSING OUTGOING FOLLOW REQUEST");
-
-    let runtime = Runtime::new().unwrap();
-    let handle = runtime.handle();
-
-    handle
-        .block_on(async {
-            process_follow_task(
-                None,
-                None,
-                serde_json::from_value(job.args().into()).unwrap(),
-            )
-            .await
-        })
-        .map_err(|e| io::Error::new(io::ErrorKind::Other, e))
-}
-
 pub async fn process_accept_task(
     conn: Option<Db>,
-    channels: Option<EventChannels>,
+    _channels: Option<EventChannels>,
     uuids: Vec<String>,
 ) -> Result<(), TaskError> {
     let conn = conn.as_ref();
@@ -117,24 +96,6 @@ pub async fn process_accept_task(
     Ok(())
 }
 
-pub fn process_accept(job: Job) -> io::Result<()> {
-    log::debug!("PROCESSING INCOMING ACCEPT REQUEST");
-
-    let runtime = Runtime::new().unwrap();
-    let handle = runtime.handle();
-
-    handle
-        .block_on(async {
-            process_accept_task(
-                None,
-                None,
-                serde_json::from_value(job.args().into()).unwrap(),
-            )
-            .await
-        })
-        .map_err(|e| io::Error::new(io::ErrorKind::Other, e))
-}
-
 #[derive(Debug)]
 pub enum DeleteLeaderError {
     ConnectionError,
@@ -149,7 +110,7 @@ pub enum DeleteFollowerError {
 
 pub async fn process_remote_undo_follow_task(
     conn: Option<Db>,
-    channels: Option<EventChannels>,
+    _channels: Option<EventChannels>,
     ap_ids: Vec<String>,
 ) -> Result<(), TaskError> {
     let conn = conn.as_ref();
@@ -165,45 +126,9 @@ pub async fn process_remote_undo_follow_task(
     Ok(())
 }
 
-pub fn process_remote_undo_follow(job: Job) -> io::Result<()> {
-    log::debug!("PROCESSING INCOMING UNDO FOLLOW REQUEST");
-
-    let rt = Runtime::new().unwrap();
-    let handle = rt.handle();
-
-    handle
-        .block_on(async {
-            process_remote_undo_follow_task(
-                None,
-                None,
-                serde_json::from_value(job.args().into()).unwrap(),
-            )
-            .await
-        })
-        .map_err(|e| io::Error::new(io::ErrorKind::Other, e))
-}
-
-pub fn acknowledge_followers(job: Job) -> io::Result<()> {
-    log::debug!("running acknowledge job");
-
-    let rt = Runtime::new().unwrap();
-    let handle = rt.handle();
-
-    handle
-        .block_on(async {
-            acknowledge_followers_task(
-                None,
-                None,
-                serde_json::from_value(job.args().into()).unwrap(),
-            )
-            .await
-        })
-        .map_err(|e| io::Error::new(io::ErrorKind::Other, e))
-}
-
 pub async fn acknowledge_followers_task(
     conn: Option<Db>,
-    channels: Option<EventChannels>,
+    _channels: Option<EventChannels>,
     uuids: Vec<String>,
 ) -> Result<(), TaskError> {
     log::debug!("PROCESSING INCOMING FOLLOW REQUEST");

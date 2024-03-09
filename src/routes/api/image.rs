@@ -54,26 +54,23 @@ pub async fn upload_image(
 pub async fn cached_image(conn: Db, url: String) -> Result<(ContentType, NamedFile), Status> {
     log::debug!("CACHE URL BEFORE DECODING: {url}");
 
-    if let Ok(url) = urlencoding::decode(&url) {
-        if let Ok(url) = general_purpose::STANDARD_NO_PAD.decode(url.to_string()) {
-            if let Ok(url) = String::from_utf8(url) {
-                log::debug!("DECODED CACHE URL: {url}");
-                if let Some(cache) = get_cache_item_by_url((&conn).into(), url).await {
-                    let path = format!("{}/cache/{}", &*crate::MEDIA_DIR, cache.uuid);
-                    let media_type = &cache.clone().media_type.map_or("any".to_string(), |x| x);
+    //if let Ok(url) = urlencoding::decode(&url) {
+    if let Ok(url) = general_purpose::URL_SAFE_NO_PAD.decode(url) {
+        if let Ok(url) = String::from_utf8(url) {
+            log::debug!("DECODED CACHE URL: {url}");
+            if let Some(cache) = get_cache_item_by_url((&conn).into(), url).await {
+                let path = format!("{}/cache/{}", &*crate::MEDIA_DIR, cache.uuid);
+                let media_type = &cache.clone().media_type.map_or("any".to_string(), |x| x);
 
-                    if let Some(content_type) = ContentType::parse_flexible(media_type) {
-                        NamedFile::open(path)
-                            .await
-                            .map_or(Err(Status::InternalServerError), |x| Ok((content_type, x)))
-                    } else {
-                        Err(Status::InternalServerError)
-                    }
+                if let Some(content_type) = ContentType::parse_flexible(media_type) {
+                    NamedFile::open(path)
+                        .await
+                        .map_or(Err(Status::InternalServerError), |x| Ok((content_type, x)))
                 } else {
-                    Err(Status::NotFound)
+                    Err(Status::InternalServerError)
                 }
             } else {
-                Err(Status::BadRequest)
+                Err(Status::NotFound)
             }
         } else {
             Err(Status::BadRequest)
@@ -81,4 +78,7 @@ pub async fn cached_image(conn: Db, url: String) -> Result<(ContentType, NamedFi
     } else {
         Err(Status::BadRequest)
     }
+    // } else {
+    //     Err(Status::BadRequest)
+    // }
 }

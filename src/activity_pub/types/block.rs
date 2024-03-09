@@ -4,7 +4,7 @@ use std::fmt::Debug;
 use crate::{
     activity_pub::{ApAddress, ApContext, Inbox, Outbox},
     db::Db,
-    fairings::{events::EventChannels, faktory::FaktoryConnection},
+    fairings::events::EventChannels,
     models::profiles::Profile,
 };
 use rocket::http::Status;
@@ -41,7 +41,6 @@ impl Inbox for ApBlock {
         &self,
         _conn: Db,
         _channels: EventChannels,
-        _faktory: FaktoryConnection,
         raw: Value,
     ) -> Result<Status, Status> {
         log::warn!("BLOCK ACTIVITY NOT YET IMPLEMENTED");
@@ -54,7 +53,6 @@ impl Outbox for ApBlock {
     async fn outbox(
         &self,
         _conn: Db,
-        _faktory: FaktoryConnection,
         _events: EventChannels,
         _profile: Profile,
     ) -> Result<String, Status> {

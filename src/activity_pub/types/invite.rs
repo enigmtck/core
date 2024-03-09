@@ -4,7 +4,7 @@ use std::fmt::Debug;
 use crate::{
     activity_pub::{ApAddress, ApContext, ApInstruments, ApObject, ApSession, Inbox, Outbox},
     db::Db,
-    fairings::{events::EventChannels, faktory::FaktoryConnection},
+    fairings::events::EventChannels,
     models::{
         profiles::{get_profile_by_ap_id, Profile},
         remote_encrypted_sessions::create_remote_encrypted_session,
@@ -42,13 +42,7 @@ pub struct ApInvite {
 }
 
 impl Inbox for ApInvite {
-    async fn inbox(
-        &self,
-        conn: Db,
-        channels: EventChannels,
-        _faktory: FaktoryConnection,
-        raw: Value,
-    ) -> Result<Status, Status> {
+    async fn inbox(&self, conn: Db, channels: EventChannels, raw: Value) -> Result<Status, Status> {
         log::debug!("PROCESSING INVITE\n{self:#?}");
 
         if let Ok(ApAddress::Address(to)) = self.to.clone().single() {
@@ -84,7 +78,6 @@ impl Outbox for ApInvite {
     async fn outbox(
         &self,
         _conn: Db,
-        _faktory: FaktoryConnection,
         _events: EventChannels,
         _profile: Profile,
     ) -> Result<String, Status> {

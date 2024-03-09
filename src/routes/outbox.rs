@@ -3,7 +3,6 @@ use crate::activity_pub::{
 };
 use crate::db::Db;
 use crate::fairings::events::EventChannels;
-use crate::fairings::faktory::FaktoryConnection;
 use crate::fairings::signatures::Signed;
 use crate::models::activities::{
     get_outbox_activities_by_profile_id, get_outbox_count_by_profile_id,
@@ -151,7 +150,6 @@ pub async fn outbox_get(
 pub async fn outbox_post(
     signed: Signed,
     conn: Db,
-    faktory: FaktoryConnection,
     events: EventChannels,
     username: String,
     object: Result<Json<ActivityPub>, Error<'_>>,
@@ -166,12 +164,8 @@ pub async fn outbox_post(
         let object = object.map_err(|_| Status::new(522))?;
 
         match object {
-            Json(ActivityPub::Activity(activity)) => {
-                activity.outbox(conn, faktory, events, profile).await
-            }
-            Json(ActivityPub::Object(object)) => {
-                object.outbox(conn, faktory, events, profile).await
-            }
+            Json(ActivityPub::Activity(activity)) => activity.outbox(conn, events, profile).await,
+            Json(ActivityPub::Object(object)) => object.outbox(conn, events, profile).await,
             _ => Err(Status::new(523)),
         }
     } else {

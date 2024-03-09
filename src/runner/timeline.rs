@@ -1,8 +1,5 @@
 use anyhow::Result;
-use faktory::Job;
 use serde_json::Value;
-use std::io;
-use tokio::runtime::Runtime;
 
 use crate::db::Db;
 use crate::fairings::events::EventChannels;
@@ -19,7 +16,7 @@ use super::TaskError;
 
 pub async fn update_timeline_record_task(
     conn: Option<Db>,
-    channels: Option<EventChannels>,
+    _channels: Option<EventChannels>,
     ap_ids: Vec<String>,
 ) -> Result<(), TaskError> {
     let conn = conn.as_ref();
@@ -37,24 +34,6 @@ pub async fn update_timeline_record_task(
     }
 
     Ok(())
-}
-
-pub fn update_timeline_record(job: Job) -> io::Result<()> {
-    log::debug!("running update_timeline_record job");
-
-    let runtime = Runtime::new().unwrap();
-    let handle = runtime.handle();
-
-    handle
-        .block_on(async {
-            update_timeline_record_task(
-                None,
-                None,
-                serde_json::from_value(job.args().into()).unwrap(),
-            )
-            .await
-        })
-        .map_err(|e| io::Error::new(io::ErrorKind::Other, e))
 }
 
 async fn add_timeline_item_to_for_recipient(recipient: &str, timeline_item: &TimelineItem) {

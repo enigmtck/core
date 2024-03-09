@@ -1,10 +1,7 @@
 use crate::{
     activity_pub::{ApAddress, ApContext, Outbox},
     db::Db,
-    fairings::{
-        events::EventChannels,
-        faktory::{assign_to_faktory, FaktoryConnection},
-    },
+    fairings::events::EventChannels,
     models::{
         encrypted_sessions::{create_encrypted_session, EncryptedSession, NewEncryptedSession},
         olm_sessions::OlmSession,
@@ -39,11 +36,10 @@ impl Outbox for ApSession {
     async fn outbox(
         &self,
         conn: Db,
-        faktory: FaktoryConnection,
         events: EventChannels,
         profile: Profile,
     ) -> Result<String, Status> {
-        handle_session(conn, events, faktory, self.clone(), profile).await
+        handle_session(conn, events, self.clone(), profile).await
     }
 }
 
@@ -98,7 +94,6 @@ impl Outbox for ApInstrument {
     async fn outbox(
         &self,
         _conn: Db,
-        _faktory: FaktoryConnection,
         _events: EventChannels,
         _profile: Profile,
     ) -> Result<String, Status> {
@@ -221,7 +216,6 @@ impl From<RemoteEncryptedSession> for ApSession {
 async fn handle_session(
     conn: Db,
     channels: EventChannels,
-    faktory: FaktoryConnection,
     session: ApSession,
     profile: Profile,
 ) -> Result<String, Status> {
@@ -236,17 +230,6 @@ async fn handle_session(
         )
         .await;
         Ok(session.uuid)
-        // if assign_to_faktory(
-        //     faktory,
-        //     String::from("send_kexinit"),
-        //     vec![session.uuid.clone()],
-        // )
-        // .is_ok()
-        // {
-        //     Ok(session.uuid)
-        // } else {
-        //     Err(Status::NoContent)
-        // }
     } else {
         Err(Status::NoContent)
     }

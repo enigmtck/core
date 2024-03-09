@@ -4,14 +4,14 @@ use std::fmt::Debug;
 use crate::{
     activity_pub::{ApActivity, ApAddress, ApContext, ApFollow, ApObject, Inbox, Outbox},
     db::Db,
-    fairings::{events::EventChannels, faktory::FaktoryConnection},
+    fairings::events::EventChannels,
     models::{
         activities::{
             create_activity, get_activity_by_apid, ActivityTarget, ApActivityTarget, NewActivity,
         },
         profiles::Profile,
     },
-    runner, to_faktory, MaybeReference,
+    runner, MaybeReference,
 };
 use rocket::http::Status;
 use serde::{Deserialize, Serialize};
@@ -46,13 +46,7 @@ pub struct ApAccept {
 
 impl Inbox for Box<ApAccept> {
     #[allow(unused_variables)]
-    async fn inbox(
-        &self,
-        conn: Db,
-        channels: EventChannels,
-        faktory: FaktoryConnection,
-        raw: Value,
-    ) -> Result<Status, Status> {
+    async fn inbox(&self, conn: Db, channels: EventChannels, raw: Value) -> Result<Status, Status> {
         //inbox::activity::accept(conn, faktory, *self.clone()).await
         let follow_apid = match self.clone().object {
             MaybeReference::Reference(reference) => Some(reference),
@@ -83,7 +77,6 @@ impl Inbox for Box<ApAccept> {
             )
             .await;
             Ok(Status::Accepted)
-            //to_faktory(faktory, "process_accept", vec![activity.uuid])
         } else {
             log::error!("FAILED TO CREATE ACTIVITY RECORD");
             Err(Status::NoContent)
@@ -95,7 +88,6 @@ impl Outbox for Box<ApAccept> {
     async fn outbox(
         &self,
         _conn: Db,
-        _faktory: FaktoryConnection,
         _events: EventChannels,
         _profile: Profile,
     ) -> Result<String, Status> {

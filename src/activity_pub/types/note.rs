@@ -6,10 +6,7 @@ use crate::{
         ApActor, ApAttachment, ApCollection, ApContext, ApImage, ApInstruments, ApTag, Outbox,
     },
     db::Db,
-    fairings::{
-        events::EventChannels,
-        faktory::{assign_to_faktory, FaktoryConnection},
-    },
+    fairings::events::EventChannels,
     helper::{
         get_activity_ap_id_from_uuid, get_ap_id_from_username, get_note_ap_id_from_uuid,
         get_note_url_from_uuid,
@@ -208,14 +205,13 @@ impl Outbox for ApNote {
     async fn outbox(
         &self,
         conn: Db,
-        faktory: FaktoryConnection,
         events: EventChannels,
         profile: Profile,
     ) -> Result<String, Status> {
         match self.kind {
-            ApNoteType::Note => handle_note(conn, faktory, events, self.clone(), profile).await,
+            ApNoteType::Note => handle_note(conn, events, self.clone(), profile).await,
             ApNoteType::EncryptedNote => {
-                handle_encrypted_note(conn, faktory, events, self.clone(), profile).await
+                handle_encrypted_note(conn, events, self.clone(), profile).await
             }
             _ => Err(Status::NoContent),
         }
@@ -574,7 +570,6 @@ impl From<RemoteNote> for ApNote {
 
 async fn handle_note(
     conn: Db,
-    faktory: FaktoryConnection,
     channels: EventChannels,
     mut note: ApNote,
     profile: Profile,
@@ -641,23 +636,10 @@ async fn handle_note(
     )
     .await;
     Ok(activity.uuid)
-
-    // if assign_to_faktory(
-    //     faktory,
-    //     String::from("process_outbound_note"),
-    //     vec![activity.uuid.clone()],
-    // )
-    // .is_ok()
-    // {
-    //     Ok(activity.uuid)
-    // } else {
-    //     Err(Status::new(522))
-    // }
 }
 
 async fn handle_encrypted_note(
     conn: Db,
-    faktory: FaktoryConnection,
     channels: EventChannels,
     note: ApNote,
     profile: Profile,
@@ -669,10 +651,6 @@ async fn handle_encrypted_note(
     if let Some(created_note) = create_note(&conn, n.clone()).await {
         log::debug!("created_note\n{created_note:#?}");
 
-        // let ap_note = ApNote::from(created_note.clone());
-        // let mut events = events;
-        // events.send(serde_json::to_string(&ap_note).unwrap());
-
         runner::run(
             runner::note::outbound_note_task,
             Some(conn),
@@ -681,18 +659,6 @@ async fn handle_encrypted_note(
         )
         .await;
         Ok(created_note.uuid)
-
-        // if assign_to_faktory(
-        //     faktory,
-        //     String::from("process_outbound_note"),
-        //     vec![created_note.uuid.clone()],
-        // )
-        // .is_ok()
-        // {
-        //     Ok(created_note.uuid)
-        // } else {
-        //     Err(Status::NoContent)
-        // }
     } else {
         Err(Status::NoContent)
     }

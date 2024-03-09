@@ -1,7 +1,3 @@
-use faktory::Job;
-use std::io;
-use tokio::runtime::Runtime;
-
 use crate::{
     activity_pub::{ApActivity, ApAddress},
     db::Db,
@@ -15,7 +11,7 @@ use crate::{
 
 pub async fn process_remote_undo_like_task(
     conn: Option<Db>,
-    channels: Option<EventChannels>,
+    _channels: Option<EventChannels>,
     ap_ids: Vec<String>,
 ) -> Result<(), TaskError> {
     let conn = conn.as_ref();
@@ -31,26 +27,9 @@ pub async fn process_remote_undo_like_task(
     Ok(())
 }
 
-pub fn process_remote_undo_like(job: Job) -> io::Result<()> {
-    log::debug!("running process_remote_undo_like job");
-    let runtime = Runtime::new().unwrap();
-    let handle = runtime.handle();
-
-    handle
-        .block_on(async {
-            process_remote_undo_like_task(
-                None,
-                None,
-                serde_json::from_value(job.args().into()).unwrap(),
-            )
-            .await
-        })
-        .map_err(|e| io::Error::new(io::ErrorKind::Other, e))
-}
-
 pub async fn send_like_task(
     conn: Option<Db>,
-    channels: Option<EventChannels>,
+    _channels: Option<EventChannels>,
     uuids: Vec<String>,
 ) -> Result<(), TaskError> {
     let conn = conn.as_ref();
@@ -86,22 +65,4 @@ pub async fn send_like_task(
     }
 
     Ok(())
-}
-
-pub fn send_like(job: Job) -> io::Result<()> {
-    log::debug!("SENDING LIKE");
-
-    let runtime = Runtime::new().unwrap();
-    let handle = runtime.handle();
-
-    handle
-        .block_on(async {
-            send_like_task(
-                None,
-                None,
-                serde_json::from_value(job.args().into()).unwrap(),
-            )
-            .await
-        })
-        .map_err(|e| io::Error::new(io::ErrorKind::Other, e))
 }

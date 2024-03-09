@@ -4,7 +4,6 @@ mod types;
 
 use crate::db::Db;
 use crate::fairings::events::EventChannels;
-use crate::fairings::faktory::FaktoryConnection;
 use crate::models::profiles::Profile;
 use crate::{Identifier, MaybeMultiple};
 use chrono::{DateTime, Utc};
@@ -60,13 +59,7 @@ pub trait Temporal {
 
 #[enum_dispatch(ApActivity)]
 pub trait Inbox {
-    async fn inbox(
-        &self,
-        conn: Db,
-        channels: EventChannels,
-        faktory: FaktoryConnection,
-        raw: Value,
-    ) -> Result<Status, Status>;
+    async fn inbox(&self, conn: Db, channels: EventChannels, raw: Value) -> Result<Status, Status>;
 }
 
 #[enum_dispatch(ApActivity, ApObject)]
@@ -74,7 +67,6 @@ pub trait Outbox {
     async fn outbox(
         &self,
         conn: Db,
-        faktory: FaktoryConnection,
         events: EventChannels,
         profile: Profile,
     ) -> Result<String, Status>;

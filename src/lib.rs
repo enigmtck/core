@@ -13,11 +13,8 @@ use db::Pool;
 use diesel::r2d2::ConnectionManager;
 use diesel::PgConnection;
 use dotenvy::dotenv;
-use fairings::faktory::assign_to_faktory;
-use fairings::faktory::FaktoryConnection;
 use lazy_static::lazy_static;
 use regex::Regex;
-use rocket::http::Status;
 use serde::{Deserialize, Serialize};
 use std::env;
 use std::fmt;
@@ -76,22 +73,6 @@ lazy_static! {
     pub static ref MEDIA_DIR: String = {
         dotenv().ok();
         env::var("MEDIA_DIR").expect("MEDIA_DIR must be set")
-    };
-    pub static ref FAKTORY_URL: String = {
-        dotenv().ok();
-        env::var("FAKTORY_URL").expect("FAKTORY_URL must be set")
-    };
-    pub static ref AMQP_URL: String = {
-        dotenv().ok();
-        env::var("AMQP_URL").expect("AMQP_URL must be set")
-    };
-    pub static ref AMQP_CONSUMER_TAG: String = {
-        dotenv().ok();
-        env::var("AMQP_CONSUMER_TAG").expect("AMQP_CONSUMER_TAG must be set")
-    };
-    pub static ref AMQP_QUEUE: String = {
-        dotenv().ok();
-        env::var("AMQP_QUEUE").expect("AMQP_QUEUE must be set")
     };
     pub static ref REGISTRATION_ENABLED: bool = {
         dotenv().ok();
@@ -288,19 +269,5 @@ impl From<ApActivity> for MaybeReference<ApActivity> {
 impl From<String> for MaybeReference<String> {
     fn from(reference: String) -> Self {
         MaybeReference::Reference(reference)
-    }
-}
-
-pub fn to_faktory(
-    faktory: FaktoryConnection,
-    operation: &str,
-    params: Vec<String>,
-) -> Result<Status, Status> {
-    match assign_to_faktory(faktory, String::from(operation), params) {
-        Ok(_) => Ok(Status::Accepted),
-        Err(e) => {
-            log::error!("FAILED TO ASSIGN TO FAKTORY\n{e:#?}");
-            Err(Status::NoContent)
-        }
     }
 }

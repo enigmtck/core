@@ -4,7 +4,7 @@ use std::fmt::Debug;
 use crate::{
     activity_pub::{ApActivity, ApAddress, ApContext, ApFollow, Inbox, Outbox},
     db::Db,
-    fairings::{events::EventChannels, faktory::FaktoryConnection},
+    fairings::events::EventChannels,
     helper::{get_activity_ap_id_from_uuid, get_ap_id_from_username, get_uuid},
     models::{
         activities::{
@@ -13,7 +13,7 @@ use crate::{
         },
         profiles::Profile,
     },
-    runner, to_faktory, MaybeReference,
+    runner, MaybeReference,
 };
 use rocket::http::Status;
 use serde::{Deserialize, Serialize};
@@ -58,7 +58,6 @@ fn undo_target_apid(activity: &ApActivity) -> Option<String> {
 async fn process_undo_activity(
     conn: Db,
     channels: EventChannels,
-    faktory: FaktoryConnection,
     ap_target: &ApActivity,
     undo: &ApUndo,
 ) -> Result<Status, Status> {
@@ -90,7 +89,6 @@ async fn process_undo_activity(
                 )
                 .await;
                 Ok(Status::Accepted)
-                //to_faktory(faktory, "process_remote_undo_like", vec![apid.clone()])
             }
             ApActivity::Follow(_) => {
                 runner::run(
@@ -101,7 +99,6 @@ async fn process_undo_activity(
                 )
                 .await;
                 Ok(Status::Accepted)
-                //to_faktory(faktory, "process_remote_undo_follow", vec![apid.clone()])
             }
             ApActivity::Announce(_) => {
                 runner::run(
@@ -112,7 +109,6 @@ async fn process_undo_activity(
                 )
                 .await;
                 Ok(Status::Accepted)
-                //to_faktory(faktory, "process_remote_undo_announce", vec![apid.clone()])
             }
             _ => Err(Status::new(523)),
         }
@@ -122,16 +118,10 @@ async fn process_undo_activity(
 }
 
 impl Inbox for Box<ApUndo> {
-    async fn inbox(
-        &self,
-        conn: Db,
-        channels: EventChannels,
-        faktory: FaktoryConnection,
-        raw: Value,
-    ) -> Result<Status, Status> {
+    async fn inbox(&self, conn: Db, channels: EventChannels, raw: Value) -> Result<Status, Status> {
         match self.object.clone() {
             MaybeReference::Actual(actual) => {
-                process_undo_activity(conn, channels, faktory, &actual, self).await
+                process_undo_activity(conn, channels, &actual, self).await
             }
             MaybeReference::Reference(_) => {
                 log::warn!(
@@ -155,18 +145,16 @@ impl Outbox for Box<ApUndo> {
     async fn outbox(
         &self,
         conn: Db,
-        faktory: FaktoryConnection,
         events: EventChannels,
         profile: Profile,
     ) -> Result<String, Status> {
-        handle_undo(conn, events, faktory, *self.clone(), profile).await
+        handle_undo(conn, events, *self.clone(), profile).await
     }
 }
 
 async fn handle_undo(
     conn: Db,
     channels: EventChannels,
-    faktory: FaktoryConnection,
     undo: ApUndo,
     profile: Profile,
 ) -> Result<String, Status> {
@@ -205,12 +193,6 @@ async fn handle_undo(
                 )
                 .await;
                 Ok(get_activity_ap_id_from_uuid(activity.uuid))
-                // if to_faktory(faktory, "process_undo", vec![activity.uuid.clone()]).is_ok() {
-                //     Ok(get_activity_ap_id_from_uuid(activity.uuid))
-                // } else {
-                //     log::error!("FAILED TO ASSIGN UNDO TO FAKTORY");
-                //     Err(Status::NoContent)
-                // }
             } else {
                 log::error!("FAILED TO CREATE UNDO ACTIVITY");
                 Err(Status::NoContent)

@@ -1,7 +1,4 @@
 use anyhow::Result;
-use faktory::Job;
-use std::io::{self, Error, ErrorKind};
-use tokio::runtime::Runtime;
 
 use crate::{
     activity_pub::{ApActivity, ApAddress},
@@ -27,7 +24,7 @@ pub async fn send_announce_task(
     uuids: Vec<String>,
 ) -> Result<(), TaskError> {
     let conn = conn.as_ref();
-    let channels = channels.as_ref();
+    let _channels = channels.as_ref();
 
     for uuid in uuids {
         log::debug!("LOOKING FOR UUID {uuid}");
@@ -61,26 +58,9 @@ pub async fn send_announce_task(
     Ok(())
 }
 
-pub fn send_announce(job: Job) -> io::Result<()> {
-    log::debug!("SENDING ANNOUNCE");
-    let runtime = Runtime::new().unwrap();
-    let handle = runtime.handle();
-
-    handle
-        .block_on(async {
-            send_announce_task(
-                None,
-                None,
-                serde_json::from_value(job.args().into()).unwrap(),
-            )
-            .await
-        })
-        .map_err(|e| io::Error::new(io::ErrorKind::Other, e))
-}
-
 pub async fn remote_undo_announce_task(
     conn: Option<Db>,
-    channels: Option<EventChannels>,
+    _channels: Option<EventChannels>,
     ap_ids: Vec<String>,
 ) -> Result<(), TaskError> {
     let conn = conn.as_ref();
@@ -94,24 +74,6 @@ pub async fn remote_undo_announce_task(
     }
 
     Ok(())
-}
-
-pub fn process_remote_undo_announce(job: Job) -> io::Result<()> {
-    log::debug!("running process_remote_undo_announce job");
-
-    let runtime = Runtime::new().unwrap();
-    let handle = runtime.handle();
-
-    handle
-        .block_on(async {
-            remote_undo_announce_task(
-                None,
-                None,
-                serde_json::from_value(job.args().into()).unwrap(),
-            )
-            .await
-        })
-        .map_err(|e| io::Error::new(io::ErrorKind::Other, e))
 }
 
 pub async fn remote_announce_task(
@@ -153,22 +115,4 @@ pub async fn remote_announce_task(
     };
 
     Ok(())
-}
-
-pub fn process_remote_announce(job: Job) -> io::Result<()> {
-    log::debug!("running process_remote_announce job");
-
-    let runtime = Runtime::new().unwrap();
-    let handle = runtime.handle();
-
-    handle
-        .block_on(async {
-            remote_announce_task(
-                None,
-                None,
-                serde_json::from_value(job.args().into()).unwrap(),
-            )
-            .await
-        })
-        .map_err(|e| io::Error::new(io::ErrorKind::Other, e))
 }

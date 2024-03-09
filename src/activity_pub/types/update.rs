@@ -4,7 +4,7 @@ use std::fmt::Debug;
 use crate::{
     activity_pub::{ApActor, ApAddress, ApContext, ApNote, ApObject, Inbox, Outbox},
     db::Db,
-    fairings::{events::EventChannels, faktory::FaktoryConnection},
+    fairings::events::EventChannels,
     models::{
         profiles::Profile,
         remote_actors::{create_or_update_remote_actor, NewRemoteActor},
@@ -46,13 +46,7 @@ pub struct ApUpdate {
 }
 
 impl Inbox for ApUpdate {
-    async fn inbox(
-        &self,
-        conn: Db,
-        channels: EventChannels,
-        _faktory: FaktoryConnection,
-        raw: Value,
-    ) -> Result<Status, Status> {
+    async fn inbox(&self, conn: Db, channels: EventChannels, raw: Value) -> Result<Status, Status> {
         match self.clone().object {
             MaybeReference::Actual(actual) => match actual {
                 ApObject::Actor(actor) => {
@@ -91,7 +85,6 @@ impl Inbox for ApUpdate {
                             )
                             .await;
                             Ok(Status::Accepted)
-                            //to_faktory(faktory, "update_timeline_record", vec![id])
                         } else {
                             log::error!("FAILED TO HANDLE ACTIVITY\n{raw}");
                             Err(Status::NoContent)
@@ -117,7 +110,6 @@ impl Outbox for ApUpdate {
     async fn outbox(
         &self,
         _conn: Db,
-        _faktory: FaktoryConnection,
         _events: EventChannels,
         _profile: Profile,
     ) -> Result<String, Status> {

@@ -295,6 +295,7 @@ impl TryFrom<ApActivityTarget> for NewActivity {
                 ap_id: like
                     .id
                     .map_or(Some(get_activity_ap_id_from_uuid(uuid)), Some),
+                ap_to: serde_json::to_value(like.to).ok(),
                 ..Default::default()
             }
             .link_target(target)

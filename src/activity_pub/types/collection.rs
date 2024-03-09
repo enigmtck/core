@@ -4,7 +4,6 @@ use std::fmt::Debug;
 use crate::activity_pub::{ActivityPub, ApActivity, ApActor, ApContext, ApObject, Outbox};
 use crate::db::Db;
 use crate::fairings::events::EventChannels;
-use crate::fairings::faktory::FaktoryConnection;
 use crate::models::cache::Cache;
 use crate::models::vault::VaultItem;
 use crate::models::{followers::Follower, leaders::Leader, profiles::Profile};
@@ -105,7 +104,6 @@ impl Outbox for ApCollectionPage {
     async fn outbox(
         &self,
         _conn: Db,
-        _faktory: FaktoryConnection,
         _events: EventChannels,
         _profile: Profile,
     ) -> Result<String, Status> {
@@ -174,7 +172,6 @@ impl Outbox for ApCollection {
     async fn outbox(
         &self,
         _conn: Db,
-        _faktory: FaktoryConnection,
         _events: EventChannels,
         _profile: Profile,
     ) -> Result<String, Status> {

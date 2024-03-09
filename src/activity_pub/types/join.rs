@@ -4,12 +4,12 @@ use std::fmt::Debug;
 use crate::{
     activity_pub::{ApAddress, ApContext, ApInstruments, ApObject, ApSession, Inbox, Outbox},
     db::Db,
-    fairings::{events::EventChannels, faktory::FaktoryConnection},
+    fairings::events::EventChannels,
     models::{
         profiles::{get_profile_by_ap_id, Profile},
         remote_encrypted_sessions::create_remote_encrypted_session,
     },
-    runner, to_faktory, MaybeMultiple, MaybeReference,
+    runner, MaybeMultiple, MaybeReference,
 };
 use rocket::http::Status;
 use serde::{Deserialize, Serialize};
@@ -42,13 +42,7 @@ pub struct ApJoin {
 }
 
 impl Inbox for ApJoin {
-    async fn inbox(
-        &self,
-        conn: Db,
-        channels: EventChannels,
-        _faktory: FaktoryConnection,
-        raw: Value,
-    ) -> Result<Status, Status> {
+    async fn inbox(&self, conn: Db, channels: EventChannels, raw: Value) -> Result<Status, Status> {
         log::debug!("PROCESSING JOIN ACTIVITY\n{self:#?}");
 
         if let Ok(ApAddress::Address(to)) = self.to.clone().single() {
@@ -70,7 +64,6 @@ impl Inbox for ApJoin {
                             )
                             .await;
                             Ok(Status::Accepted)
-                            //to_faktory(faktory, "process_join", vec![ap_id])
                         } else {
                             log::error!("MISSING ID");
                             Err(Status::NoContent)
@@ -98,7 +91,6 @@ impl Outbox for ApJoin {
     async fn outbox(
         &self,
         _conn: Db,
-        _faktory: FaktoryConnection,
         _events: EventChannels,
         _profile: Profile,
     ) -> Result<String, Status> {

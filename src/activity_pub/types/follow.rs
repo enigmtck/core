@@ -4,7 +4,7 @@ use std::fmt::Debug;
 use crate::{
     activity_pub::{ApActivity, ApActor, ApAddress, ApContext, ApObject, Inbox, Outbox},
     db::Db,
-    fairings::{events::EventChannels, faktory::FaktoryConnection},
+    fairings::events::EventChannels,
     helper::{get_activity_ap_id_from_uuid, get_ap_id_from_username},
     models::{
         activities::{
@@ -13,7 +13,7 @@ use crate::{
         },
         profiles::{get_actory, get_profile_by_ap_id, ActorLike, Profile},
     },
-    runner, to_faktory, MaybeReference,
+    runner, MaybeMultiple, MaybeReference,
 };
 use rocket::http::Status;
 use serde::{Deserialize, Serialize};
@@ -41,6 +41,8 @@ pub struct ApFollow {
     pub kind: ApFollowType,
     pub actor: ApAddress,
     pub id: Option<String>,
+    pub to: Option<MaybeMultiple<ApAddress>>,
+    pub cc: Option<MaybeMultiple<ApAddress>>,
     pub object: MaybeReference<ApObject>,
 }
 
@@ -49,7 +51,6 @@ impl Inbox for ApFollow {
         &self,
         conn: Db,
         channels: EventChannels,
-        _faktory: FaktoryConnection,
         _raw: Value,
     ) -> Result<Status, Status> {
         let profile_ap_id = self.object.clone().reference().ok_or(Status::new(520))?;
@@ -86,18 +87,16 @@ impl Outbox for ApFollow {
     async fn outbox(
         &self,
         conn: Db,
-        faktory: FaktoryConnection,
         events: EventChannels,
         profile: Profile,
     ) -> Result<String, Status> {
-        outbox(conn, events, faktory, self.clone(), profile).await
+        outbox(conn, events, self.clone(), profile).await
     }
 }
 
 async fn outbox(
     conn: Db,
     channels: EventChannels,
-    faktory: FaktoryConnection,
     follow: ApFollow,
     profile: Profile,
 ) -> Result<String, Status> {
@@ -131,13 +130,6 @@ async fn outbox(
                 )
                 .await;
                 Ok(get_activity_ap_id_from_uuid(activity.uuid))
-
-                // if to_faktory(faktory, "process_follow", vec![activity.uuid.clone()]).is_ok() {
-                //     Ok(get_activity_ap_id_from_uuid(activity.uuid))
-                // } else {
-                //     log::error!("FAILED TO ASSIGN FOLLOW TO FAKTORY");
-                //     Err(Status::NoContent)
-                // }
             } else {
                 log::error!("FAILED TO CREATE FOLLOW ACTIVITY");
                 Err(Status::NoContent)
@@ -172,6 +164,8 @@ impl TryFrom<ExtendedActivity> for ApFollow {
                         )),
                         Some,
                     ),
+                    to: activity.ap_to.and_then(|x| serde_json::from_value(x).ok()),
+                    cc: activity.cc.and_then(|x| serde_json::from_value(x).ok()),
                     object: MaybeReference::Reference(
                         ApActor::from(profile).id.unwrap().to_string(),
                     ),
@@ -188,6 +182,8 @@ impl TryFrom<ExtendedActivity> for ApFollow {
                         )),
                         Some,
                     ),
+                    to: activity.ap_to.and_then(|x| serde_json::from_value(x).ok()),
+                    cc: activity.cc.and_then(|x| serde_json::from_value(x).ok()),
                     object: MaybeReference::Reference(remote_actor.ap_id),
                 }),
                 _ => {

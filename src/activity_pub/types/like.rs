@@ -4,7 +4,7 @@ use std::fmt::Debug;
 use crate::{
     activity_pub::{ApActivity, ApAddress, ApContext, ApNote, ApObject, Inbox, Outbox},
     db::Db,
-    fairings::{events::EventChannels, faktory::FaktoryConnection},
+    fairings::events::EventChannels,
     helper::{get_activity_ap_id_from_uuid, get_ap_id_from_username},
     models::{
         activities::{
@@ -14,7 +14,7 @@ use crate::{
         notes::{get_note_by_apid, get_notey, NoteLike},
         profiles::Profile,
     },
-    runner, to_faktory, MaybeMultiple, MaybeReference,
+    runner, MaybeMultiple, MaybeReference,
 };
 use rocket::http::Status;
 use serde::{Deserialize, Serialize};
@@ -51,8 +51,7 @@ impl Inbox for Box<ApLike> {
     async fn inbox(
         &self,
         conn: Db,
-        channels: EventChannels,
-        _faktory: FaktoryConnection,
+        _channels: EventChannels,
         raw: Value,
     ) -> Result<Status, Status> {
         let note_apid = match self.object.clone() {
@@ -99,18 +98,16 @@ impl Outbox for Box<ApLike> {
     async fn outbox(
         &self,
         conn: Db,
-        faktory: FaktoryConnection,
         events: EventChannels,
         profile: Profile,
     ) -> Result<String, Status> {
-        handle_like_outbox(conn, events, faktory, *self.clone(), profile).await
+        handle_like_outbox(conn, events, *self.clone(), profile).await
     }
 }
 
 async fn handle_like_outbox(
     conn: Db,
     channels: EventChannels,
-    faktory: FaktoryConnection,
     like: ApLike,
     profile: Profile,
 ) -> Result<String, Status> {
@@ -151,13 +148,6 @@ async fn handle_like_outbox(
                 )
                 .await;
                 Ok(get_activity_ap_id_from_uuid(activity.uuid))
-
-                // if to_faktory(faktory, "send_like", vec![activity.uuid.clone()]).is_ok() {
-                //     Ok(get_activity_ap_id_from_uuid(activity.uuid))
-                // } else {
-                //     log::error!("FAILED TO ASSIGN LIKE TO FAKTORY");
-                //     Err(Status::NoContent)
-                // }
             } else {
                 log::error!("FAILED TO CREATE LIKE ACTIVITY");
                 Err(Status::NoContent)
@@ -219,16 +209,3 @@ impl TryFrom<ExtendedActivity> for ApLike {
         }
     }
 }
-
-// impl From<Like> for ApLike {
-//     fn from(like: Like) -> Self {
-//         ApLike {
-//             context: Some(ApContext::default()),
-//             kind: ApLikeType::Like,
-//             actor: ApAddress::Address(like.actor),
-//             to: Some(MaybeMultiple::Single(ApAddress::Address(like.ap_to))),
-//             id: Some(format!("{}/likes/{}", *crate::SERVER_URL, like.uuid)),
-//             object: MaybeReference::Reference(like.object_ap_id),
-//         }
-//     }
-// }

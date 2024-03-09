@@ -6,7 +6,7 @@ use crate::{
         types::signature::ApSignatureType, ApAddress, ApContext, ApNote, ApObject, Inbox, Outbox,
     },
     db::Db,
-    fairings::{events::EventChannels, faktory::FaktoryConnection},
+    fairings::events::EventChannels,
     helper::{get_activity_ap_id_from_uuid, get_ap_id_from_username},
     models::{
         activities::{create_activity, ActivityType, NewActivity},
@@ -16,7 +16,7 @@ use crate::{
         remote_notes::{delete_remote_note_by_ap_id, get_remote_note_by_ap_id},
         timeline::delete_timeline_item_by_ap_id,
     },
-    runner, to_faktory, MaybeMultiple, MaybeReference,
+    runner, MaybeMultiple, MaybeReference,
 };
 use rocket::http::Status;
 // use rsa::pkcs8::DecodePrivateKey;
@@ -60,8 +60,7 @@ impl Inbox for Box<ApDelete> {
     async fn inbox(
         &self,
         conn: Db,
-        channels: EventChannels,
-        _faktory: FaktoryConnection,
+        _channels: EventChannels,
         raw: Value,
     ) -> Result<Status, Status> {
         async fn delete_actor(conn: &Db, ap_id: String) -> Result<Status, Status> {
@@ -151,18 +150,16 @@ impl Outbox for Box<ApDelete> {
     async fn outbox(
         &self,
         conn: Db,
-        faktory: FaktoryConnection,
         events: EventChannels,
         profile: Profile,
     ) -> Result<String, Status> {
-        outbox(conn, events, faktory, *self.clone(), profile).await
+        outbox(conn, events, *self.clone(), profile).await
     }
 }
 
 async fn outbox(
     conn: Db,
     channels: EventChannels,
-    faktory: FaktoryConnection,
     delete: ApDelete,
     profile: Profile,
 ) -> Result<String, Status> {
@@ -226,7 +223,6 @@ impl Outbox for ApTombstone {
     async fn outbox(
         &self,
         _conn: Db,
-        _faktory: FaktoryConnection,
         _events: EventChannels,
         _profile: Profile,
     ) -> Result<String, Status> {

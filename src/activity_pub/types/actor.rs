@@ -6,7 +6,6 @@ use crate::activity_pub::{
 };
 use crate::db::Db;
 use crate::fairings::events::EventChannels;
-use crate::fairings::faktory::FaktoryConnection;
 use crate::models::cache::{cache_content, Cache};
 use crate::models::followers::get_followers_by_profile_id;
 use crate::models::leaders::{get_leaders_by_profile_id, Leader};
@@ -52,6 +51,14 @@ impl fmt::Display for ApAddress {
 impl From<String> for ApAddress {
     fn from(address: String) -> Self {
         ApAddress::Address(address)
+    }
+}
+
+impl TryFrom<serde_json::Value> for ApAddress {
+    type Error = String;
+
+    fn try_from(address: serde_json::Value) -> Result<Self, Self::Error> {
+        serde_json::from_value(address).map_err(|_| "failed to convert to ApAddress")?
     }
 }
 
@@ -210,7 +217,6 @@ impl Outbox for ApActor {
     async fn outbox(
         &self,
         _conn: Db,
-        _faktory: FaktoryConnection,
         _events: EventChannels,
         _profile: Profile,
     ) -> Result<String, Status> {
