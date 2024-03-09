@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="en">
+	<head>
+		<meta charset="utf-8" />
+		<title>Enigmatick</title>
+		<link rel="icon" href="/favicon.png" />
+		<meta
+			name="viewport"
+			content="width=device-width, initial-scale=1.0, interactive-widget=resizes-content"
+		/>
+		<link rel="stylesheet" href="/fontawesome/css/fontawesome.css" />
+		<link rel="stylesheet" href="/fontawesome/css/solid.css" />
+		<link rel="stylesheet" href="/fontawesome/css/regular.css" />
+		<link rel="stylesheet" href="/highlight/solarized-dark.min.css" />
+		<script src="/highlight/highlight.min.js"></script>
+		
+		<link rel="modulepreload" href="/_app/immutable/entry/start.bcK3PItv.js">
+		<link rel="modulepreload" href="/_app/immutable/chunks/scheduler.tnyNm5U0.js">
+		<link rel="modulepreload" href="/_app/immutable/chunks/singletons.vQ7peYzd.js">
+		<link rel="modulepreload" href="/_app/immutable/chunks/index.R4pWNgh9.js">
+		<link rel="modulepreload" href="/_app/immutable/chunks/paths.9za3UJoC.js">
+		<link rel="modulepreload" href="/_app/immutable/entry/app.S8403vmZ.js">
+		<link rel="modulepreload" href="/_app/immutable/chunks/preload-helper.0HuHagjb.js">
+		<link rel="modulepreload" href="/_app/immutable/chunks/index.R_ElRwcJ.js">
+
+		<style lang="scss">
+			html {
+				position: fixed;
+				width: 100%;
+			}
+
+			body.dark {
+				::-webkit-scrollbar {
+					background-color: #000;
+				}
+
+				::-webkit-scrollbar-track {
+					background-color: #000;
+					outline: 0;
+				}
+
+				::-webkit-scrollbar-thumb {
+					background-color: #444;
+					border: 3px solid #000;
+					border-radius: 8px;
+				}
+
+				::-webkit-scrollbar-thumb:hover {
+					background-color: #555;
+				}
+
+				::-webkit-scrollbar-corner {
+					background-color: #000;
+				}
+			}
+
+			a {
+				display: inline-flex;
+			}
+
+			a .invisible {
+				display: none;
+			}
+
+			a .ellipsis {
+				text-overflow: ellipsis;
+				overflow: hidden;
+				white-space: nowrap;
+				max-width: 13em;
+			}
+		</style>
+	</head>
+
+	<body data-sveltekit-preload-data="hover">
+		<div style="display: contents">
+			<script>
+				{
+					__sveltekit_ws2g38 = {
+						base: "",
+						env: null
+					};
+
+					const element = document.currentScript.parentElement;
+
+					Promise.all([
+						import("/_app/immutable/entry/start.bcK3PItv.js"),
+						import("/_app/immutable/entry/app.S8403vmZ.js")
+					]).then(([kit, app]) => {
+						kit.start(app, element);
+					});
+				}
+			</script>
+		</div>
+	</body>
+</html>

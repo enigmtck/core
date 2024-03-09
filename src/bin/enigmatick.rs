@@ -1,6 +1,7 @@
 use clap::{Args, Parser, Subcommand};
 use diesel_migrations::{embed_migrations, EmbeddedMigrations, MigrationHarness};
 use enigmatick::admin::create_user;
+use enigmatick::server::Client;
 use enigmatick::{admin::NewUser, server};
 use enigmatick::{POOL, SYSTEM_USER};
 use rand::distributions::{Alphanumeric, DistString};
@@ -13,6 +14,7 @@ pub const MIGRATIONS: EmbeddedMigrations = embed_migrations!("./migrations");
 #[serde(rename_all = "lowercase")]
 pub enum SetupCommands {
     SystemUser,
+    Client,
 }
 
 #[derive(Deserialize, Args)]
@@ -93,6 +95,11 @@ fn handle_setup(args: SetupArgs) {
                         println!("failed to create system user.");
                     }
                 })
+            }
+            SetupCommands::Client => {
+                for file in Client::iter() {
+                    println!("{file:#?}");
+                }
             }
         }
     }

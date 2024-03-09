@@ -1,9 +1,9 @@
+.DS_Store
 /target
 /Cargo.lock
 /.env
 /Rocket.toml
 \#*\#
 /log/*.log
-faktory-data/redis.*
-faktory-data/*.rdb
 .idea
+media
