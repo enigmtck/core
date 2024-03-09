@@ -155,7 +155,6 @@ fn rocket() -> Rocket<Build> {
         .attach(EventChannels::fairing())
         .attach(Db::fairing())
         .attach(BlockList::fairing())
-        .mount("/", FileServer::from("client"))
         .mount("/media/avatars", FileServer::from("media/avatars").rank(5))
         .mount("/media/banners", FileServer::from("media/banners").rank(6))
         .mount(
