@@ -3,7 +3,7 @@ use std::ffi::OsStr;
 use std::path::PathBuf;
 
 use dotenvy::dotenv;
-use rocket::fs::{FileServer, NamedFile};
+use rocket::fs::FileServer;
 use rocket::http::{ContentType, RawStr};
 use rocket::request::FromParam;
 use rocket::response::content::RawHtml;
@@ -31,6 +31,7 @@ use crate::{
 #[folder = "client/"]
 pub struct Client;
 
+#[allow(dead_code)]
 pub struct Handle<'r> {
     name: &'r str,
 }
@@ -47,23 +48,46 @@ impl<'r> FromParam<'r> for Handle<'r> {
     }
 }
 
+#[allow(unused_variables)]
 #[get("/<handle>")]
-pub async fn profile(handle: Handle<'_>) -> Option<NamedFile> {
-    NamedFile::open("client/200.html").await.ok()
+async fn client_profile(handle: Handle<'_>) -> Option<RawHtml<Cow<'static, [u8]>>> {
+    let asset = Client::get("200.html")?;
+    Some(RawHtml(asset.data))
 }
 
-#[get("/")]
-async fn index() -> Option<RawHtml<Cow<'static, [u8]>>> {
+#[allow(unused_variables)]
+#[get("/notes?<uuid>")]
+async fn client_notes(uuid: String) -> Option<RawHtml<Cow<'static, [u8]>>> {
     let client = Client::get("200.html")?;
     Some(RawHtml(client.data))
 }
 
-// async fn index() -> Option<NamedFile> {
-//     NamedFile::open("client/200.html").await.ok()
-// }
+#[get("/timeline")]
+async fn client_timeline() -> Option<RawHtml<Cow<'static, [u8]>>> {
+    let client = Client::get("200.html")?;
+    Some(RawHtml(client.data))
+}
+
+#[get("/signup")]
+async fn client_signup() -> Option<RawHtml<Cow<'static, [u8]>>> {
+    let client = Client::get("200.html")?;
+    Some(RawHtml(client.data))
+}
+
+#[get("/login")]
+async fn client_login() -> Option<RawHtml<Cow<'static, [u8]>>> {
+    let client = Client::get("200.html")?;
+    Some(RawHtml(client.data))
+}
+
+#[get("/")]
+async fn client_index() -> Option<RawHtml<Cow<'static, [u8]>>> {
+    let client = Client::get("200.html")?;
+    Some(RawHtml(client.data))
+}
 
 #[get("/_app/<file..>")]
-fn app_file(file: PathBuf) -> Option<(ContentType, Cow<'static, [u8]>)> {
+async fn client_app_file(file: PathBuf) -> Option<(ContentType, Cow<'static, [u8]>)> {
     let filename = format!("_app/{}", file.display());
     log::debug!("FILENAME: {filename}");
 
@@ -78,7 +102,7 @@ fn app_file(file: PathBuf) -> Option<(ContentType, Cow<'static, [u8]>)> {
 }
 
 #[get("/assets/<file..>")]
-fn assets_file(file: PathBuf) -> Option<(ContentType, Cow<'static, [u8]>)> {
+async fn client_assets_file(file: PathBuf) -> Option<(ContentType, Cow<'static, [u8]>)> {
     let filename = format!("assets/{}", file.display());
     log::debug!("FILENAME: {filename}");
 
@@ -93,7 +117,7 @@ fn assets_file(file: PathBuf) -> Option<(ContentType, Cow<'static, [u8]>)> {
 }
 
 #[get("/fontawesome/<file..>")]
-fn fontawesome_file(file: PathBuf) -> Option<(ContentType, Cow<'static, [u8]>)> {
+async fn client_fontawesome_file(file: PathBuf) -> Option<(ContentType, Cow<'static, [u8]>)> {
     let filename = format!("fontawesome/{}", file.display());
     log::debug!("FILENAME: {filename}");
 
@@ -108,7 +132,7 @@ fn fontawesome_file(file: PathBuf) -> Option<(ContentType, Cow<'static, [u8]>)> 
 }
 
 #[get("/fonts/<file..>")]
-fn fonts_file(file: PathBuf) -> Option<(ContentType, Cow<'static, [u8]>)> {
+async fn client_fonts_file(file: PathBuf) -> Option<(ContentType, Cow<'static, [u8]>)> {
     let filename = format!("fonts/{}", file.display());
     log::debug!("FILENAME: {filename}");
 
@@ -123,7 +147,7 @@ fn fonts_file(file: PathBuf) -> Option<(ContentType, Cow<'static, [u8]>)> {
 }
 
 #[get("/highlight/<file..>")]
-fn highlight_file(file: PathBuf) -> Option<(ContentType, Cow<'static, [u8]>)> {
+async fn client_highlight_file(file: PathBuf) -> Option<(ContentType, Cow<'static, [u8]>)> {
     let filename = format!("highlight/{}", file.display());
     log::debug!("FILENAME: {filename}");
 
@@ -160,13 +184,17 @@ fn rocket() -> Rocket<Build> {
         .mount(
             "/",
             routes![
-                index,
-                app_file,
-                assets_file,
-                fontawesome_file,
-                fonts_file,
-                highlight_file,
-                profile,
+                client_index,
+                client_notes,
+                client_signup,
+                client_login,
+                client_timeline,
+                client_app_file,
+                client_assets_file,
+                client_fontawesome_file,
+                client_fonts_file,
+                client_highlight_file,
+                client_profile,
                 person_redirect,
                 person,
                 webfinger_jrd_json,
