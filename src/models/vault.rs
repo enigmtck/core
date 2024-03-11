@@ -1,6 +1,6 @@
 use crate::db::Db;
 use crate::schema::vault;
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, NaiveDateTime, Utc};
 use diesel::prelude::*;
 use diesel::{AsChangeset, Identifiable, Insertable, Queryable};
 use rocket_sync_db_pools::diesel;
@@ -32,8 +32,8 @@ impl From<EncryptedData> for NewVaultItem {
 pub struct VaultItem {
     #[serde(skip_serializing)]
     pub id: i32,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
+    pub created_at: NaiveDateTime,
+    pub updated_at: NaiveDateTime,
     pub uuid: String,
     pub profile_id: i32,
     pub encrypted_data: String,

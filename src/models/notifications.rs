@@ -1,6 +1,6 @@
 use crate::db::Db;
 use crate::schema::notifications;
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, NaiveDateTime, Utc};
 use diesel::pg::Pg;
 use diesel::prelude::*;
 use diesel::query_builder::QueryId;
@@ -8,10 +8,7 @@ use diesel::sql_types::Bool;
 use diesel::{AsChangeset, Identifiable, Insertable, Queryable};
 use serde::{Deserialize, Serialize};
 
-#[derive(
-    diesel_derive_enum::DbEnum, Debug, Serialize, Deserialize, Default, Clone, Eq, PartialEq,
-)]
-#[ExistingTypePath = "crate::schema::sql_types::NotificationType"]
+#[derive(Debug, Serialize, Deserialize, Default, Clone, Eq, PartialEq)]
 pub enum NotificationType {
     #[default]
     Mention,
@@ -29,7 +26,7 @@ pub enum NotificationType {
 #[diesel(table_name = notifications)]
 pub struct NewNotification {
     pub uuid: String,
-    pub kind: NotificationType,
+    pub kind: String,
     pub profile_id: i32,
     pub activity_id: i32,
 }
@@ -39,10 +36,10 @@ pub struct NewNotification {
 pub struct Notification {
     #[serde(skip_serializing)]
     pub id: i32,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
+    pub created_at: NaiveDateTime,
+    pub updated_at: NaiveDateTime,
     pub uuid: String,
-    pub kind: NotificationType,
+    pub kind: String,
     pub profile_id: i32,
     pub activity_id: i32,
 }

@@ -4,7 +4,7 @@ use crate::activity_pub::{ApAddress, ApNote};
 use crate::db::Db;
 use crate::schema::remote_notes;
 use crate::{MaybeMultiple, POOL};
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, NaiveDateTime, Utc};
 use diesel::prelude::*;
 use diesel::{AsChangeset, Identifiable, Insertable, Queryable};
 use maplit::{hashmap, hashset};
@@ -16,25 +16,25 @@ use super::notes::NoteType;
 #[derive(Serialize, Deserialize, Insertable, Default, Debug, AsChangeset)]
 #[diesel(table_name = remote_notes)]
 pub struct NewRemoteNote {
-    pub kind: NoteType,
+    pub kind: String,
     pub ap_id: String,
     pub published: Option<String>,
     pub url: Option<String>,
     pub attributed_to: Option<String>,
-    pub ap_to: Option<Value>,
-    pub cc: Option<Value>,
+    pub ap_to: Option<String>,
+    pub cc: Option<String>,
     pub content: String,
-    pub attachment: Option<Value>,
-    pub tag: Option<Value>,
-    pub replies: Option<Value>,
-    pub signature: Option<Value>,
+    pub attachment: Option<String>,
+    pub tag: Option<String>,
+    pub replies: Option<String>,
+    pub signature: Option<String>,
     pub summary: Option<String>,
     pub ap_sensitive: Option<bool>,
     pub atom_uri: Option<String>,
     pub in_reply_to: Option<String>,
     pub in_reply_to_atom_uri: Option<String>,
     pub conversation: Option<String>,
-    pub content_map: Option<Value>,
+    pub content_map: Option<String>,
 }
 
 impl From<ApNote> for NewRemoteNote {
@@ -101,27 +101,27 @@ impl From<ApNote> for NewRemoteNote {
 pub struct RemoteNote {
     #[serde(skip_serializing)]
     pub id: i32,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
-    pub kind: NoteType,
+    pub created_at: NaiveDateTime,
+    pub updated_at: NaiveDateTime,
+    pub kind: String,
     pub ap_id: String,
     pub published: Option<String>,
     pub url: Option<String>,
-    pub ap_to: Option<Value>,
-    pub cc: Option<Value>,
-    pub tag: Option<Value>,
+    pub ap_to: Option<String>,
+    pub cc: Option<String>,
+    pub tag: Option<String>,
     pub attributed_to: String,
     pub content: String,
-    pub attachment: Option<Value>,
-    pub replies: Option<Value>,
+    pub attachment: Option<String>,
+    pub replies: Option<String>,
     pub in_reply_to: Option<String>,
-    pub signature: Option<Value>,
+    pub signature: Option<String>,
     pub summary: Option<String>,
     pub ap_sensitive: Option<bool>,
     pub atom_uri: Option<String>,
     pub in_reply_to_atom_uri: Option<String>,
     pub conversation: Option<String>,
-    pub content_map: Option<Value>,
+    pub content_map: Option<String>,
 }
 
 impl RemoteNote {

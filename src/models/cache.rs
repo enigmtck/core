@@ -5,7 +5,7 @@ use crate::models::profiles::{get_profile_by_username, guaranteed_profile};
 use crate::schema::cache;
 use crate::POOL;
 use anyhow::Result;
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, NaiveDateTime, Utc};
 use diesel::prelude::*;
 use diesel::{AsChangeset, Identifiable, Insertable, Queryable};
 use rocket_sync_db_pools::diesel;
@@ -180,8 +180,8 @@ impl From<ApImage> for NewCacheItem {
 pub struct CacheItem {
     #[serde(skip_serializing)]
     pub id: i32,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
+    pub created_at: NaiveDateTime,
+    pub updated_at: NaiveDateTime,
     pub uuid: String,
     pub url: String,
     pub media_type: Option<String>,

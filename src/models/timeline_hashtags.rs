@@ -2,7 +2,7 @@ use crate::activity_pub::{ApNote, ApTag};
 use crate::db::Db;
 use crate::schema::timeline_hashtags;
 use crate::POOL;
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, NaiveDateTime, Utc};
 use diesel::prelude::*;
 use diesel::{AsChangeset, Identifiable, Insertable, Queryable};
 use rocket_sync_db_pools::diesel;
@@ -44,8 +44,8 @@ impl From<TimelineItem> for Vec<NewTimelineHashtag> {
 pub struct TimelineHashtag {
     #[serde(skip_serializing)]
     pub id: i32,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
+    pub created_at: NaiveDateTime,
+    pub updated_at: NaiveDateTime,
     pub hashtag: String,
     pub timeline_id: i32,
 }

@@ -41,21 +41,21 @@ async_once = "0.2"
 webpage = { version = "2.0", features = ["serde"] }
 
 rocket = { version = "0.5", features = ["json"] }
-diesel = { version = "2.1.4", features = ["postgres", "chrono", "r2d2", "serde_json"] }
-diesel-derive-enum = { version = "2.1.0", features = ["postgres"] }
+diesel = { version = "2.1.4", features = ["postgres", "sqlite", "chrono", "r2d2", "serde_json"] }
+diesel-derive-enum = { version = "2.1.0", features = ["postgres", "sqlite"] }
 image = "0.24.9"
 blurhash = "0.2.1"
 rexiv2 = "0.10.0"
 enum_dispatch = "0.3.12"
 clap = { version = "4.5.1", features = ["derive"] }
-diesel_migrations = { version = "2.1.0", features = ["postgres"] }
+diesel_migrations = { version = "2.1.0", features = ["postgres", "sqlite"] }
 once_cell = "1.19.0"
 rust-embed = { version = "8.3.0", features = ["rocket", "interpolate-folder-path", "compression", "tokio"] }
 
 [dependencies.rocket_sync_db_pools]
 version = "0.1.0"
 default-features = false
-features = ["diesel_postgres_pool"]
+features = ["diesel_postgres_pool", "diesel_sqlite_pool"]
 
 [[bin]]
 name = "enigmatick"

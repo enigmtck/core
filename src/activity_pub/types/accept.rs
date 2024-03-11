@@ -20,6 +20,7 @@ use serde_json::Value;
 use super::activity::RecursiveActivity;
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
+#[serde(rename_all = "snake_case")]
 pub enum ApAcceptType {
     #[default]
     Accept,
@@ -28,6 +29,12 @@ pub enum ApAcceptType {
 impl fmt::Display for ApAcceptType {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         Debug::fmt(self, f)
+    }
+}
+
+impl From<ApAcceptType> for String {
+    fn from(t: ApAcceptType) -> String {
+        format!("{t}")
     }
 }
 

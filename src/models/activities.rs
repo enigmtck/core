@@ -16,16 +16,15 @@ use diesel::prelude::*;
 use diesel::{AsChangeset, Identifiable, Insertable, Queryable};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::fmt::{self, Debug};
 
 use super::notes::Note;
 use super::profiles::{get_profile_by_ap_id, Profile};
 use super::remote_actors::RemoteActor;
 use super::remote_notes::RemoteNote;
 
-#[derive(
-    diesel_derive_enum::DbEnum, Debug, Serialize, Deserialize, Default, Clone, Eq, PartialEq,
-)]
-#[ExistingTypePath = "crate::schema::sql_types::ActivityType"]
+#[derive(Debug, Serialize, Deserialize, Default, Clone, Eq, PartialEq)]
+#[serde(rename_all = "snake_case")]
 pub enum ActivityType {
     #[default]
     Create,
@@ -39,6 +38,18 @@ pub enum ActivityType {
     Block,
     Add,
     Remove,
+}
+
+impl fmt::Display for ActivityType {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        Debug::fmt(self, f)
+    }
+}
+
+impl From<ActivityType> for String {
+    fn from(t: ActivityType) -> String {
+        format!("{t}")
+    }
 }
 
 impl From<ApCreateType> for ActivityType {
@@ -112,11 +123,11 @@ impl From<Note> for ActivityTarget {
 #[derive(Serialize, Deserialize, Insertable, Default, Debug, Clone)]
 #[diesel(table_name = activities)]
 pub struct NewActivity {
-    pub kind: ActivityType,
+    pub kind: String,
     pub uuid: String,
     pub actor: String,
-    pub ap_to: Option<Value>,
-    pub cc: Option<Value>,
+    pub ap_to: Option<String>,
+    pub cc: Option<String>,
     pub profile_id: Option<i32>,
     pub target_note_id: Option<i32>,
     pub target_remote_note_id: Option<i32>,
@@ -186,8 +197,8 @@ impl TryFrom<ApActivityTarget> for NewActivity {
                 kind: create.kind.into(),
                 uuid: uuid.clone(),
                 actor: create.actor.to_string(),
-                ap_to: serde_json::to_value(create.to).ok(),
-                cc: serde_json::to_value(create.cc).ok(),
+                ap_to: serde_json::to_string(&create.to).ok(),
+                cc: serde_json::to_string(&create.cc).ok(),
                 revoked: false,
                 ap_id: create
                     .id
@@ -200,8 +211,8 @@ impl TryFrom<ApActivityTarget> for NewActivity {
                 kind: announce.kind.into(),
                 uuid: uuid.clone(),
                 actor: announce.actor.to_string(),
-                ap_to: serde_json::to_value(announce.to).ok(),
-                cc: serde_json::to_value(announce.cc).ok(),
+                ap_to: serde_json::to_string(&announce.to).ok(),
+                cc: serde_json::to_string(&announce.cc).ok(),
                 target_ap_id: announce.object.reference(),
                 revoked: false,
                 ap_id: announce
@@ -295,7 +306,7 @@ impl TryFrom<ApActivityTarget> for NewActivity {
                 ap_id: like
                     .id
                     .map_or(Some(get_activity_ap_id_from_uuid(uuid)), Some),
-                ap_to: serde_json::to_value(like.to).ok(),
+                ap_to: serde_json::to_string(&like.to).ok(),
                 ..Default::default()
             }
             .link_target(target)
@@ -389,7 +400,7 @@ pub type UndoActivity = (Activity, ActivityType, ApAddress);
 impl From<UndoActivity> for NewActivity {
     fn from((activity, kind, actor): UndoActivity) -> Self {
         NewActivity {
-            kind,
+            kind: kind.into(),
             uuid: uuid::Uuid::new_v4().to_string(),
             actor: actor.to_string(),
             target_activity_id: Some(activity.id),
@@ -405,14 +416,14 @@ impl From<UndoActivity> for NewActivity {
 pub struct Activity {
     #[serde(skip_serializing)]
     pub id: i32,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
+    pub created_at: NaiveDateTime,
+    pub updated_at: NaiveDateTime,
     pub profile_id: Option<i32>,
-    pub kind: ActivityType,
+    pub kind: String,
     pub uuid: String,
     pub actor: String,
-    pub ap_to: Option<Value>,
-    pub cc: Option<Value>,
+    pub ap_to: Option<String>,
+    pub cc: Option<String>,
     pub target_note_id: Option<i32>,
     pub target_remote_note_id: Option<i32>,
     pub target_profile_id: Option<i32>,
@@ -456,8 +467,8 @@ pub struct NewActivityCc {
 pub struct ActivityCc {
     #[serde(skip_serializing)]
     pub id: i32,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
+    pub created_at: NaiveDateTime,
+    pub updated_at: NaiveDateTime,
     pub activity_id: i32,
     pub ap_id: String,
 }
@@ -496,8 +507,8 @@ pub struct NewActivityTo {
 pub struct ActivityTo {
     #[serde(skip_serializing)]
     pub id: i32,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
+    pub created_at: NaiveDateTime,
+    pub updated_at: NaiveDateTime,
     pub activity_id: i32,
     pub ap_id: String,
 }
@@ -546,7 +557,7 @@ pub async fn create_activity(conn: Option<&Db>, activity: NewActivity) -> Result
     };
 
     if let Some(ap_to) = activity.clone().ap_to {
-        let to: MaybeMultiple<String> = serde_json::from_value(ap_to).map_err(|e| anyhow!(e))?;
+        let to: MaybeMultiple<String> = serde_json::from_str(&ap_to).map_err(|e| anyhow!(e))?;
 
         for to in to.multiple() {
             let _ = create_activity_to(conn, (activity.clone(), to).into()).await;
@@ -554,7 +565,7 @@ pub async fn create_activity(conn: Option<&Db>, activity: NewActivity) -> Result
     }
 
     if let Some(cc) = activity.clone().cc {
-        let cc: MaybeMultiple<String> = serde_json::from_value(cc).map_err(|e| anyhow!(e))?;
+        let cc: MaybeMultiple<String> = serde_json::from_str(&cc).map_err(|e| anyhow!(e))?;
 
         for cc in cc.multiple() {
             let _ = create_activity_cc(conn, (activity.clone(), cc).into()).await;
@@ -721,8 +732,8 @@ pub async fn get_outbox_count_by_profile_id(conn: &Db, profile_id: i32) -> Optio
             .filter(activities::profile_id.eq(profile_id))
             .filter(
                 activities::kind
-                    .eq(ActivityType::Create)
-                    .or(activities::kind.eq(ActivityType::Announce)),
+                    .eq("create".to_string())
+                    .or(activities::kind.eq("announce".to_string())),
             )
             .count()
             .get_result::<i64>(c)
@@ -744,8 +755,8 @@ pub async fn get_outbox_activities_by_profile_id(
             .filter(activities::profile_id.eq(profile_id))
             .filter(
                 activities::kind
-                    .eq(ActivityType::Create)
-                    .or(activities::kind.eq(ActivityType::Announce)),
+                    .eq("create".to_string())
+                    .or(activities::kind.eq("announce".to_string())),
             )
             .left_join(notes::table.on(activities::target_note_id.eq(notes::id.nullable())))
             .left_join(

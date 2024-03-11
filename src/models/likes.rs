@@ -50,8 +50,8 @@ impl NewLike {
 pub struct Like {
     #[serde(skip_serializing)]
     pub id: i32,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
+    pub created_at: NaiveDateTime,
+    pub updated_at: NaiveDateTime,
     pub uuid: String,
     pub profile_id: Option<i32>,
     pub ap_to: String,

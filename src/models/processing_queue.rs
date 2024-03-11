@@ -2,7 +2,7 @@ use crate::activity_pub::{ApInstruments, ApNote, ApObject, ApSession};
 use crate::db::Db;
 use crate::schema::processing_queue;
 use crate::POOL;
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, NaiveDateTime, Utc};
 use diesel::prelude::*;
 use diesel::{AsChangeset, Identifiable, Insertable, Queryable};
 use rocket_sync_db_pools::diesel;
@@ -20,10 +20,10 @@ pub struct NewProcessingItem {
     pub profile_id: i32,
     pub kind: String,
     pub ap_id: String,
-    pub ap_to: Value,
-    pub cc: Option<Value>,
+    pub ap_to: String,
+    pub cc: Option<String>,
     pub attributed_to: String,
-    pub ap_object: Value,
+    pub ap_object: String,
     pub processed: bool,
 }
 
@@ -68,14 +68,14 @@ impl From<RemoteEncryptedSession> for NewProcessingItem {
 pub struct ProcessingItem {
     #[serde(skip_serializing)]
     pub id: i32,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
+    pub created_at: NaiveDateTime,
+    pub updated_at: NaiveDateTime,
     pub ap_id: String,
-    pub ap_to: Value,
-    pub cc: Option<Value>,
+    pub ap_to: String,
+    pub cc: Option<String>,
     pub attributed_to: String,
     pub kind: String,
-    pub ap_object: Value,
+    pub ap_object: String,
     pub processed: bool,
     pub profile_id: i32,
 }

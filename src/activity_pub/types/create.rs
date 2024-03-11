@@ -22,6 +22,7 @@ use serde_json::Value;
 use super::signature::ApSignature;
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
+#[serde(rename_all = "snake_case")]
 pub enum ApCreateType {
     #[default]
     Create,
@@ -30,6 +31,12 @@ pub enum ApCreateType {
 impl fmt::Display for ApCreateType {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         Debug::fmt(self, f)
+    }
+}
+
+impl From<ApCreateType> for String {
+    fn from(t: ApCreateType) -> String {
+        format!("{t}")
     }
 }
 

@@ -2,7 +2,7 @@ use crate::activity_pub::ApInstrument;
 use crate::db::Db;
 use crate::schema::{encrypted_sessions, olm_sessions};
 use crate::POOL;
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, NaiveDateTime, Utc};
 use diesel::prelude::*;
 use diesel::{AsChangeset, Identifiable, Insertable, Queryable};
 use rocket_sync_db_pools::diesel;
@@ -24,8 +24,8 @@ pub struct NewOlmSession {
 pub struct OlmSession {
     #[serde(skip_serializing)]
     pub id: i32,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
+    pub created_at: NaiveDateTime,
+    pub updated_at: NaiveDateTime,
     pub uuid: String,
     pub session_data: String,
     pub session_hash: String,

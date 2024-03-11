@@ -5,7 +5,7 @@ use crate::db::Db;
 use crate::helper::{get_local_identifier, is_local, LocalIdentifierType};
 use crate::schema::{self, profiles};
 use crate::POOL;
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, NaiveDateTime, Utc};
 use diesel::prelude::*;
 use diesel::{AsChangeset, Identifiable, Insertable, Queryable};
 use rocket_sync_db_pools::diesel;
@@ -38,8 +38,8 @@ pub struct NewProfile {
 pub struct Profile {
     #[serde(skip_serializing)]
     pub id: i32,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
+    pub created_at: NaiveDateTime,
+    pub updated_at: NaiveDateTime,
     pub uuid: String,
     pub username: String,
     pub display_name: String,

@@ -6,7 +6,7 @@ use crate::helper::{
 use crate::schema::notes;
 use crate::POOL;
 use anyhow::Result;
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, NaiveDateTime, Utc};
 use diesel::prelude::*;
 use diesel::{AsChangeset, Identifiable, Insertable, Queryable};
 use serde::{Deserialize, Serialize};
@@ -15,10 +15,8 @@ use std::fmt;
 
 use super::remote_notes::{get_remote_note_by_ap_id, RemoteNote};
 
-#[derive(
-    diesel_derive_enum::DbEnum, Debug, Serialize, Deserialize, Default, Clone, Eq, PartialEq,
-)]
-#[ExistingTypePath = "crate::schema::sql_types::NoteType"]
+#[derive(Debug, Serialize, Deserialize, Default, Clone, Eq, PartialEq)]
+#[serde(rename_all = "snake_case")]
 pub enum NoteType {
     #[default]
     Note,
@@ -30,6 +28,12 @@ pub enum NoteType {
 impl fmt::Display for NoteType {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{:?}", self)
+    }
+}
+
+impl From<NoteType> for String {
+    fn from(t: NoteType) -> String {
+        format!("{t}")
     }
 }
 
@@ -50,15 +54,15 @@ pub struct NewNote {
     pub uuid: String,
     pub profile_id: i32,
     pub content: String,
-    pub kind: NoteType,
-    pub ap_to: Value,
+    pub kind: String,
+    pub ap_to: String,
     pub attributed_to: String,
     pub in_reply_to: Option<String>,
-    pub tag: Option<Value>,
-    pub attachment: Option<Value>,
-    pub cc: Option<Value>,
+    pub tag: Option<String>,
+    pub attachment: Option<String>,
+    pub cc: Option<String>,
     pub conversation: Option<String>,
-    pub instrument: Option<Value>,
+    pub instrument: Option<String>,
     pub ap_id: Option<String>,
 }
 
@@ -104,20 +108,20 @@ impl From<IdentifiedApNote> for NewNote {
 pub struct Note {
     #[serde(skip_serializing)]
     pub id: i32,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
+    pub created_at: NaiveDateTime,
+    pub updated_at: NaiveDateTime,
     pub uuid: String,
     pub profile_id: i32,
-    pub kind: NoteType,
-    pub ap_to: Value,
-    pub cc: Option<Value>,
-    pub tag: Option<Value>,
+    pub kind: String,
+    pub ap_to: String,
+    pub cc: Option<String>,
+    pub tag: Option<String>,
     pub attributed_to: String,
     pub in_reply_to: Option<String>,
     pub content: String,
     pub conversation: Option<String>,
-    pub attachment: Option<Value>,
-    pub instrument: Option<Value>,
+    pub attachment: Option<String>,
+    pub instrument: Option<String>,
     pub ap_id: Option<String>,
 }
 
@@ -131,7 +135,7 @@ pub async fn get_notes_by_profile_id(
     conn.run(move |c| {
         let mut query = notes::table
             .filter(notes::profile_id.eq(profile_id))
-            .filter(notes::kind.eq(NoteType::Note))
+            .filter(notes::kind.eq(NoteType::Note.into()))
             .order(notes::created_at.desc())
             .limit(limit)
             .offset(offset)

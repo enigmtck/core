@@ -1,7 +1,7 @@
 use crate::db::Db;
 use crate::schema::instances;
 use crate::POOL;
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, NaiveDateTime, Utc};
 use diesel::prelude::*;
 use diesel::{AsChangeset, Identifiable, Insertable, Queryable};
 use serde::{Deserialize, Serialize};
@@ -11,7 +11,7 @@ use serde_json::Value;
 #[diesel(table_name = instances)]
 pub struct NewInstance {
     pub domain_name: String,
-    pub json: Option<Value>,
+    pub json: Option<String>,
     pub blocked: bool,
 }
 
@@ -20,12 +20,12 @@ pub struct NewInstance {
 pub struct Instance {
     #[serde(skip_serializing)]
     pub id: i32,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
+    pub created_at: NaiveDateTime,
+    pub updated_at: NaiveDateTime,
     pub domain_name: String,
-    pub json: Option<Value>,
+    pub json: Option<String>,
     pub blocked: bool,
-    pub last_message_at: DateTime<Utc>,
+    pub last_message_at: NaiveDateTime,
 }
 
 impl From<String> for NewInstance {
@@ -46,7 +46,7 @@ pub async fn create_instance(conn: Option<&Db>, instance: NewInstance) -> Option
                     .values(&instance)
                     .on_conflict(instances::domain_name)
                     .do_update()
-                    .set(instances::last_message_at.eq(Utc::now()))
+                    .set(instances::last_message_at.eq(Utc::now().naive_utc()))
                     .get_result::<Instance>(c)
             })
             .await
@@ -57,7 +57,7 @@ pub async fn create_instance(conn: Option<&Db>, instance: NewInstance) -> Option
                 .values(&instance)
                 .on_conflict(instances::domain_name)
                 .do_update()
-                .set(instances::last_message_at.eq(Utc::now()))
+                .set(instances::last_message_at.eq(Utc::now().naive_utc()))
                 .get_result::<Instance>(&mut pool)
                 .ok()
         }

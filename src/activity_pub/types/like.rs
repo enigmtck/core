@@ -21,6 +21,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
+#[serde(rename_all = "snake_case")]
 pub enum ApLikeType {
     #[default]
     Like,
@@ -29,6 +30,12 @@ pub enum ApLikeType {
 impl fmt::Display for ApLikeType {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         Debug::fmt(self, f)
+    }
+}
+
+impl From<ApLikeType> for String {
+    fn from(t: ApLikeType) -> String {
+        format!("{t}")
     }
 }
 

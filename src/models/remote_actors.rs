@@ -4,7 +4,7 @@ use crate::schema::{leaders, profiles, remote_actors};
 use crate::POOL;
 use crate::{activity_pub::ApActor, helper::handle_option};
 use anyhow::Result;
-use chrono::{DateTime, Duration, Utc};
+use chrono::{DateTime, Duration, NaiveDateTime, Utc};
 use diesel::prelude::*;
 use diesel::{AsChangeset, Identifiable, Insertable, Queryable};
 use serde::{Deserialize, Serialize};
@@ -16,7 +16,7 @@ use super::profiles::Profile;
 #[derive(Serialize, Deserialize, Insertable, AsChangeset)]
 #[diesel(table_name = remote_actors)]
 pub struct NewRemoteActor {
-    pub context: Value,
+    pub context: String,
     pub kind: String,
     pub ap_id: String,
     pub webfinger: Option<String>,
@@ -28,20 +28,20 @@ pub struct NewRemoteActor {
     pub followers: Option<String>,
     pub following: Option<String>,
     pub liked: Option<String>,
-    pub public_key: Value,
+    pub public_key: String,
     pub featured: Option<String>,
     pub featured_tags: Option<String>,
     pub url: Option<String>,
     pub manually_approves_followers: Option<bool>,
     pub published: Option<String>,
-    pub tag: Option<Value>,
-    pub attachment: Option<Value>,
-    pub endpoints: Option<Value>,
-    pub icon: Option<Value>,
-    pub image: Option<Value>,
-    pub also_known_as: Option<Value>,
+    pub tag: Option<String>,
+    pub attachment: Option<String>,
+    pub endpoints: Option<String>,
+    pub icon: Option<String>,
+    pub image: Option<String>,
+    pub also_known_as: Option<String>,
     pub discoverable: Option<bool>,
-    pub capabilities: Option<Value>,
+    pub capabilities: Option<String>,
 }
 
 impl TryFrom<ApActor> for NewRemoteActor {
@@ -102,9 +102,9 @@ impl TryFrom<ApActor> for NewRemoteActor {
 pub struct RemoteActor {
     #[serde(skip_serializing)]
     pub id: i32,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
-    pub context: Value,
+    pub created_at: NaiveDateTime,
+    pub updated_at: NaiveDateTime,
+    pub context: String,
     pub kind: String,
     pub ap_id: String,
     pub name: String,
@@ -115,21 +115,21 @@ pub struct RemoteActor {
     pub followers: Option<String>,
     pub following: Option<String>,
     pub liked: Option<String>,
-    pub public_key: Option<Value>,
+    pub public_key: Option<String>,
     pub featured: Option<String>,
     pub featured_tags: Option<String>,
     pub url: Option<String>,
     pub manually_approves_followers: Option<bool>,
     pub published: Option<String>,
-    pub tag: Option<Value>,
-    pub attachment: Option<Value>,
-    pub endpoints: Option<Value>,
-    pub icon: Option<Value>,
-    pub image: Option<Value>,
-    pub also_known_as: Option<Value>,
+    pub tag: Option<String>,
+    pub attachment: Option<String>,
+    pub endpoints: Option<String>,
+    pub icon: Option<String>,
+    pub image: Option<String>,
+    pub also_known_as: Option<String>,
     pub discoverable: Option<bool>,
-    pub capabilities: Option<Value>,
-    pub checked_at: DateTime<Utc>,
+    pub capabilities: Option<String>,
+    pub checked_at: NaiveDateTime,
     pub webfinger: Option<String>,
 }
 

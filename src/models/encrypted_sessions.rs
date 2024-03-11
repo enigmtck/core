@@ -2,7 +2,7 @@ use crate::activity_pub::ApSession;
 use crate::db::Db;
 use crate::schema::{encrypted_sessions, olm_sessions};
 use crate::POOL;
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, NaiveDateTime, Utc};
 use diesel::prelude::*;
 use diesel::{AsChangeset, Identifiable, Insertable, Queryable};
 use serde::{Deserialize, Serialize};
@@ -17,7 +17,7 @@ pub struct NewEncryptedSession {
     pub profile_id: i32,
     pub ap_to: String,
     pub attributed_to: String,
-    pub instrument: Value,
+    pub instrument: String,
     pub reference: Option<String>,
     pub uuid: String,
 }
@@ -29,7 +29,7 @@ impl From<IdentifiedEncryptedSession> for NewEncryptedSession {
             ap_to: session.to.to_string(),
             attributed_to: session.attributed_to.to_string(),
             reference: session.reference,
-            instrument: serde_json::to_value(session.instrument).unwrap(),
+            instrument: serde_json::to_string(&session.instrument).unwrap(),
             uuid: Uuid::new_v4().to_string(),
             profile_id,
         }
@@ -41,12 +41,12 @@ impl From<IdentifiedEncryptedSession> for NewEncryptedSession {
 pub struct EncryptedSession {
     #[serde(skip_serializing)]
     pub id: i32,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
+    pub created_at: NaiveDateTime,
+    pub updated_at: NaiveDateTime,
     pub profile_id: i32,
     pub ap_to: String,
     pub attributed_to: String,
-    pub instrument: Value,
+    pub instrument: String,
     pub reference: Option<String>,
     pub uuid: String,
 }

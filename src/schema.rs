@@ -1,476 +1,447 @@
 // @generated automatically by Diesel CLI.
 
-pub mod sql_types {
-    #[derive(diesel::sql_types::SqlType, diesel::query_builder::QueryId)]
-    #[diesel(postgres_type(name = "activity_type"))]
-    pub struct ActivityType;
-
-    #[derive(diesel::sql_types::SqlType, diesel::query_builder::QueryId)]
-    #[diesel(postgres_type(name = "note_type"))]
-    pub struct NoteType;
-
-    #[derive(diesel::sql_types::SqlType, diesel::query_builder::QueryId)]
-    #[diesel(postgres_type(name = "notification_type"))]
-    pub struct NotificationType;
-}
-
 diesel::table! {
-    use diesel::sql_types::*;
-    use super::sql_types::ActivityType;
-
     activities (id) {
-        id -> Int4,
-        created_at -> Timestamptz,
-        updated_at -> Timestamptz,
-        profile_id -> Nullable<Int4>,
-        kind -> ActivityType,
-        uuid -> Varchar,
-        actor -> Varchar,
-        ap_to -> Nullable<Jsonb>,
-        cc -> Nullable<Jsonb>,
-        target_note_id -> Nullable<Int4>,
-        target_remote_note_id -> Nullable<Int4>,
-        target_profile_id -> Nullable<Int4>,
-        target_activity_id -> Nullable<Int4>,
-        target_ap_id -> Nullable<Varchar>,
-        target_remote_actor_id -> Nullable<Int4>,
+        id -> Integer,
+        created_at -> Timestamp,
+        updated_at -> Timestamp,
+        profile_id -> Nullable<Integer>,
+        kind -> Text,
+        uuid -> Text,
+        actor -> Text,
+        ap_to -> Nullable<Text>,
+        cc -> Nullable<Text>,
+        target_note_id -> Nullable<Integer>,
+        target_remote_note_id -> Nullable<Integer>,
+        target_profile_id -> Nullable<Integer>,
+        target_activity_id -> Nullable<Integer>,
+        target_ap_id -> Nullable<Text>,
+        target_remote_actor_id -> Nullable<Integer>,
         revoked -> Bool,
-        ap_id -> Nullable<Varchar>,
+        ap_id -> Nullable<Text>,
     }
 }
 
 diesel::table! {
     activities_cc (id) {
-        id -> Int4,
-        created_at -> Timestamptz,
-        updated_at -> Timestamptz,
-        activity_id -> Int4,
-        ap_id -> Varchar,
+        id -> Integer,
+        created_at -> Timestamp,
+        updated_at -> Timestamp,
+        activity_id -> Integer,
+        ap_id -> Text,
     }
 }
 
 diesel::table! {
     activities_to (id) {
-        id -> Int4,
-        created_at -> Timestamptz,
-        updated_at -> Timestamptz,
-        activity_id -> Int4,
-        ap_id -> Varchar,
+        id -> Integer,
+        created_at -> Timestamp,
+        updated_at -> Timestamp,
+        activity_id -> Integer,
+        ap_id -> Text,
     }
 }
 
 diesel::table! {
     announces (id) {
-        id -> Int4,
-        created_at -> Timestamptz,
-        updated_at -> Timestamptz,
-        profile_id -> Nullable<Int4>,
-        uuid -> Varchar,
-        actor -> Varchar,
-        ap_to -> Jsonb,
-        cc -> Nullable<Jsonb>,
-        object_ap_id -> Varchar,
+        id -> Integer,
+        created_at -> Timestamp,
+        updated_at -> Timestamp,
+        profile_id -> Nullable<Integer>,
+        uuid -> Text,
+        actor -> Text,
+        ap_to -> Text,
+        cc -> Nullable<Text>,
+        object_ap_id -> Text,
     }
 }
 
 diesel::table! {
     cache (id) {
-        id -> Int4,
-        created_at -> Timestamptz,
-        updated_at -> Timestamptz,
-        uuid -> Varchar,
-        url -> Varchar,
-        media_type -> Nullable<Varchar>,
-        height -> Nullable<Int4>,
-        width -> Nullable<Int4>,
-        blurhash -> Nullable<Varchar>,
+        id -> Integer,
+        created_at -> Timestamp,
+        updated_at -> Timestamp,
+        uuid -> Text,
+        url -> Text,
+        media_type -> Nullable<Text>,
+        height -> Nullable<Integer>,
+        width -> Nullable<Integer>,
+        blurhash -> Nullable<Text>,
     }
 }
 
 diesel::table! {
     encrypted_sessions (id) {
-        id -> Int4,
-        created_at -> Timestamptz,
-        updated_at -> Timestamptz,
-        profile_id -> Int4,
-        ap_to -> Varchar,
-        attributed_to -> Varchar,
-        instrument -> Jsonb,
-        reference -> Nullable<Varchar>,
-        uuid -> Varchar,
+        id -> Integer,
+        created_at -> Timestamp,
+        updated_at -> Timestamp,
+        profile_id -> Integer,
+        ap_to -> Text,
+        attributed_to -> Text,
+        instrument -> Text,
+        reference -> Nullable<Text>,
+        uuid -> Text,
     }
 }
 
 diesel::table! {
     followers (id) {
-        id -> Int4,
-        created_at -> Timestamptz,
-        updated_at -> Timestamptz,
-        profile_id -> Int4,
-        ap_id -> Varchar,
-        actor -> Varchar,
-        followed_ap_id -> Varchar,
-        uuid -> Varchar,
+        id -> Integer,
+        created_at -> Timestamp,
+        updated_at -> Timestamp,
+        profile_id -> Integer,
+        ap_id -> Text,
+        actor -> Text,
+        followed_ap_id -> Text,
+        uuid -> Text,
     }
 }
 
 diesel::table! {
     follows (id) {
-        id -> Int4,
-        created_at -> Timestamptz,
-        updated_at -> Timestamptz,
-        uuid -> Varchar,
-        profile_id -> Nullable<Int4>,
-        ap_object -> Varchar,
-        actor -> Varchar,
+        id -> Integer,
+        created_at -> Timestamp,
+        updated_at -> Timestamp,
+        uuid -> Text,
+        profile_id -> Nullable<Integer>,
+        ap_object -> Text,
+        actor -> Text,
     }
 }
 
 diesel::table! {
     hashtag_trend (id) {
-        id -> Int4,
-        created_at -> Timestamptz,
-        updated_at -> Timestamptz,
-        period -> Int4,
-        hashtag -> Varchar,
-        update_count -> Int4,
+        id -> Integer,
+        created_at -> Timestamp,
+        updated_at -> Timestamp,
+        period -> Integer,
+        hashtag -> Text,
+        update_count -> Integer,
     }
 }
 
 diesel::table! {
     instances (id) {
-        id -> Int4,
-        created_at -> Timestamptz,
-        updated_at -> Timestamptz,
-        domain_name -> Varchar,
-        json -> Nullable<Jsonb>,
+        id -> Integer,
+        created_at -> Timestamp,
+        updated_at -> Timestamp,
+        domain_name -> Text,
+        json -> Nullable<Text>,
         blocked -> Bool,
-        last_message_at -> Timestamptz,
+        last_message_at -> Timestamp,
     }
 }
 
 diesel::table! {
     leaders (id) {
-        id -> Int4,
-        created_at -> Timestamptz,
-        updated_at -> Timestamptz,
-        profile_id -> Int4,
-        actor -> Varchar,
-        leader_ap_id -> Varchar,
-        uuid -> Varchar,
-        accept_ap_id -> Nullable<Varchar>,
+        id -> Integer,
+        created_at -> Timestamp,
+        updated_at -> Timestamp,
+        profile_id -> Integer,
+        actor -> Text,
+        leader_ap_id -> Text,
+        uuid -> Text,
+        accept_ap_id -> Nullable<Text>,
         accepted -> Nullable<Bool>,
-        follow_ap_id -> Nullable<Varchar>,
+        follow_ap_id -> Nullable<Text>,
     }
 }
 
 diesel::table! {
     likes (id) {
-        id -> Int4,
-        created_at -> Timestamptz,
-        updated_at -> Timestamptz,
-        uuid -> Varchar,
-        profile_id -> Nullable<Int4>,
-        ap_to -> Varchar,
-        actor -> Varchar,
-        object_ap_id -> Varchar,
+        id -> Integer,
+        created_at -> Timestamp,
+        updated_at -> Timestamp,
+        uuid -> Text,
+        profile_id -> Nullable<Integer>,
+        ap_to -> Text,
+        actor -> Text,
+        object_ap_id -> Text,
     }
 }
 
 diesel::table! {
     note_hashtags (id) {
-        id -> Int4,
-        created_at -> Timestamptz,
-        updated_at -> Timestamptz,
-        hashtag -> Varchar,
-        note_id -> Int4,
+        id -> Integer,
+        created_at -> Timestamp,
+        updated_at -> Timestamp,
+        hashtag -> Text,
+        note_id -> Integer,
     }
 }
 
 diesel::table! {
-    use diesel::sql_types::*;
-    use super::sql_types::NoteType;
-
     notes (id) {
-        id -> Int4,
-        created_at -> Timestamptz,
-        updated_at -> Timestamptz,
-        uuid -> Varchar,
-        profile_id -> Int4,
-        kind -> NoteType,
-        ap_to -> Jsonb,
-        cc -> Nullable<Jsonb>,
-        tag -> Nullable<Jsonb>,
-        attributed_to -> Varchar,
-        in_reply_to -> Nullable<Varchar>,
-        content -> Varchar,
-        conversation -> Nullable<Varchar>,
-        attachment -> Nullable<Jsonb>,
-        instrument -> Nullable<Jsonb>,
-        ap_id -> Nullable<Varchar>,
+        id -> Integer,
+        created_at -> Timestamp,
+        updated_at -> Timestamp,
+        uuid -> Text,
+        profile_id -> Integer,
+        kind -> Text,
+        ap_to -> Text,
+        cc -> Nullable<Text>,
+        tag -> Nullable<Text>,
+        attributed_to -> Text,
+        in_reply_to -> Nullable<Text>,
+        content -> Text,
+        conversation -> Nullable<Text>,
+        attachment -> Nullable<Text>,
+        instrument -> Nullable<Text>,
+        ap_id -> Nullable<Text>,
     }
 }
 
 diesel::table! {
-    use diesel::sql_types::*;
-    use super::sql_types::NotificationType;
-
     notifications (id) {
-        id -> Int4,
-        created_at -> Timestamptz,
-        updated_at -> Timestamptz,
-        uuid -> Varchar,
-        kind -> NotificationType,
-        profile_id -> Int4,
-        activity_id -> Int4,
+        id -> Integer,
+        created_at -> Timestamp,
+        updated_at -> Timestamp,
+        uuid -> Text,
+        kind -> Text,
+        profile_id -> Integer,
+        activity_id -> Integer,
     }
 }
 
 diesel::table! {
     olm_one_time_keys (id) {
-        id -> Int4,
-        created_at -> Timestamptz,
-        updated_at -> Timestamptz,
-        uuid -> Varchar,
-        profile_id -> Int4,
-        olm_id -> Int4,
-        key_data -> Varchar,
+        id -> Integer,
+        created_at -> Timestamp,
+        updated_at -> Timestamp,
+        uuid -> Text,
+        profile_id -> Integer,
+        olm_id -> Integer,
+        key_data -> Text,
         distributed -> Bool,
     }
 }
 
 diesel::table! {
     olm_sessions (id) {
-        id -> Int4,
-        created_at -> Timestamptz,
-        updated_at -> Timestamptz,
-        uuid -> Varchar,
-        session_data -> Varchar,
-        session_hash -> Varchar,
-        encrypted_session_id -> Int4,
+        id -> Integer,
+        created_at -> Timestamp,
+        updated_at -> Timestamp,
+        uuid -> Text,
+        session_data -> Text,
+        session_hash -> Text,
+        encrypted_session_id -> Integer,
     }
 }
 
 diesel::table! {
     processing_queue (id) {
-        id -> Int4,
-        created_at -> Timestamptz,
-        updated_at -> Timestamptz,
-        ap_id -> Varchar,
-        ap_to -> Jsonb,
-        cc -> Nullable<Jsonb>,
-        attributed_to -> Varchar,
-        kind -> Varchar,
-        ap_object -> Jsonb,
+        id -> Integer,
+        created_at -> Timestamp,
+        updated_at -> Timestamp,
+        ap_id -> Text,
+        ap_to -> Text,
+        cc -> Text,
+        attributed_to -> Text,
+        kind -> Text,
+        ap_object -> Text,
         processed -> Bool,
-        profile_id -> Int4,
+        profile_id -> Integer,
     }
 }
 
 diesel::table! {
     profile_hashtags (id) {
-        id -> Int4,
-        created_at -> Timestamptz,
-        updated_at -> Timestamptz,
-        hashtag -> Varchar,
-        profile_id -> Int4,
+        id -> Integer,
+        created_at -> Timestamp,
+        updated_at -> Timestamp,
+        hashtag -> Text,
+        profile_id -> Integer,
     }
 }
 
 diesel::table! {
     profiles (id) {
-        id -> Int4,
-        created_at -> Timestamptz,
-        updated_at -> Timestamptz,
-        uuid -> Varchar,
-        username -> Varchar,
-        display_name -> Varchar,
-        summary -> Nullable<Varchar>,
-        public_key -> Varchar,
-        private_key -> Varchar,
-        password -> Nullable<Varchar>,
-        client_public_key -> Nullable<Varchar>,
-        avatar_filename -> Varchar,
-        banner_filename -> Nullable<Varchar>,
-        salt -> Nullable<Varchar>,
-        client_private_key -> Nullable<Varchar>,
-        olm_pickled_account -> Nullable<Varchar>,
-        olm_pickled_account_hash -> Nullable<Varchar>,
-        olm_identity_key -> Nullable<Varchar>,
-        summary_markdown -> Nullable<Varchar>,
+        id -> Integer,
+        created_at -> Timestamp,
+        updated_at -> Timestamp,
+        uuid -> Text,
+        username -> Text,
+        display_name -> Text,
+        summary -> Nullable<Text>,
+        public_key -> Text,
+        private_key -> Text,
+        password -> Nullable<Text>,
+        client_public_key -> Nullable<Text>,
+        avatar_filename -> Text,
+        banner_filename -> Nullable<Text>,
+        salt -> Nullable<Text>,
+        client_private_key -> Nullable<Text>,
+        olm_pickled_account -> Nullable<Text>,
+        olm_pickled_account_hash -> Nullable<Text>,
+        olm_identity_key -> Nullable<Text>,
+        summary_markdown -> Nullable<Text>,
     }
 }
 
 diesel::table! {
     remote_actor_hashtags (id) {
-        id -> Int4,
-        created_at -> Timestamptz,
-        updated_at -> Timestamptz,
-        hashtag -> Varchar,
-        remote_actor_id -> Int4,
+        id -> Integer,
+        created_at -> Timestamp,
+        updated_at -> Timestamp,
+        hashtag -> Text,
+        remote_actor_id -> Integer,
     }
 }
 
 diesel::table! {
     remote_actors (id) {
-        id -> Int4,
-        created_at -> Timestamptz,
-        updated_at -> Timestamptz,
-        context -> Jsonb,
-        kind -> Varchar,
-        ap_id -> Varchar,
-        name -> Varchar,
-        preferred_username -> Nullable<Varchar>,
-        summary -> Nullable<Varchar>,
-        inbox -> Varchar,
-        outbox -> Varchar,
-        followers -> Nullable<Varchar>,
-        following -> Nullable<Varchar>,
-        liked -> Nullable<Varchar>,
-        public_key -> Nullable<Jsonb>,
-        featured -> Nullable<Varchar>,
-        featured_tags -> Nullable<Varchar>,
-        url -> Nullable<Varchar>,
+        id -> Integer,
+        created_at -> Timestamp,
+        updated_at -> Timestamp,
+        context -> Text,
+        kind -> Text,
+        ap_id -> Text,
+        name -> Text,
+        preferred_username -> Nullable<Text>,
+        summary -> Nullable<Text>,
+        inbox -> Text,
+        outbox -> Text,
+        followers -> Nullable<Text>,
+        following -> Nullable<Text>,
+        liked -> Nullable<Text>,
+        public_key -> Nullable<Text>,
+        featured -> Nullable<Text>,
+        featured_tags -> Nullable<Text>,
+        url -> Nullable<Text>,
         manually_approves_followers -> Nullable<Bool>,
-        published -> Nullable<Varchar>,
-        tag -> Nullable<Jsonb>,
-        attachment -> Nullable<Jsonb>,
-        endpoints -> Nullable<Jsonb>,
-        icon -> Nullable<Jsonb>,
-        image -> Nullable<Jsonb>,
-        also_known_as -> Nullable<Jsonb>,
+        published -> Nullable<Text>,
+        tag -> Nullable<Text>,
+        attachment -> Nullable<Text>,
+        endpoints -> Nullable<Text>,
+        icon -> Nullable<Text>,
+        image -> Nullable<Text>,
+        also_known_as -> Nullable<Text>,
         discoverable -> Nullable<Bool>,
-        capabilities -> Nullable<Jsonb>,
-        checked_at -> Timestamptz,
-        webfinger -> Nullable<Varchar>,
+        capabilities -> Nullable<Text>,
+        checked_at -> Timestamp,
+        webfinger -> Nullable<Text>,
     }
 }
 
 diesel::table! {
     remote_encrypted_sessions (id) {
-        id -> Int4,
-        created_at -> Timestamptz,
-        updated_at -> Timestamptz,
-        profile_id -> Int4,
-        actor -> Varchar,
-        kind -> Varchar,
-        ap_id -> Varchar,
-        ap_to -> Varchar,
-        attributed_to -> Varchar,
-        instrument -> Jsonb,
-        reference -> Nullable<Varchar>,
+        id -> Integer,
+        created_at -> Timestamp,
+        updated_at -> Timestamp,
+        profile_id -> Integer,
+        actor -> Text,
+        kind -> Text,
+        ap_id -> Text,
+        ap_to -> Text,
+        attributed_to -> Text,
+        instrument -> Nullable<Text>,
+        reference -> Nullable<Text>,
     }
 }
 
 diesel::table! {
     remote_note_hashtags (id) {
-        id -> Int4,
-        created_at -> Timestamptz,
-        updated_at -> Timestamptz,
-        hashtag -> Varchar,
-        remote_note_id -> Int4,
+        id -> Integer,
+        created_at -> Timestamp,
+        updated_at -> Timestamp,
+        hashtag -> Text,
+        remote_note_id -> Integer,
     }
 }
 
 diesel::table! {
-    use diesel::sql_types::*;
-    use super::sql_types::NoteType;
-
     remote_notes (id) {
-        id -> Int4,
-        created_at -> Timestamptz,
-        updated_at -> Timestamptz,
-        kind -> NoteType,
-        ap_id -> Varchar,
-        published -> Nullable<Varchar>,
-        url -> Nullable<Varchar>,
-        ap_to -> Nullable<Jsonb>,
-        cc -> Nullable<Jsonb>,
-        tag -> Nullable<Jsonb>,
-        attributed_to -> Varchar,
-        content -> Varchar,
-        attachment -> Nullable<Jsonb>,
-        replies -> Nullable<Jsonb>,
-        in_reply_to -> Nullable<Varchar>,
-        signature -> Nullable<Jsonb>,
-        summary -> Nullable<Varchar>,
+        id -> Integer,
+        created_at -> Timestamp,
+        updated_at -> Timestamp,
+        kind -> Text,
+        ap_id -> Text,
+        published -> Nullable<Text>,
+        url -> Nullable<Text>,
+        ap_to -> Nullable<Text>,
+        cc -> Nullable<Text>,
+        tag -> Nullable<Text>,
+        attributed_to -> Text,
+        content -> Text,
+        attachment -> Nullable<Text>,
+        replies -> Nullable<Text>,
+        in_reply_to -> Nullable<Text>,
+        signature -> Nullable<Text>,
+        summary -> Nullable<Text>,
         ap_sensitive -> Nullable<Bool>,
-        atom_uri -> Nullable<Varchar>,
-        in_reply_to_atom_uri -> Nullable<Varchar>,
-        conversation -> Nullable<Varchar>,
-        content_map -> Nullable<Jsonb>,
+        atom_uri -> Nullable<Text>,
+        in_reply_to_atom_uri -> Nullable<Text>,
+        conversation -> Nullable<Text>,
+        content_map -> Nullable<Text>,
     }
 }
 
 diesel::table! {
-    use diesel::sql_types::*;
-    use super::sql_types::NoteType;
-
     timeline (id) {
-        id -> Int4,
-        created_at -> Timestamptz,
-        updated_at -> Timestamptz,
-        tag -> Nullable<Jsonb>,
-        attributed_to -> Varchar,
-        ap_id -> Varchar,
-        kind -> NoteType,
-        url -> Nullable<Varchar>,
-        published -> Nullable<Varchar>,
-        replies -> Nullable<Jsonb>,
-        in_reply_to -> Nullable<Varchar>,
-        content -> Nullable<Varchar>,
+        id -> Integer,
+        created_at -> Timestamp,
+        updated_at -> Timestamp,
+        tag -> Nullable<Text>,
+        attributed_to -> Text,
+        ap_id -> Text,
+        kind -> Text,
+        url -> Nullable<Text>,
+        published -> Nullable<Text>,
+        replies -> Nullable<Text>,
+        in_reply_to -> Nullable<Text>,
+        content -> Nullable<Text>,
         ap_public -> Bool,
-        summary -> Nullable<Varchar>,
+        summary -> Nullable<Text>,
         ap_sensitive -> Nullable<Bool>,
-        atom_uri -> Nullable<Varchar>,
-        in_reply_to_atom_uri -> Nullable<Varchar>,
-        conversation -> Nullable<Varchar>,
-        content_map -> Nullable<Jsonb>,
-        attachment -> Nullable<Jsonb>,
-        ap_object -> Nullable<Jsonb>,
-        metadata -> Nullable<Jsonb>,
+        atom_uri -> Nullable<Text>,
+        in_reply_to_atom_uri -> Nullable<Text>,
+        conversation -> Nullable<Text>,
+        content_map -> Nullable<Text>,
+        attachment -> Nullable<Text>,
+        ap_object -> Nullable<Text>,
+        metadata -> Nullable<Text>,
     }
 }
 
 diesel::table! {
     timeline_cc (id) {
-        id -> Int4,
-        created_at -> Timestamptz,
-        updated_at -> Timestamptz,
-        timeline_id -> Int4,
-        ap_id -> Varchar,
+        id -> Integer,
+        created_at -> Timestamp,
+        updated_at -> Timestamp,
+        timeline_id -> Integer,
+        ap_id -> Text,
     }
 }
 
 diesel::table! {
     timeline_hashtags (id) {
-        id -> Int4,
-        created_at -> Timestamptz,
-        updated_at -> Timestamptz,
-        hashtag -> Varchar,
-        timeline_id -> Int4,
+        id -> Integer,
+        created_at -> Timestamp,
+        updated_at -> Timestamp,
+        hashtag -> Text,
+        timeline_id -> Integer,
     }
 }
 
 diesel::table! {
     timeline_to (id) {
-        id -> Int4,
-        created_at -> Timestamptz,
-        updated_at -> Timestamptz,
-        timeline_id -> Int4,
-        ap_id -> Varchar,
+        id -> Integer,
+        created_at -> Timestamp,
+        updated_at -> Timestamp,
+        timeline_id -> Integer,
+        ap_id -> Text,
     }
 }
 
 diesel::table! {
     vault (id) {
-        id -> Int4,
-        created_at -> Timestamptz,
-        updated_at -> Timestamptz,
-        uuid -> Varchar,
-        profile_id -> Int4,
-        encrypted_data -> Varchar,
-        remote_actor -> Varchar,
+        id -> Integer,
+        created_at -> Timestamp,
+        updated_at -> Timestamp,
+        uuid -> Text,
+        profile_id -> Integer,
+        encrypted_data -> Text,
+        remote_actor -> Text,
         outbound -> Bool,
     }
 }

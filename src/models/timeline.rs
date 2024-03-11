@@ -6,7 +6,7 @@ use crate::schema::{
 };
 use crate::POOL;
 use anyhow::Result;
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, NaiveDateTime, Utc};
 use diesel::prelude::*;
 use diesel::{AsChangeset, Identifiable, Insertable, Queryable};
 use serde::{Deserialize, Serialize};
@@ -22,13 +22,13 @@ use crate::routes::inbox::InboxView;
 #[derive(Serialize, Deserialize, Insertable, Default, Debug, Clone, AsChangeset)]
 #[diesel(table_name = timeline)]
 pub struct NewTimelineItem {
-    pub tag: Option<Value>,
+    pub tag: Option<String>,
     pub attributed_to: String,
     pub ap_id: String,
-    pub kind: NoteType,
+    pub kind: String,
     pub url: Option<String>,
     pub published: Option<String>,
-    pub replies: Option<Value>,
+    pub replies: Option<String>,
     pub in_reply_to: Option<String>,
     pub content: Option<String>,
     pub ap_public: bool,
@@ -37,10 +37,10 @@ pub struct NewTimelineItem {
     pub atom_uri: Option<String>,
     pub in_reply_to_atom_uri: Option<String>,
     pub conversation: Option<String>,
-    pub content_map: Option<Value>,
-    pub attachment: Option<Value>,
-    pub ap_object: Option<Value>,
-    pub metadata: Option<Value>,
+    pub content_map: Option<String>,
+    pub attachment: Option<String>,
+    pub ap_object: Option<String>,
+    pub metadata: Option<String>,
 }
 
 impl From<RemoteNote> for NewTimelineItem {
@@ -158,15 +158,15 @@ impl From<SynthesizedAnnounce> for NewTimelineItem {
 pub struct TimelineItem {
     #[serde(skip_serializing)]
     pub id: i32,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
-    pub tag: Option<Value>,
+    pub created_at: NaiveDateTime,
+    pub updated_at: NaiveDateTime,
+    pub tag: Option<String>,
     pub attributed_to: String,
     pub ap_id: String,
-    pub kind: NoteType,
+    pub kind: String,
     pub url: Option<String>,
     pub published: Option<String>,
-    pub replies: Option<Value>,
+    pub replies: Option<String>,
     pub in_reply_to: Option<String>,
     pub content: Option<String>,
     pub ap_public: bool,
@@ -175,10 +175,10 @@ pub struct TimelineItem {
     pub atom_uri: Option<String>,
     pub in_reply_to_atom_uri: Option<String>,
     pub conversation: Option<String>,
-    pub content_map: Option<Value>,
-    pub attachment: Option<Value>,
-    pub ap_object: Option<Value>,
-    pub metadata: Option<Value>,
+    pub content_map: Option<String>,
+    pub attachment: Option<String>,
+    pub ap_object: Option<String>,
+    pub metadata: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Insertable, AsChangeset, Default, Debug, Clone)]
@@ -194,8 +194,8 @@ pub struct NewTimelineItemCc {
 pub struct TimelineItemCc {
     #[serde(skip_serializing)]
     pub id: i32,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
+    pub created_at: NaiveDateTime,
+    pub updated_at: NaiveDateTime,
     pub timeline_id: i32,
     pub ap_id: String,
 }
@@ -213,8 +213,8 @@ pub struct NewTimelineItemTo {
 pub struct TimelineItemTo {
     #[serde(skip_serializing)]
     pub id: i32,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
+    pub created_at: NaiveDateTime,
+    pub updated_at: NaiveDateTime,
     pub timeline_id: i32,
     pub ap_id: String,
 }

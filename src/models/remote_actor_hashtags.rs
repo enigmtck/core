@@ -3,7 +3,7 @@ use crate::db::Db;
 use crate::schema::remote_actor_hashtags;
 use crate::POOL;
 use anyhow::Result;
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, NaiveDateTime, Utc};
 use diesel::prelude::*;
 use diesel::{AsChangeset, Identifiable, Insertable, Queryable};
 use rocket_sync_db_pools::diesel;
@@ -45,8 +45,8 @@ impl From<RemoteActor> for Vec<NewRemoteActorHashtag> {
 pub struct RemoteActorHashtag {
     #[serde(skip_serializing)]
     pub id: i32,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
+    pub created_at: NaiveDateTime,
+    pub updated_at: NaiveDateTime,
     pub hashtag: String,
     pub remote_actor_id: i32,
 }

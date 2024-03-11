@@ -1,7 +1,7 @@
 use crate::activity_pub::{ApInvite, ApJoin, ApObject};
 use crate::schema::remote_encrypted_sessions;
 use crate::{db::Db, MaybeReference, POOL};
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, NaiveDateTime, Utc};
 use diesel::prelude::*;
 use diesel::{AsChangeset, Identifiable, Insertable, Queryable};
 use serde::{Deserialize, Serialize};
@@ -16,7 +16,7 @@ pub struct NewRemoteEncryptedSession {
     pub ap_id: String,
     pub ap_to: String,
     pub attributed_to: String,
-    pub instrument: Value,
+    pub instrument: String,
     pub reference: Option<String>,
 }
 
@@ -64,15 +64,15 @@ impl From<IdentifiedApJoin> for NewRemoteEncryptedSession {
 #[diesel(table_name = remote_encrypted_sessions)]
 pub struct RemoteEncryptedSession {
     pub id: i32,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
+    pub created_at: NaiveDateTime,
+    pub updated_at: NaiveDateTime,
     pub profile_id: i32,
     pub actor: String,
     pub kind: String,
     pub ap_id: String,
     pub ap_to: String,
     pub attributed_to: String,
-    pub instrument: Value,
+    pub instrument: String,
     pub reference: Option<String>,
 }
 

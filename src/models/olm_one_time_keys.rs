@@ -1,7 +1,7 @@
 use crate::db::Db;
 use crate::schema::olm_one_time_keys;
 use crate::POOL;
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, NaiveDateTime, Utc};
 use diesel::prelude::*;
 use diesel::{AsChangeset, Identifiable, Insertable, Queryable};
 use rocket_sync_db_pools::diesel;
@@ -37,8 +37,8 @@ impl From<KeyTuple> for NewOlmOneTimeKey {
 pub struct OlmOneTimeKey {
     #[serde(skip_serializing)]
     pub id: i32,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
+    pub created_at: NaiveDateTime,
+    pub updated_at: NaiveDateTime,
     pub uuid: String,
     pub profile_id: i32,
     pub olm_id: i32,
