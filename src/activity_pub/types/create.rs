@@ -14,7 +14,7 @@ use crate::{
     },
     runner, MaybeMultiple, MaybeReference,
 };
-use chrono::{DateTime, NaiveDateTime, Utc};
+use chrono::{NaiveDateTime, Utc};
 use rocket::http::Status;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;

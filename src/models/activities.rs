@@ -539,7 +539,7 @@ pub async fn create_activity(conn: Option<&Db>, activity: NewActivity) -> Result
     let activity = match conn {
         Some(conn) => {
             conn.run(move |c| {
-                diesel::insert_into(activities::table)
+                let _ = diesel::insert_into(activities::table)
                     .values(&activity)
                     .execute(c);
 
@@ -551,7 +551,7 @@ pub async fn create_activity(conn: Option<&Db>, activity: NewActivity) -> Result
         }
         None => {
             let mut pool = POOL.get()?;
-            diesel::insert_into(activities::table)
+            let _ = diesel::insert_into(activities::table)
                 .values(&activity)
                 .execute(&mut pool);
 
@@ -813,7 +813,7 @@ pub async fn revoke_activity_by_uuid(conn: Option<&Db>, uuid: String) -> Result<
             .run(move |c| {
                 diesel::update(activities::table.filter(activities::uuid.eq(uuid.clone())))
                     .set(activities::revoked.eq(true))
-                    .execute(c);
+                    .execute(c)?;
 
                 activities::table
                     .filter(activities::uuid.eq(uuid))
@@ -842,7 +842,7 @@ pub async fn revoke_activity_by_apid(conn: Option<&Db>, ap_id: String) -> Result
             .run(move |c| {
                 diesel::update(activities::table.filter(activities::ap_id.eq(ap_id.clone())))
                     .set(activities::revoked.eq(true))
-                    .execute(c);
+                    .execute(c)?;
 
                 activities::table
                     .filter(activities::ap_id.eq(ap_id))

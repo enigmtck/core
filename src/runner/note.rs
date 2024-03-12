@@ -19,10 +19,7 @@ use crate::{
     db::Db,
     helper::get_note_ap_id_from_uuid,
     models::{
-        activities::get_activity_by_uuid,
-        notes::{Note, NoteType},
-        profiles::Profile,
-        remote_notes::RemoteNote,
+        activities::get_activity_by_uuid, notes::Note, profiles::Profile, remote_notes::RemoteNote,
     },
     runner::{
         //encrypted::handle_encrypted_note,
@@ -144,7 +141,7 @@ pub async fn outbound_note_task(
             .map(|tag| async { create_note_hashtag(None, tag.clone()).await });
 
         let activity = {
-            if note.kind == "note".to_string() {
+            if note.kind.to_lowercase().as_str() == "note" {
                 if let Ok(activity) = ApActivity::try_from((
                     (
                         activity,

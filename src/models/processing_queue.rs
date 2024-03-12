@@ -139,7 +139,7 @@ pub async fn resolve_processed_item_by_ap_id_and_profile_id(
         diesel::update(
             processing_queue::table
                 .filter(processing_queue::ap_id.eq(ap_id.clone()))
-                .filter(processing_queue::profile_id.eq(profile_id.clone())),
+                .filter(processing_queue::profile_id.eq(profile_id)),
         )
         .set(processing_queue::processed.eq(true))
         .execute(c)

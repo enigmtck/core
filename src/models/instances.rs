@@ -1,11 +1,10 @@
 use crate::db::Db;
 use crate::schema::instances;
 use crate::POOL;
-use chrono::{DateTime, NaiveDateTime, Utc};
+use chrono::{NaiveDateTime, Utc};
 use diesel::prelude::*;
 use diesel::{AsChangeset, Identifiable, Insertable, Queryable};
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 
 #[derive(Serialize, Deserialize, Insertable, Default, Debug, Clone)]
 #[diesel(table_name = instances)]
@@ -48,6 +47,7 @@ pub async fn create_instance(conn: Option<&Db>, instance: NewInstance) -> Option
                     .do_update()
                     .set(instances::last_message_at.eq(Utc::now().naive_utc()))
                     .execute(c)?;
+
                 instances::table
                     .filter(instances::domain_name.eq(&instance.domain_name))
                     .first::<Instance>(c)
@@ -63,6 +63,7 @@ pub async fn create_instance(conn: Option<&Db>, instance: NewInstance) -> Option
                 .set(instances::last_message_at.eq(Utc::now().naive_utc()))
                 .execute(&mut pool)
                 .ok()?;
+
             instances::table
                 .filter(instances::domain_name.eq(&instance.domain_name))
                 .first::<Instance>(&mut pool)

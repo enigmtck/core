@@ -3,7 +3,7 @@ use crate::{
         ApAccept, ApAdd, ApAnnounce, ApBlock, ApCreate, ApDelete, ApInvite, ApJoin, ApLike, ApNote,
         ApRemove, ApUndo, ApUpdate,
     },
-    models::activities::{ActivityType, ExtendedActivity},
+    models::activities::ExtendedActivity,
 };
 use enum_dispatch::enum_dispatch;
 use serde::{Deserialize, Serialize};
@@ -37,7 +37,7 @@ impl TryFrom<RecursiveActivity> for ApActivity {
     fn try_from(
         ((activity, note, remote_note, profile, remote_actor), recursive): RecursiveActivity,
     ) -> Result<Self, Self::Error> {
-        match activity.kind.as_str() {
+        match activity.kind.to_lowercase().as_str() {
             "create" if note.is_some() => {
                 ApCreate::try_from((activity, note, remote_note, profile, remote_actor))
                     .map(ApActivity::Create)

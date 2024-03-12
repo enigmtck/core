@@ -2,11 +2,10 @@ use crate::activity_pub::ApSession;
 use crate::db::Db;
 use crate::schema::{encrypted_sessions, olm_sessions};
 use crate::POOL;
-use chrono::{DateTime, NaiveDateTime, Utc};
+use chrono::NaiveDateTime;
 use diesel::prelude::*;
 use diesel::{AsChangeset, Identifiable, Insertable, Queryable};
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 use uuid::Uuid;
 
 use super::olm_sessions::OlmSession;

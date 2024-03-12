@@ -2,7 +2,7 @@ use crate::activity_pub::{ApNote, ApTag};
 use crate::db::Db;
 use crate::schema::remote_note_hashtags;
 use crate::POOL;
-use chrono::{DateTime, NaiveDateTime, Utc};
+use chrono::NaiveDateTime;
 use diesel::prelude::*;
 use diesel::{AsChangeset, Identifiable, Insertable, Queryable};
 use rocket_sync_db_pools::diesel;

@@ -1,5 +1,4 @@
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 
 use crate::{DOMAIN_RE, LOCAL_RE, LOCAL_URL_RE, WEBFINGER_RE};
 

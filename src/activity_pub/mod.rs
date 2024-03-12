@@ -6,7 +6,7 @@ use crate::db::Db;
 use crate::fairings::events::EventChannels;
 use crate::models::profiles::Profile;
 use crate::{Identifier, MaybeMultiple};
-use chrono::{DateTime, NaiveDateTime, Utc};
+use chrono::NaiveDateTime;
 use enum_dispatch::enum_dispatch;
 use rocket::http::Status;
 use serde::{Deserialize, Serialize};

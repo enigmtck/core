@@ -6,13 +6,12 @@ use crate::schema::{
 };
 use crate::POOL;
 use anyhow::Result;
-use chrono::{DateTime, NaiveDateTime, Utc};
+use chrono::NaiveDateTime;
 use diesel::prelude::*;
 use diesel::{AsChangeset, Identifiable, Insertable, Queryable};
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 
-use super::activities::{Activity, ActivityCc, ActivityTo, ActivityType};
+use super::activities::{Activity, ActivityCc, ActivityTo};
 use super::notes::{Note, NoteType};
 use super::profiles::Profile;
 use super::remote_notes::RemoteNote;

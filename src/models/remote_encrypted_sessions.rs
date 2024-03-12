@@ -1,11 +1,10 @@
 use crate::activity_pub::{ApInvite, ApJoin, ApObject};
 use crate::schema::remote_encrypted_sessions;
 use crate::{db::Db, MaybeReference, POOL};
-use chrono::{DateTime, NaiveDateTime, Utc};
+use chrono::NaiveDateTime;
 use diesel::prelude::*;
 use diesel::{AsChangeset, Identifiable, Insertable, Queryable};
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 
 #[derive(Serialize, Deserialize, Insertable, Default, Debug)]
 #[diesel(table_name = remote_encrypted_sessions)]

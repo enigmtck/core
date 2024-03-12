@@ -4,12 +4,11 @@ use crate::activity_pub::{ApAddress, ApNote};
 use crate::db::Db;
 use crate::schema::remote_notes;
 use crate::{MaybeMultiple, POOL};
-use chrono::{DateTime, NaiveDateTime, Utc};
+use chrono::NaiveDateTime;
 use diesel::prelude::*;
 use diesel::{AsChangeset, Identifiable, Insertable, Queryable};
 use maplit::{hashmap, hashset};
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 
 use super::notes::NoteType;
 
