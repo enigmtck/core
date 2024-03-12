@@ -116,7 +116,7 @@ pub struct RemoteActor {
     pub followers: Option<String>,
     pub following: Option<String>,
     pub liked: Option<String>,
-    pub public_key: Option<String>,
+    pub public_key: String,
     pub featured: Option<String>,
     pub featured_tags: Option<String>,
     pub url: Option<String>,

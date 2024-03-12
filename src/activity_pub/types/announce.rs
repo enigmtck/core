@@ -19,7 +19,6 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
-#[serde(rename_all = "snake_case")]
 pub enum ApAnnounceType {
     #[default]
     Announce,
@@ -28,12 +27,6 @@ pub enum ApAnnounceType {
 impl fmt::Display for ApAnnounceType {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         Debug::fmt(self, f)
-    }
-}
-
-impl From<ApAnnounceType> for String {
-    fn from(t: ApAnnounceType) -> String {
-        format!("{t}")
     }
 }
 

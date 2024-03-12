@@ -13,7 +13,7 @@ CREATE TABLE remote_actors (
     followers TEXT COLLATE NOCASE,
     following TEXT COLLATE NOCASE,
     liked TEXT COLLATE NOCASE,
-    public_key TEXT,
+    public_key TEXT NOT NULL,
     featured TEXT COLLATE NOCASE,
     featured_tags TEXT COLLATE NOCASE,
     url TEXT COLLATE NOCASE,

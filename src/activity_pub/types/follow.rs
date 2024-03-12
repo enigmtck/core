@@ -20,7 +20,6 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
-#[serde(rename_all = "snake_case")]
 pub enum ApFollowType {
     #[default]
     Follow,
@@ -29,12 +28,6 @@ pub enum ApFollowType {
 impl fmt::Display for ApFollowType {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         Debug::fmt(self, f)
-    }
-}
-
-impl From<ApFollowType> for String {
-    fn from(t: ApFollowType) -> String {
-        format!("{t}")
     }
 }
 

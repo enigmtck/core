@@ -23,7 +23,6 @@ use super::remote_actors::RemoteActor;
 use super::remote_notes::RemoteNote;
 
 #[derive(Debug, Serialize, Deserialize, Default, Clone, Eq, PartialEq)]
-#[serde(rename_all = "snake_case")]
 pub enum ActivityType {
     #[default]
     Create,
@@ -42,12 +41,6 @@ pub enum ActivityType {
 impl fmt::Display for ActivityType {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         Debug::fmt(self, f)
-    }
-}
-
-impl From<ActivityType> for String {
-    fn from(t: ActivityType) -> String {
-        format!("{t}")
     }
 }
 
@@ -193,7 +186,7 @@ impl TryFrom<ApActivityTarget> for NewActivity {
 
         match activity {
             ApActivity::Create(create) => Ok(NewActivity {
-                kind: create.kind.into(),
+                kind: "create".to_string(),
                 uuid: uuid.clone(),
                 actor: create.actor.to_string(),
                 ap_to: serde_json::to_string(&create.to).ok(),
@@ -207,7 +200,7 @@ impl TryFrom<ApActivityTarget> for NewActivity {
             .link_target(target)
             .clone()),
             ApActivity::Announce(announce) => Ok(NewActivity {
-                kind: announce.kind.into(),
+                kind: "announce".to_string(),
                 uuid: uuid.clone(),
                 actor: announce.actor.to_string(),
                 ap_to: serde_json::to_string(&announce.to).ok(),
@@ -222,7 +215,7 @@ impl TryFrom<ApActivityTarget> for NewActivity {
             .link_target(target)
             .clone()),
             ApActivity::Follow(follow) => Ok(NewActivity {
-                kind: follow.kind.into(),
+                kind: "follow".to_string(),
                 uuid: uuid.clone(),
                 actor: follow.actor.to_string(),
                 target_ap_id: follow.object.reference(),
@@ -238,7 +231,7 @@ impl TryFrom<ApActivityTarget> for NewActivity {
             ApActivity::Accept(accept) => {
                 if let MaybeReference::Actual(ApActivity::Follow(follow)) = accept.object {
                     Ok(NewActivity {
-                        kind: accept.kind.into(),
+                        kind: "accept".to_string(),
                         uuid: uuid.clone(),
                         actor: accept.actor.to_string(),
                         target_ap_id: follow.id,
@@ -256,7 +249,7 @@ impl TryFrom<ApActivityTarget> for NewActivity {
             }
             ApActivity::Undo(undo) => match undo.object {
                 MaybeReference::Actual(ApActivity::Follow(follow)) => Ok(NewActivity {
-                    kind: undo.kind.into(),
+                    kind: "undo".to_string(),
                     uuid: uuid.clone(),
                     actor: undo.actor.to_string(),
                     target_ap_id: follow.id,
@@ -269,7 +262,7 @@ impl TryFrom<ApActivityTarget> for NewActivity {
                 .link_target(target)
                 .clone()),
                 MaybeReference::Actual(ApActivity::Like(like)) => Ok(NewActivity {
-                    kind: undo.kind.into(),
+                    kind: "undo".to_string(),
                     uuid: uuid.clone(),
                     actor: undo.actor.to_string(),
                     target_ap_id: like.id,
@@ -282,7 +275,7 @@ impl TryFrom<ApActivityTarget> for NewActivity {
                 .link_target(target)
                 .clone()),
                 MaybeReference::Actual(ApActivity::Announce(announce)) => Ok(NewActivity {
-                    kind: undo.kind.into(),
+                    kind: "undo".to_string(),
                     uuid: uuid.clone(),
                     actor: undo.actor.to_string(),
                     target_ap_id: announce.id,
@@ -297,7 +290,7 @@ impl TryFrom<ApActivityTarget> for NewActivity {
                 _ => Err("UNDO OBJECT NOT IMPLEMENTED"),
             },
             ApActivity::Like(like) => Ok(NewActivity {
-                kind: like.kind.into(),
+                kind: "like".to_string(),
                 uuid: uuid.clone(),
                 actor: like.actor.to_string(),
                 target_ap_id: like.object.reference(),
@@ -349,7 +342,7 @@ impl From<ActorActivity> for NewActivity {
         let uuid = uuid::Uuid::new_v4().to_string();
 
         NewActivity {
-            kind: String::from(kind),
+            kind: kind.to_string().to_lowercase(),
             uuid: uuid.clone(),
             actor: actor.to_string(),
             ap_to,
@@ -381,7 +374,7 @@ impl From<NoteActivity> for NewActivity {
         };
 
         NewActivity {
-            kind: String::from(kind),
+            kind: kind.to_string().to_lowercase(),
             uuid: uuid::Uuid::new_v4().to_string(),
             actor: actor.to_string(),
             ap_to,
@@ -399,7 +392,7 @@ pub type UndoActivity = (Activity, ActivityType, ApAddress);
 impl From<UndoActivity> for NewActivity {
     fn from((activity, kind, actor): UndoActivity) -> Self {
         NewActivity {
-            kind: kind.into(),
+            kind: kind.to_string().to_lowercase(),
             uuid: uuid::Uuid::new_v4().to_string(),
             actor: actor.to_string(),
             target_activity_id: Some(activity.id),
@@ -709,7 +702,7 @@ pub async fn get_activity_by_kind_profile_id_and_target_ap_id(
     conn.run(move |c| {
         activities::table
             .filter(activities::revoked.eq(false))
-            .filter(activities::kind.eq(String::from(kind)))
+            .filter(activities::kind.eq(kind.to_string().to_lowercase()))
             .filter(activities::profile_id.eq(profile_id))
             .filter(activities::target_ap_id.eq(target_ap_id))
             .left_join(notes::table.on(activities::target_note_id.eq(notes::id.nullable())))

@@ -304,7 +304,7 @@ diesel::table! {
         followers -> Nullable<Text>,
         following -> Nullable<Text>,
         liked -> Nullable<Text>,
-        public_key -> Nullable<Text>,
+        public_key -> Text,
         featured -> Nullable<Text>,
         featured_tags -> Nullable<Text>,
         url -> Nullable<Text>,

@@ -22,7 +22,6 @@ use serde_json::Value;
 use super::activity::RecursiveActivity;
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
-#[serde(rename_all = "snake_case")]
 pub enum ApUndoType {
     #[default]
     Undo,
@@ -31,12 +30,6 @@ pub enum ApUndoType {
 impl fmt::Display for ApUndoType {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         Debug::fmt(self, f)
-    }
-}
-
-impl From<ApUndoType> for String {
-    fn from(t: ApUndoType) -> String {
-        format!("{t}")
     }
 }
 

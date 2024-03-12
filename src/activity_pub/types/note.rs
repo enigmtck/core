@@ -452,10 +452,10 @@ impl From<ApActor> for ApNote {
 impl From<NewNote> for ApNote {
     fn from(note: NewNote) -> Self {
         ApNote {
-            tag: match serde_json::from_value(note.tag.into()) {
-                Ok(x) => x,
-                Err(_) => Option::None,
-            },
+            tag: note
+                .tag
+                .as_deref()
+                .and_then(|x| serde_json::from_str(x).ok()),
             attributed_to: ApAddress::Address(note.attributed_to),
             published: Utc::now().format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string(),
             id: Option::from(format!(
@@ -469,13 +469,16 @@ impl From<NewNote> for ApNote {
                 Err(_) => MaybeMultiple::Multiple(vec![]),
             },
             content: note.content,
-            cc: match serde_json::from_value(note.cc.into()) {
-                Ok(x) => x,
-                Err(_) => Option::None,
-            },
+            cc: note
+                .cc
+                .as_deref()
+                .and_then(|x| serde_json::from_str(x).ok()),
             in_reply_to: note.in_reply_to,
             conversation: note.conversation,
-            attachment: note.attachment.map(|x| serde_json::from_str(&x).unwrap()),
+            attachment: note
+                .attachment
+                .as_deref()
+                .and_then(|x| serde_json::from_str(x).ok()),
             ..Default::default()
         }
     }
@@ -484,7 +487,10 @@ impl From<NewNote> for ApNote {
 impl From<Note> for ApNote {
     fn from(note: Note) -> Self {
         ApNote {
-            tag: serde_json::from_value(note.tag.into()).ok(),
+            tag: note
+                .tag
+                .as_deref()
+                .and_then(|x| serde_json::from_str(x).ok()),
             attributed_to: ApAddress::Address(note.attributed_to),
             published: note.updated_at.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string(),
             id: note
@@ -548,31 +554,35 @@ impl From<RemoteNote> for ApNote {
             kind,
             published: remote_note.published.clone().unwrap_or("".to_string()),
             url: remote_note.url.clone(),
-            to: match serde_json::from_value(remote_note.ap_to.clone().into()) {
-                Ok(x) => x,
-                Err(_) => MaybeMultiple::Multiple(vec![]),
-            },
-            cc: match serde_json::from_value(remote_note.cc.clone().into()) {
-                Ok(x) => x,
-                Err(_) => None,
-            },
-            tag: match serde_json::from_value(remote_note.tag.clone().into()) {
-                Ok(x) => x,
-                Err(_) => None,
-            },
+            to: remote_note
+                .ap_to
+                .clone()
+                .as_deref()
+                .and_then(|x| serde_json::from_str(x).ok())
+                .expect("no to in RemoteNote"),
+            cc: remote_note
+                .cc
+                .clone()
+                .as_deref()
+                .and_then(|x| serde_json::from_str(x).ok()),
+            tag: remote_note
+                .tag
+                .clone()
+                .as_deref()
+                .and_then(|x| serde_json::from_str(x).ok()),
             attributed_to: ApAddress::Address(remote_note.attributed_to.clone()),
             content: remote_note.content.clone(),
-            replies: match serde_json::from_value(remote_note.replies.clone().into()) {
-                Ok(x) => x,
-                Err(_) => None,
-            },
+            replies: remote_note
+                .replies
+                .clone()
+                .as_deref()
+                .and_then(|x| serde_json::from_str(x).ok()),
             in_reply_to: remote_note.in_reply_to.clone(),
-            attachment: match serde_json::from_str(
-                &remote_note.attachment.clone().unwrap_or_default(),
-            ) {
-                Ok(x) => x,
-                Err(_) => None,
-            },
+            attachment: remote_note
+                .attachment
+                .clone()
+                .as_deref()
+                .and_then(|x| serde_json::from_str(x).ok()),
             conversation: remote_note.conversation.clone(),
             ephemeral_timestamp: Some(remote_note.created_at),
             ephemeral_metadata: Some(metadata(&remote_note)),

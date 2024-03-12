@@ -420,20 +420,41 @@ impl From<RemoteActor> for ApActor {
             following: actor.following,
             subscribers: None,
             liked: actor.liked,
-            public_key: serde_json::from_value(actor.public_key.into()).unwrap(),
+            public_key: serde_json::from_str(&actor.public_key).unwrap(),
             featured: actor.featured,
             featured_tags: actor.featured_tags,
             url: actor.url,
             manually_approves_followers: actor.manually_approves_followers,
             published: actor.published,
-            tag: serde_json::from_value(actor.tag.into()).unwrap(),
-            attachment: serde_json::from_value(actor.attachment.into()).unwrap(),
-            endpoints: serde_json::from_value(actor.endpoints.into()).unwrap(),
-            icon: serde_json::from_value(actor.icon.into()).unwrap(),
-            image: serde_json::from_value(actor.image.into()).unwrap(),
-            also_known_as: serde_json::from_value(actor.also_known_as.into()).unwrap(),
+            tag: actor
+                .tag
+                .as_deref()
+                .and_then(|x| serde_json::from_str(x).ok()),
+            attachment: actor
+                .attachment
+                .as_deref()
+                .and_then(|x| serde_json::from_str(x).ok()),
+            endpoints: actor
+                .endpoints
+                .as_deref()
+                .and_then(|x| serde_json::from_str(x).ok()),
+            icon: actor
+                .icon
+                .as_deref()
+                .and_then(|x| serde_json::from_str(x).ok()),
+            image: actor
+                .image
+                .as_deref()
+                .and_then(|x| serde_json::from_str(x).ok()),
+            also_known_as: actor
+                .also_known_as
+                .as_deref()
+                .and_then(|x| serde_json::from_str(x).ok()),
             discoverable: actor.discoverable,
-            capabilities: serde_json::from_value(actor.capabilities.into()).unwrap(),
+            capabilities: actor
+                .capabilities
+                .as_deref()
+                .and_then(|x| serde_json::from_str(x).ok()),
             ephemeral_following: None,
             ephemeral_leader_ap_id: None,
             ephemeral_summary_markdown: None,
