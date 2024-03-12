@@ -69,13 +69,13 @@ impl From<ApNote> for NewRemoteNote {
         NewRemoteNote {
             url: note.clone().url,
             published,
-            kind: note.clone().kind.into(),
+            kind: String::from(NoteType::from(note.clone().kind)),
             ap_id: note.clone().id.unwrap(),
             attributed_to: Some(note.attributed_to.to_string()),
-            ap_to: Option::from(serde_json::to_value(&note.to).unwrap()),
-            cc: Option::from(serde_json::to_value(&note.cc).unwrap()),
-            replies: Option::from(serde_json::to_value(&note.replies).unwrap()),
-            tag: Option::from(serde_json::to_value(&note.tag).unwrap()),
+            ap_to: Option::from(serde_json::to_string(&note.to).unwrap()),
+            cc: Option::from(serde_json::to_string(&note.cc).unwrap()),
+            replies: Option::from(serde_json::to_string(&note.replies).unwrap()),
+            tag: Option::from(serde_json::to_string(&note.tag).unwrap()),
             content: ammonia.clean(&note.content).to_string(),
             summary: {
                 if let Some(summary) = note.summary {
@@ -89,8 +89,8 @@ impl From<ApNote> for NewRemoteNote {
             in_reply_to: note.in_reply_to,
             in_reply_to_atom_uri: note.in_reply_to_atom_uri,
             conversation: note.conversation,
-            content_map: Option::from(serde_json::to_value(clean_content_map).unwrap()),
-            attachment: Option::from(serde_json::to_value(&note.attachment).unwrap()),
+            content_map: Option::from(serde_json::to_string(&clean_content_map).unwrap()),
+            attachment: Option::from(serde_json::to_string(&note.attachment).unwrap()),
             ..Default::default()
         }
     }
@@ -181,17 +181,23 @@ pub async fn create_or_update_remote_note(
     note: NewRemoteNote,
 ) -> Option<RemoteNote> {
     match conn {
-        Some(conn) => conn
-            .run(move |c| {
+        Some(conn) => {
+            conn.run(move |c| {
                 diesel::insert_into(remote_notes::table)
                     .values(&note)
                     .on_conflict(remote_notes::ap_id)
                     .do_update()
                     .set(&note)
-                    .get_result::<RemoteNote>(c)
+                    .execute(c)
+                    .ok()?;
+
+                remote_notes::table
+                    .filter(remote_notes::ap_id.eq(&note.ap_id))
+                    .first::<RemoteNote>(c)
+                    .ok()
             })
             .await
-            .ok(),
+        }
         None => {
             let mut pool = POOL.get().ok()?;
             diesel::insert_into(remote_notes::table)
@@ -199,7 +205,12 @@ pub async fn create_or_update_remote_note(
                 .on_conflict(remote_notes::ap_id)
                 .do_update()
                 .set(&note)
-                .get_result::<RemoteNote>(&mut pool)
+                .execute(&mut pool)
+                .ok()?;
+
+            remote_notes::table
+                .filter(remote_notes::ap_id.eq(&note.ap_id))
+                .first::<RemoteNote>(&mut pool)
                 .ok()
         }
     }

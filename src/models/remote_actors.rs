@@ -4,11 +4,10 @@ use crate::schema::{leaders, profiles, remote_actors};
 use crate::POOL;
 use crate::{activity_pub::ApActor, helper::handle_option};
 use anyhow::Result;
-use chrono::{DateTime, Duration, NaiveDateTime, Utc};
+use chrono::{Duration, NaiveDateTime, Utc};
 use diesel::prelude::*;
 use diesel::{AsChangeset, Identifiable, Insertable, Queryable};
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 
 use super::leaders::Leader;
 use super::profiles::Profile;
@@ -53,9 +52,9 @@ impl TryFrom<ApActor> for NewRemoteActor {
                 Ok(NewRemoteActor {
                     context: {
                         if let Some(context) = actor.context.clone() {
-                            serde_json::to_value(context).unwrap()
+                            serde_json::to_string(&context).unwrap()
                         } else {
-                            serde_json::to_value(ApContext::default()).unwrap()
+                            serde_json::to_string(&ApContext::default()).unwrap()
                         }
                     },
                     kind: actor.kind.to_string(),
@@ -69,22 +68,24 @@ impl TryFrom<ApActor> for NewRemoteActor {
                     followers: actor.followers,
                     following: actor.following,
                     liked: actor.liked,
-                    public_key: serde_json::to_value(&actor.public_key).unwrap(),
+                    public_key: serde_json::to_string(&actor.public_key).unwrap(),
                     featured: actor.featured,
                     featured_tags: actor.featured_tags,
                     url: actor.url,
                     manually_approves_followers: actor.manually_approves_followers,
                     published: actor.published,
-                    tag: handle_option(serde_json::to_value(&actor.tag).unwrap()),
-                    attachment: handle_option(serde_json::to_value(&actor.attachment).unwrap()),
-                    endpoints: handle_option(serde_json::to_value(&actor.endpoints).unwrap()),
-                    icon: handle_option(serde_json::to_value(&actor.icon).unwrap()),
-                    image: handle_option(serde_json::to_value(&actor.image).unwrap()),
+                    tag: handle_option(serde_json::to_string(&actor.tag).unwrap()),
+                    attachment: handle_option(serde_json::to_string(&actor.attachment).unwrap()),
+                    endpoints: handle_option(serde_json::to_string(&actor.endpoints).unwrap()),
+                    icon: handle_option(serde_json::to_string(&actor.icon).unwrap()),
+                    image: handle_option(serde_json::to_string(&actor.image).unwrap()),
                     also_known_as: handle_option(
-                        serde_json::to_value(&actor.also_known_as).unwrap(),
+                        serde_json::to_string(&actor.also_known_as).unwrap(),
                     ),
                     discoverable: actor.discoverable,
-                    capabilities: handle_option(serde_json::to_value(&actor.capabilities).unwrap()),
+                    capabilities: handle_option(
+                        serde_json::to_string(&actor.capabilities).unwrap(),
+                    ),
                 })
             } else {
                 log::error!("FAILED TO CONVERT AP_ACTOR TO NEW_REMOTE_ACTOR (NO ID)\n{actor:#?}");
@@ -135,7 +136,7 @@ pub struct RemoteActor {
 
 impl RemoteActor {
     pub fn is_stale(&self) -> bool {
-        Utc::now() - self.updated_at > Duration::days(7)
+        Utc::now().naive_local() - self.updated_at > Duration::days(7)
     }
 }
 
@@ -152,7 +153,7 @@ pub async fn get_remote_actor_by_url(conn: &Db, url: String) -> Option<RemoteAct
 pub async fn create_or_update_remote_actor(
     conn: Option<&Db>,
     actor: NewRemoteActor,
-) -> Result<RemoteActor> {
+) -> Result<RemoteActor, anyhow::Error> {
     match conn {
         Some(conn) => {
             conn.run(move |c| {
@@ -160,8 +161,13 @@ pub async fn create_or_update_remote_actor(
                     .values(&actor)
                     .on_conflict(remote_actors::ap_id)
                     .do_update()
-                    .set((&actor, remote_actors::checked_at.eq(Utc::now())))
-                    .get_result::<RemoteActor>(c)
+                    .set((&actor, remote_actors::checked_at.eq(Utc::now().naive_utc())))
+                    .execute(c)
+                    .map_err(anyhow::Error::msg)?;
+
+                remote_actors::table
+                    .filter(remote_actors::ap_id.eq(&actor.ap_id))
+                    .first::<RemoteActor>(c)
                     .map_err(anyhow::Error::msg)
             })
             .await
@@ -172,8 +178,13 @@ pub async fn create_or_update_remote_actor(
                 .values(&actor)
                 .on_conflict(remote_actors::ap_id)
                 .do_update()
-                .set((&actor, remote_actors::checked_at.eq(Utc::now())))
-                .get_result::<RemoteActor>(&mut pool)
+                .set((&actor, remote_actors::checked_at.eq(Utc::now().naive_utc())))
+                .execute(&mut pool) // Changed to .execute()
+                .map_err(anyhow::Error::msg)?;
+
+            remote_actors::table
+                .filter(remote_actors::ap_id.eq(&actor.ap_id))
+                .first::<RemoteActor>(&mut pool)
                 .map_err(anyhow::Error::msg)
         }
     }

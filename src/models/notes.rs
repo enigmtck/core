@@ -6,11 +6,10 @@ use crate::helper::{
 use crate::schema::notes;
 use crate::POOL;
 use anyhow::Result;
-use chrono::{DateTime, NaiveDateTime, Utc};
+use chrono::NaiveDateTime;
 use diesel::prelude::*;
 use diesel::{AsChangeset, Identifiable, Insertable, Queryable};
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 use std::fmt;
 
 use super::remote_notes::{get_remote_note_by_ap_id, RemoteNote};
@@ -75,15 +74,15 @@ impl From<IdentifiedApNote> for NewNote {
         NewNote {
             profile_id,
             uuid: uuid.clone(),
-            kind: note.kind.into(),
-            ap_to: serde_json::to_value(&note.to).unwrap(),
+            kind: String::from(NoteType::from(note.kind)),
+            ap_to: serde_json::to_string(&note.to).unwrap(),
             attributed_to: note.attributed_to.to_string(),
-            tag: handle_option(serde_json::to_value(&note.tag).unwrap()),
-            attachment: handle_option(serde_json::to_value(&note.attachment).unwrap()),
-            instrument: handle_option(serde_json::to_value(&note.instrument).unwrap()),
+            tag: handle_option(serde_json::to_string(&note.tag).unwrap()),
+            attachment: handle_option(serde_json::to_string(&note.attachment).unwrap()),
+            instrument: handle_option(serde_json::to_string(&note.instrument).unwrap()),
             content: note.content,
             in_reply_to: note.in_reply_to,
-            cc: handle_option(serde_json::to_value(&note.cc).unwrap()),
+            cc: handle_option(serde_json::to_string(&note.cc).unwrap()),
             conversation: {
                 if note.conversation.is_none() {
                     Option::from(format!(
@@ -135,7 +134,7 @@ pub async fn get_notes_by_profile_id(
     conn.run(move |c| {
         let mut query = notes::table
             .filter(notes::profile_id.eq(profile_id))
-            .filter(notes::kind.eq(NoteType::Note.into()))
+            .filter(notes::kind.eq(String::from(NoteType::Note)))
             .order(notes::created_at.desc())
             .limit(limit)
             .offset(offset)
@@ -174,13 +173,14 @@ pub async fn get_note_by_apid(conn: &Db, ap_id: String) -> Option<Note> {
 }
 
 pub async fn create_note(conn: &Db, note: NewNote) -> Option<Note> {
-    conn.run(move |c| {
-        diesel::insert_into(notes::table)
-            .values(&note)
-            .get_result::<Note>(c)
-    })
-    .await
-    .ok()
+    // Execute the insert operation.
+    conn.run(move |c| diesel::insert_into(notes::table).values(&note).execute(c))
+        .await
+        .ok()?;
+
+    conn.run(move |c| notes::table.order(notes::id.desc()).first::<Note>(c))
+        .await
+        .ok()
 }
 
 #[derive(Debug)]

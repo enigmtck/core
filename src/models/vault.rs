@@ -1,6 +1,6 @@
 use crate::db::Db;
 use crate::schema::vault;
-use chrono::{DateTime, NaiveDateTime, Utc};
+use chrono::NaiveDateTime;
 use diesel::prelude::*;
 use diesel::{AsChangeset, Identifiable, Insertable, Queryable};
 use rocket_sync_db_pools::diesel;
@@ -45,10 +45,15 @@ pub async fn create_vault_item(conn: &Db, vault_item: NewVaultItem) -> Option<Va
     conn.run(move |c| {
         diesel::insert_into(vault::table)
             .values(&vault_item)
-            .get_result::<VaultItem>(c)
+            .execute(c)
+            .ok()?;
+
+        vault::table
+            .order(vault::id.desc())
+            .first::<VaultItem>(c)
+            .ok()
     })
     .await
-    .ok()
 }
 
 pub async fn get_vault_items_by_profile_id_and_remote_actor(

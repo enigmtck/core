@@ -11,11 +11,10 @@ use crate::schema::{
 };
 use crate::{MaybeMultiple, MaybeReference, POOL};
 use anyhow::{anyhow, Result};
-use chrono::{DateTime, NaiveDateTime, Utc};
+use chrono::NaiveDateTime;
 use diesel::prelude::*;
 use diesel::{AsChangeset, Identifiable, Insertable, Queryable};
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 use std::fmt::{self, Debug};
 
 use super::notes::Note;
@@ -330,7 +329,7 @@ impl From<ActorActivity> for NewActivity {
             if let Some(profile) = profile.clone() {
                 (
                     Some(
-                        serde_json::to_value(vec![get_ap_id_from_username(
+                        serde_json::to_string(&vec![get_ap_id_from_username(
                             profile.username.clone(),
                         )])
                         .unwrap(),
@@ -339,7 +338,7 @@ impl From<ActorActivity> for NewActivity {
                 )
             } else if let Some(remote_actor) = remote_actor.clone() {
                 (
-                    Some(serde_json::to_value(vec![remote_actor.ap_id.clone()]).unwrap()),
+                    Some(serde_json::to_string(&vec![remote_actor.ap_id.clone()]).unwrap()),
                     Some(remote_actor.ap_id),
                 )
             } else {
@@ -350,7 +349,7 @@ impl From<ActorActivity> for NewActivity {
         let uuid = uuid::Uuid::new_v4().to_string();
 
         NewActivity {
-            kind,
+            kind: String::from(kind),
             uuid: uuid.clone(),
             actor: actor.to_string(),
             ap_to,
@@ -382,7 +381,7 @@ impl From<NoteActivity> for NewActivity {
         };
 
         NewActivity {
-            kind,
+            kind: String::from(kind),
             uuid: uuid::Uuid::new_v4().to_string(),
             actor: actor.to_string(),
             ap_to,
@@ -477,18 +476,19 @@ async fn create_activity_cc(conn: Option<&Db>, activity_cc: NewActivityCc) -> bo
     log::debug!("INSERTING ACTIVITY_CC: {activity_cc:#?}");
 
     match conn {
-        Some(conn) => conn
-            .run(move |c| {
+        Some(conn) => {
+            conn.run(move |c| {
                 diesel::insert_into(activities_cc::table)
                     .values(&activity_cc)
-                    .get_result::<ActivityCc>(c)
+                    .execute(c)
+                    .is_ok()
             })
             .await
-            .is_ok(),
+        }
         None => POOL.get().map_or(false, |mut pool| {
             diesel::insert_into(activities_cc::table)
                 .values(&activity_cc)
-                .get_result::<ActivityCc>(&mut pool)
+                .execute(&mut pool)
                 .is_ok()
         }),
     }
@@ -513,7 +513,7 @@ pub struct ActivityTo {
     pub ap_id: String,
 }
 
-async fn create_activity_to(conn: Option<&Db>, activity_to: NewActivityTo) -> Result<ActivityTo> {
+async fn create_activity_to(conn: Option<&Db>, activity_to: NewActivityTo) -> bool {
     log::debug!("INSERTING ACTIVITY_TO: {activity_to:#?}");
 
     match conn {
@@ -521,20 +521,17 @@ async fn create_activity_to(conn: Option<&Db>, activity_to: NewActivityTo) -> Re
             conn.run(move |c| {
                 diesel::insert_into(activities_to::table)
                     .values(&activity_to)
-                    .get_result::<ActivityTo>(c)
-                    .map_err(anyhow::Error::msg)
+                    .execute(c)
+                    .is_ok()
             })
             .await
         }
-        None => POOL.get().map_or(
-            Err(anyhow!("failed to retrieve database connection")),
-            |mut pool| {
-                diesel::insert_into(activities_to::table)
-                    .values(&activity_to)
-                    .get_result::<ActivityTo>(&mut pool)
-                    .map_err(anyhow::Error::msg)
-            },
-        ),
+        None => POOL.get().map_or(false, |mut pool| {
+            diesel::insert_into(activities_to::table)
+                .values(&activity_to)
+                .execute(&mut pool)
+                .is_ok()
+        }),
     }
 }
 
@@ -544,7 +541,11 @@ pub async fn create_activity(conn: Option<&Db>, activity: NewActivity) -> Result
             conn.run(move |c| {
                 diesel::insert_into(activities::table)
                     .values(&activity)
-                    .get_result::<Activity>(c)
+                    .execute(c);
+
+                activities::table
+                    .order(activities::id.desc())
+                    .first::<Activity>(c)
             })
             .await?
         }
@@ -552,7 +553,11 @@ pub async fn create_activity(conn: Option<&Db>, activity: NewActivity) -> Result
             let mut pool = POOL.get()?;
             diesel::insert_into(activities::table)
                 .values(&activity)
-                .get_result::<Activity>(&mut pool)?
+                .execute(&mut pool);
+
+            activities::table
+                .order(activities::id.desc())
+                .first::<Activity>(&mut pool)?
         }
     };
 
@@ -704,7 +709,7 @@ pub async fn get_activity_by_kind_profile_id_and_target_ap_id(
     conn.run(move |c| {
         activities::table
             .filter(activities::revoked.eq(false))
-            .filter(activities::kind.eq(kind))
+            .filter(activities::kind.eq(String::from(kind)))
             .filter(activities::profile_id.eq(profile_id))
             .filter(activities::target_ap_id.eq(target_ap_id))
             .left_join(notes::table.on(activities::target_note_id.eq(notes::id.nullable())))
@@ -777,10 +782,7 @@ pub async fn get_outbox_activities_by_profile_id(
         }
 
         if let Some(min) = min {
-            let date: DateTime<Utc> = DateTime::from_naive_utc_and_offset(
-                NaiveDateTime::from_timestamp_micros(min).unwrap(),
-                Utc,
-            );
+            let date = NaiveDateTime::from_timestamp_micros(min).unwrap();
 
             log::debug!("MINIMUM {date:#?}");
 
@@ -788,10 +790,7 @@ pub async fn get_outbox_activities_by_profile_id(
                 .filter(activities::created_at.gt(date))
                 .order(activities::created_at.asc());
         } else if let Some(max) = max {
-            let date: DateTime<Utc> = DateTime::from_naive_utc_and_offset(
-                NaiveDateTime::from_timestamp_micros(max).unwrap(),
-                Utc,
-            );
+            let date = NaiveDateTime::from_timestamp_micros(max).unwrap();
 
             log::debug!("MAXIMUM {date:#?}");
 
@@ -810,20 +809,28 @@ pub async fn get_outbox_activities_by_profile_id(
 
 pub async fn revoke_activity_by_uuid(conn: Option<&Db>, uuid: String) -> Result<Activity> {
     match conn {
-        Some(conn) => {
-            conn.run(move |c| {
-                diesel::update(activities::table.filter(activities::uuid.eq(uuid)))
+        Some(conn) => conn
+            .run(move |c| {
+                diesel::update(activities::table.filter(activities::uuid.eq(uuid.clone())))
                     .set(activities::revoked.eq(true))
-                    .get_result::<Activity>(c)
-                    .map_err(anyhow::Error::msg)
+                    .execute(c);
+
+                activities::table
+                    .filter(activities::uuid.eq(uuid))
+                    .first::<Activity>(c)
             })
             .await
-        }
+            .map_err(anyhow::Error::msg),
         None => {
             let mut pool = POOL.get().map_err(anyhow::Error::msg)?;
-            diesel::update(activities::table.filter(activities::uuid.eq(uuid)))
+            diesel::update(activities::table.filter(activities::uuid.eq(uuid.clone())))
                 .set(activities::revoked.eq(true))
-                .get_result::<Activity>(&mut pool)
+                .execute(&mut pool)
+                .map_err(anyhow::Error::msg)?;
+
+            activities::table
+                .filter(activities::uuid.eq(uuid))
+                .first::<Activity>(&mut pool)
                 .map_err(anyhow::Error::msg)
         }
     }
@@ -831,20 +838,28 @@ pub async fn revoke_activity_by_uuid(conn: Option<&Db>, uuid: String) -> Result<
 
 pub async fn revoke_activity_by_apid(conn: Option<&Db>, ap_id: String) -> Result<Activity> {
     match conn {
-        Some(conn) => {
-            conn.run(move |c| {
-                diesel::update(activities::table.filter(activities::ap_id.eq(ap_id)))
+        Some(conn) => conn
+            .run(move |c| {
+                diesel::update(activities::table.filter(activities::ap_id.eq(ap_id.clone())))
                     .set(activities::revoked.eq(true))
-                    .get_result::<Activity>(c)
-                    .map_err(anyhow::Error::msg)
+                    .execute(c);
+
+                activities::table
+                    .filter(activities::ap_id.eq(ap_id))
+                    .first::<Activity>(c)
             })
             .await
-        }
+            .map_err(anyhow::Error::msg),
         None => {
             let mut pool = POOL.get().map_err(anyhow::Error::msg)?;
-            diesel::update(activities::table.filter(activities::ap_id.eq(ap_id)))
+            diesel::update(activities::table.filter(activities::ap_id.eq(ap_id.clone())))
                 .set(activities::revoked.eq(true))
-                .get_result::<Activity>(&mut pool)
+                .execute(&mut pool)
+                .map_err(anyhow::Error::msg)?;
+
+            activities::table
+                .filter(activities::ap_id.eq(ap_id))
+                .first::<Activity>(&mut pool)
                 .map_err(anyhow::Error::msg)
         }
     }

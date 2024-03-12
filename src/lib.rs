@@ -9,9 +9,10 @@ extern crate diesel;
 use activity_pub::{ApActivity, ApObject};
 use anyhow::anyhow;
 use anyhow::Result;
-use db::Pool;
+use db::{Pool, SqlitePool};
 use diesel::r2d2::ConnectionManager;
 use diesel::PgConnection;
+use diesel::SqliteConnection;
 use dotenvy::dotenv;
 use lazy_static::lazy_static;
 use regex::Regex;
@@ -51,9 +52,9 @@ lazy_static! {
         Regex::new(r#"https://(.+?)/.+"#).expect("invalid domain name regex");
     pub static ref ASSIGNMENT_RE: Regex =
         Regex::new(r#"(\w+)="(.+?)""#).expect("invalid assignment regex");
-    pub static ref POOL: Pool = {
+    pub static ref POOL: SqlitePool = {
         dotenv().ok();
-        Pool::new(ConnectionManager::<PgConnection>::new(
+        SqlitePool::new(ConnectionManager::<SqliteConnection>::new(
             env::var("DATABASE_URL").expect("DATABASE_URL must be set"),
         ))
         .expect("failed to create db pool")

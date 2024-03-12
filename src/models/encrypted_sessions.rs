@@ -60,7 +60,11 @@ pub async fn create_encrypted_session(
             .run(move |c| {
                 diesel::insert_into(encrypted_sessions::table)
                     .values(&encrypted_session)
-                    .get_result::<EncryptedSession>(c)
+                    .execute(c)?;
+
+                encrypted_sessions::table
+                    .order(encrypted_sessions::id.desc())
+                    .first::<EncryptedSession>(c)
             })
             .await
             .ok(),
@@ -68,7 +72,12 @@ pub async fn create_encrypted_session(
             let mut pool = POOL.get().ok()?;
             diesel::insert_into(encrypted_sessions::table)
                 .values(&encrypted_session)
-                .get_result::<EncryptedSession>(&mut pool)
+                .execute(&mut pool)
+                .ok()?;
+
+            encrypted_sessions::table
+                .order(encrypted_sessions::id.desc())
+                .first::<EncryptedSession>(&mut pool)
                 .ok()
         }
     }

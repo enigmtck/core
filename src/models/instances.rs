@@ -47,7 +47,10 @@ pub async fn create_instance(conn: Option<&Db>, instance: NewInstance) -> Option
                     .on_conflict(instances::domain_name)
                     .do_update()
                     .set(instances::last_message_at.eq(Utc::now().naive_utc()))
-                    .get_result::<Instance>(c)
+                    .execute(c)?;
+                instances::table
+                    .filter(instances::domain_name.eq(&instance.domain_name))
+                    .first::<Instance>(c)
             })
             .await
             .ok(),
@@ -58,7 +61,11 @@ pub async fn create_instance(conn: Option<&Db>, instance: NewInstance) -> Option
                 .on_conflict(instances::domain_name)
                 .do_update()
                 .set(instances::last_message_at.eq(Utc::now().naive_utc()))
-                .get_result::<Instance>(&mut pool)
+                .execute(&mut pool)
+                .ok()?;
+            instances::table
+                .filter(instances::domain_name.eq(&instance.domain_name))
+                .first::<Instance>(&mut pool)
                 .ok()
         }
     }

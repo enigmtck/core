@@ -175,7 +175,7 @@ impl TryFrom<ExtendedActivity> for ApLike {
     fn try_from(
         (activity, note, remote_note, profile, _remote_actor): ExtendedActivity,
     ) -> Result<Self, Self::Error> {
-        if activity.kind == ActivityType::Like {
+        if activity.kind.as_str() == "like" {
             match (note, remote_note, profile) {
                 (Some(note), None, None) => Ok(ApLike {
                     context: Some(ApContext::default()),

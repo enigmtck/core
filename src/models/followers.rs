@@ -5,7 +5,7 @@ use crate::schema::{followers, remote_actors};
 use crate::{MaybeReference, POOL};
 use diesel::prelude::*;
 
-use chrono::{DateTime, NaiveDateTime, Utc};
+use chrono::NaiveDateTime;
 use diesel::{AsChangeset, Identifiable, Insertable, Queryable};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -85,7 +85,10 @@ pub async fn create_follower(conn: Option<&Db>, follower: NewFollower) -> Option
             .run(move |c| {
                 diesel::insert_into(followers::table)
                     .values(&follower)
-                    .get_result::<Follower>(c)
+                    .execute(c)?;
+                followers::table
+                    .order(followers::id.desc())
+                    .first::<Follower>(c)
             })
             .await
             .ok(),
@@ -93,7 +96,11 @@ pub async fn create_follower(conn: Option<&Db>, follower: NewFollower) -> Option
             let mut pool = POOL.get().ok()?;
             diesel::insert_into(followers::table)
                 .values(&follower)
-                .get_result::<Follower>(&mut pool)
+                .execute(&mut pool)
+                .ok()?;
+            followers::table
+                .order(followers::id.desc())
+                .first::<Follower>(&mut pool)
                 .ok()
         }
     }

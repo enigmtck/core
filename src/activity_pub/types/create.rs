@@ -14,7 +14,7 @@ use crate::{
     },
     runner, MaybeMultiple, MaybeReference,
 };
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, NaiveDateTime, Utc};
 use rocket::http::Status;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -57,10 +57,10 @@ pub struct ApCreate {
     pub signature: Option<ApSignature>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub ephemeral_created_at: Option<DateTime<Utc>>,
+    pub ephemeral_created_at: Option<NaiveDateTime>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub ephemeral_updated_at: Option<DateTime<Utc>>,
+    pub ephemeral_updated_at: Option<NaiveDateTime>,
 }
 
 impl Inbox for ApCreate {
@@ -136,10 +136,10 @@ impl TryFrom<ExtendedActivity> for ApCreate {
                 activity.uuid
             )),
             object: ApObject::Note(ApNote::from(note)).into(),
-            to: serde_json::from_value(ap_to).unwrap(),
-            cc: activity.cc.map(|cc| serde_json::from_value(cc).unwrap()),
+            to: serde_json::from_str(&ap_to).unwrap(),
+            cc: activity.cc.map(|cc| serde_json::from_str(&cc).unwrap()),
             signature: None,
-            published: Some(activity.created_at.to_rfc3339()),
+            published: Some(activity.created_at.to_string()),
             ephemeral_created_at: Some(activity.created_at),
             ephemeral_updated_at: Some(activity.updated_at),
         })
@@ -157,11 +157,11 @@ impl Temporal for ApCreate {
         }
     }
 
-    fn created_at(&self) -> Option<DateTime<Utc>> {
+    fn created_at(&self) -> Option<NaiveDateTime> {
         self.ephemeral_created_at
     }
 
-    fn updated_at(&self) -> Option<DateTime<Utc>> {
+    fn updated_at(&self) -> Option<NaiveDateTime> {
         self.ephemeral_updated_at
     }
 }

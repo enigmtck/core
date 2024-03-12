@@ -2,7 +2,7 @@ use crate::activity_pub::ApInstrument;
 use crate::db::Db;
 use crate::schema::{encrypted_sessions, olm_sessions};
 use crate::POOL;
-use chrono::{DateTime, NaiveDateTime, Utc};
+use chrono::NaiveDateTime;
 use diesel::prelude::*;
 use diesel::{AsChangeset, Identifiable, Insertable, Queryable};
 use rocket_sync_db_pools::diesel;
@@ -50,19 +50,30 @@ pub async fn create_olm_session(
     olm_session: NewOlmSession,
 ) -> Option<OlmSession> {
     match conn {
-        Some(conn) => conn
-            .run(move |c| {
+        Some(conn) => {
+            conn.run(move |c| {
                 diesel::insert_into(olm_sessions::table)
                     .values(&olm_session)
-                    .get_result::<OlmSession>(c)
+                    .execute(c)
+                    .ok()?;
+
+                olm_sessions::table
+                    .order(olm_sessions::id.desc())
+                    .first::<OlmSession>(c)
+                    .ok()
             })
             .await
-            .ok(),
+        }
         None => {
             let mut pool = POOL.get().ok()?;
             diesel::insert_into(olm_sessions::table)
                 .values(&olm_session)
-                .get_result::<OlmSession>(&mut pool)
+                .execute(&mut pool)
+                .ok()?;
+
+            olm_sessions::table
+                .order(olm_sessions::id.desc())
+                .first::<OlmSession>(&mut pool)
                 .ok()
         }
     }
@@ -107,20 +118,35 @@ pub async fn update_olm_session_by_encrypted_session_id(
     session_data: String,
     session_hash: String,
 ) -> Option<OlmSession> {
-    log::debug!("UPDATING OLM SESSION\nencrypted_session_id: {encrypted_session_id}\nsession_data: {session_data}\nsession_hash: {session_hash}");
+    log::debug!(
+        "UPDATING OLM SESSION\nencrypted_session_id: {}\nsession_data: {}\nsession_hash: {}",
+        encrypted_session_id,
+        session_data,
+        session_hash
+    );
+
+    let _ = conn
+        .run(move |c| {
+            diesel::update(
+                olm_sessions::table
+                    .filter(olm_sessions::encrypted_session_id.eq(encrypted_session_id)),
+            )
+            .set((
+                olm_sessions::session_data.eq(session_data),
+                olm_sessions::session_hash.eq(session_hash),
+            ))
+            .execute(c) // Use .execute() here.
+        })
+        .await
+        .ok()?;
 
     conn.run(move |c| {
-        diesel::update(
-            olm_sessions::table.filter(olm_sessions::encrypted_session_id.eq(encrypted_session_id)),
-        )
-        .set((
-            olm_sessions::session_data.eq(session_data),
-            olm_sessions::session_hash.eq(session_hash),
-        ))
-        .get_result::<OlmSession>(c)
+        olm_sessions::table
+            .filter(olm_sessions::encrypted_session_id.eq(encrypted_session_id))
+            .first::<OlmSession>(c)
+            .ok()
     })
     .await
-    .ok()
 }
 
 pub async fn update_olm_session(
@@ -130,25 +156,36 @@ pub async fn update_olm_session(
     session_hash: String,
 ) -> Option<OlmSession> {
     match conn {
-        Some(conn) => conn
-            .run(move |c| {
-                diesel::update(olm_sessions::table.filter(olm_sessions::uuid.eq(uuid)))
+        Some(conn) => {
+            conn.run(move |c| {
+                diesel::update(olm_sessions::table.filter(olm_sessions::uuid.eq(uuid.clone())))
                     .set((
                         olm_sessions::session_data.eq(session_data),
                         olm_sessions::session_hash.eq(session_hash),
                     ))
-                    .get_result::<OlmSession>(c)
+                    .execute(c)
+                    .ok()?;
+
+                olm_sessions::table
+                    .filter(olm_sessions::uuid.eq(uuid))
+                    .first::<OlmSession>(c)
+                    .ok()
             })
             .await
-            .ok(),
+        }
         None => {
             let mut pool = POOL.get().ok()?;
-            diesel::update(olm_sessions::table.filter(olm_sessions::uuid.eq(uuid)))
+            diesel::update(olm_sessions::table.filter(olm_sessions::uuid.eq(uuid.clone())))
                 .set((
                     olm_sessions::session_data.eq(session_data),
                     olm_sessions::session_hash.eq(session_hash),
                 ))
-                .get_result::<OlmSession>(&mut pool)
+                .execute(&mut pool)
+                .ok()?;
+
+            olm_sessions::table
+                .filter(olm_sessions::uuid.eq(uuid))
+                .first::<OlmSession>(&mut pool)
                 .ok()
         }
     }

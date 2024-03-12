@@ -56,19 +56,33 @@ pub async fn create_remote_actor_hashtag(
     hashtag: NewRemoteActorHashtag,
 ) -> Option<RemoteActorHashtag> {
     match conn {
-        Some(conn) => conn
-            .run(move |c| {
+        Some(conn) => {
+            conn.run(move |c| {
                 diesel::insert_into(remote_actor_hashtags::table)
                     .values(&hashtag)
-                    .get_result::<RemoteActorHashtag>(c)
+                    .execute(c)
             })
             .await
-            .ok(),
+            .ok()?;
+
+            conn.run(move |c| {
+                remote_actor_hashtags::table
+                    .order(remote_actor_hashtags::id.desc())
+                    .first::<RemoteActorHashtag>(c)
+            })
+            .await
+            .ok()
+        }
         None => {
             let mut pool = POOL.get().ok()?;
             diesel::insert_into(remote_actor_hashtags::table)
                 .values(&hashtag)
-                .get_result::<RemoteActorHashtag>(&mut pool)
+                .execute(&mut pool)
+                .ok()?;
+
+            remote_actor_hashtags::table
+                .order(remote_actor_hashtags::id.desc())
+                .first::<RemoteActorHashtag>(&mut pool)
                 .ok()
         }
     }

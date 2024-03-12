@@ -55,19 +55,30 @@ pub async fn create_timeline_hashtag(
     hashtag: NewTimelineHashtag,
 ) -> Option<TimelineHashtag> {
     match conn {
-        Some(conn) => conn
-            .run(move |c| {
+        Some(conn) => {
+            conn.run(move |c| {
                 diesel::insert_into(timeline_hashtags::table)
                     .values(&hashtag)
-                    .get_result::<TimelineHashtag>(c)
+                    .execute(c)
+                    .ok()?;
+
+                timeline_hashtags::table
+                    .order(timeline_hashtags::id.desc())
+                    .first::<TimelineHashtag>(c)
+                    .ok()
             })
             .await
-            .ok(),
+        }
         None => {
             let mut pool = POOL.get().ok()?;
             diesel::insert_into(timeline_hashtags::table)
                 .values(&hashtag)
-                .get_result::<TimelineHashtag>(&mut pool)
+                .execute(&mut pool)
+                .ok()?;
+
+            timeline_hashtags::table
+                .order(timeline_hashtags::id.desc())
+                .first::<TimelineHashtag>(&mut pool)
                 .ok()
         }
     }

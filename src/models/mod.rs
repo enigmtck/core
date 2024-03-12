@@ -1,12 +1,9 @@
 pub mod activities;
-//pub mod announces;
 pub mod cache;
 pub mod encrypted_sessions;
 pub mod followers;
-//pub mod follows;
 pub mod instances;
 pub mod leaders;
-//pub mod likes;
 pub mod note_hashtags;
 pub mod notes;
 mod notifications;

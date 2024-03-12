@@ -347,7 +347,7 @@ impl From<Profile> for ApActor {
             featured: None,
             featured_tags: None,
             manually_approves_followers: Some(false),
-            published: Some(profile.created_at.to_rfc3339()),
+            published: Some(profile.created_at.to_string()),
             liked: Some(format!("{}/user/{}/liked", server_url, profile.username)),
             public_key: ApPublicKey {
                 id: format!("{}/user/{}#main-key", server_url, profile.username),

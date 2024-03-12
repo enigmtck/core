@@ -6,7 +6,7 @@ use crate::db::Db;
 use crate::fairings::events::EventChannels;
 use crate::models::profiles::Profile;
 use crate::{Identifier, MaybeMultiple};
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, NaiveDateTime, Utc};
 use enum_dispatch::enum_dispatch;
 use rocket::http::Status;
 use serde::{Deserialize, Serialize};
@@ -53,8 +53,8 @@ pub enum ActivityPub {
 
 pub trait Temporal {
     fn published(&self) -> String;
-    fn created_at(&self) -> Option<DateTime<Utc>>;
-    fn updated_at(&self) -> Option<DateTime<Utc>>;
+    fn created_at(&self) -> Option<NaiveDateTime>;
+    fn updated_at(&self) -> Option<NaiveDateTime>;
 }
 
 #[enum_dispatch(ApActivity)]

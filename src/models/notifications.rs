@@ -54,39 +54,39 @@ pub async fn _get_notification_by_uuid(conn: &Db, uuid: String) -> Option<Notifi
     .ok()
 }
 
-pub async fn _create_notification(
-    conn: &Db,
-    notification: NewNotification,
-) -> Option<Notification> {
-    conn.run(move |c| {
-        diesel::insert_into(notifications::table)
-            .values(&notification)
-            .get_result::<Notification>(c)
-    })
-    .await
-    .ok()
-}
+// pub async fn _create_notification(
+//     conn: &Db,
+//     notification: NewNotification,
+// ) -> Option<Notification> {
+//     conn.run(move |c| {
+//         diesel::insert_into(notifications::table)
+//             .values(&notification)
+//             .get_result::<Notification>(c)
+//     })
+//     .await
+//     .ok()
+// }
 
-pub async fn _delete_notification(conn: &Db, id: i32) -> bool {
-    _delete_by_filter(conn, notifications::id.eq(id)).await
-}
+// pub async fn _delete_notification(conn: &Db, id: i32) -> bool {
+//     _delete_by_filter(conn, notifications::id.eq(id)).await
+// }
 
-pub async fn _delete_notification_by_uuid(conn: &Db, uuid: String) -> bool {
-    _delete_by_filter(conn, notifications::uuid.eq(uuid)).await
-}
+// pub async fn _delete_notification_by_uuid(conn: &Db, uuid: String) -> bool {
+//     _delete_by_filter(conn, notifications::uuid.eq(uuid)).await
+// }
 
-async fn _delete_by_filter<T>(conn: &Db, filter: T) -> bool
-where
-    T: diesel::BoxableExpression<notifications::table, Pg, SqlType = Bool>
-        + QueryId
-        + Send
-        + 'static,
-{
-    conn.run(move |c| {
-        diesel::delete(notifications::table)
-            .filter(filter)
-            .execute(c)
-    })
-    .await
-    .is_ok()
-}
+// async fn _delete_by_filter<T>(conn: &Db, filter: T) -> bool
+// where
+//     T: diesel::BoxableExpression<notifications::table, Pg, SqlType = Bool>
+//         + QueryId
+//         + Send
+//         + 'static,
+// {
+//     conn.run(move |c| {
+//         diesel::delete(notifications::table)
+//             .filter(filter)
+//             .execute(c)
+//     })
+//     .await
+//     .is_ok()
+// }

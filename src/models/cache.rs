@@ -5,7 +5,7 @@ use crate::models::profiles::{get_profile_by_username, guaranteed_profile};
 use crate::schema::cache;
 use crate::POOL;
 use anyhow::Result;
-use chrono::{DateTime, NaiveDateTime, Utc};
+use chrono::NaiveDateTime;
 use diesel::prelude::*;
 use diesel::{AsChangeset, Identifiable, Insertable, Queryable};
 use rocket_sync_db_pools::diesel;
@@ -197,7 +197,9 @@ pub async fn create_cache_item(conn: Option<&Db>, cache_item: NewCacheItem) -> O
                 diesel::insert_into(cache::table)
                     .values(&cache_item)
                     .on_conflict_do_nothing()
-                    .get_result::<CacheItem>(c)
+                    .execute(c)?;
+
+                cache::table.order(cache::id.desc()).first::<CacheItem>(c)
             })
             .await
             .ok(),
@@ -206,7 +208,12 @@ pub async fn create_cache_item(conn: Option<&Db>, cache_item: NewCacheItem) -> O
             diesel::insert_into(cache::table)
                 .values(&cache_item)
                 .on_conflict_do_nothing()
-                .get_result::<CacheItem>(&mut pool)
+                .execute(&mut pool)
+                .ok()?;
+
+            cache::table
+                .order(cache::id.desc())
+                .first::<CacheItem>(&mut pool)
                 .ok()
         }
     }

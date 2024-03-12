@@ -157,7 +157,7 @@ impl TryFrom<ExtendedActivity> for ApFollow {
     fn try_from(
         (activity, _note, _remote_note, profile, remote_actor): ExtendedActivity,
     ) -> Result<Self, Self::Error> {
-        if activity.kind == ActivityType::Follow {
+        if activity.kind.as_str() == "follow" {
             match (profile, remote_actor) {
                 (Some(profile), None) => Ok(ApFollow {
                     context: Some(ApContext::default()),
@@ -171,8 +171,8 @@ impl TryFrom<ExtendedActivity> for ApFollow {
                         )),
                         Some,
                     ),
-                    to: activity.ap_to.and_then(|x| serde_json::from_value(x).ok()),
-                    cc: activity.cc.and_then(|x| serde_json::from_value(x).ok()),
+                    to: activity.ap_to.and_then(|x| serde_json::from_str(&x).ok()),
+                    cc: activity.cc.and_then(|x| serde_json::from_str(&x).ok()),
                     object: MaybeReference::Reference(
                         ApActor::from(profile).id.unwrap().to_string(),
                     ),
@@ -189,8 +189,8 @@ impl TryFrom<ExtendedActivity> for ApFollow {
                         )),
                         Some,
                     ),
-                    to: activity.ap_to.and_then(|x| serde_json::from_value(x).ok()),
-                    cc: activity.cc.and_then(|x| serde_json::from_value(x).ok()),
+                    to: activity.ap_to.and_then(|x| serde_json::from_str(&x).ok()),
+                    cc: activity.cc.and_then(|x| serde_json::from_str(&x).ok()),
                     object: MaybeReference::Reference(remote_actor.ap_id),
                 }),
                 _ => {

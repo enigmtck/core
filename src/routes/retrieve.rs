@@ -88,7 +88,7 @@ async fn process_notes(
 fn gather_ap_ids(x: &TimelineItem) -> Vec<String> {
     let mut ap_ids = vec![x.clone().attributed_to];
     if let Some(tags) = x.clone().tag {
-        if let Ok(tags) = serde_json::from_value::<Vec<ApTag>>(tags) {
+        if let Ok(tags) = serde_json::from_str::<Vec<ApTag>>(&tags) {
             for tag in tags {
                 if let ApTag::Mention(tag) = tag {
                     if let Some(href) = tag.href {

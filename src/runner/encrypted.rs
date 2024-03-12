@@ -40,7 +40,7 @@ pub async fn handle_encrypted_note(
         sender: Profile,
     ) {
         if let ApInstrumentType::OlmSession = instrument.kind {
-            if let Ok(to) = serde_json::from_value::<Vec<String>>(note.ap_to.clone()) {
+            if let Ok(to) = serde_json::from_str::<Vec<String>>(&note.ap_to.clone()) {
                 // save encrypted session
                 if let Some((encrypted_session, _olm_session)) =
                     get_encrypted_session_by_profile_id_and_ap_to(None, sender.id, to[0].clone())
@@ -75,7 +75,7 @@ pub async fn handle_encrypted_note(
     }
 
     if let Some(instrument) = &note.instrument {
-        if let Ok(instruments) = serde_json::from_value::<ApInstruments>(instrument.clone()) {
+        if let Ok(instruments) = serde_json::from_str::<ApInstruments>(&instrument.clone()) {
             match instruments {
                 ApInstruments::Multiple(instruments) => {
                     for instrument in instruments {

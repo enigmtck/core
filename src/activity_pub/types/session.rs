@@ -166,7 +166,7 @@ impl From<EncryptedSession> for ApSession {
             reference: session.reference,
             to: ApAddress::Address(session.ap_to),
             attributed_to: ApAddress::Address(session.attributed_to),
-            instrument: serde_json::from_value(session.instrument).unwrap(),
+            instrument: serde_json::from_str(&session.instrument).unwrap(),
             uuid: Some(session.uuid),
 
             ..Default::default()
@@ -200,7 +200,7 @@ impl From<JoinedOlmSession> for ApSession {
 
 impl From<RemoteEncryptedSession> for ApSession {
     fn from(session: RemoteEncryptedSession) -> ApSession {
-        let instrument: ApInstruments = serde_json::from_value(session.instrument).unwrap();
+        let instrument: ApInstruments = serde_json::from_str(&session.instrument).unwrap();
 
         ApSession {
             id: Option::from(session.ap_id),

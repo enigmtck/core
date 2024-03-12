@@ -86,8 +86,8 @@ pub fn get_activity_ap_id_from_uuid(uuid: String) -> String {
     format!("https://{}/activities/{uuid}", *crate::SERVER_NAME)
 }
 
-pub fn handle_option(v: Value) -> Option<Value> {
-    if v == Value::Null {
+pub fn handle_option(v: String) -> Option<String> {
+    if String::is_empty(&v) {
         None
     } else {
         Some(v)

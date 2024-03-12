@@ -2,12 +2,11 @@ use crate::activity_pub::{ApInstruments, ApNote, ApObject, ApSession};
 use crate::db::Db;
 use crate::schema::processing_queue;
 use crate::POOL;
-use chrono::{DateTime, NaiveDateTime, Utc};
+use chrono::NaiveDateTime;
 use diesel::prelude::*;
 use diesel::{AsChangeset, Identifiable, Insertable, Queryable};
 use rocket_sync_db_pools::diesel;
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 
 use super::encrypted_sessions::get_encrypted_session_by_profile_id_and_ap_to;
 use super::profiles::Profile;
@@ -40,7 +39,7 @@ impl From<IdentifiedRemoteNote> for NewProcessingItem {
             ap_to: note.clone().ap_to.unwrap(),
             attributed_to: note.clone().attributed_to,
             cc: note.cc,
-            ap_object: serde_json::to_value(ap_note).unwrap(),
+            ap_object: serde_json::to_string(&ap_note).unwrap(),
             processed: false,
         }
     }
@@ -54,10 +53,10 @@ impl From<RemoteEncryptedSession> for NewProcessingItem {
             profile_id: session.profile_id,
             kind: session.clone().kind,
             ap_id: format!("{}#processing", session.ap_id),
-            ap_to: serde_json::to_value(&session.ap_to).unwrap(),
+            ap_to: serde_json::to_string(&session.ap_to).unwrap(),
             attributed_to: session.attributed_to,
             cc: Option::None,
-            ap_object: serde_json::to_value(ap_session).unwrap(),
+            ap_object: serde_json::to_string(&ap_session).unwrap(),
             processed: false,
         }
     }
@@ -85,19 +84,33 @@ pub async fn create_processing_item(
     processing_item: NewProcessingItem,
 ) -> Option<ProcessingItem> {
     match conn {
-        Some(conn) => conn
-            .run(move |c| {
+        Some(conn) => {
+            conn.run(move |c| {
                 diesel::insert_into(processing_queue::table)
                     .values(&processing_item)
-                    .get_result::<ProcessingItem>(c)
+                    .execute(c)
             })
             .await
-            .ok(),
+            .ok()?;
+
+            conn.run(move |c| {
+                processing_queue::table
+                    .order(processing_queue::id.desc())
+                    .first::<ProcessingItem>(c)
+            })
+            .await
+            .ok()
+        }
         None => {
             let mut pool = POOL.get().ok()?;
             diesel::insert_into(processing_queue::table)
                 .values(&processing_item)
-                .get_result::<ProcessingItem>(&mut pool)
+                .execute(&mut pool)
+                .ok()?;
+
+            processing_queue::table
+                .order(processing_queue::id.desc())
+                .first::<ProcessingItem>(&mut pool)
                 .ok()
         }
     }
@@ -125,14 +138,20 @@ pub async fn resolve_processed_item_by_ap_id_and_profile_id(
     conn.run(move |c| {
         diesel::update(
             processing_queue::table
-                .filter(processing_queue::ap_id.eq(ap_id))
-                .filter(processing_queue::profile_id.eq(profile_id)),
+                .filter(processing_queue::ap_id.eq(ap_id.clone()))
+                .filter(processing_queue::profile_id.eq(profile_id.clone())),
         )
         .set(processing_queue::processed.eq(true))
-        .get_result::<ProcessingItem>(c)
+        .execute(c)
+        .ok()?;
+
+        processing_queue::table
+            .filter(processing_queue::ap_id.eq(ap_id))
+            .filter(processing_queue::profile_id.eq(profile_id))
+            .first::<ProcessingItem>(c)
+            .ok()
     })
     .await
-    .ok()
 }
 
 pub async fn retrieve(conn: &Db, profile: Profile) -> Vec<ApObject> {
@@ -140,7 +159,7 @@ pub async fn retrieve(conn: &Db, profile: Profile) -> Vec<ApObject> {
 
     let objects: Vec<ApObject> = queue
         .iter()
-        .filter_map(|v| serde_json::from_value::<ApObject>(v.clone().ap_object).ok())
+        .filter_map(|v| serde_json::from_str::<ApObject>(&v.clone().ap_object).ok())
         .collect();
 
     let mut returned: Vec<ApObject> = vec![];

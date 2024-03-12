@@ -4,7 +4,7 @@ CREATE TABLE processing_queue (
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
     ap_id TEXT NOT NULL COLLATE NOCASE,
     ap_to TEXT NOT NULL,
-    cc TEXT NOT NULL,
+    cc TEXT,
     attributed_to TEXT NOT NULL COLLATE NOCASE,
     kind TEXT NOT NULL,
     ap_object TEXT NOT NULL,

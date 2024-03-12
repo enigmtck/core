@@ -3,9 +3,9 @@ use std::collections::HashSet;
 use crate::activity_pub::ApAddress;
 use crate::db::Db;
 use crate::helper::{get_local_identifier, is_local, LocalIdentifierType};
-use crate::schema::{self, profiles};
+use crate::schema::profiles;
 use crate::POOL;
-use chrono::{DateTime, NaiveDateTime, Utc};
+use chrono::NaiveDateTime;
 use diesel::prelude::*;
 use diesel::{AsChangeset, Identifiable, Insertable, Queryable};
 use rocket_sync_db_pools::diesel;
@@ -62,19 +62,33 @@ pub struct Profile {
 
 pub async fn create_profile(conn: Option<&Db>, profile: NewProfile) -> Option<Profile> {
     match conn {
-        Some(conn) => conn
-            .run(move |c| {
+        Some(conn) => {
+            conn.run(move |c| {
                 diesel::insert_into(profiles::table)
                     .values(&profile)
-                    .get_result::<Profile>(c)
+                    .execute(c)
             })
             .await
-            .ok(),
+            .ok()?;
+
+            conn.run(move |c| {
+                profiles::table
+                    .order(profiles::id.desc())
+                    .first::<Profile>(c)
+            })
+            .await
+            .ok()
+        }
         None => {
             let mut pool = POOL.get().ok()?;
             diesel::insert_into(profiles::table)
                 .values(&profile)
-                .get_result::<Profile>(&mut pool)
+                .execute(&mut pool)
+                .ok()?;
+
+            profiles::table
+                .order(profiles::id.desc())
+                .first::<Profile>(&mut pool)
                 .ok()
         }
     }
@@ -163,17 +177,17 @@ pub async fn update_olm_account_by_username(
     account: String,
     account_hash: String,
 ) -> Option<Profile> {
-    use schema::profiles::dsl::{
-        olm_pickled_account, olm_pickled_account_hash, profiles, username as u,
-    };
-
     conn.run(move |c| {
-        diesel::update(profiles.filter(u.eq(username)))
+        diesel::update(profiles::table.filter(profiles::username.eq(&username.clone())))
             .set((
-                olm_pickled_account.eq(account),
-                olm_pickled_account_hash.eq(account_hash),
+                profiles::olm_pickled_account.eq(account),
+                profiles::olm_pickled_account_hash.eq(account_hash),
             ))
-            .get_result::<Profile>(c)
+            .execute(c)?;
+
+        profiles::table
+            .filter(profiles::username.eq(username))
+            .first::<Profile>(c)
     })
     .await
     .ok()
@@ -185,9 +199,13 @@ pub async fn update_avatar_by_username(
     filename: String,
 ) -> Option<Profile> {
     conn.run(move |c| {
-        diesel::update(profiles::table.filter(profiles::username.eq(username)))
+        diesel::update(profiles::table.filter(profiles::username.eq(username.clone())))
             .set(profiles::avatar_filename.eq(filename))
-            .get_result::<Profile>(c)
+            .execute(c)?;
+
+        profiles::table
+            .filter(profiles::username.eq(username))
+            .first::<Profile>(c)
     })
     .await
     .ok()
@@ -198,10 +216,16 @@ pub async fn update_banner_by_username(
     username: String,
     filename: String,
 ) -> Option<Profile> {
+    let username_clone = username.clone();
+
     conn.run(move |c| {
-        diesel::update(profiles::table.filter(profiles::username.eq(username)))
+        diesel::update(profiles::table.filter(profiles::username.eq(username_clone)))
             .set(profiles::banner_filename.eq(filename))
-            .get_result::<Profile>(c)
+            .execute(c)?;
+
+        profiles::table
+            .filter(profiles::username.eq(username))
+            .first::<Profile>(c)
     })
     .await
     .ok()
@@ -214,12 +238,16 @@ pub async fn update_summary_by_username(
     summary_markdown: String,
 ) -> Option<Profile> {
     conn.run(move |c| {
-        diesel::update(profiles::table.filter(profiles::username.eq(username)))
+        diesel::update(profiles::table.filter(profiles::username.eq(username.clone())))
             .set((
                 profiles::summary.eq(summary),
                 profiles::summary_markdown.eq(summary_markdown),
             ))
-            .get_result::<Profile>(c)
+            .execute(c)?;
+
+        profiles::table
+            .filter(profiles::username.eq(username))
+            .first::<Profile>(c)
     })
     .await
     .ok()
@@ -233,13 +261,17 @@ pub async fn update_password_by_username(
     olm_pickled_account: String,
 ) -> Option<Profile> {
     conn.run(move |c| {
-        diesel::update(profiles::table.filter(profiles::username.eq(username)))
+        diesel::update(profiles::table.filter(profiles::username.eq(username.clone())))
             .set((
                 profiles::password.eq(password),
                 profiles::client_private_key.eq(client_private_key),
                 profiles::olm_pickled_account.eq(olm_pickled_account),
             ))
-            .get_result::<Profile>(c)
+            .execute(c)?;
+
+        profiles::table
+            .filter(profiles::username.eq(username))
+            .first::<Profile>(c)
     })
     .await
     .ok()

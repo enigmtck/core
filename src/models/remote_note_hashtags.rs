@@ -55,19 +55,30 @@ pub async fn create_remote_note_hashtag(
     hashtag: NewRemoteNoteHashtag,
 ) -> Option<RemoteNoteHashtag> {
     match conn {
-        Some(conn) => conn
-            .run(move |c| {
+        Some(conn) => {
+            conn.run(move |c| {
                 diesel::insert_into(remote_note_hashtags::table)
                     .values(&hashtag)
-                    .get_result::<RemoteNoteHashtag>(c)
+                    .execute(c)
+                    .ok()?;
+
+                remote_note_hashtags::table
+                    .order(remote_note_hashtags::id.desc())
+                    .first::<RemoteNoteHashtag>(c)
+                    .ok()
             })
             .await
-            .ok(),
+        }
         None => {
             let mut pool = POOL.get().ok()?;
             diesel::insert_into(remote_note_hashtags::table)
                 .values(&hashtag)
-                .get_result::<RemoteNoteHashtag>(&mut pool)
+                .execute(&mut pool)
+                .ok()?;
+
+            remote_note_hashtags::table
+                .order(remote_note_hashtags::id.desc())
+                .first::<RemoteNoteHashtag>(&mut pool)
                 .ok()
         }
     }

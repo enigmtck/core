@@ -55,19 +55,28 @@ pub async fn create_note_hashtag(
     hashtag: NewNoteHashtag,
 ) -> Option<NoteHashtag> {
     match conn {
-        Some(conn) => conn
-            .run(move |c| {
+        Some(conn) => {
+            conn.run(move |c| {
                 diesel::insert_into(note_hashtags::table)
                     .values(&hashtag)
-                    .get_result::<NoteHashtag>(c)
+                    .execute(c)
+                    .ok()?;
+                note_hashtags::table
+                    .order(note_hashtags::id.desc())
+                    .first::<NoteHashtag>(c)
+                    .ok()
             })
             .await
-            .ok(),
+        }
         None => {
             let mut pool = POOL.get().ok()?;
             diesel::insert_into(note_hashtags::table)
                 .values(&hashtag)
-                .get_result::<NoteHashtag>(&mut pool)
+                .execute(&mut pool)
+                .ok()?;
+            note_hashtags::table
+                .order(note_hashtags::id.desc())
+                .first::<NoteHashtag>(&mut pool)
                 .ok()
         }
     }

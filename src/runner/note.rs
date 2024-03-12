@@ -143,8 +143,8 @@ pub async fn outbound_note_task(
             .iter()
             .map(|tag| async { create_note_hashtag(None, tag.clone()).await });
 
-        let activity = match note.kind {
-            NoteType::Note => {
+        let activity = {
+            if note.kind == "note".to_string() {
                 if let Ok(activity) = ApActivity::try_from((
                     (
                         activity,
@@ -159,12 +159,13 @@ pub async fn outbound_note_task(
                 } else {
                     None
                 }
+            } else {
+                // NoteType::EncryptedNote => {
+                //     handle_encrypted_note(&mut note, sender.clone())
+                //         .map(ApActivity::Create(ApCreate::from))
+                // }
+                None
             }
-            // NoteType::EncryptedNote => {
-            //     handle_encrypted_note(&mut note, sender.clone())
-            //         .map(ApActivity::Create(ApCreate::from))
-            // }
-            _ => None,
         };
 
         add_note_to_timeline(note, sender.clone()).await;
@@ -352,7 +353,7 @@ pub async fn handle_remote_encrypted_note_task(
     log::debug!("adding to processing queue");
 
     if let Some(ap_to) = remote_note.clone().ap_to {
-        let _to_vec: Vec<String> = serde_json::from_value(ap_to)?;
+        let _to_vec: Vec<String> = serde_json::from_str(&ap_to)?;
 
         // need to refactor this because of the async in the closures
         // to_vec
@@ -378,11 +379,11 @@ pub async fn remote_note_task(
     log::debug!("looking for ap_id: {}", ap_id);
 
     if let Some(remote_note) = get_remote_note_by_ap_id(conn, ap_id).await {
-        match remote_note.kind {
-            NoteType::Note => {
+        match remote_note.kind.as_str() {
+            "note" => {
                 let _ = handle_remote_note(channels, remote_note.clone(), None).await;
             }
-            NoteType::EncryptedNote => {
+            "encrypted_note" => {
                 let _ = handle_remote_encrypted_note_task(conn, remote_note).await;
             }
             _ => (),

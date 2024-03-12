@@ -235,7 +235,7 @@ diesel::table! {
         updated_at -> Timestamp,
         ap_id -> Text,
         ap_to -> Text,
-        cc -> Text,
+        cc -> Nullable<Text>,
         attributed_to -> Text,
         kind -> Text,
         ap_object -> Text,
@@ -334,7 +334,7 @@ diesel::table! {
         ap_id -> Text,
         ap_to -> Text,
         attributed_to -> Text,
-        instrument -> Nullable<Text>,
+        instrument -> Text,
         reference -> Nullable<Text>,
     }
 }

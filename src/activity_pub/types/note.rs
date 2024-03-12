@@ -22,7 +22,8 @@ use crate::{
     },
     runner, MaybeMultiple, ANCHOR_RE,
 };
-use chrono::{DateTime, Utc};
+use chrono::{NaiveDateTime, Utc};
+use clap::error::Result;
 use rocket::http::Status;
 use serde::{Deserialize, Serialize};
 use webpage::{Webpage, WebpageOptions};
@@ -30,6 +31,7 @@ use webpage::{Webpage, WebpageOptions};
 use super::actor::ApAddress;
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
+#[serde(rename_all = "snake_case")]
 pub enum ApNoteType {
     #[default]
     Note,
@@ -41,6 +43,20 @@ pub enum ApNoteType {
 impl fmt::Display for ApNoteType {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         Debug::fmt(self, f)
+    }
+}
+
+impl TryFrom<String> for ApNoteType {
+    type Error = &'static str;
+
+    fn try_from(kind: String) -> Result<Self, Self::Error> {
+        match kind.as_str() {
+            "note" => Ok(ApNoteType::Note),
+            "encrypted_note" => Ok(ApNoteType::EncryptedNote),
+            "vault_note" => Ok(ApNoteType::VaultNote),
+            "question" => Ok(ApNoteType::Question),
+            _ => Err("no match for {kind}"),
+        }
     }
 }
 
@@ -143,7 +159,7 @@ pub struct ApNote {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ephemeral_targeted: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub ephemeral_timestamp: Option<DateTime<Utc>>,
+    pub ephemeral_timestamp: Option<NaiveDateTime>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ephemeral_metadata: Option<Vec<Metadata>>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -281,7 +297,7 @@ impl From<IdentifiedVaultItem> for ApNote {
                 vault.uuid
             )),
             content: vault.encrypted_data,
-            published: vault.created_at.to_rfc3339(),
+            published: vault.created_at.to_string(),
             ..Default::default()
         }
     }
@@ -327,7 +343,7 @@ impl From<FullyQualifiedTimelineItem> for ApNote {
             kind: ApNoteType::Note,
             tag: {
                 if let Some(x) = timeline.tag {
-                    match serde_json::from_value(x) {
+                    match serde_json::from_str(&x) {
                         Ok(y) => y,
                         Err(_) => None,
                     }
@@ -349,7 +365,7 @@ impl From<FullyQualifiedTimelineItem> for ApNote {
             conversation: timeline.conversation,
             content_map: {
                 if let Some(x) = timeline.content_map {
-                    match serde_json::from_value(x) {
+                    match serde_json::from_str(&x) {
                         Ok(y) => y,
                         Err(_) => None,
                     }
@@ -359,7 +375,7 @@ impl From<FullyQualifiedTimelineItem> for ApNote {
             },
             attachment: {
                 if let Some(x) = timeline.attachment {
-                    match serde_json::from_value(x) {
+                    match serde_json::from_str(&x) {
                         Ok(y) => y,
                         Err(_) => None,
                     }
@@ -369,11 +385,11 @@ impl From<FullyQualifiedTimelineItem> for ApNote {
             },
             ephemeral_announces: activity
                 .clone()
-                .filter(|activity| activity.kind == ActivityType::Announce && !activity.revoked)
+                .filter(|activity| activity.kind.as_str() == "announce" && !activity.revoked)
                 .map(|announce| vec![announce.actor]),
             ephemeral_announced: activity.clone().and_then(|x| {
                 if let Some(profile) = profile.clone() {
-                    if x.kind == ActivityType::Announce
+                    if x.kind.as_str() == "announce"
                         && !x.revoked
                         && x.actor == get_ap_id_from_username(profile.username)
                     {
@@ -388,7 +404,7 @@ impl From<FullyQualifiedTimelineItem> for ApNote {
             ephemeral_actors: actors,
             ephemeral_liked: activity.clone().and_then(|x| {
                 if let Some(profile) = profile {
-                    if x.kind == ActivityType::Like
+                    if x.kind.as_str() == "like"
                         && !x.revoked
                         && x.actor == get_ap_id_from_username(profile.username)
                     {
@@ -401,13 +417,13 @@ impl From<FullyQualifiedTimelineItem> for ApNote {
                 }
             }),
             ephemeral_likes: activity
-                .filter(|activity| activity.kind == ActivityType::Like && !activity.revoked)
+                .filter(|activity| activity.kind.as_str() == "like" && !activity.revoked)
                 .map(|like| vec![like.actor]),
             ephemeral_targeted: Some(cc.is_some()),
             ephemeral_timestamp: Some(timeline.created_at),
             ephemeral_metadata: {
                 if let Some(x) = timeline.metadata {
-                    match serde_json::from_value(x) {
+                    match serde_json::from_str(&x) {
                         Ok(y) => y,
                         Err(_) => None,
                     }
@@ -447,8 +463,8 @@ impl From<NewNote> for ApNote {
                 *crate::SERVER_NAME,
                 note.uuid
             )),
-            kind: note.kind.into(),
-            to: match serde_json::from_value(note.ap_to) {
+            kind: note.kind.try_into().expect("failed to match kind"),
+            to: match serde_json::from_str(&note.ap_to) {
                 Ok(x) => x,
                 Err(_) => MaybeMultiple::Multiple(vec![]),
             },
@@ -459,7 +475,7 @@ impl From<NewNote> for ApNote {
             },
             in_reply_to: note.in_reply_to,
             conversation: note.conversation,
-            attachment: note.attachment.map(|x| serde_json::from_value(x).unwrap()),
+            attachment: note.attachment.map(|x| serde_json::from_str(&x).unwrap()),
             ..Default::default()
         }
     }
@@ -476,19 +492,16 @@ impl From<Note> for ApNote {
                 .clone()
                 .map_or(Some(get_note_ap_id_from_uuid(note.uuid.clone())), Some),
             url: Some(get_note_url_from_uuid(note.uuid)),
-            kind: note.kind.into(),
-            to: match serde_json::from_value(note.ap_to) {
+            kind: note.kind.try_into().expect("failed to decode kind"),
+            to: match serde_json::from_str(&note.ap_to) {
                 Ok(x) => x,
                 Err(_) => MaybeMultiple::Multiple(vec![]),
             },
             content: note.content,
-            cc: match serde_json::from_value(note.cc.into()) {
-                Ok(x) => x,
-                Err(_) => Option::None,
-            },
+            cc: note.cc.and_then(|x| serde_json::from_str(&x).ok()),
             in_reply_to: note.in_reply_to,
             conversation: note.conversation,
-            attachment: note.attachment.map(|x| serde_json::from_value(x).unwrap()),
+            attachment: note.attachment.and_then(|x| serde_json::from_str(&x).ok()),
             ephemeral_metadata: Some(vec![]),
             ..Default::default()
         }
@@ -524,9 +537,9 @@ fn metadata(remote_note: &RemoteNote) -> Vec<Metadata> {
 
 impl From<RemoteNote> for ApNote {
     fn from(remote_note: RemoteNote) -> ApNote {
-        let kind = match remote_note.kind {
-            NoteType::Note => ApNoteType::Note,
-            NoteType::EncryptedNote => ApNoteType::EncryptedNote,
+        let kind = match remote_note.kind.as_str() {
+            "note" => ApNoteType::Note,
+            "encrypted_note" => ApNoteType::EncryptedNote,
             _ => ApNoteType::default(),
         };
 
@@ -554,8 +567,8 @@ impl From<RemoteNote> for ApNote {
                 Err(_) => None,
             },
             in_reply_to: remote_note.in_reply_to.clone(),
-            attachment: match serde_json::from_value(
-                remote_note.attachment.clone().unwrap_or_default(),
+            attachment: match serde_json::from_str(
+                &remote_note.attachment.clone().unwrap_or_default(),
             ) {
                 Ok(x) => x,
                 Err(_) => None,

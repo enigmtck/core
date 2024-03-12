@@ -37,33 +37,31 @@ impl TryFrom<RecursiveActivity> for ApActivity {
     fn try_from(
         ((activity, note, remote_note, profile, remote_actor), recursive): RecursiveActivity,
     ) -> Result<Self, Self::Error> {
-        match activity.kind {
-            ActivityType::Create if note.is_some() => {
+        match activity.kind.as_str() {
+            "create" if note.is_some() => {
                 ApCreate::try_from((activity, note, remote_note, profile, remote_actor))
                     .map(ApActivity::Create)
             }
-            ActivityType::Announce if note.is_some() || remote_note.is_some() => {
+            "announce" if note.is_some() || remote_note.is_some() => {
                 ApAnnounce::try_from((activity, note, remote_note, profile, remote_actor))
                     .map(ApActivity::Announce)
             }
-            ActivityType::Like if note.is_some() || remote_note.is_some() => {
+            "like" if note.is_some() || remote_note.is_some() => {
                 ApLike::try_from((activity, note, remote_note, profile, remote_actor))
                     .map(|activity| ApActivity::Like(Box::new(activity)))
             }
-            ActivityType::Delete if note.is_some() => {
-                ApDelete::try_from(ApNote::from(note.unwrap()))
-                    .map(|delete| ApActivity::Delete(Box::new(delete)))
-            }
-            ActivityType::Follow if profile.is_some() || remote_actor.is_some() => {
+            "delete" if note.is_some() => ApDelete::try_from(ApNote::from(note.unwrap()))
+                .map(|delete| ApActivity::Delete(Box::new(delete))),
+            "follow" if profile.is_some() || remote_actor.is_some() => {
                 ApFollow::try_from((activity, note, remote_note, profile, remote_actor))
                     .map(ApActivity::Follow)
             }
-            ActivityType::Undo if recursive.is_some() => ApUndo::try_from((
+            "undo" if recursive.is_some() => ApUndo::try_from((
                 (activity, note, remote_note, profile, remote_actor),
                 recursive,
             ))
             .map(|undo| ApActivity::Undo(Box::new(undo))),
-            ActivityType::Accept if recursive.is_some() => ApAccept::try_from((
+            "accept" if recursive.is_some() => ApAccept::try_from((
                 (activity, note, remote_note, profile, remote_actor),
                 recursive,
             ))

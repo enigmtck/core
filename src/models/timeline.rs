@@ -78,13 +78,13 @@ impl From<Note> for NewTimelineItem {
 impl From<ApNote> for NewTimelineItem {
     fn from(note: ApNote) -> Self {
         NewTimelineItem {
-            tag: serde_json::to_value(&note.tag).ok(),
+            tag: serde_json::to_string(&note.tag).ok(),
             attributed_to: note.clone().attributed_to.to_string(),
             ap_id: note.clone().id.unwrap(),
-            kind: note.clone().kind.into(),
+            kind: String::from(NoteType::from(note.clone().kind)),
             url: note.clone().url,
             published: Some(note.clone().published),
-            replies: serde_json::to_value(&note.replies).ok(),
+            replies: serde_json::to_string(&note.replies).ok(),
             in_reply_to: note.clone().in_reply_to,
             content: Some(note.clone().content),
             ap_public: {
@@ -107,10 +107,10 @@ impl From<ApNote> for NewTimelineItem {
             atom_uri: note.atom_uri,
             in_reply_to_atom_uri: note.in_reply_to_atom_uri,
             conversation: note.conversation,
-            content_map: serde_json::to_value(&note.content_map).ok(),
-            attachment: serde_json::to_value(&note.attachment).ok(),
+            content_map: serde_json::to_string(&note.content_map).ok(),
+            attachment: serde_json::to_string(&note.attachment).ok(),
             ap_object: None,
-            metadata: serde_json::to_value(&note.ephemeral_metadata).ok(),
+            metadata: serde_json::to_string(&note.ephemeral_metadata).ok(),
         }
     }
 }
@@ -120,13 +120,13 @@ type SynthesizedAnnounce = (Option<ApAnnounce>, ApNote);
 impl From<SynthesizedAnnounce> for NewTimelineItem {
     fn from((activity, note): SynthesizedAnnounce) -> Self {
         NewTimelineItem {
-            tag: Option::from(serde_json::to_value(&note.tag).unwrap_or_default()),
+            tag: Option::from(serde_json::to_string(&note.tag).unwrap_or_default()),
             attributed_to: note.clone().attributed_to.to_string(),
             ap_id: note.clone().id.unwrap(),
-            kind: note.clone().kind.into(),
+            kind: String::from(NoteType::from(note.clone().kind)),
             url: note.clone().url,
             published: activity.map_or(Some(note.clone().published), |x| Some(x.published)),
-            replies: Option::from(serde_json::to_value(&note.replies).unwrap_or_default()),
+            replies: Option::from(serde_json::to_string(&note.replies).unwrap_or_default()),
             in_reply_to: note.clone().in_reply_to,
             content: Option::from(note.clone().content),
             ap_public: {
@@ -142,13 +142,13 @@ impl From<SynthesizedAnnounce> for NewTimelineItem {
             in_reply_to_atom_uri: note.in_reply_to_atom_uri,
             conversation: note.conversation,
             content_map: Some(
-                serde_json::to_value(note.content_map.unwrap_or_default()).unwrap_or_default(),
+                serde_json::to_string(&note.content_map.unwrap_or_default()).unwrap_or_default(),
             ),
             attachment: Some(
-                serde_json::to_value(note.attachment.unwrap_or_default()).unwrap_or_default(),
+                serde_json::to_string(&note.attachment.unwrap_or_default()).unwrap_or_default(),
             ),
             ap_object: None,
-            metadata: serde_json::to_value(&note.ephemeral_metadata).ok(),
+            metadata: serde_json::to_string(&note.ephemeral_metadata).ok(),
         }
     }
 }
@@ -287,7 +287,7 @@ pub async fn get_timeline_items(
                     .eq(timeline::ap_id.nullable())
                     .and(activities::revoked.eq(false))
                     .and(
-                        activities::kind.eq_any(vec![ActivityType::Create, ActivityType::Announce]),
+                        activities::kind.eq_any(vec!["create".to_string(), "announce".to_string()]),
                     )
                     .and(timeline::in_reply_to.is_null())),
             )
@@ -397,27 +397,43 @@ pub async fn create_timeline_item(
     conn: Option<&Db>,
     timeline_item: NewTimelineItem,
 ) -> Result<TimelineItem> {
-    if let Some(conn) = conn {
-        conn.run(move |c| {
+    let timeline_item_clone = timeline_item.clone();
+    match conn {
+        Some(conn) => {
+            conn.run(move |c| {
+                diesel::insert_into(timeline::table)
+                    .values(&timeline_item_clone)
+                    .on_conflict(timeline::ap_id)
+                    .do_update()
+                    .set(&timeline_item_clone)
+                    .execute(c)
+            })
+            .await
+            .map_err(anyhow::Error::msg)?;
+
+            conn.run(move |c| {
+                timeline::table
+                    .filter(timeline::ap_id.eq(&timeline_item.ap_id))
+                    .first::<TimelineItem>(c)
+            })
+            .await
+            .map_err(anyhow::Error::msg)
+        }
+        None => {
+            let mut pool = POOL.get().map_err(anyhow::Error::msg)?;
             diesel::insert_into(timeline::table)
-                .values(&timeline_item)
+                .values(&timeline_item_clone)
                 .on_conflict(timeline::ap_id)
                 .do_update()
-                .set(&timeline_item)
-                .get_result::<TimelineItem>(c)
-                .map_err(anyhow::Error::msg)
-        })
-        .await
-    } else {
-        let mut pool = POOL.get().map_err(anyhow::Error::msg)?;
+                .set(&timeline_item_clone)
+                .execute(&mut pool)
+                .map_err(anyhow::Error::msg)?;
 
-        diesel::insert_into(timeline::table)
-            .values(&timeline_item)
-            .on_conflict(timeline::ap_id)
-            .do_update()
-            .set(&timeline_item)
-            .get_result::<TimelineItem>(&mut pool)
-            .map_err(anyhow::Error::msg)
+            timeline::table
+                .filter(timeline::ap_id.eq(&timeline_item.ap_id))
+                .first::<TimelineItem>(&mut pool)
+                .map_err(anyhow::Error::msg)
+        }
     }
 }
 
@@ -435,7 +451,7 @@ pub async fn create_timeline_item_to(
                     .on_conflict((timeline_to::timeline_id, timeline_to::ap_id))
                     .do_update()
                     .set(&timeline_item_to)
-                    .get_result::<TimelineItemTo>(c)
+                    .execute(c)
             })
             .await
             .is_ok(),
@@ -445,7 +461,7 @@ pub async fn create_timeline_item_to(
                 .on_conflict((timeline_to::timeline_id, timeline_to::ap_id))
                 .do_update()
                 .set(&timeline_item_to)
-                .get_result::<TimelineItemTo>(&mut pool)
+                .execute(&mut pool)
                 .is_ok()
         }),
     }
@@ -465,7 +481,7 @@ pub async fn create_timeline_item_cc(
                     .on_conflict((timeline_cc::timeline_id, timeline_cc::ap_id))
                     .do_update()
                     .set(&timeline_item_cc)
-                    .get_result::<TimelineItemCc>(c)
+                    .execute(c)
             })
             .await
             .is_ok(),
@@ -475,7 +491,7 @@ pub async fn create_timeline_item_cc(
                 .on_conflict((timeline_cc::timeline_id, timeline_cc::ap_id))
                 .do_update()
                 .set(&timeline_item_cc)
-                .get_result::<TimelineItemCc>(&mut pool)
+                .execute(&mut pool)
                 .is_ok()
         }),
     }
@@ -528,20 +544,43 @@ pub async fn update_timeline_items(
     conn: Option<&Db>,
     timeline_item: NewTimelineItem,
 ) -> Vec<TimelineItem> {
+    let timeline_item_clone = timeline_item.clone();
     match conn {
-        Some(conn) => conn
-            .run(move |c| {
-                diesel::update(timeline::table.filter(timeline::ap_id.eq(timeline_item.ap_id)))
-                    .set(timeline::content.eq(timeline_item.content))
-                    .get_results::<TimelineItem>(c)
+        Some(conn) => {
+            let _ = conn
+                .run(move |c| {
+                    diesel::update(
+                        timeline::table.filter(timeline::ap_id.eq(&timeline_item_clone.ap_id)),
+                    )
+                    .set(timeline::content.eq(&timeline_item_clone.content))
+                    .execute(c)
+                })
+                .await;
+
+            conn.run(move |c| {
+                timeline::table
+                    .filter(timeline::ap_id.eq(&timeline_item.ap_id))
+                    .load::<TimelineItem>(c)
             })
             .await
-            .unwrap_or(vec![]),
-        None => POOL.get().map_or(vec![], |mut pool| {
-            diesel::update(timeline::table.filter(timeline::ap_id.eq(timeline_item.ap_id)))
-                .set(timeline::content.eq(timeline_item.content))
-                .get_results::<TimelineItem>(&mut pool)
-                .unwrap_or(vec![])
-        }),
+            .unwrap_or_default()
+        }
+        None => {
+            let mut pool = match POOL.get() {
+                Ok(pool) => pool,
+                Err(_) => return vec![],
+            };
+
+            let _ = diesel::update(
+                timeline::table.filter(timeline::ap_id.eq(&timeline_item_clone.ap_id)),
+            )
+            .set(timeline::content.eq(&timeline_item_clone.content))
+            .execute(&mut pool);
+
+            timeline::table
+                .filter(timeline::ap_id.eq(&timeline_item.ap_id))
+                .load::<TimelineItem>(&mut pool)
+                .unwrap_or_default()
+        }
     }
 }

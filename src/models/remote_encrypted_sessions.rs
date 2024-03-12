@@ -32,7 +32,7 @@ impl From<IdentifiedApInvite> for NewRemoteEncryptedSession {
                 ap_to: session.to.to_string(),
                 attributed_to: session.attributed_to.to_string(),
                 reference: session.reference,
-                instrument: serde_json::to_value(session.instrument).unwrap(),
+                instrument: serde_json::to_string(&session.instrument).unwrap(),
             }
         } else {
             NewRemoteEncryptedSession::default()
@@ -52,7 +52,7 @@ impl From<IdentifiedApJoin> for NewRemoteEncryptedSession {
                 ap_to: session.to.to_string(),
                 attributed_to: session.attributed_to.to_string(),
                 reference: session.reference,
-                instrument: serde_json::to_value(session.instrument).unwrap(),
+                instrument: serde_json::to_string(&session.instrument).unwrap(),
             }
         } else {
             NewRemoteEncryptedSession::default()
@@ -103,16 +103,19 @@ pub async fn create_remote_encrypted_session(
     conn: &Db,
     remote_encrypted_session: NewRemoteEncryptedSession,
 ) -> Option<RemoteEncryptedSession> {
-    if let Ok(x) = conn
-        .run(move |c| {
-            diesel::insert_into(remote_encrypted_sessions::table)
-                .values(&remote_encrypted_session)
-                .get_result::<RemoteEncryptedSession>(c)
-        })
-        .await
-    {
-        Some(x)
-    } else {
-        Option::None
-    }
+    conn.run(move |c| {
+        diesel::insert_into(remote_encrypted_sessions::table)
+            .values(&remote_encrypted_session)
+            .execute(c)
+    })
+    .await
+    .ok()?;
+
+    conn.run(move |c| {
+        remote_encrypted_sessions::table
+            .order(remote_encrypted_sessions::id.desc())
+            .first::<RemoteEncryptedSession>(c)
+    })
+    .await
+    .ok()
 }

@@ -112,8 +112,8 @@ pub struct VaultRetrievalItem {
 impl From<VaultItem> for VaultRetrievalItem {
     fn from(item: VaultItem) -> Self {
         VaultRetrievalItem {
-            created_at: item.created_at.to_rfc2822(),
-            updated_at: item.updated_at.to_rfc2822(),
+            created_at: item.created_at.to_string(),
+            updated_at: item.updated_at.to_string(),
             uuid: item.uuid,
             remote_actor: item.remote_actor,
             data: item.encrypted_data,

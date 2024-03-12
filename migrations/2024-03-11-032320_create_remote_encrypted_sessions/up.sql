@@ -8,7 +8,7 @@ CREATE TABLE remote_encrypted_sessions (
     ap_id TEXT NOT NULL COLLATE NOCASE UNIQUE,
     ap_to TEXT NOT NULL,
     attributed_to TEXT NOT NULL COLLATE NOCASE,
-    instrument TEXT,
+    instrument TEXT NOT NULL,
     reference TEXT,
     FOREIGN KEY(profile_id) REFERENCES profiles(id)
 );

@@ -3,7 +3,7 @@ use crate::db::Db;
 use crate::helper::{get_local_identifier, LocalIdentifierType};
 use crate::schema::{leaders, remote_actors};
 use crate::{MaybeReference, POOL};
-use chrono::{DateTime, NaiveDateTime, Utc};
+use chrono::NaiveDateTime;
 use diesel::prelude::*;
 use diesel::{AsChangeset, Identifiable, Insertable, Queryable};
 use serde::{Deserialize, Serialize};
@@ -96,19 +96,30 @@ pub async fn get_leader_by_actor_ap_id_and_profile(
 
 pub async fn create_leader(conn: Option<&Db>, leader: NewLeader) -> Option<Leader> {
     match conn {
-        Some(conn) => conn
-            .run(move |c| {
+        Some(conn) => {
+            conn.run(move |c| {
                 diesel::insert_into(leaders::table)
                     .values(&leader)
-                    .get_result::<Leader>(c)
+                    .execute(c)
+                    .ok()?;
+
+                leaders::table
+                    .order(leaders::id.desc())
+                    .first::<Leader>(c)
+                    .ok()
             })
             .await
-            .ok(),
+        }
         None => {
             let mut pool = POOL.get().ok()?;
             diesel::insert_into(leaders::table)
                 .values(&leader)
-                .get_result::<Leader>(&mut pool)
+                .execute(&mut pool)
+                .ok()?;
+
+            leaders::table
+                .order(leaders::id.desc())
+                .first::<Leader>(&mut pool)
                 .ok()
         }
     }
@@ -186,13 +197,22 @@ pub async fn update_leader_by_uuid(
     leader_uuid: String,
     accept_ap_id: String,
 ) -> Option<Leader> {
+    let leader_uuid_clone = leader_uuid.clone();
     conn.run(move |c| {
-        diesel::update(leaders::table.filter(leaders::uuid.eq(leader_uuid)))
+        diesel::update(leaders::table.filter(leaders::uuid.eq(&leader_uuid_clone)))
             .set((
-                leaders::accept_ap_id.eq(accept_ap_id),
+                leaders::accept_ap_id.eq(&accept_ap_id),
                 leaders::accepted.eq(true),
             ))
-            .get_result::<Leader>(c)
+            .execute(c)
+    })
+    .await
+    .ok()?;
+
+    conn.run(move |c| {
+        leaders::table
+            .filter(leaders::uuid.eq(leader_uuid))
+            .first::<Leader>(c)
     })
     .await
     .ok()

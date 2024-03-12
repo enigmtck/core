@@ -7,4 +7,4 @@
 /log/*.log
 .idea
 media
-db.sqlite
+db.sqlite*

@@ -1,7 +1,7 @@
 use crate::db::Db;
 use crate::schema::olm_one_time_keys;
 use crate::POOL;
-use chrono::{DateTime, NaiveDateTime, Utc};
+use chrono::NaiveDateTime;
 use diesel::prelude::*;
 use diesel::{AsChangeset, Identifiable, Insertable, Queryable};
 use rocket_sync_db_pools::diesel;
@@ -53,7 +53,15 @@ pub async fn create_olm_one_time_key(
     conn.run(move |c| {
         diesel::insert_into(olm_one_time_keys::table)
             .values(&olm_one_time_key)
-            .get_result::<OlmOneTimeKey>(c)
+            .execute(c)
+    })
+    .await
+    .ok()?;
+
+    conn.run(move |c| {
+        olm_one_time_keys::table
+            .order(olm_one_time_keys::id.desc())
+            .first::<OlmOneTimeKey>(c)
     })
     .await
     .ok()
@@ -94,34 +102,33 @@ pub async fn get_olm_one_time_key_by_profile_id(
                         .first::<OlmOneTimeKey>(c)
                 })
                 .await
-                .ok();
+                .ok()?;
 
-            if let Some(otk) = otk {
-                conn.run(move |c| {
-                    diesel::update(olm_one_time_keys::table.find(otk.id))
-                        .set(olm_one_time_keys::distributed.eq(true))
-                        .get_result::<OlmOneTimeKey>(c)
-                })
-                .await
-                .ok()
-            } else {
-                None
-            }
+            conn.run(move |c| {
+                diesel::update(olm_one_time_keys::table.find(otk.id))
+                    .set(olm_one_time_keys::distributed.eq(true))
+                    .execute(c)
+            })
+            .await
+            .ok()?;
+
+            Some(otk)
         }
         None => {
             let mut pool = POOL.get().ok()?;
-
-            olm_one_time_keys::table
+            let otk = olm_one_time_keys::table
                 .filter(olm_one_time_keys::profile_id.eq(profile_id))
                 .filter(olm_one_time_keys::distributed.eq(false))
                 .order(olm_one_time_keys::created_at.asc())
                 .first::<OlmOneTimeKey>(&mut pool)
-                .and_then(|otk| {
-                    diesel::update(olm_one_time_keys::table.find(otk.id))
-                        .set(olm_one_time_keys::distributed.eq(true))
-                        .get_result::<OlmOneTimeKey>(&mut pool)
-                })
-                .ok()
+                .ok()?;
+
+            diesel::update(olm_one_time_keys::table.find(otk.id))
+                .set(olm_one_time_keys::distributed.eq(true))
+                .execute(&mut pool)
+                .ok()?;
+
+            Some(otk)
         }
     }
 }

@@ -13,7 +13,7 @@ use crate::{
     },
     runner, MaybeMultiple, MaybeReference,
 };
-use chrono::{DateTime, Utc};
+use chrono::NaiveDateTime;
 use rocket::http::Status;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -53,10 +53,10 @@ pub struct ApAnnounce {
     pub object: MaybeReference<ApObject>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub ephemeral_created_at: Option<DateTime<Utc>>,
+    pub ephemeral_created_at: Option<NaiveDateTime>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub ephemeral_updated_at: Option<DateTime<Utc>>,
+    pub ephemeral_updated_at: Option<NaiveDateTime>,
 }
 
 impl Inbox for ApAnnounce {
@@ -142,11 +142,11 @@ impl Temporal for ApAnnounce {
         self.published.clone()
     }
 
-    fn created_at(&self) -> Option<DateTime<Utc>> {
+    fn created_at(&self) -> Option<NaiveDateTime> {
         self.ephemeral_created_at
     }
 
-    fn updated_at(&self) -> Option<DateTime<Utc>> {
+    fn updated_at(&self) -> Option<NaiveDateTime> {
         self.ephemeral_updated_at
     }
 }
@@ -157,7 +157,7 @@ impl TryFrom<ExtendedActivity> for ApAnnounce {
     fn try_from(
         (activity, note, remote_note, _profile, _remote_actor): ExtendedActivity,
     ) -> Result<Self, Self::Error> {
-        if activity.kind == ActivityType::Announce {
+        if activity.kind.as_str() == "announce" {
             match (note, remote_note, activity.ap_to) {
                 (Some(note), None, Some(ap_to)) => Ok(ApAnnounce {
                     context: Some(ApContext::default()),
@@ -168,9 +168,9 @@ impl TryFrom<ExtendedActivity> for ApAnnounce {
                         *crate::SERVER_URL,
                         activity.uuid
                     )),
-                    to: serde_json::from_value(ap_to).unwrap(),
-                    cc: activity.cc.map(|cc| serde_json::from_value(cc).unwrap()),
-                    published: activity.created_at.to_rfc3339(),
+                    to: serde_json::from_str(&ap_to).unwrap(),
+                    cc: activity.cc.map(|cc| serde_json::from_str(&cc).unwrap()),
+                    published: activity.created_at.to_string(),
                     object: MaybeReference::Reference(ApNote::from(note).id.unwrap()),
                     ephemeral_created_at: Some(activity.created_at),
                     ephemeral_updated_at: Some(activity.updated_at),
@@ -184,9 +184,9 @@ impl TryFrom<ExtendedActivity> for ApAnnounce {
                         *crate::SERVER_URL,
                         activity.uuid
                     )),
-                    to: serde_json::from_value(ap_to).unwrap(),
-                    cc: activity.cc.map(|cc| serde_json::from_value(cc).unwrap()),
-                    published: activity.created_at.to_rfc3339(),
+                    to: serde_json::from_str(&ap_to).unwrap(),
+                    cc: activity.cc.map(|cc| serde_json::from_str(&cc).unwrap()),
+                    published: activity.created_at.to_string(),
                     object: MaybeReference::Reference(remote_note.ap_id),
                     ephemeral_created_at: Some(activity.created_at),
                     ephemeral_updated_at: Some(activity.updated_at),
