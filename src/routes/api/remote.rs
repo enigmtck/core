@@ -2,11 +2,15 @@ use crate::activity_pub::retriever::{
     get_actor, get_ap_id_from_webfinger, get_note, get_remote_collection,
     get_remote_collection_page,
 };
-use crate::activity_pub::{ApActor, ApNote, ApObject};
+use crate::activity_pub::{ActivityPub, ApActivity, ApActor, ApNote, ApObject, Collectible};
 use crate::db::Db;
 use crate::fairings::access_control::BlockList;
 use crate::helper::{get_domain_from_url, get_domain_from_webfinger};
+use crate::models::activities::{create_activity, NewActivity};
 use crate::models::remote_actors::get_remote_actor_by_webfinger;
+use crate::models::remote_notes::{create_or_update_remote_note, NewRemoteNote};
+use crate::runner;
+use crate::MaybeReference;
 use rocket::http::Status;
 use rocket::{get, serde::json::Json};
 
@@ -381,9 +385,47 @@ pub async fn remote_outbox_authenticated(
                     .await
                     .map_err(|_| Status::new(523))?;
 
+                let mut remote_note_ap_ids: Vec<String> = vec![];
+                if let Some(items) = collection.items() {
+                    for item in items {
+                        if let ActivityPub::Activity(ap_activity) = item {
+                            // Might want a similar block for Announce activities, but I'm too tired
+                            // to deal with it right now
+                            if let ApActivity::Create(create) = ap_activity.clone() {
+                                if let MaybeReference::Actual(ApObject::Note(x)) = create.object {
+                                    let n = NewRemoteNote::from(x.clone());
+                                    let created_note = create_or_update_remote_note(Some(&conn), n)
+                                        .await
+                                        .ok_or(Status::new(520))?;
+
+                                    if let Ok(new_activity) =
+                                        NewActivity::try_from((ap_activity, None))
+                                    {
+                                        if create_activity(Some(&conn), new_activity).await.is_ok()
+                                        {
+                                            remote_note_ap_ids.push(created_note.ap_id.clone());
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // need to find a way to communicate the activity id or ap_id through to the function that
+                    // that creates the timeline items (runner::note::handle_remote_note -> create_timeline_item)
+                    // for target_ap_id on timeline_item
+                    runner::run(
+                        runner::note::remote_note_task,
+                        Some(conn),
+                        None,
+                        remote_note_ap_ids,
+                    )
+                    .await;
+                }
+
                 Ok(Json(ApObject::CollectionPage(collection)))
             } else {
-                Err(Status::NoContent)
+                Err(Status::new(521))
             }
         } else {
             let collection = get_remote_collection(&conn, Some(profile), actor.outbox)
@@ -403,7 +445,7 @@ pub async fn remote_note(blocks: BlockList, conn: Db, id: &str) -> Result<Json<A
 
         if blocks.is_blocked(get_domain_from_url(id.to_string())) {
             Err(Status::Forbidden)
-        } else if let Some(note) = get_note(&conn, None, url.to_string()).await {
+        } else if let Some(note) = get_note(conn, None, url.to_string()).await {
             Ok(Json(note))
         } else {
             Err(Status::new(520))
@@ -430,7 +472,7 @@ pub async fn remote_note_authenticated(
             .await
             .ok_or(Status::new(523))?;
 
-        let note = get_note(&conn, Some(profile), id.to_string())
+        let note = get_note(conn, Some(profile), id.to_string())
             .await
             .ok_or(Status::new(524))?;
         Ok(Json(note))

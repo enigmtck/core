@@ -10,7 +10,7 @@ CREATE TABLE profiles (
     private_key TEXT NOT NULL,
     password TEXT,
     client_public_key TEXT,
-    avatar_filename TEXT NOT NULL DEFAULT 'default.png',
+    avatar_filename TEXT,
     banner_filename TEXT,
     salt TEXT,
     client_private_key TEXT,

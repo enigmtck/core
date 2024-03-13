@@ -267,7 +267,7 @@ diesel::table! {
         private_key -> Text,
         password -> Nullable<Text>,
         client_public_key -> Nullable<Text>,
-        avatar_filename -> Text,
+        avatar_filename -> Nullable<Text>,
         banner_filename -> Nullable<Text>,
         salt -> Nullable<Text>,
         client_private_key -> Nullable<Text>,

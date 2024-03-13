@@ -30,12 +30,6 @@ impl fmt::Display for NoteType {
     }
 }
 
-impl From<NoteType> for String {
-    fn from(t: NoteType) -> String {
-        format!("{t}")
-    }
-}
-
 impl From<ApNoteType> for NoteType {
     fn from(kind: ApNoteType) -> Self {
         match kind {
@@ -74,7 +68,7 @@ impl From<IdentifiedApNote> for NewNote {
         NewNote {
             profile_id,
             uuid: uuid.clone(),
-            kind: String::from(NoteType::from(note.kind)),
+            kind: note.clone().kind.to_string().to_lowercase(),
             ap_to: serde_json::to_string(&note.to).unwrap(),
             attributed_to: note.attributed_to.to_string(),
             tag: handle_option(serde_json::to_string(&note.tag).unwrap()),
@@ -134,7 +128,7 @@ pub async fn get_notes_by_profile_id(
     conn.run(move |c| {
         let mut query = notes::table
             .filter(notes::profile_id.eq(profile_id))
-            .filter(notes::kind.eq(String::from(NoteType::Note)))
+            .filter(notes::kind.eq("note".to_string()))
             .order(notes::created_at.desc())
             .limit(limit)
             .offset(offset)

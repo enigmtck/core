@@ -58,6 +58,10 @@ lazy_static! {
         ))
         .expect("failed to create db pool")
     };
+    pub static ref DEFAULT_AVATAR: String = {
+        dotenv().ok();
+        env::var("DEFAULT_AVATAR").expect("DEFAULT_AVATAR must be set")
+    };
     pub static ref SERVER_URL: String = {
         dotenv().ok();
         env::var("SERVER_URL").expect("SERVER_URL must be set")

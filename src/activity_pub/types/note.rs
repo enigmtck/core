@@ -22,7 +22,7 @@ use crate::{
     },
     runner, MaybeMultiple, ANCHOR_RE,
 };
-use chrono::{NaiveDateTime, Utc};
+use chrono::{DateTime, Utc};
 use clap::error::Result;
 use rocket::http::Status;
 use serde::{Deserialize, Serialize};
@@ -31,12 +31,15 @@ use webpage::{Webpage, WebpageOptions};
 use super::actor::ApAddress;
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
-#[serde(rename_all = "snake_case")]
 pub enum ApNoteType {
     #[default]
+    #[serde(alias = "note")]
     Note,
+    #[serde(alias = "encrypted_note")]
     EncryptedNote,
+    #[serde(alias = "vault_note")]
     VaultNote,
+    #[serde(alias = "name")]
     Question,
 }
 
@@ -159,7 +162,7 @@ pub struct ApNote {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ephemeral_targeted: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub ephemeral_timestamp: Option<NaiveDateTime>,
+    pub ephemeral_timestamp: Option<DateTime<Utc>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ephemeral_metadata: Option<Vec<Metadata>>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -420,7 +423,10 @@ impl From<FullyQualifiedTimelineItem> for ApNote {
                 .filter(|activity| activity.kind.as_str() == "like" && !activity.revoked)
                 .map(|like| vec![like.actor]),
             ephemeral_targeted: Some(cc.is_some()),
-            ephemeral_timestamp: Some(timeline.created_at),
+            ephemeral_timestamp: Some(DateTime::<Utc>::from_naive_utc_and_offset(
+                timeline.created_at,
+                Utc,
+            )),
             ephemeral_metadata: {
                 if let Some(x) = timeline.metadata {
                     match serde_json::from_str(&x) {
@@ -584,7 +590,10 @@ impl From<RemoteNote> for ApNote {
                 .as_deref()
                 .and_then(|x| serde_json::from_str(x).ok()),
             conversation: remote_note.conversation.clone(),
-            ephemeral_timestamp: Some(remote_note.created_at),
+            ephemeral_timestamp: Some(DateTime::<Utc>::from_naive_utc_and_offset(
+                remote_note.created_at,
+                Utc,
+            )),
             ephemeral_metadata: Some(metadata(&remote_note)),
             ..Default::default()
         }

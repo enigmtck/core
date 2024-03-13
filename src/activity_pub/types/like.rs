@@ -23,6 +23,7 @@ use serde_json::Value;
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub enum ApLikeType {
     #[default]
+    #[serde(alias = "like")]
     Like,
 }
 

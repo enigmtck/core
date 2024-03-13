@@ -12,7 +12,7 @@ use diesel::{AsChangeset, Identifiable, Insertable, Queryable};
 use serde::{Deserialize, Serialize};
 
 use super::activities::{Activity, ActivityCc, ActivityTo};
-use super::notes::{Note, NoteType};
+use super::notes::Note;
 use super::profiles::Profile;
 use super::remote_notes::RemoteNote;
 use super::timeline_hashtags::TimelineHashtag;
@@ -80,7 +80,7 @@ impl From<ApNote> for NewTimelineItem {
             tag: serde_json::to_string(&note.tag).ok(),
             attributed_to: note.clone().attributed_to.to_string(),
             ap_id: note.clone().id.unwrap(),
-            kind: String::from(NoteType::from(note.clone().kind)),
+            kind: note.clone().kind.to_string().to_lowercase(),
             url: note.clone().url,
             published: Some(note.clone().published),
             replies: serde_json::to_string(&note.replies).ok(),
@@ -122,7 +122,7 @@ impl From<SynthesizedAnnounce> for NewTimelineItem {
             tag: Option::from(serde_json::to_string(&note.tag).unwrap_or_default()),
             attributed_to: note.clone().attributed_to.to_string(),
             ap_id: note.clone().id.unwrap(),
-            kind: String::from(NoteType::from(note.clone().kind)),
+            kind: note.clone().kind.to_string().to_lowercase(),
             url: note.clone().url,
             published: activity.map_or(Some(note.clone().published), |x| Some(x.published)),
             replies: Option::from(serde_json::to_string(&note.replies).unwrap_or_default()),

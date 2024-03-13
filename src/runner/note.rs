@@ -313,31 +313,44 @@ pub async fn handle_remote_note(
     log::debug!("HANDLING REMOTE NOTE");
 
     let note: ApNote = remote_note.clone().into();
-    let profile = guaranteed_profile(None, None);
+    let profile = guaranteed_profile(None, None).await;
+    log::debug!("PROFILE\n{profile:#?}");
 
-    let _ = get_actor(profile.await, note.attributed_to.to_string()).await;
+    let actor = get_actor(profile, note.attributed_to.to_string()).await;
+
+    log::debug!("ACTOR\n{actor:#?}");
 
     let mut note = cache_note(&note).await.clone();
+
+    log::debug!("NOTE\n{note:#?}");
 
     if let Some(announcer) = announcer {
         note.ephemeral_announces = Some(vec![announcer]);
     }
 
+    log::debug!("AFTER EPHEMERAL ANNOUNCES");
+
     create_remote_note_tags(remote_note.clone()).await;
 
-    if let Ok(timeline_item) = create_timeline_item(None, (None, note.clone()).into()).await {
-        create_timeline_tags(timeline_item.clone()).await;
+    log::debug!("AFTER TAGS");
 
-        add_to_timeline(
-            remote_note.clone().ap_to,
-            remote_note.clone().cc,
-            timeline_item,
-        )
-        .await;
+    match create_timeline_item(None, (None, note.clone()).into()).await {
+        Ok(timeline_item) => {
+            create_timeline_tags(timeline_item.clone()).await;
 
-        if let Some(mut channels) = channels {
-            channels.send(None, serde_json::to_string(&note.clone()).unwrap());
+            add_to_timeline(
+                remote_note.clone().ap_to,
+                remote_note.clone().cc,
+                timeline_item,
+            )
+            .await;
+
+            let channels = channels.clone();
+            if let Some(channels) = channels {
+                channels.send(None, serde_json::to_string(&note.clone()).unwrap());
+            }
         }
+        Err(e) => log::debug!("ERROR: {e:#?}"),
     }
 
     Ok(remote_note)
@@ -371,19 +384,17 @@ pub async fn remote_note_task(
 ) -> Result<(), TaskError> {
     let conn = conn.as_ref();
 
-    let ap_id = ap_ids.first().unwrap().clone();
-
-    log::debug!("looking for ap_id: {}", ap_id);
-
-    if let Some(remote_note) = get_remote_note_by_ap_id(conn, ap_id).await {
-        match remote_note.kind.as_str() {
-            "note" => {
-                let _ = handle_remote_note(channels, remote_note.clone(), None).await;
+    for ap_id in ap_ids {
+        if let Some(remote_note) = get_remote_note_by_ap_id(conn, ap_id).await {
+            match remote_note.kind.as_str() {
+                "note" => {
+                    let _ = handle_remote_note(channels.clone(), remote_note.clone(), None).await;
+                }
+                "encrypted_note" => {
+                    let _ = handle_remote_encrypted_note_task(conn, remote_note).await;
+                }
+                _ => (),
             }
-            "encrypted_note" => {
-                let _ = handle_remote_encrypted_note_task(conn, remote_note).await;
-            }
-            _ => (),
         }
     }
 

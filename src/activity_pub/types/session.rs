@@ -62,15 +62,20 @@ impl Default for ApSession {
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub enum ApSessionType {
     #[default]
+    #[serde(alias = "encrypted_session")]
     EncryptedSession,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub enum ApInstrumentType {
     #[default]
+    #[serde(alias = "identity_key")]
     IdentityKey,
+    #[serde(alias = "session_key")]
     SessionKey,
+    #[serde(alias = "olm_session")]
     OlmSession,
+    #[serde(alias = "service")]
     Service,
 }
 

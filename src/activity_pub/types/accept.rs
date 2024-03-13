@@ -22,6 +22,7 @@ use super::activity::RecursiveActivity;
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub enum ApAcceptType {
     #[default]
+    #[serde(alias = "accept")]
     Accept,
 }
 

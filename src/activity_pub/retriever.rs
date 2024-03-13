@@ -96,18 +96,20 @@ async fn get_remote_webfinger(acct: String) -> Option<WebFinger> {
     }
 }
 
-pub async fn get_note(conn: &Db, profile: Option<Profile>, id: String) -> Option<ApNote> {
-    match get_remote_note_by_ap_id(Some(conn), id.clone()).await {
-        Some(remote_note) => Some(ApNote::from(remote_note).cache(conn).await.clone()),
-        None => match signed_get(guaranteed_profile(conn.into(), profile).await, id, false).await {
+pub async fn get_note(conn: Db, profile: Option<Profile>, id: String) -> Option<ApNote> {
+    match get_remote_note_by_ap_id(Some(&conn), id.clone()).await {
+        Some(remote_note) => Some(ApNote::from(remote_note).cache(&conn).await.clone()),
+        None => match signed_get(guaranteed_profile(Some(&conn), profile).await, id, false).await {
             Ok(resp) => match resp.status() {
                 StatusCode::ACCEPTED | StatusCode::OK => {
                     let text = resp.text().await.ok()?;
+                    log::debug!("RETRIEVED TEXT:\n{text:#?}");
                     let note = serde_json::from_str::<ApNote>(&text).ok()?;
+                    log::debug!("RETRIEVED NOTE:\n{note:#?}");
 
                     create_or_update_remote_note(
-                        Some(conn),
-                        NewRemoteNote::from(note.cache(conn).await.clone()),
+                        Some(&conn),
+                        NewRemoteNote::from(note.cache(&conn).await.clone()),
                     )
                     .await
                     .map(ApNote::from)

@@ -31,6 +31,7 @@ use super::signature::ApSignature;
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub enum ApDeleteType {
     #[default]
+    #[serde(alias = "delete")]
     Delete,
 }
 

@@ -10,8 +10,6 @@ use diesel::{AsChangeset, Identifiable, Insertable, Queryable};
 use maplit::{hashmap, hashset};
 use serde::{Deserialize, Serialize};
 
-use super::notes::NoteType;
-
 #[derive(Serialize, Deserialize, Insertable, Default, Debug, AsChangeset)]
 #[diesel(table_name = remote_notes)]
 pub struct NewRemoteNote {
@@ -38,6 +36,8 @@ pub struct NewRemoteNote {
 
 impl From<ApNote> for NewRemoteNote {
     fn from(note: ApNote) -> NewRemoteNote {
+        log::debug!("BUILDING NewRemoteNote FROM ApNote\n{note:#?}");
+
         let mut ammonia = ammonia::Builder::default();
 
         ammonia
@@ -65,10 +65,12 @@ impl From<ApNote> for NewRemoteNote {
             content_map
         };
 
+        log::debug!("ENTERING DEFINITION");
+
         NewRemoteNote {
             url: note.clone().url,
             published,
-            kind: String::from(NoteType::from(note.clone().kind)),
+            kind: note.clone().kind.to_string().to_lowercase(),
             ap_id: note.clone().id.unwrap(),
             attributed_to: Some(note.attributed_to.to_string()),
             ap_to: Option::from(serde_json::to_string(&note.to).unwrap()),

@@ -173,14 +173,11 @@ pub async fn upload_avatar(
     if let Signed(true, VerificationType::Local) = signed {
         let filename = uuid::Uuid::new_v4().to_string();
 
-        if let Ok(file) = media
-            .open(20.mebibytes())
-            .into_file(&format!("{}/avatars/{}", *crate::MEDIA_DIR, filename))
-            .await
-        {
+        let path = format!("{}/avatars/{}", *crate::MEDIA_DIR, filename);
+        if let Ok(file) = media.open(20.mebibytes()).into_file(&path).await {
             if file.is_complete() {
                 if process_avatar(filename.clone()).is_some() {
-                    if update_avatar_by_username(&conn, username, filename)
+                    if update_avatar_by_username(&conn, username, path)
                         .await
                         .is_some()
                     {

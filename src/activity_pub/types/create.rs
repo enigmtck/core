@@ -24,6 +24,7 @@ use super::signature::ApSignature;
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub enum ApCreateType {
     #[default]
+    #[serde(alias = "create")]
     Create,
 }
 

@@ -56,6 +56,7 @@ impl TryFrom<String> for ApAttachment {
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub enum ApDocumentType {
+    #[serde(alias = "document")]
     Document,
 }
 
@@ -87,6 +88,7 @@ pub struct ApPropertyValue {
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub enum ApLinkType {
+    #[serde(alias = "link")]
     Link,
 }
 

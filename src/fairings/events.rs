@@ -100,7 +100,7 @@ impl EventChannels {
         (uuid, rx)
     }
 
-    pub fn send(&mut self, stream: Option<String>, message: String) {
+    pub fn send(self, stream: Option<String>, message: String) {
         log::debug!("send called");
         if let Some(mut x) = self.sending_channels.try_lock() {
             for (uuid, identified_sender) in (*x).clone() {

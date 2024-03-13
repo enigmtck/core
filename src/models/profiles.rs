@@ -50,7 +50,7 @@ pub struct Profile {
     #[serde(skip_serializing)]
     pub password: Option<String>,
     pub client_public_key: Option<String>,
-    pub avatar_filename: String,
+    pub avatar_filename: Option<String>,
     pub banner_filename: Option<String>,
     pub salt: Option<String>,
     pub client_private_key: Option<String>,
@@ -58,6 +58,17 @@ pub struct Profile {
     pub olm_pickled_account_hash: Option<String>,
     pub olm_identity_key: Option<String>,
     pub summary_markdown: Option<String>,
+}
+
+impl Profile {
+    pub fn set_avatar(mut self) -> Self {
+        self.avatar_filename = Some(
+            self.avatar_filename
+                .unwrap_or((*crate::DEFAULT_AVATAR).clone()),
+        );
+
+        self.clone()
+    }
 }
 
 pub async fn create_profile(conn: Option<&Db>, profile: NewProfile) -> Option<Profile> {

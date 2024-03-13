@@ -183,6 +183,7 @@ pub struct ApEndpoint {
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub enum ApImageType {
+    #[serde(alias = "image")]
     Image,
 }
 

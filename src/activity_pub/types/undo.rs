@@ -24,6 +24,7 @@ use super::activity::RecursiveActivity;
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub enum ApUndoType {
     #[default]
+    #[serde(alias = "undo")]
     Undo,
 }
 

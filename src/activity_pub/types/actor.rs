@@ -79,12 +79,18 @@ pub struct ApCapabilities {
 
 #[derive(Serialize, PartialEq, Eq, Deserialize, Clone, Debug, Default)]
 pub enum ApActorType {
+    #[serde(alias = "application")]
     Application,
+    #[serde(alias = "group")]
     Group,
+    #[serde(alias = "organization")]
     Organization,
+    #[serde(alias = "person")]
     Person,
+    #[serde(alias = "service")]
     Service,
     #[default]
+    #[serde(alias = "unknown")]
     Unknown,
 }
 
@@ -358,7 +364,12 @@ impl From<Profile> for ApActor {
             icon: Some(ApImage {
                 kind: ApImageType::Image,
                 media_type: Some("image/png".to_string()),
-                url: format!("{server_url}/media/avatars/{}", profile.avatar_filename),
+                url: format!(
+                    "{server_url}/{}",
+                    profile
+                        .avatar_filename
+                        .unwrap_or((*crate::DEFAULT_AVATAR).clone())
+                ),
             }),
             image: profile.banner_filename.map(|banner| ApImage {
                 kind: ApImageType::Image,
