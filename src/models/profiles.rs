@@ -50,7 +50,7 @@ pub struct Profile {
     #[serde(skip_serializing)]
     pub password: Option<String>,
     pub client_public_key: Option<String>,
-    pub avatar_filename: String,
+    pub avatar_filename: Option<String>,
     pub banner_filename: Option<String>,
     pub salt: Option<String>,
     pub client_private_key: Option<String>,

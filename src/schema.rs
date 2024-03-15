@@ -290,7 +290,7 @@ diesel::table! {
         private_key -> Varchar,
         password -> Nullable<Varchar>,
         client_public_key -> Nullable<Varchar>,
-        avatar_filename -> Varchar,
+        avatar_filename -> Nullable<Varchar>,
         banner_filename -> Nullable<Varchar>,
         salt -> Nullable<Varchar>,
         client_private_key -> Nullable<Varchar>,

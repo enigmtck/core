@@ -358,7 +358,12 @@ impl From<Profile> for ApActor {
             icon: Some(ApImage {
                 kind: ApImageType::Image,
                 media_type: Some("image/png".to_string()),
-                url: format!("{server_url}/media/avatars/{}", profile.avatar_filename),
+                url: format!(
+                    "{server_url}/{}",
+                    profile
+                        .avatar_filename
+                        .unwrap_or((*crate::DEFAULT_AVATAR).clone())
+                ),
             }),
             image: profile.banner_filename.map(|banner| ApImage {
                 kind: ApImageType::Image,

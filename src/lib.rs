@@ -6,6 +6,9 @@ extern crate rocket;
 
 extern crate diesel;
 
+#[cfg(all(feature = "pg", feature = "sqlite"))]
+compile_error!("feature \"pg\" and feature \"sqlite\" cannot be enabled at the same time");
+
 use activity_pub::{ApActivity, ApObject};
 use anyhow::anyhow;
 use anyhow::Result;
@@ -57,6 +60,10 @@ lazy_static! {
             env::var("DATABASE_URL").expect("DATABASE_URL must be set"),
         ))
         .expect("failed to create db pool")
+    };
+    pub static ref DEFAULT_AVATAR: String = {
+        dotenv().ok();
+        env::var("DEFAULT_AVATAR").expect("DEFAULT_AVATAR must be set")
     };
     pub static ref SERVER_URL: String = {
         dotenv().ok();

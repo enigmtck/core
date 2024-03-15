@@ -59,3 +59,8 @@ features = ["diesel_postgres_pool"]
 
 [[bin]]
 name = "enigmatick"
+
+[features]
+default = ["sqlite"]
+pg =  []
+sqlite = []
