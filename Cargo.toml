@@ -1,9 +1,12 @@
 [package]
 name = "enigmatick"
-version = "0.2.2"
+version = "0.2.3"
 edition = "2021"
 license = "GPL-3.0-only"
 description = "Enigmatick is a social media platform that integrates with servers that implement the ActivityPub protocol (e.g., Mastodon)"
+repository = "https://gitlab.com/enigmatick"
+documentation = "https://docs.rs/enigmatick/latest/enigmatick/"
+homepage = "https://enigmatick.social/@jdt"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
