@@ -88,12 +88,18 @@ async fn process_notes(
 fn gather_ap_ids(x: &TimelineItem) -> Vec<String> {
     let mut ap_ids = vec![x.clone().attributed_to];
     if let Some(tags) = x.clone().tag {
-        if let Ok(tags) = serde_json::from_value::<Vec<ApTag>>(tags) {
-            for tag in tags {
-                if let ApTag::Mention(tag) = tag {
-                    if let Some(href) = tag.href {
-                        ap_ids.push(href)
-                    }
+        cfg_if::cfg_if! {
+            if #[cfg(feature = "pg")] {
+                let tags = serde_json::from_value::<Vec<ApTag>>(tags).unwrap_or_default();
+            } else if #[cfg(feature = "sqlite")] {
+                let tags = serde_json::from_str::<Vec<ApTag>>(&tags).unwrap_or_default();
+            }
+        }
+        
+        for tag in tags {
+            if let ApTag::Mention(tag) = tag {
+                if let Some(href) = tag.href {
+                    ap_ids.push(href)
                 }
             }
         }

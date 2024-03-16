@@ -24,6 +24,7 @@ use super::signature::ApSignature;
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub enum ApCreateType {
     #[default]
+    #[serde(alias = "create")]
     Create,
 }
 
@@ -114,29 +115,63 @@ impl Outbox for ApCreate {
 impl TryFrom<ExtendedActivity> for ApCreate {
     type Error = &'static str;
 
-    fn try_from(
-        (activity, note, _remote_note, _profile, _remote_actor): ExtendedActivity,
-    ) -> Result<Self, Self::Error> {
-        let note = note.ok_or("ACTIVITY MUST INCLUDE A LOCALLY CREATED NOTE")?;
-        let ap_to = activity.ap_to.ok_or("ACTIVITY DOES NOT HAVE A TO FIELD")?;
-        Ok(ApCreate {
-            context: Some(ApContext::default()),
-            kind: ApCreateType::default(),
-            actor: ApAddress::Address(activity.actor.clone()),
-            id: Some(format!(
-                "{}/activities/{}",
-                *crate::SERVER_URL,
-                activity.uuid
-            )),
-            object: ApObject::Note(ApNote::from(note)).into(),
-            to: serde_json::from_value(ap_to).unwrap(),
-            cc: activity.cc.map(|cc| serde_json::from_value(cc).unwrap()),
-            signature: None,
-            published: Some(activity.created_at.to_rfc3339()),
-            ephemeral_created_at: Some(activity.created_at),
-            ephemeral_updated_at: Some(activity.updated_at),
-        })
-    }
+    cfg_if::cfg_if! {
+        if #[cfg(feature = "pg")] {
+            fn try_from(
+                (activity, note, _remote_note, _profile, _remote_actor): ExtendedActivity,
+            ) -> Result<Self, Self::Error> {
+                let note = note.ok_or("ACTIVITY MUST INCLUDE A LOCALLY CREATED NOTE")?;
+                let ap_to = activity.ap_to.ok_or("ACTIVITY DOES NOT HAVE A TO FIELD")?;
+                Ok(ApCreate {
+                    context: Some(ApContext::default()),
+                    kind: ApCreateType::default(),
+                    actor: ApAddress::Address(activity.actor.clone()),
+                    id: Some(format!(
+                        "{}/activities/{}",
+                        *crate::SERVER_URL,
+                        activity.uuid
+                    )),
+                    object: ApObject::Note(ApNote::from(note)).into(),
+                    to: serde_json::from_value(ap_to).unwrap(),
+                    cc: activity.cc.map(|cc| serde_json::from_value(cc).unwrap()),
+                    signature: None,
+                    published: Some(activity.created_at.to_rfc3339()),
+                    ephemeral_created_at: Some(activity.created_at),
+                    ephemeral_updated_at: Some(activity.updated_at),
+                })
+            }
+        } else if #[cfg(feature = "sqlite")] {
+            fn try_from(
+                (activity, note, _remote_note, _profile, _remote_actor): ExtendedActivity,
+            ) -> Result<Self, Self::Error> {
+                let note = note.ok_or("ACTIVITY MUST INCLUDE A LOCALLY CREATED NOTE")?;
+                let ap_to = activity.ap_to.ok_or("ACTIVITY DOES NOT HAVE A TO FIELD")?;
+                Ok(ApCreate {
+                    context: Some(ApContext::default()),
+                    kind: ApCreateType::default(),
+                    actor: ApAddress::Address(activity.actor.clone()),
+                    id: Some(format!(
+                        "{}/activities/{}",
+                        *crate::SERVER_URL,
+                        activity.uuid
+                    )),
+                    object: ApObject::Note(ApNote::from(note)).into(),
+                    to: serde_json::from_str(&ap_to).unwrap(),
+                    cc: activity.cc.map(|cc| serde_json::from_str(&cc).unwrap()),
+                    signature: None,
+                    published: Some(activity.created_at.to_string()),
+                    ephemeral_created_at: { Some(DateTime::<Utc>::from_naive_utc_and_offset(
+                        activity.created_at,
+                        Utc,
+                    )) },
+                    ephemeral_updated_at: { Some(DateTime::<Utc>::from_naive_utc_and_offset(
+                        activity.updated_at,
+                        Utc,
+                    ))},
+                })
+            }
+        }
+    }   
 }
 
 impl Temporal for ApCreate {

@@ -49,7 +49,9 @@ impl Cache for ApCollection {
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub enum ApCollectionType {
     #[default]
+    #[serde(alias = "collection")]
     Collection,
+    #[serde(alias = "ordered_collection")]
     OrderedCollection,
 }
 
@@ -62,7 +64,9 @@ impl fmt::Display for ApCollectionType {
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub enum ApCollectionPageType {
     #[default]
+    #[serde(alias = "collection_page")]
     CollectionPage,
+    #[serde(alias = "ordered_collection_page")]
     OrderedCollectionPage,
 }
 

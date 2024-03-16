@@ -25,7 +25,7 @@ pub async fn authenticate_user(
         if let Some(profile) =
             admin::authenticate(&conn, user.username.clone(), user.password.clone()).await
         {
-            Ok(Json(profile))
+            Ok(Json(profile.set_avatar()))
         } else {
             Err(Status::NoContent)
         }

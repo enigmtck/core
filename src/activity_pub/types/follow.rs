@@ -22,6 +22,7 @@ use serde_json::Value;
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub enum ApFollowType {
     #[default]
+    #[serde(alias = "follow")]
     Follow,
 }
 
@@ -146,11 +147,23 @@ async fn outbox(
 
 impl TryFrom<ExtendedActivity> for ApFollow {
     type Error = &'static str;
-
+   
     fn try_from(
         (activity, _note, _remote_note, profile, remote_actor): ExtendedActivity,
     ) -> Result<Self, Self::Error> {
-        if activity.kind == ActivityType::Follow {
+        cfg_if::cfg_if! {
+            if #[cfg(feature = "pg")] {
+                let to = activity.ap_to.and_then(|x| serde_json::from_value(x).ok());
+                let cc = activity.cc.and_then(|x| serde_json::from_value(x).ok());
+                let follow = activity.kind == ActivityType::Follow;
+            } else if #[cfg(feature = "sqlite")] {
+                let to = activity.ap_to.and_then(|x| serde_json::from_str(&x).ok());
+                let cc = activity.cc.and_then(|x| serde_json::from_str(&x).ok());
+                let follow = activity.kind.as_str() == "follow";
+            }
+        }
+        
+        if follow {
             match (profile, remote_actor) {
                 (Some(profile), None) => Ok(ApFollow {
                     context: Some(ApContext::default()),
@@ -164,8 +177,8 @@ impl TryFrom<ExtendedActivity> for ApFollow {
                         )),
                         Some,
                     ),
-                    to: activity.ap_to.and_then(|x| serde_json::from_value(x).ok()),
-                    cc: activity.cc.and_then(|x| serde_json::from_value(x).ok()),
+                    to,
+                    cc,
                     object: MaybeReference::Reference(
                         ApActor::from(profile).id.unwrap().to_string(),
                     ),
@@ -182,8 +195,8 @@ impl TryFrom<ExtendedActivity> for ApFollow {
                         )),
                         Some,
                     ),
-                    to: activity.ap_to.and_then(|x| serde_json::from_value(x).ok()),
-                    cc: activity.cc.and_then(|x| serde_json::from_value(x).ok()),
+                    to,
+                    cc,
                     object: MaybeReference::Reference(remote_actor.ap_id),
                 }),
                 _ => {

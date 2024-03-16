@@ -21,6 +21,7 @@ use super::signature::ApSignature;
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub enum ApUpdateType {
     #[default]
+    #[serde(alias = "update")]
     Update,
 }
 

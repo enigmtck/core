@@ -18,6 +18,7 @@ use serde_json::Value;
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub enum ApJoinType {
     #[default]
+    #[serde(alias = "join")]
     Join,
 }
 

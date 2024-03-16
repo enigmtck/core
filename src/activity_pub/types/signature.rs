@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub enum ApSignatureType {
+    #[serde(alias = "rsa_signature_2017")]
     RsaSignature2017,
 }
 

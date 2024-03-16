@@ -23,6 +23,7 @@ use serde_json::Value;
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub enum ApLikeType {
     #[default]
+    #[serde(alias = "like")]
     Like,
 }
 
@@ -168,7 +169,15 @@ impl TryFrom<ExtendedActivity> for ApLike {
     fn try_from(
         (activity, note, remote_note, profile, _remote_actor): ExtendedActivity,
     ) -> Result<Self, Self::Error> {
-        if activity.kind == ActivityType::Like {
+        cfg_if::cfg_if! {
+            if #[cfg(feature = "pg")] {
+                let like = activity.kind == ActivityType::Like;
+            } else if #[cfg(feature = "sqlite")] {
+                let like = activity.kind.as_str() == "like";
+            }
+        }
+        
+        if like {
             match (note, remote_note, profile) {
                 (Some(note), None, None) => Ok(ApLike {
                     context: Some(ApContext::default()),

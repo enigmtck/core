@@ -32,9 +32,13 @@ use super::actor::ApAddress;
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub enum ApNoteType {
     #[default]
+    #[serde(alias = "note")]
     Note,
+    #[serde(alias = "encrypted_note")]
     EncryptedNote,
+    #[serde(alias = "vault_note")]
     VaultNote,
+    #[serde(alias = "question")]
     Question,
 }
 
@@ -51,6 +55,20 @@ impl From<NoteType> for ApNoteType {
             NoteType::EncryptedNote => ApNoteType::EncryptedNote,
             NoteType::VaultNote => ApNoteType::VaultNote,
             NoteType::Question => ApNoteType::Question,
+        }
+    }
+}
+
+impl TryFrom<String> for ApNoteType {
+    type Error = &'static str;
+
+    fn try_from(kind: String) -> Result<Self, Self::Error> {
+        match kind.as_str() {
+            "note" => Ok(ApNoteType::Note),
+            "encrypted_note" => Ok(ApNoteType::EncryptedNote),
+            "vault_note" => Ok(ApNoteType::VaultNote),
+            "question" => Ok(ApNoteType::Question),
+            _ => Err("no match for {kind}"),
         }
     }
 }
@@ -255,34 +273,72 @@ impl Default for ApNote {
 
 type IdentifiedVaultItem = (VaultItem, Profile);
 
+
 impl From<IdentifiedVaultItem> for ApNote {
-    fn from((vault, profile): IdentifiedVaultItem) -> Self {
-        ApNote {
-            kind: ApNoteType::VaultNote,
-            attributed_to: {
-                if vault.outbound {
-                    ApAddress::Address(get_ap_id_from_username(profile.clone().username))
-                } else {
-                    ApAddress::Address(vault.clone().remote_actor)
+    cfg_if::cfg_if! {
+        if #[cfg(feature = "pg")] {
+            fn from((vault, profile): IdentifiedVaultItem) -> Self {
+                ApNote {
+                    kind: ApNoteType::VaultNote,
+                    attributed_to: {
+                        if vault.outbound {
+                            ApAddress::Address(get_ap_id_from_username(profile.clone().username))
+                        } else {
+                            ApAddress::Address(vault.clone().remote_actor)
+                        }
+                    },
+                    to: {
+                        if vault.outbound {
+                            MaybeMultiple::Multiple(vec![ApAddress::Address(vault.remote_actor)])
+                        } else {
+                            MaybeMultiple::Multiple(vec![ApAddress::Address(get_ap_id_from_username(
+                                profile.username,
+                            ))])
+                        }
+                    },
+                    id: Some(format!(
+                        "https://{}/vault/{}",
+                        *crate::SERVER_NAME,
+                        vault.uuid
+                    )),
+                    content: vault.encrypted_data,
+                    published: vault.created_at.to_rfc3339(),
+                    ..Default::default()
                 }
-            },
-            to: {
-                if vault.outbound {
-                    MaybeMultiple::Multiple(vec![ApAddress::Address(vault.remote_actor)])
-                } else {
-                    MaybeMultiple::Multiple(vec![ApAddress::Address(get_ap_id_from_username(
-                        profile.username,
-                    ))])
+            }
+        } else if #[cfg(feature = "sqlite")] {
+            fn from((vault, profile): IdentifiedVaultItem) -> Self {
+                ApNote {
+                    kind: ApNoteType::VaultNote,
+                    attributed_to: {
+                        if vault.outbound {
+                            ApAddress::Address(get_ap_id_from_username(profile.clone().username))
+                        } else {
+                            ApAddress::Address(vault.clone().remote_actor)
+                        }
+                    },
+                    to: {
+                        if vault.outbound {
+                            MaybeMultiple::Multiple(vec![ApAddress::Address(vault.remote_actor)])
+                        } else {
+                            MaybeMultiple::Multiple(vec![ApAddress::Address(get_ap_id_from_username(
+                                profile.username,
+                            ))])
+                        }
+                    },
+                    id: Some(format!(
+                        "https://{}/vault/{}",
+                        *crate::SERVER_NAME,
+                        vault.uuid
+                    )),
+                    content: vault.encrypted_data,
+                    published: DateTime::<Utc>::from_naive_utc_and_offset(
+                        vault.created_at,
+                        Utc,
+                    ).to_rfc3339(),
+                    ..Default::default()
                 }
-            },
-            id: Some(format!(
-                "https://{}/vault/{}",
-                *crate::SERVER_NAME,
-                vault.uuid
-            )),
-            content: vault.encrypted_data,
-            published: vault.created_at.to_rfc3339(),
-            ..Default::default()
+            }
         }
     }
 }
@@ -319,102 +375,207 @@ pub type FullyQualifiedTimelineItem = (
 
 impl From<FullyQualifiedTimelineItem> for ApNote {
     fn from(((timeline, activity, cc), actors, profile): FullyQualifiedTimelineItem) -> Self {
-        ApNote {
-            context: Some(ApContext::default()),
-            to: MaybeMultiple::Multiple(vec![]),
-            cc: None,
-            instrument: None,
-            kind: ApNoteType::Note,
-            tag: {
-                if let Some(x) = timeline.tag {
-                    match serde_json::from_value(x) {
-                        Ok(y) => y,
-                        Err(_) => None,
-                    }
-                } else {
-                    None
+        cfg_if::cfg_if! {
+            if #[cfg(feature = "pg")] {
+                ApNote {
+                    context: Some(ApContext::default()),
+                    to: MaybeMultiple::Multiple(vec![]),
+                    cc: None,
+                    instrument: None,
+                    kind: ApNoteType::Note,
+                    tag: {
+                        if let Some(x) = timeline.tag {
+                            match serde_json::from_value(x) {
+                                Ok(y) => y,
+                                Err(_) => None,
+                            }
+                        } else {
+                            None
+                        }
+                    },
+                    attributed_to: ApAddress::Address(timeline.attributed_to),
+                    id: Some(timeline.ap_id),
+                    url: timeline.url,
+                    published: timeline.published.unwrap_or("".to_string()),
+                    replies: Option::None,
+                    in_reply_to: timeline.in_reply_to,
+                    content: timeline.content.unwrap_or_default(),
+                    summary: timeline.summary,
+                    sensitive: timeline.ap_sensitive,
+                    atom_uri: timeline.atom_uri,
+                    in_reply_to_atom_uri: timeline.in_reply_to_atom_uri,
+                    conversation: timeline.conversation,
+                    content_map: {
+                        if let Some(x) = timeline.content_map {
+                            match serde_json::from_value(x) {
+                                Ok(y) => y,
+                                Err(_) => None,
+                            }
+                        } else {
+                            None
+                        }
+                    },
+                    attachment: {
+                        if let Some(x) = timeline.attachment {
+                            match serde_json::from_value(x) {
+                                Ok(y) => y,
+                                Err(_) => None,
+                            }
+                        } else {
+                            None
+                        }
+                    },
+                    ephemeral_announces: activity
+                        .clone()
+                        .filter(|activity| activity.kind == ActivityType::Announce && !activity.revoked)
+                        .map(|announce| vec![announce.actor]),
+                    ephemeral_announced: activity.clone().and_then(|x| {
+                        if let Some(profile) = profile.clone() {
+                            if x.kind == ActivityType::Announce
+                                && !x.revoked
+                                && x.actor == get_ap_id_from_username(profile.username)
+                            {
+                                Some(get_activity_ap_id_from_uuid(x.uuid))
+                            } else {
+                                None
+                            }
+                        } else {
+                            None
+                        }
+                    }),
+                    ephemeral_actors: actors,
+                    ephemeral_liked: activity.clone().and_then(|x| {
+                        if let Some(profile) = profile {
+                            if x.kind == ActivityType::Like
+                                && !x.revoked
+                                && x.actor == get_ap_id_from_username(profile.username)
+                            {
+                                Some(get_activity_ap_id_from_uuid(x.uuid))
+                            } else {
+                                None
+                            }
+                        } else {
+                            None
+                        }
+                    }),
+                    ephemeral_likes: activity
+                        .filter(|activity| activity.kind == ActivityType::Like && !activity.revoked)
+                        .map(|like| vec![like.actor]),
+                    ephemeral_targeted: Some(cc.is_some()),
+                    ephemeral_timestamp: Some(timeline.created_at),
+                    ephemeral_metadata: {
+                        if let Some(x) = timeline.metadata {
+                            match serde_json::from_value(x) {
+                                Ok(y) => y,
+                                Err(_) => None,
+                            }
+                        } else {
+                            None
+                        }
+                    },
                 }
-            },
-            attributed_to: ApAddress::Address(timeline.attributed_to),
-            id: Some(timeline.ap_id),
-            url: timeline.url,
-            published: timeline.published.unwrap_or("".to_string()),
-            replies: Option::None,
-            in_reply_to: timeline.in_reply_to,
-            content: timeline.content.unwrap_or_default(),
-            summary: timeline.summary,
-            sensitive: timeline.ap_sensitive,
-            atom_uri: timeline.atom_uri,
-            in_reply_to_atom_uri: timeline.in_reply_to_atom_uri,
-            conversation: timeline.conversation,
-            content_map: {
-                if let Some(x) = timeline.content_map {
-                    match serde_json::from_value(x) {
-                        Ok(y) => y,
-                        Err(_) => None,
-                    }
-                } else {
-                    None
+            } else if #[cfg(feature = "sqlite")] {
+                ApNote {
+                    context: Some(ApContext::default()),
+                    to: MaybeMultiple::Multiple(vec![]),
+                    cc: None,
+                    instrument: None,
+                    kind: ApNoteType::Note,
+                    tag: {
+                        if let Some(x) = timeline.tag {
+                            match serde_json::from_str(&x) {
+                                Ok(y) => y,
+                                Err(_) => None,
+                            }
+                        } else {
+                            None
+                        }
+                    },
+                    attributed_to: ApAddress::Address(timeline.attributed_to),
+                    id: Some(timeline.ap_id),
+                    url: timeline.url,
+                    published: timeline.published.unwrap_or("".to_string()),
+                    replies: Option::None,
+                    in_reply_to: timeline.in_reply_to,
+                    content: timeline.content.unwrap_or_default(),
+                    summary: timeline.summary,
+                    sensitive: timeline.ap_sensitive,
+                    atom_uri: timeline.atom_uri,
+                    in_reply_to_atom_uri: timeline.in_reply_to_atom_uri,
+                    conversation: timeline.conversation,
+                    content_map: {
+                        if let Some(x) = timeline.content_map {
+                            match serde_json::from_str(&x) {
+                                Ok(y) => y,
+                                Err(_) => None,
+                            }
+                        } else {
+                            None
+                        }
+                    },
+                    attachment: {
+                        if let Some(x) = timeline.attachment {
+                            match serde_json::from_str(&x) {
+                                Ok(y) => y,
+                                Err(_) => None,
+                            }
+                        } else {
+                            None
+                        }
+                    },
+                    ephemeral_announces: activity
+                        .clone()
+                        .filter(|activity| activity.kind.as_str() == "announce" && !activity.revoked)
+                        .map(|announce| vec![announce.actor]),
+                    ephemeral_announced: activity.clone().and_then(|x| {
+                        if let Some(profile) = profile.clone() {
+                            if x.kind.as_str() == "announce"
+                                && !x.revoked
+                                && x.actor == get_ap_id_from_username(profile.username)
+                            {
+                                Some(get_activity_ap_id_from_uuid(x.uuid))
+                            } else {
+                                None
+                            }
+                        } else {
+                            None
+                        }
+                    }),
+                    ephemeral_actors: actors,
+                    ephemeral_liked: activity.clone().and_then(|x| {
+                        if let Some(profile) = profile {
+                            if x.kind.as_str() == "like"
+                                && !x.revoked
+                                && x.actor == get_ap_id_from_username(profile.username)
+                            {
+                                Some(get_activity_ap_id_from_uuid(x.uuid))
+                            } else {
+                                None
+                            }
+                        } else {
+                            None
+                        }
+                    }),
+                    ephemeral_likes: activity
+                        .filter(|activity| activity.kind.as_str() == "like" && !activity.revoked)
+                        .map(|like| vec![like.actor]),
+                    ephemeral_targeted: Some(cc.is_some()),
+                    ephemeral_timestamp: Some(DateTime::<Utc>::from_naive_utc_and_offset(
+                        timeline.created_at,
+                        Utc,
+                    )),
+                    ephemeral_metadata: {
+                        if let Some(x) = timeline.metadata {
+                            match serde_json::from_str(&x) {
+                                Ok(y) => y,
+                                Err(_) => None,
+                            }
+                        } else {
+                            None
+                        }
+                    },
                 }
-            },
-            attachment: {
-                if let Some(x) = timeline.attachment {
-                    match serde_json::from_value(x) {
-                        Ok(y) => y,
-                        Err(_) => None,
-                    }
-                } else {
-                    None
-                }
-            },
-            ephemeral_announces: activity
-                .clone()
-                .filter(|activity| activity.kind == ActivityType::Announce && !activity.revoked)
-                .map(|announce| vec![announce.actor]),
-            ephemeral_announced: activity.clone().and_then(|x| {
-                if let Some(profile) = profile.clone() {
-                    if x.kind == ActivityType::Announce
-                        && !x.revoked
-                        && x.actor == get_ap_id_from_username(profile.username)
-                    {
-                        Some(get_activity_ap_id_from_uuid(x.uuid))
-                    } else {
-                        None
-                    }
-                } else {
-                    None
-                }
-            }),
-            ephemeral_actors: actors,
-            ephemeral_liked: activity.clone().and_then(|x| {
-                if let Some(profile) = profile {
-                    if x.kind == ActivityType::Like
-                        && !x.revoked
-                        && x.actor == get_ap_id_from_username(profile.username)
-                    {
-                        Some(get_activity_ap_id_from_uuid(x.uuid))
-                    } else {
-                        None
-                    }
-                } else {
-                    None
-                }
-            }),
-            ephemeral_likes: activity
-                .filter(|activity| activity.kind == ActivityType::Like && !activity.revoked)
-                .map(|like| vec![like.actor]),
-            ephemeral_targeted: Some(cc.is_some()),
-            ephemeral_timestamp: Some(timeline.created_at),
-            ephemeral_metadata: {
-                if let Some(x) = timeline.metadata {
-                    match serde_json::from_value(x) {
-                        Ok(y) => y,
-                        Err(_) => None,
-                    }
-                } else {
-                    None
-                }
-            },
+            }
         }
     }
 }
@@ -435,62 +596,127 @@ impl From<ApActor> for ApNote {
 
 impl From<NewNote> for ApNote {
     fn from(note: NewNote) -> Self {
-        ApNote {
-            tag: match serde_json::from_value(note.tag.into()) {
-                Ok(x) => x,
-                Err(_) => Option::None,
-            },
-            attributed_to: ApAddress::Address(note.attributed_to),
-            published: Utc::now().format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string(),
-            id: Option::from(format!(
-                "https://{}/notes/{}",
-                *crate::SERVER_NAME,
-                note.uuid
-            )),
-            kind: note.kind.into(),
-            to: match serde_json::from_value(note.ap_to) {
-                Ok(x) => x,
-                Err(_) => MaybeMultiple::Multiple(vec![]),
-            },
-            content: note.content,
-            cc: match serde_json::from_value(note.cc.into()) {
-                Ok(x) => x,
-                Err(_) => Option::None,
-            },
-            in_reply_to: note.in_reply_to,
-            conversation: note.conversation,
-            attachment: note.attachment.map(|x| serde_json::from_value(x).unwrap()),
-            ..Default::default()
+        cfg_if::cfg_if! {
+            if #[cfg(feature = "pg")] {
+                ApNote {
+                    tag: match serde_json::from_value(note.tag.into()) {
+                        Ok(x) => x,
+                        Err(_) => Option::None,
+                    },
+                    attributed_to: ApAddress::Address(note.attributed_to),
+                    published: Utc::now().format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string(),
+                    id: Option::from(format!(
+                        "https://{}/notes/{}",
+                        *crate::SERVER_NAME,
+                        note.uuid
+                    )),
+                    kind: note.kind.into(),
+                    to: match serde_json::from_value(note.ap_to) {
+                        Ok(x) => x,
+                        Err(_) => MaybeMultiple::Multiple(vec![]),
+                    },
+                    content: note.content,
+                    cc: match serde_json::from_value(note.cc.into()) {
+                        Ok(x) => x,
+                        Err(_) => Option::None,
+                    },
+                    in_reply_to: note.in_reply_to,
+                    conversation: note.conversation,
+                    attachment: note.attachment.map(|x| serde_json::from_value(x).unwrap()),
+                    ..Default::default()
+                }
+            } else if #[cfg(feature = "sqlite")] {
+                ApNote {
+                    tag: note
+                        .tag
+                        .as_deref()
+                        .and_then(|x| serde_json::from_str(x).ok()),
+                    attributed_to: ApAddress::Address(note.attributed_to),
+                    published: Utc::now().format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string(),
+                    id: Option::from(format!(
+                        "https://{}/notes/{}",
+                        *crate::SERVER_NAME,
+                        note.uuid
+                    )),
+                    kind: note.kind.try_into().expect("failed to match kind"),
+                    to: match serde_json::from_str(&note.ap_to) {
+                        Ok(x) => x,
+                        Err(_) => MaybeMultiple::Multiple(vec![]),
+                    },
+                    content: note.content,
+                    cc: note
+                        .cc
+                        .as_deref()
+                        .and_then(|x| serde_json::from_str(x).ok()),
+                    in_reply_to: note.in_reply_to,
+                    conversation: note.conversation,
+                    attachment: note
+                        .attachment
+                        .as_deref()
+                        .and_then(|x| serde_json::from_str(x).ok()),
+                    ..Default::default()
+                }
+            }
         }
     }
 }
 
 impl From<Note> for ApNote {
     fn from(note: Note) -> Self {
-        ApNote {
-            tag: serde_json::from_value(note.tag.into()).ok(),
-            attributed_to: ApAddress::Address(note.attributed_to),
-            published: note.updated_at.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string(),
-            id: note
-                .ap_id
-                .clone()
-                .map_or(Some(get_note_ap_id_from_uuid(note.uuid.clone())), Some),
-            url: Some(get_note_url_from_uuid(note.uuid)),
-            kind: note.kind.into(),
-            to: match serde_json::from_value(note.ap_to) {
-                Ok(x) => x,
-                Err(_) => MaybeMultiple::Multiple(vec![]),
-            },
-            content: note.content,
-            cc: match serde_json::from_value(note.cc.into()) {
-                Ok(x) => x,
-                Err(_) => Option::None,
-            },
-            in_reply_to: note.in_reply_to,
-            conversation: note.conversation,
-            attachment: note.attachment.map(|x| serde_json::from_value(x).unwrap()),
-            ephemeral_metadata: Some(vec![]),
-            ..Default::default()
+        cfg_if::cfg_if! {
+            if #[cfg(feature = "pg")] {
+                ApNote {
+                    tag: serde_json::from_value(note.tag.into()).ok(),
+                    attributed_to: ApAddress::Address(note.attributed_to),
+                    published: note.updated_at.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string(),
+                    id: note
+                        .ap_id
+                        .clone()
+                        .map_or(Some(get_note_ap_id_from_uuid(note.uuid.clone())), Some),
+                    url: Some(get_note_url_from_uuid(note.uuid)),
+                    kind: note.kind.into(),
+                    to: match serde_json::from_value(note.ap_to) {
+                        Ok(x) => x,
+                        Err(_) => MaybeMultiple::Multiple(vec![]),
+                    },
+                    content: note.content,
+                    cc: match serde_json::from_value(note.cc.into()) {
+                        Ok(x) => x,
+                        Err(_) => Option::None,
+                    },
+                    in_reply_to: note.in_reply_to,
+                    conversation: note.conversation,
+                    attachment: note.attachment.map(|x| serde_json::from_value(x).unwrap()),
+                    ephemeral_metadata: Some(vec![]),
+                    ..Default::default()
+                }
+            } else if #[cfg(feature = "sqlite")] {
+                ApNote {
+                    tag: note
+                        .tag
+                        .as_deref()
+                        .and_then(|x| serde_json::from_str(x).ok()),
+                    attributed_to: ApAddress::Address(note.attributed_to),
+                    published: note.updated_at.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string(),
+                    id: note
+                        .ap_id
+                        .clone()
+                        .map_or(Some(get_note_ap_id_from_uuid(note.uuid.clone())), Some),
+                    url: Some(get_note_url_from_uuid(note.uuid)),
+                    kind: note.kind.try_into().expect("failed to decode kind"),
+                    to: match serde_json::from_str(&note.ap_to) {
+                        Ok(x) => x,
+                        Err(_) => MaybeMultiple::Multiple(vec![]),
+                    },
+                    content: note.content,
+                    cc: note.cc.and_then(|x| serde_json::from_str(&x).ok()),
+                    in_reply_to: note.in_reply_to,
+                    conversation: note.conversation,
+                    attachment: note.attachment.and_then(|x| serde_json::from_str(&x).ok()),
+                    ephemeral_metadata: Some(vec![]),
+                    ..Default::default()
+                }
+            }
         }
     }
 }
@@ -524,46 +750,102 @@ fn metadata(remote_note: &RemoteNote) -> Vec<Metadata> {
 
 impl From<RemoteNote> for ApNote {
     fn from(remote_note: RemoteNote) -> ApNote {
-        let kind = match remote_note.kind {
-            NoteType::Note => ApNoteType::Note,
-            NoteType::EncryptedNote => ApNoteType::EncryptedNote,
-            _ => ApNoteType::default(),
-        };
+        
 
-        ApNote {
-            id: Some(remote_note.ap_id.clone()),
-            kind,
-            published: remote_note.published.clone().unwrap_or("".to_string()),
-            url: remote_note.url.clone(),
-            to: match serde_json::from_value(remote_note.ap_to.clone().into()) {
-                Ok(x) => x,
-                Err(_) => MaybeMultiple::Multiple(vec![]),
-            },
-            cc: match serde_json::from_value(remote_note.cc.clone().into()) {
-                Ok(x) => x,
-                Err(_) => None,
-            },
-            tag: match serde_json::from_value(remote_note.tag.clone().into()) {
-                Ok(x) => x,
-                Err(_) => None,
-            },
-            attributed_to: ApAddress::Address(remote_note.attributed_to.clone()),
-            content: remote_note.content.clone(),
-            replies: match serde_json::from_value(remote_note.replies.clone().into()) {
-                Ok(x) => x,
-                Err(_) => None,
-            },
-            in_reply_to: remote_note.in_reply_to.clone(),
-            attachment: match serde_json::from_value(
-                remote_note.attachment.clone().unwrap_or_default(),
-            ) {
-                Ok(x) => x,
-                Err(_) => None,
-            },
-            conversation: remote_note.conversation.clone(),
-            ephemeral_timestamp: Some(remote_note.created_at),
-            ephemeral_metadata: Some(metadata(&remote_note)),
-            ..Default::default()
+        cfg_if::cfg_if! {
+            if #[cfg(feature = "pg")] {
+                let kind = match remote_note.kind {
+                    NoteType::Note => ApNoteType::Note,
+                    NoteType::EncryptedNote => ApNoteType::EncryptedNote,
+                    _ => ApNoteType::default(),
+                };
+                
+                ApNote {
+                    id: Some(remote_note.ap_id.clone()),
+                    kind,
+                    published: remote_note.published.clone().unwrap_or("".to_string()),
+                    url: remote_note.url.clone(),
+                    to: match serde_json::from_value(remote_note.ap_to.clone().into()) {
+                        Ok(x) => x,
+                        Err(_) => MaybeMultiple::Multiple(vec![]),
+                    },
+                    cc: match serde_json::from_value(remote_note.cc.clone().into()) {
+                        Ok(x) => x,
+                        Err(_) => None,
+                    },
+                    tag: match serde_json::from_value(remote_note.tag.clone().into()) {
+                        Ok(x) => x,
+                        Err(_) => None,
+                    },
+                    attributed_to: ApAddress::Address(remote_note.attributed_to.clone()),
+                    content: remote_note.content.clone(),
+                    replies: match serde_json::from_value(remote_note.replies.clone().into()) {
+                        Ok(x) => x,
+                        Err(_) => None,
+                    },
+                    in_reply_to: remote_note.in_reply_to.clone(),
+                    attachment: match serde_json::from_value(
+                        remote_note.attachment.clone().unwrap_or_default(),
+                    ) {
+                        Ok(x) => x,
+                        Err(_) => None,
+                    },
+                    conversation: remote_note.conversation.clone(),
+                    ephemeral_timestamp: Some(remote_note.created_at),
+                    ephemeral_metadata: Some(metadata(&remote_note)),
+                    ..Default::default()
+                }
+            } else if #[cfg(feature = "sqlite")] {
+                let kind = match remote_note.kind.as_str() {
+                    "note" => ApNoteType::Note,
+                    "encrypted_note" => ApNoteType::EncryptedNote,
+                    _ => ApNoteType::default(),
+                };
+
+                ApNote {
+                    id: Some(remote_note.ap_id.clone()),
+                    kind,
+                    published: remote_note.published.clone().unwrap_or("".to_string()),
+                    url: remote_note.url.clone(),
+                    to: remote_note
+                        .ap_to
+                        .clone()
+                        .as_deref()
+                        .and_then(|x| serde_json::from_str(x).ok())
+                        .expect("no to in RemoteNote"),
+                    cc: remote_note
+                        .cc
+                        .clone()
+                        .as_deref()
+                        .and_then(|x| serde_json::from_str(x).ok()),
+                    tag: remote_note
+                        .tag
+                        .clone()
+                        .as_deref()
+                        .and_then(|x| serde_json::from_str(x).ok()),
+                    attributed_to: ApAddress::Address(remote_note.attributed_to.clone()),
+                    content: remote_note.content.clone(),
+                    replies: remote_note
+                        .replies
+                        .clone()
+                        .as_deref()
+                        .and_then(|x| serde_json::from_str(x).ok()),
+                    in_reply_to: remote_note.in_reply_to.clone(),
+                    attachment: remote_note
+                        .attachment
+                        .clone()
+                        .as_deref()
+                        .and_then(|x| serde_json::from_str(x).ok()),
+                    conversation: remote_note.conversation.clone(),
+                    ephemeral_timestamp: Some(DateTime::<Utc>::from_naive_utc_and_offset(
+                        remote_note.created_at,
+                        Utc,
+                    )),
+                    ephemeral_metadata: Some(metadata(&remote_note)),
+                    ..Default::default()
+                }
+
+            }
         }
     }
 }

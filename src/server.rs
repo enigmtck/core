@@ -161,6 +161,22 @@ async fn client_highlight_file(file: PathBuf) -> Option<(ContentType, Cow<'stati
     Some((content_type, asset.data))
 }
 
+#[get("/icons/<file..>")]
+async fn client_icons_file(file: PathBuf) -> Option<(ContentType, Cow<'static, [u8]>)> {
+    let filename = format!("icons/{}", file.display());
+    log::debug!("FILENAME: {filename}");
+
+    let asset = Client::get(&filename)?;
+    let content_type = file
+        .extension()
+        .and_then(OsStr::to_str)
+        .and_then(ContentType::from_extension)
+        .unwrap_or(ContentType::Bytes);
+
+    Some((content_type, asset.data))
+}
+
+
 #[launch]
 fn rocket() -> Rocket<Build> {
     if let Ok(profile) = std::env::var("PROFILE") {
@@ -194,6 +210,7 @@ fn rocket() -> Rocket<Build> {
                 client_fontawesome_file,
                 client_fonts_file,
                 client_highlight_file,
+                client_icons_file,
                 client_profile,
                 person_redirect,
                 person,

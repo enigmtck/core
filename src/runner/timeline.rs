@@ -1,10 +1,8 @@
 use anyhow::Result;
-use serde_json::Value;
 
 use crate::db::Db;
 use crate::fairings::events::EventChannels;
 use crate::models::{
-    notes::NoteType,
     remote_actors::{get_follower_profiles_by_endpoint, get_leader_by_endpoint},
     remote_notes::get_remote_note_by_ap_id,
     timeline::{
@@ -27,8 +25,16 @@ pub async fn update_timeline_record_task(
         let remote_note = get_remote_note_by_ap_id(conn, ap_id).await;
 
         if let Some(remote_note) = remote_note {
-            if remote_note.kind == NoteType::Note {
-                update_timeline_items(conn, (None, remote_note.clone().into()).into()).await;
+            cfg_if::cfg_if! {
+                if #[cfg(feature = "pg")] {
+                    if remote_note.kind == crate::models::notes::NoteType::Note {
+                        update_timeline_items(conn, (None, remote_note.clone().into()).into()).await;
+                    }
+                } else if #[cfg(feature = "sqlite")] {
+                    if remote_note.kind.as_str() == "note" {
+                        update_timeline_items(conn, (None, remote_note.clone().into()).into()).await;
+                    }
+                }
             }
         }
     }
@@ -72,26 +78,58 @@ async fn add_timeline_item_cc_for_recipient(recipient: &str, timeline_item: &Tim
     }
 }
 
-pub async fn add_to_timeline(ap_to: Option<Value>, cc: Option<Value>, timeline_item: TimelineItem) {
-    if let Some(ap_to) = ap_to {
-        if let Ok(to_vec) = serde_json::from_value::<Vec<String>>(ap_to.clone()) {
-            for to in to_vec {
-                log::debug!("ADDING TO FOR {to}");
-                add_timeline_item_to_for_recipient(&to, &timeline_item).await;
+cfg_if::cfg_if! {
+    if #[cfg(feature = "pg")] {
+        pub async fn add_to_timeline(ap_to: Option<serde_json::Value>, cc: Option<serde_json::Value>, timeline_item: TimelineItem) {
+            if let Some(ap_to) = ap_to {
+                if let Ok(to_vec) = serde_json::from_value::<Vec<String>>(ap_to.clone()) {
+                    for to in to_vec {
+                        log::debug!("ADDING TO FOR {to}");
+                        add_timeline_item_to_for_recipient(&to, &timeline_item).await;
+                    }
+                } else {
+                    log::error!("TO VALUE NOT A VEC: {ap_to:#?}");
+                }
             }
-        } else {
-            log::error!("TO VALUE NOT A VEC: {ap_to:#?}");
+
+            if let Some(cc) = cc {
+                if let Ok(cc_vec) = serde_json::from_value::<Vec<String>>(cc.clone()) {
+                    for cc in cc_vec {
+                        log::debug!("ADDING CC FOR {cc}");
+                        add_timeline_item_cc_for_recipient(&cc, &timeline_item).await;
+                    }
+                } else {
+                    log::error!("CC VALUE NOT A VEC: {cc:#?}");
+                }
+            };
+        }
+    } else if #[cfg(feature = "sqlite")] {
+        pub async fn add_to_timeline(
+            ap_to: Option<String>,
+            cc: Option<String>,
+            timeline_item: TimelineItem,
+        ) {
+            if let Some(ap_to) = ap_to {
+                if let Ok(to_vec) = serde_json::from_str::<Vec<String>>(&ap_to.clone()) {
+                    for to in to_vec {
+                        log::debug!("ADDING TO FOR {to}");
+                        add_timeline_item_to_for_recipient(&to, &timeline_item).await;
+                    }
+                } else {
+                    log::error!("TO VALUE NOT A VEC: {ap_to:#?}");
+                }
+            }
+
+            if let Some(cc) = cc {
+                if let Ok(cc_vec) = serde_json::from_str::<Vec<String>>(&cc.clone()) {
+                    for cc in cc_vec {
+                        log::debug!("ADDING CC FOR {cc}");
+                        add_timeline_item_cc_for_recipient(&cc, &timeline_item).await;
+                    }
+                } else {
+                    log::error!("CC VALUE NOT A VEC: {cc:#?}");
+                }
+            };
         }
     }
-
-    if let Some(cc) = cc {
-        if let Ok(cc_vec) = serde_json::from_value::<Vec<String>>(cc.clone()) {
-            for cc in cc_vec {
-                log::debug!("ADDING CC FOR {cc}");
-                add_timeline_item_cc_for_recipient(&cc, &timeline_item).await;
-            }
-        } else {
-            log::error!("CC VALUE NOT A VEC: {cc:#?}");
-        }
-    };
 }

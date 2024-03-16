@@ -1,4 +1,5 @@
 use std::collections::HashSet;
+use anyhow::Result;
 
 use crate::{
     activity_pub::{
@@ -38,61 +39,71 @@ pub async fn handle_encrypted_note(
         inboxes: &mut HashSet<String>,
         note: &mut Note,
         sender: Profile,
-    ) {
+    ) -> Result<()> {
         if let ApInstrumentType::OlmSession = instrument.kind {
-            if let Ok(to) = serde_json::from_value::<Vec<String>>(note.ap_to.clone()) {
-                // save encrypted session
-                if let Some((encrypted_session, _olm_session)) =
-                    get_encrypted_session_by_profile_id_and_ap_to(None, sender.id, to[0].clone())
-                        .await
-                {
-                    if let (Some(uuid), Some(hash), Some(content)) = (
-                        instrument.clone().uuid,
-                        instrument.clone().hash,
-                        instrument.clone().content,
-                    ) {
-                        log::debug!("FOUND UUID - UPDATING EXISTING SESSION");
-                        if let Some(_session) = update_olm_session(None, uuid, content, hash).await
-                        {
-                            if let Some(receiver) = get_actor(sender.clone(), to[0].clone()).await {
-                                inboxes.insert(receiver.0.inbox);
-                            }
+            cfg_if::cfg_if! {
+                if #[cfg(feature = "pg")] {
+                    let to = serde_json::from_value::<Vec<String>>(note.ap_to.clone())?;
+                } else if #[cfg(feature = "sqlite")] {
+                    let to = serde_json::from_str::<Vec<String>>(&note.ap_to.clone())?;
+                }
+            }
+            // save encrypted session
+            if let Some((encrypted_session, _olm_session)) =
+                get_encrypted_session_by_profile_id_and_ap_to(None, sender.id, to[0].clone())
+                .await
+            {
+                if let (Some(uuid), Some(hash), Some(content)) = (
+                    instrument.clone().uuid,
+                    instrument.clone().hash,
+                    instrument.clone().content,
+                ) {
+                    log::debug!("FOUND UUID - UPDATING EXISTING SESSION");
+                    if let Some(_session) = update_olm_session(None, uuid, content, hash).await
+                    {
+                        if let Some(receiver) = get_actor(sender.clone(), to[0].clone()).await {
+                            inboxes.insert(receiver.0.inbox);
                         }
-                    } else {
-                        log::debug!("NO UUID - CREATING NEW SESSION");
-                        if let Some(_session) =
-                            create_olm_session(None, (instrument, encrypted_session.id).into())
-                                .await
-                        {
-                            if let Some(receiver) = get_actor(sender.clone(), to[0].clone()).await {
-                                inboxes.insert(receiver.0.inbox);
-                            }
+                    }
+                } else {
+                    log::debug!("NO UUID - CREATING NEW SESSION");
+                    if let Some(_session) =
+                        create_olm_session(None, (instrument, encrypted_session.id).into())
+                        .await
+                    {
+                        if let Some(receiver) = get_actor(sender.clone(), to[0].clone()).await {
+                            inboxes.insert(receiver.0.inbox);
                         }
                     }
                 }
             }
         }
+
+        Ok(())
     }
 
     if let Some(instrument) = &note.instrument {
-        if let Ok(instruments) = serde_json::from_value::<ApInstruments>(instrument.clone()) {
-            match instruments {
-                ApInstruments::Multiple(instruments) => {
-                    for instrument in instruments {
-                        do_it(instrument, inboxes, note, sender.clone()).await;
-                    }
-                }
-                ApInstruments::Single(instrument) => {
-                    do_it(instrument, inboxes, note, sender).await;
-                }
-                _ => (),
+        cfg_if::cfg_if! {
+            if #[cfg(feature = "pg")] {
+                let instruments = serde_json::from_value::<ApInstruments>(instrument.clone()).ok()?;
+            } else if #[cfg(feature = "sqlite")] {
+                let instruments = serde_json::from_str::<ApInstruments>(&instrument.clone()).ok()?;
             }
-
-            Some(note.clone().into())
-        } else {
-            log::error!("INVALID INSTRUMENT\n{instrument:#?}");
-            Option::None
         }
+        
+        match instruments {
+            ApInstruments::Multiple(instruments) => {
+                for instrument in instruments {
+                    let _ = do_it(instrument, inboxes, note, sender.clone()).await;
+                }
+            }
+            ApInstruments::Single(instrument) => {
+                let _ = do_it(instrument, inboxes, note, sender).await;
+            }
+            _ => (),
+        }
+
+        Some(note.clone().into())    
     } else {
         log::error!("NO instrument");
         Option::None

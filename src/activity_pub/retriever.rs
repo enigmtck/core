@@ -141,7 +141,14 @@ pub async fn get_local_or_cached_actor(
             Some(actor_profile.into())
         }
     } else if let Ok(remote_actor) = get_remote_actor_by_ap_id(conn.into(), id.clone()).await {
-        let now = Utc::now();
+        cfg_if::cfg_if! {
+            if #[cfg(feature = "pg")] {
+                let now = Utc::now();
+            } else if #[cfg(feature = "sqlite")] {
+                let now = Utc::now().naive_utc();
+            }
+        }
+        
         let updated = remote_actor.checked_at;
 
         if update && now - updated > Duration::days(1) {

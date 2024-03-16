@@ -1,5 +1,4 @@
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 
 use crate::{DOMAIN_RE, LOCAL_RE, LOCAL_URL_RE, WEBFINGER_RE};
 
@@ -86,11 +85,26 @@ pub fn get_activity_ap_id_from_uuid(uuid: String) -> String {
     format!("https://{}/activities/{uuid}", *crate::SERVER_NAME)
 }
 
-pub fn handle_option(v: Value) -> Option<Value> {
-    if v == Value::Null {
-        None
-    } else {
-        Some(v)
+cfg_if::cfg_if! {
+    if #[cfg(feature = "pg")] {
+        use serde_json::Value;
+        
+        pub fn handle_option(v: Value) -> Option<Value> {
+            if v == Value::Null {
+                None
+            } else {
+                Some(v)
+            }
+        }
+    } else if #[cfg(feature = "sqlite")] {
+        pub fn handle_option(v: String) -> Option<String> {
+            if String::is_empty(&v) {
+                None
+            } else {
+                Some(v)
+            }
+        }
+
     }
 }
 

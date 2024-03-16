@@ -20,7 +20,7 @@ use crate::{
     helper::get_note_ap_id_from_uuid,
     models::{
         activities::get_activity_by_uuid,
-        notes::{Note, NoteType},
+        notes::Note,
         profiles::Profile,
         remote_notes::RemoteNote,
     },
@@ -143,29 +143,60 @@ pub async fn outbound_note_task(
             .iter()
             .map(|tag| async { create_note_hashtag(None, tag.clone()).await });
 
-        let activity = match note.kind {
-            NoteType::Note => {
-                if let Ok(activity) = ApActivity::try_from((
-                    (
-                        activity,
-                        target_note,
-                        target_remote_note,
-                        target_profile,
-                        target_remote_actor,
-                    ),
-                    None,
-                )) {
-                    Some(activity)
-                } else {
-                    None
-                }
+        cfg_if::cfg_if! {
+            if #[cfg(feature = "pg")] {
+                use crate::models::notes::NoteType;
+                
+                let activity = match note.kind {
+                    NoteType::Note => {
+                        if let Ok(activity) = ApActivity::try_from((
+                            (
+                                activity,
+                                target_note,
+                                target_remote_note,
+                                target_profile,
+                                target_remote_actor,
+                            ),
+                            None,
+                        )) {
+                            Some(activity)
+                        } else {
+                            None
+                        }
+                    }
+                    // NoteType::EncryptedNote => {
+                    //     handle_encrypted_note(&mut note, sender.clone())
+                    //         .map(ApActivity::Create(ApCreate::from))
+                    // }
+                    _ => None,
+                };
+            } else if #[cfg(feature = "sqlite")] {
+                let activity = {
+                    if note.kind.to_lowercase().as_str() == "note" {
+                        if let Ok(activity) = ApActivity::try_from((
+                            (
+                                activity,
+                                target_note,
+                                target_remote_note,
+                                target_profile,
+                                target_remote_actor,
+                            ),
+                            None,
+                        )) {
+                            Some(activity)
+                        } else {
+                            None
+                        }
+                    } else {
+                        // NoteType::EncryptedNote => {
+                        //     handle_encrypted_note(&mut note, sender.clone())
+                        //         .map(ApActivity::Create(ApCreate::from))
+                        // }
+                        None
+                    }
+                };
             }
-            // NoteType::EncryptedNote => {
-            //     handle_encrypted_note(&mut note, sender.clone())
-            //         .map(ApActivity::Create(ApCreate::from))
-            // }
-            _ => None,
-        };
+        }
 
         add_note_to_timeline(note, sender.clone()).await;
 
@@ -352,7 +383,13 @@ pub async fn handle_remote_encrypted_note_task(
     log::debug!("adding to processing queue");
 
     if let Some(ap_to) = remote_note.clone().ap_to {
-        let _to_vec: Vec<String> = serde_json::from_value(ap_to)?;
+        cfg_if::cfg_if! {
+            if #[cfg(feature = "pg")] {
+                let _to_vec: Vec<String> = serde_json::from_value(ap_to)?;
+            } else if #[cfg(feature = "sqlite")] {
+                let _to_vec: Vec<String> = serde_json::from_str(&ap_to)?;
+            }
+        }
 
         // need to refactor this because of the async in the closures
         // to_vec
@@ -378,14 +415,30 @@ pub async fn remote_note_task(
     log::debug!("looking for ap_id: {}", ap_id);
 
     if let Some(remote_note) = get_remote_note_by_ap_id(conn, ap_id).await {
-        match remote_note.kind {
-            NoteType::Note => {
-                let _ = handle_remote_note(channels, remote_note.clone(), None).await;
+        cfg_if::cfg_if! {
+            if #[cfg(feature = "pg")] {
+                use crate::models::notes::NoteType;
+                
+                match remote_note.kind {
+                    NoteType::Note => {
+                        let _ = handle_remote_note(channels, remote_note.clone(), None).await;
+                    }
+                    NoteType::EncryptedNote => {
+                        let _ = handle_remote_encrypted_note_task(conn, remote_note).await;
+                    }
+                    _ => (),
+                }
+            } else if #[cfg(feature = "sqlite")] {
+                match remote_note.kind.as_str() {
+                    "note" => {
+                        let _ = handle_remote_note(channels.clone(), remote_note.clone(), None).await;
+                    }
+                    "encrypted_note" => {
+                        let _ = handle_remote_encrypted_note_task(conn, remote_note).await;
+                    }
+                    _ => (),
+                }
             }
-            NoteType::EncryptedNote => {
-                let _ = handle_remote_encrypted_note_task(conn, remote_note).await;
-            }
-            _ => (),
         }
     }
 

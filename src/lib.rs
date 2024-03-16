@@ -6,15 +6,11 @@ extern crate rocket;
 
 extern crate diesel;
 
-#[cfg(all(feature = "pg", feature = "sqlite"))]
-compile_error!("feature \"pg\" and feature \"sqlite\" cannot be enabled at the same time");
-
 use activity_pub::{ApActivity, ApObject};
 use anyhow::anyhow;
 use anyhow::Result;
 use db::Pool;
 use diesel::r2d2::ConnectionManager;
-use diesel::PgConnection;
 use dotenvy::dotenv;
 use lazy_static::lazy_static;
 use regex::Regex;
@@ -30,7 +26,11 @@ pub mod helper;
 pub mod models;
 pub mod routes;
 pub mod runner;
+
+#[cfg_attr(feature = "pg", path = "schema-pg.rs")]
+#[cfg_attr(feature = "sqlite", path = "schema-sqlite.rs")]
 pub mod schema;
+
 pub mod server;
 pub mod signing;
 pub mod webfinger;
@@ -56,10 +56,19 @@ lazy_static! {
         Regex::new(r#"(\w+)="(.+?)""#).expect("invalid assignment regex");
     pub static ref POOL: Pool = {
         dotenv().ok();
-        Pool::new(ConnectionManager::<PgConnection>::new(
-            env::var("DATABASE_URL").expect("DATABASE_URL must be set"),
-        ))
-        .expect("failed to create db pool")
+        cfg_if::cfg_if! {
+            if #[cfg(feature = "pg")] {
+                Pool::new(ConnectionManager::<diesel::PgConnection>::new(
+                    env::var("DATABASE_URL").expect("DATABASE_URL must be set"),
+                ))
+                    .expect("failed to create db pool")
+            } else if #[cfg(feature = "sqlite")] {
+                Pool::new(ConnectionManager::<diesel::SqliteConnection>::new(
+                    env::var("DATABASE_URL").expect("DATABASE_URL must be set"),
+                ))
+                    .expect("failed to create db pool")
+            }
+        }
     };
     pub static ref DEFAULT_AVATAR: String = {
         dotenv().ok();

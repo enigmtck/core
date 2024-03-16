@@ -15,6 +15,7 @@ use serde_json::Value;
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub enum ApAddType {
     #[default]
+    #[serde(alias = "add")]
     Add,
 }
 

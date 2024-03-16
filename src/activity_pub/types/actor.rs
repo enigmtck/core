@@ -79,12 +79,18 @@ pub struct ApCapabilities {
 
 #[derive(Serialize, PartialEq, Eq, Deserialize, Clone, Debug, Default)]
 pub enum ApActorType {
+    #[serde(alias = "application")]
     Application,
+    #[serde(alias = "group")]
     Group,
+    #[serde(alias = "organization")]
     Organization,
+    #[serde(alias = "person")]
     Person,
+    #[serde(alias = "service")]
     Service,
     #[default]
+    #[serde(alias = "unknown")]
     Unknown,
 }
 
@@ -347,7 +353,20 @@ impl From<Profile> for ApActor {
             featured: None,
             featured_tags: None,
             manually_approves_followers: Some(false),
-            published: Some(profile.created_at.to_rfc3339()),
+            published: {
+                cfg_if::cfg_if! {
+                    if #[cfg(feature = "pg")] {
+                        Some(profile.created_at.to_rfc3339())
+                    } else if #[cfg(feature = "sqlite")] {
+                        use chrono::{DateTime, Utc};
+                        
+                        Some(DateTime::<Utc>::from_naive_utc_and_offset(
+                            profile.created_at,
+                            Utc,
+                        ).to_rfc3339())
+                    }
+                }
+            },
             liked: Some(format!("{}/user/{}/liked", server_url, profile.username)),
             public_key: ApPublicKey {
                 id: format!("{}/user/{}#main-key", server_url, profile.username),
@@ -408,43 +427,109 @@ impl From<ExtendedRemoteActor> for ApActor {
     }
 }
 
-impl From<RemoteActor> for ApActor {
-    fn from(actor: RemoteActor) -> Self {
-        ApActor {
-            context: Some(ApContext::Plain(
-                "https://www.w3.org/ns/activitystreams".to_string(),
-            )),
-            kind: ApActorType::Person,
-            name: Some(actor.name),
-            summary: actor.summary,
-            id: Some(ApAddress::Address(actor.ap_id)),
-            preferred_username: actor.preferred_username.unwrap_or_default(),
-            inbox: actor.inbox,
-            outbox: actor.outbox,
-            followers: actor.followers,
-            following: actor.following,
-            subscribers: None,
-            liked: actor.liked,
-            public_key: serde_json::from_value(actor.public_key.into()).unwrap(),
-            featured: actor.featured,
-            featured_tags: actor.featured_tags,
-            url: actor.url,
-            manually_approves_followers: actor.manually_approves_followers,
-            published: actor.published,
-            tag: serde_json::from_value(actor.tag.into()).unwrap(),
-            attachment: serde_json::from_value(actor.attachment.into()).unwrap(),
-            endpoints: serde_json::from_value(actor.endpoints.into()).unwrap(),
-            icon: serde_json::from_value(actor.icon.into()).unwrap(),
-            image: serde_json::from_value(actor.image.into()).unwrap(),
-            also_known_as: serde_json::from_value(actor.also_known_as.into()).unwrap(),
-            discoverable: actor.discoverable,
-            capabilities: serde_json::from_value(actor.capabilities.into()).unwrap(),
-            ephemeral_following: None,
-            ephemeral_leader_ap_id: None,
-            ephemeral_summary_markdown: None,
-            ephemeral_followers: None,
-            ephemeral_leaders: None,
-            ephemeral_follow_activity_ap_id: None,
+cfg_if::cfg_if! {
+    if #[cfg(feature = "pg")] {
+        impl From<RemoteActor> for ApActor {
+            fn from(actor: RemoteActor) -> Self {
+                ApActor {
+                    context: Some(ApContext::Plain(
+                        "https://www.w3.org/ns/activitystreams".to_string(),
+                    )),
+                    kind: ApActorType::Person,
+                    name: Some(actor.name),
+                    summary: actor.summary,
+                    id: Some(ApAddress::Address(actor.ap_id)),
+                    preferred_username: actor.preferred_username.unwrap_or_default(),
+                    inbox: actor.inbox,
+                    outbox: actor.outbox,
+                    followers: actor.followers,
+                    following: actor.following,
+                    subscribers: None,
+                    liked: actor.liked,
+                    public_key: serde_json::from_value(actor.public_key.into()).unwrap(),
+                    featured: actor.featured,
+                    featured_tags: actor.featured_tags,
+                    url: actor.url,
+                    manually_approves_followers: actor.manually_approves_followers,
+                    published: actor.published,
+                    tag: serde_json::from_value(actor.tag.into()).unwrap(),
+                    attachment: serde_json::from_value(actor.attachment.into()).unwrap(),
+                    endpoints: serde_json::from_value(actor.endpoints.into()).unwrap(),
+                    icon: serde_json::from_value(actor.icon.into()).unwrap(),
+                    image: serde_json::from_value(actor.image.into()).unwrap(),
+                    also_known_as: serde_json::from_value(actor.also_known_as.into()).unwrap(),
+                    discoverable: actor.discoverable,
+                    capabilities: serde_json::from_value(actor.capabilities.into()).unwrap(),
+                    ephemeral_following: None,
+                    ephemeral_leader_ap_id: None,
+                    ephemeral_summary_markdown: None,
+                    ephemeral_followers: None,
+                    ephemeral_leaders: None,
+                    ephemeral_follow_activity_ap_id: None,
+                }
+            }
+        }
+    } else if #[cfg(feature = "sqlite")] {
+        impl From<RemoteActor> for ApActor {
+            fn from(actor: RemoteActor) -> Self {
+                ApActor {
+                    context: Some(ApContext::Plain(
+                        "https://www.w3.org/ns/activitystreams".to_string(),
+                    )),
+                    kind: ApActorType::Person,
+                    name: Some(actor.name),
+                    summary: actor.summary,
+                    id: Some(ApAddress::Address(actor.ap_id)),
+                    preferred_username: actor.preferred_username.unwrap_or_default(),
+                    inbox: actor.inbox,
+                    outbox: actor.outbox,
+                    followers: actor.followers,
+                    following: actor.following,
+                    subscribers: None,
+                    liked: actor.liked,
+                    public_key: serde_json::from_str(&actor.public_key).unwrap(),
+                    featured: actor.featured,
+                    featured_tags: actor.featured_tags,
+                    url: actor.url,
+                    manually_approves_followers: actor.manually_approves_followers,
+                    published: actor.published,
+                    tag: actor
+                        .tag
+                        .as_deref()
+                        .and_then(|x| serde_json::from_str(x).ok()),
+                    attachment: actor
+                        .attachment
+                        .as_deref()
+                        .and_then(|x| serde_json::from_str(x).ok()),
+                    endpoints: actor
+                        .endpoints
+                        .as_deref()
+                        .and_then(|x| serde_json::from_str(x).ok()),
+                    icon: actor
+                        .icon
+                        .as_deref()
+                        .and_then(|x| serde_json::from_str(x).ok()),
+                    image: actor
+                        .image
+                        .as_deref()
+                        .and_then(|x| serde_json::from_str(x).ok()),
+                    also_known_as: actor
+                        .also_known_as
+                        .as_deref()
+                        .and_then(|x| serde_json::from_str(x).ok()),
+                    discoverable: actor.discoverable,
+                    capabilities: actor
+                        .capabilities
+                        .as_deref()
+                        .and_then(|x| serde_json::from_str(x).ok()),
+                    ephemeral_following: None,
+                    ephemeral_leader_ap_id: None,
+                    ephemeral_summary_markdown: None,
+                    ephemeral_followers: None,
+                    ephemeral_leaders: None,
+                    ephemeral_follow_activity_ap_id: None,
+                }
+            }
         }
     }
 }

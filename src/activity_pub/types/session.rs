@@ -62,15 +62,20 @@ impl Default for ApSession {
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub enum ApSessionType {
     #[default]
+    #[serde(alias = "encrypted_session")]
     EncryptedSession,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub enum ApInstrumentType {
     #[default]
+    #[serde(alias = "identity_key")]
     IdentityKey,
+    #[serde(alias = "session_key")]
     SessionKey,
+    #[serde(alias = "olm_session")]
     OlmSession,
+    #[serde(alias = "service")]
     Service,
 }
 
@@ -157,6 +162,14 @@ impl From<JoinData> for ApSession {
 
 impl From<EncryptedSession> for ApSession {
     fn from(session: EncryptedSession) -> ApSession {
+        cfg_if::cfg_if! {
+            if #[cfg(feature = "pg")] {
+                let instrument = serde_json::from_value(session.instrument).unwrap();
+            } else if #[cfg(feature = "sqlite")] {
+                let instrument = serde_json::from_str(&session.instrument).unwrap();
+            }
+        }
+        
         ApSession {
             id: Option::from(format!(
                 "https://{}/session/{}",
@@ -166,7 +179,7 @@ impl From<EncryptedSession> for ApSession {
             reference: session.reference,
             to: ApAddress::Address(session.ap_to),
             attributed_to: ApAddress::Address(session.attributed_to),
-            instrument: serde_json::from_value(session.instrument).unwrap(),
+            instrument,
             uuid: Some(session.uuid),
 
             ..Default::default()
@@ -200,7 +213,13 @@ impl From<JoinedOlmSession> for ApSession {
 
 impl From<RemoteEncryptedSession> for ApSession {
     fn from(session: RemoteEncryptedSession) -> ApSession {
-        let instrument: ApInstruments = serde_json::from_value(session.instrument).unwrap();
+        cfg_if::cfg_if! {
+            if #[cfg(feature = "pg")] {
+                let instrument = serde_json::from_value(session.instrument).unwrap();
+            } else if #[cfg(feature = "sqlite")] {
+                let instrument = serde_json::from_str(&session.instrument).unwrap();
+            }
+        }
 
         ApSession {
             id: Option::from(session.ap_id),

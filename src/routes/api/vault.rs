@@ -111,9 +111,27 @@ pub struct VaultRetrievalItem {
 
 impl From<VaultItem> for VaultRetrievalItem {
     fn from(item: VaultItem) -> Self {
+        cfg_if::cfg_if! {
+            if #[cfg(feature = "pg")] {
+                let created_at = item.created_at.to_rfc3339();
+                let updated_at = item.updated_at.to_rfc3339();
+            } else if #[cfg(feature = "sqlite")] {
+                use chrono::{DateTime, Utc};
+                
+                let created_at = DateTime::<Utc>::from_naive_utc_and_offset(
+                    item.created_at,
+                    Utc,
+                ).to_rfc3339();
+                let updated_at = DateTime::<Utc>::from_naive_utc_and_offset(
+                    item.updated_at,
+                    Utc,
+                ).to_rfc3339();
+            }
+        }
+        
         VaultRetrievalItem {
-            created_at: item.created_at.to_rfc2822(),
-            updated_at: item.updated_at.to_rfc2822(),
+            created_at,
+            updated_at,
             uuid: item.uuid,
             remote_actor: item.remote_actor,
             data: item.encrypted_data,
