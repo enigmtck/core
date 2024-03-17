@@ -29,7 +29,7 @@ COPY client /opt/build/client
 COPY migrations /opt/build/migrations
 COPY rust-toolchain.toml /opt/build
 
-RUN source /root/.cargo/env && cargo build --bin enigmatick --release
+RUN source /root/.cargo/env && cargo build --no-default-features -F pg --bin enigmatick --release
 
 FROM ubuntu:22.04
 RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y \
