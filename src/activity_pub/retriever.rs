@@ -89,6 +89,7 @@ async fn get_remote_webfinger(acct: String) -> Option<WebFinger> {
     let client = Client::new();
 
     if let Ok(response) = client.get(&url).send().await {
+        // fix this unwrap
         let response: WebFinger = response.json().await.unwrap();
         Some(response)
     } else {
