@@ -6,6 +6,7 @@ RUN echo 'debconf debconf/frontend select Noninteractive' | debconf-set-selectio
 
 RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y \
   libpq-dev \
+  libsqlite3-dev \
   ssl-cert \
   ca-certificates \
   curl \
@@ -26,7 +27,8 @@ RUN source /root/.cargo/env && rustup +nightly default
 COPY Cargo.* /opt/build/
 COPY src /opt/build/src
 COPY client /opt/build/client
-COPY migrations /opt/build/migrations
+COPY bundled /opt/build/bundled
+COPY migrations.pg /opt/build/migrations.pg
 COPY rust-toolchain.toml /opt/build
 
 RUN source /root/.cargo/env && cargo build --no-default-features -F pg --bin enigmatick --release
