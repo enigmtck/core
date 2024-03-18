@@ -70,7 +70,7 @@ pub fn get_local_identifier(ap_id: String) -> Option<LocalIdentifier> {
 }
 
 pub fn get_followers_ap_id_from_username(username: String) -> String {
-    format!("{}/user/{username}/folowers", *crate::SERVER_URL)
+    format!("{}/user/{username}/followers", *crate::SERVER_URL)
 }
 
 pub fn get_ap_id_from_username(username: String) -> String {
