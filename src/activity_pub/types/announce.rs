@@ -5,10 +5,10 @@ use crate::{
     activity_pub::{ApActivity, ApAddress, ApContext, ApNote, ApObject, Inbox, Outbox, Temporal},
     db::Db,
     fairings::events::EventChannels,
-    helper::{get_activity_ap_id_from_uuid, get_ap_id_from_username},
+    helper::get_activity_ap_id_from_uuid,
     models::{
-        activities::{create_activity, ActivityType, ExtendedActivity, NewActivity},
-        notes::{get_notey, NoteLike},
+        activities::{create_activity, ActivityType, ExtendedActivity, NewActivity, NoteActivity},
+        notes::get_notey,
         profiles::Profile,
     },
     runner, MaybeMultiple, MaybeReference,
@@ -97,22 +97,15 @@ async fn outbox(
     profile: Profile,
 ) -> Result<String, Status> {
     if let MaybeReference::Reference(id) = announce.object {
-        let note_like = get_notey(&conn, id).await;
-
-        let note_like = note_like.ok_or(Status::new(520))?;
-        let (note, remote_note) = match note_like {
-            NoteLike::Note(note) => (Some(note), None),
-            NoteLike::RemoteNote(remote_note) => (None, Some(remote_note)),
-        };
+        let note_like = get_notey(&conn, id).await.ok_or(Status::new(520))?;
 
         let activity = create_activity(
             Some(&conn),
-            NewActivity::from((
-                note.clone(),
-                remote_note.clone(),
-                ActivityType::Announce,
-                ApAddress::Address(get_ap_id_from_username(profile.username.clone())),
-            ))
+            NewActivity::from(NoteActivity {
+                note: note_like,
+                profile: profile.clone(),
+                kind: ActivityType::Announce,
+            })
             .link_profile(&conn)
             .await,
         )
@@ -155,7 +148,7 @@ cfg_if::cfg_if! {
             fn try_from(
                 (activity, note, remote_note, _profile, _remote_actor): ExtendedActivity,
             ) -> Result<Self, Self::Error> {
-                if activity.kind == ActivityType::Announce {
+                if activity.kind == crate::models::activities::ActivityType::Announce {
                     match (note, remote_note, activity.ap_to) {
                         (Some(note), None, Some(ap_to)) => Ok(ApAnnounce {
                             context: Some(ApContext::default()),
@@ -199,7 +192,7 @@ cfg_if::cfg_if! {
                     Err("NOT AN ANNOUNCE ACTIVITY")
                 }
             }
-        }                        
+        }
     } else if #[cfg(feature = "sqlite")] {
         impl TryFrom<ExtendedActivity> for ApAnnounce {
             type Error = &'static str;

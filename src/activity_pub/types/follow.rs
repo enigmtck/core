@@ -147,7 +147,7 @@ async fn outbox(
 
 impl TryFrom<ExtendedActivity> for ApFollow {
     type Error = &'static str;
-   
+
     fn try_from(
         (activity, _note, _remote_note, profile, remote_actor): ExtendedActivity,
     ) -> Result<Self, Self::Error> {
@@ -162,7 +162,7 @@ impl TryFrom<ExtendedActivity> for ApFollow {
                 let follow = activity.kind.as_str() == "follow";
             }
         }
-        
+
         if follow {
             match (profile, remote_actor) {
                 (Some(profile), None) => Ok(ApFollow {

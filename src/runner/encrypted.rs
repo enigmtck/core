@@ -1,5 +1,5 @@
-use std::collections::HashSet;
 use anyhow::Result;
+use std::collections::HashSet;
 
 use crate::{
     activity_pub::{
@@ -50,8 +50,7 @@ pub async fn handle_encrypted_note(
             }
             // save encrypted session
             if let Some((encrypted_session, _olm_session)) =
-                get_encrypted_session_by_profile_id_and_ap_to(None, sender.id, to[0].clone())
-                .await
+                get_encrypted_session_by_profile_id_and_ap_to(None, sender.id, to[0].clone()).await
             {
                 if let (Some(uuid), Some(hash), Some(content)) = (
                     instrument.clone().uuid,
@@ -59,8 +58,7 @@ pub async fn handle_encrypted_note(
                     instrument.clone().content,
                 ) {
                     log::debug!("FOUND UUID - UPDATING EXISTING SESSION");
-                    if let Some(_session) = update_olm_session(None, uuid, content, hash).await
-                    {
+                    if let Some(_session) = update_olm_session(None, uuid, content, hash).await {
                         if let Some(receiver) = get_actor(sender.clone(), to[0].clone()).await {
                             inboxes.insert(receiver.0.inbox);
                         }
@@ -68,8 +66,7 @@ pub async fn handle_encrypted_note(
                 } else {
                     log::debug!("NO UUID - CREATING NEW SESSION");
                     if let Some(_session) =
-                        create_olm_session(None, (instrument, encrypted_session.id).into())
-                        .await
+                        create_olm_session(None, (instrument, encrypted_session.id).into()).await
                     {
                         if let Some(receiver) = get_actor(sender.clone(), to[0].clone()).await {
                             inboxes.insert(receiver.0.inbox);
@@ -90,7 +87,7 @@ pub async fn handle_encrypted_note(
                 let instruments = serde_json::from_str::<ApInstruments>(&instrument.clone()).ok()?;
             }
         }
-        
+
         match instruments {
             ApInstruments::Multiple(instruments) => {
                 for instrument in instruments {
@@ -103,7 +100,7 @@ pub async fn handle_encrypted_note(
             _ => (),
         }
 
-        Some(note.clone().into())    
+        Some(note.clone().into())
     } else {
         log::error!("NO instrument");
         Option::None

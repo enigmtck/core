@@ -57,7 +57,7 @@ impl TryFrom<String> for ApAttachment {
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub enum ApDocumentType {
     #[serde(alias = "document")]
-    Document
+    Document,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]

@@ -1,5 +1,5 @@
+use log::{debug, error, info};
 use reqwest::Client;
-use log::{debug, info, error};
 use url::Url;
 
 use crate::activity_pub::ApActivity;

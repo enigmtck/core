@@ -27,6 +27,7 @@ pub mod models;
 pub mod routes;
 pub mod runner;
 
+#[allow(unused_attributes)]
 #[cfg_attr(feature = "pg", path = "schema-pg.rs")]
 #[cfg_attr(feature = "sqlite", path = "schema-sqlite.rs")]
 pub mod schema;

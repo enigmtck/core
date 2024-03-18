@@ -117,7 +117,7 @@ impl From<VaultItem> for VaultRetrievalItem {
                 let updated_at = item.updated_at.to_rfc3339();
             } else if #[cfg(feature = "sqlite")] {
                 use chrono::{DateTime, Utc};
-                
+
                 let created_at = DateTime::<Utc>::from_naive_utc_and_offset(
                     item.created_at,
                     Utc,
@@ -128,7 +128,7 @@ impl From<VaultItem> for VaultRetrievalItem {
                 ).to_rfc3339();
             }
         }
-        
+
         VaultRetrievalItem {
             created_at,
             updated_at,

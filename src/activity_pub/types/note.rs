@@ -12,9 +12,9 @@ use crate::{
         get_note_url_from_uuid,
     },
     models::{
-        activities::{create_activity, Activity, ActivityType, NewActivity},
+        activities::{create_activity, Activity, ActivityType, NewActivity, NoteActivity},
         cache::{cache_content, Cache},
-        notes::{create_note, NewNote, Note, NoteType},
+        notes::{create_note, NewNote, Note, NoteLike, NoteType},
         profiles::Profile,
         remote_notes::RemoteNote,
         timeline::{TimelineItem, TimelineItemCc},
@@ -272,7 +272,6 @@ impl Default for ApNote {
 }
 
 type IdentifiedVaultItem = (VaultItem, Profile);
-
 
 impl From<IdentifiedVaultItem> for ApNote {
     cfg_if::cfg_if! {
@@ -750,8 +749,6 @@ fn metadata(remote_note: &RemoteNote) -> Vec<Metadata> {
 
 impl From<RemoteNote> for ApNote {
     fn from(remote_note: RemoteNote) -> ApNote {
-        
-
         cfg_if::cfg_if! {
             if #[cfg(feature = "pg")] {
                 let kind = match remote_note.kind {
@@ -759,7 +756,7 @@ impl From<RemoteNote> for ApNote {
                     NoteType::EncryptedNote => ApNoteType::EncryptedNote,
                     _ => ApNoteType::default(),
                 };
-                
+
                 ApNote {
                     id: Some(remote_note.ap_id.clone()),
                     kind,
@@ -898,12 +895,11 @@ async fn handle_note(
 
     let activity = create_activity(
         Some(&conn),
-        NewActivity::from((
-            Some(created_note.clone()),
-            None,
-            ActivityType::Create,
-            ApAddress::Address(get_ap_id_from_username(profile.username.clone())),
-        ))
+        NewActivity::from(NoteActivity {
+            note: NoteLike::Note(created_note.clone()),
+            profile,
+            kind: ActivityType::Create,
+        })
         .link_profile(&conn)
         .await,
     )

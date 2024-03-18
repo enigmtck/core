@@ -359,7 +359,7 @@ impl From<Profile> for ApActor {
                         Some(profile.created_at.to_rfc3339())
                     } else if #[cfg(feature = "sqlite")] {
                         use chrono::{DateTime, Utc};
-                        
+
                         Some(DateTime::<Utc>::from_naive_utc_and_offset(
                             profile.created_at,
                             Utc,

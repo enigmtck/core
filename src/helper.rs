@@ -69,26 +69,30 @@ pub fn get_local_identifier(ap_id: String) -> Option<LocalIdentifier> {
     }
 }
 
+pub fn get_followers_ap_id_from_username(username: String) -> String {
+    format!("{}/user/{username}/folowers", *crate::SERVER_URL)
+}
+
 pub fn get_ap_id_from_username(username: String) -> String {
-    format!("https://{}/user/{username}", *crate::SERVER_NAME)
+    format!("{}/user/{username}", *crate::SERVER_URL)
 }
 
 pub fn get_note_ap_id_from_uuid(uuid: String) -> String {
-    format!("https://{}/notes/{uuid}", *crate::SERVER_NAME)
+    format!("{}/notes/{uuid}", *crate::SERVER_URL)
 }
 
 pub fn get_note_url_from_uuid(uuid: String) -> String {
-    format!("https://{}/notes?uuid={uuid}", *crate::SERVER_NAME)
+    format!("{}/notes?uuid={uuid}", *crate::SERVER_URL)
 }
 
 pub fn get_activity_ap_id_from_uuid(uuid: String) -> String {
-    format!("https://{}/activities/{uuid}", *crate::SERVER_NAME)
+    format!("{}/activities/{uuid}", *crate::SERVER_URL)
 }
 
 cfg_if::cfg_if! {
     if #[cfg(feature = "pg")] {
         use serde_json::Value;
-        
+
         pub fn handle_option(v: Value) -> Option<Value> {
             if v == Value::Null {
                 None

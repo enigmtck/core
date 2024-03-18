@@ -7,10 +7,10 @@ use crate::{
     },
     db::Db,
     fairings::events::EventChannels,
-    helper::{get_activity_ap_id_from_uuid, get_ap_id_from_username},
+    helper::get_activity_ap_id_from_uuid,
     models::{
-        activities::{create_activity, ActivityType, NewActivity},
-        notes::{get_notey, NoteLike},
+        activities::{create_activity, ActivityType, NewActivity, NoteActivity},
+        notes::get_notey,
         profiles::Profile,
         remote_actors::delete_remote_actor_by_ap_id,
         remote_notes::{delete_remote_note_by_ap_id, get_remote_note_by_ap_id},
@@ -165,15 +165,14 @@ async fn outbox(
     profile: Profile,
 ) -> Result<String, Status> {
     if let MaybeReference::Reference(id) = delete.object {
-        if let Some(NoteLike::Note(note)) = get_notey(&conn, id).await {
+        if let Some(note) = get_notey(&conn, id).await {
             let activity = create_activity(
                 Some(&conn),
-                NewActivity::from((
-                    Some(note.clone()),
-                    None,
-                    ActivityType::Delete,
-                    ApAddress::Address(get_ap_id_from_username(profile.username.clone())),
-                ))
+                NewActivity::from(NoteActivity {
+                    note,
+                    profile,
+                    kind: ActivityType::Delete,
+                })
                 .link_profile(&conn)
                 .await,
             )
@@ -187,8 +186,6 @@ async fn outbox(
                 vec![activity.uuid.clone()],
             )
             .await;
-            // let _ = to_faktory(faktory, "delete_note", vec![activity.uuid.clone()])
-            //     .map_err(|_| Status::new(522));
             Ok(get_activity_ap_id_from_uuid(activity.uuid))
         } else {
             Err(Status::new(520))

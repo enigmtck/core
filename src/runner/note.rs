@@ -19,10 +19,7 @@ use crate::{
     db::Db,
     helper::get_note_ap_id_from_uuid,
     models::{
-        activities::get_activity_by_uuid,
-        notes::Note,
-        profiles::Profile,
-        remote_notes::RemoteNote,
+        activities::get_activity_by_uuid, notes::Note, profiles::Profile, remote_notes::RemoteNote,
     },
     runner::{
         //encrypted::handle_encrypted_note,
@@ -146,7 +143,7 @@ pub async fn outbound_note_task(
         cfg_if::cfg_if! {
             if #[cfg(feature = "pg")] {
                 use crate::models::notes::NoteType;
-                
+
                 let activity = match note.kind {
                     NoteType::Note => {
                         if let Ok(activity) = ApActivity::try_from((
@@ -418,7 +415,7 @@ pub async fn remote_note_task(
         cfg_if::cfg_if! {
             if #[cfg(feature = "pg")] {
                 use crate::models::notes::NoteType;
-                
+
                 match remote_note.kind {
                     NoteType::Note => {
                         let _ = handle_remote_note(channels, remote_note.clone(), None).await;

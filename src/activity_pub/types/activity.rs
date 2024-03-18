@@ -41,7 +41,7 @@ cfg_if::cfg_if! {
                 ((activity, note, remote_note, profile, remote_actor), recursive): RecursiveActivity,
             ) -> Result<Self, Self::Error> {
                 use crate::models::activities::ActivityType;
-                
+
                 match activity.kind {
                     ActivityType::Create if note.is_some() => {
                         ApCreate::try_from((activity, note, remote_note, profile, remote_actor))

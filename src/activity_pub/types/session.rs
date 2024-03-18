@@ -169,7 +169,7 @@ impl From<EncryptedSession> for ApSession {
                 let instrument = serde_json::from_str(&session.instrument).unwrap();
             }
         }
-        
+
         ApSession {
             id: Option::from(format!(
                 "https://{}/session/{}",

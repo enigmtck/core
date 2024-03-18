@@ -149,7 +149,7 @@ pub async fn get_local_or_cached_actor(
                 let now = Utc::now().naive_utc();
             }
         }
-        
+
         let updated = remote_actor.checked_at;
 
         if update && now - updated > Duration::days(1) {

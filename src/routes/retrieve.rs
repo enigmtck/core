@@ -95,7 +95,7 @@ fn gather_ap_ids(x: &TimelineItem) -> Vec<String> {
                 let tags = serde_json::from_str::<Vec<ApTag>>(&tags).unwrap_or_default();
             }
         }
-        
+
         for tag in tags {
             if let ApTag::Mention(tag) = tag {
                 if let Some(href) = tag.href {

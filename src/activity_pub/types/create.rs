@@ -171,7 +171,7 @@ impl TryFrom<ExtendedActivity> for ApCreate {
                 })
             }
         }
-    }   
+    }
 }
 
 impl Temporal for ApCreate {
