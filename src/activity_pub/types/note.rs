@@ -29,7 +29,7 @@ use webpage::{Webpage, WebpageOptions};
 
 use super::actor::ApAddress;
 
-#[derive(Serialize, Deserialize, Clone, Debug, Default)]
+#[derive(Serialize, Deserialize, Clone, Debug, Default, Eq, PartialEq)]
 pub enum ApNoteType {
     #[default]
     #[serde(alias = "note")]

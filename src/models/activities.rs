@@ -1,5 +1,6 @@
 use crate::activity_pub::{
-    ApAcceptType, ApAnnounceType, ApCreateType, ApFollowType, ApLikeType, ApUndoType,
+    ApAcceptType, ApActivity, ApAddress, ApAnnounceType, ApCreateType, ApFollowType, ApLikeType,
+    ApUndoType,
 };
 use crate::db::Db;
 use crate::helper::{
@@ -8,7 +9,7 @@ use crate::helper::{
 use crate::schema::{
     activities, activities_cc, activities_to, notes, profiles, remote_actors, remote_notes,
 };
-use crate::POOL;
+use crate::{MaybeReference, POOL};
 use diesel::prelude::*;
 use diesel::{AsChangeset, Insertable};
 use serde::{Deserialize, Serialize};
@@ -18,13 +19,22 @@ use super::notes::Note;
 use super::profiles::{get_profile_by_ap_id, Profile};
 use super::remote_actors::RemoteActor;
 use super::remote_notes::RemoteNote;
+use super::to_serde;
 use cfg_if::cfg_if;
 
 cfg_if! {
     if #[cfg(feature = "pg")] {
         pub use super::pg::activities::ActivityType;
+
+        pub fn to_kind(kind: ActivityType) -> ActivityType {
+            kind
+        }
     } else if #[cfg(feature = "sqlite")] {
         pub use super::sqlite::activities::ActivityType;
+
+        pub fn to_kind(kind: ActivityType) -> String {
+            kind.to_string().to_lowercase()
+        }
     }
 }
 
@@ -151,19 +161,200 @@ impl NewActivity {
     }
 }
 
-cfg_if! {
-    if #[cfg(feature = "pg")] {
-        pub use super::pg::activities::ApActivityTarget;
-    } else if #[cfg(feature = "sqlite")] {
-        pub use super::sqlite::activities::ApActivityTarget;
+// cfg_if! {
+//     if #[cfg(feature = "pg")] {
+//         pub use super::pg::activities::ApActivityTarget;
+//     } else if #[cfg(feature = "sqlite")] {
+//         pub use super::sqlite::activities::ApActivityTarget;
+//     }
+// }
+
+pub type ApActivityTarget = (ApActivity, Option<ActivityTarget>);
+
+impl TryFrom<ApActivityTarget> for NewActivity {
+    type Error = &'static str;
+
+    // eventually I may be able to move decomposition logic here (e.g., create target_remote_note, etc.)
+    // that will require the ability to `await` on database calls
+    //
+    // https://blog.rust-lang.org/inside-rust/2023/05/03/stabilizing-async-fn-in-trait.html
+    fn try_from((activity, target): ApActivityTarget) -> Result<Self, Self::Error> {
+        let uuid = uuid::Uuid::new_v4().to_string();
+
+        match activity {
+            ApActivity::Create(create) => Ok(NewActivity {
+                kind: to_kind(create.kind.into()),
+                uuid: uuid.clone(),
+                actor: create.actor.to_string(),
+                ap_to: to_serde(create.to),
+                cc: to_serde(create.cc),
+                revoked: false,
+                ap_id: create
+                    .id
+                    .map_or(Some(get_activity_ap_id_from_uuid(uuid)), Some),
+                ..Default::default()
+            }
+            .link_target(target)
+            .clone()),
+            ApActivity::Announce(announce) => Ok(NewActivity {
+                kind: to_kind(announce.kind.into()),
+                uuid: uuid.clone(),
+                actor: announce.actor.to_string(),
+                ap_to: to_serde(announce.to),
+                cc: to_serde(announce.cc),
+                target_ap_id: announce.object.reference(),
+                revoked: false,
+                ap_id: announce
+                    .id
+                    .map_or(Some(get_activity_ap_id_from_uuid(uuid)), Some),
+                ..Default::default()
+            }
+            .link_target(target)
+            .clone()),
+            ApActivity::Follow(follow) => Ok(NewActivity {
+                kind: to_kind(follow.kind.into()),
+                uuid: uuid.clone(),
+                actor: follow.actor.to_string(),
+                target_ap_id: follow.object.reference(),
+                target_remote_actor_id: None,
+                revoked: false,
+                ap_id: follow
+                    .id
+                    .map_or(Some(get_activity_ap_id_from_uuid(uuid)), Some),
+                ..Default::default()
+            }
+            .link_target(target)
+            .clone()),
+            ApActivity::Accept(accept) => {
+                if let MaybeReference::Actual(ApActivity::Follow(follow)) = accept.object {
+                    Ok(NewActivity {
+                        kind: to_kind(accept.kind.into()),
+                        uuid: uuid.clone(),
+                        actor: accept.actor.to_string(),
+                        target_ap_id: follow.id,
+                        revoked: false,
+                        ap_id: accept
+                            .id
+                            .map_or(Some(get_activity_ap_id_from_uuid(uuid)), Some),
+                        ..Default::default()
+                    }
+                    .link_target(target)
+                    .clone())
+                } else {
+                    Err("ACCEPT OBJECT NOT AN ACTUAL")
+                }
+            }
+            ApActivity::Undo(undo) => match undo.object {
+                MaybeReference::Actual(ApActivity::Follow(follow)) => Ok(NewActivity {
+                    kind: to_kind(undo.kind.into()),
+                    uuid: uuid.clone(),
+                    actor: undo.actor.to_string(),
+                    target_ap_id: follow.id,
+                    revoked: false,
+                    ap_id: undo
+                        .id
+                        .map_or(Some(get_activity_ap_id_from_uuid(uuid)), Some),
+                    ..Default::default()
+                }
+                .link_target(target)
+                .clone()),
+                MaybeReference::Actual(ApActivity::Like(like)) => Ok(NewActivity {
+                    kind: to_kind(undo.kind.into()),
+                    uuid: uuid.clone(),
+                    actor: undo.actor.to_string(),
+                    target_ap_id: like.id,
+                    revoked: false,
+                    ap_id: undo
+                        .id
+                        .map_or(Some(get_activity_ap_id_from_uuid(uuid)), Some),
+                    ..Default::default()
+                }
+                .link_target(target)
+                .clone()),
+                MaybeReference::Actual(ApActivity::Announce(announce)) => Ok(NewActivity {
+                    kind: to_kind(undo.kind.into()),
+                    uuid: uuid.clone(),
+                    actor: undo.actor.to_string(),
+                    target_ap_id: announce.id,
+                    revoked: false,
+                    ap_id: undo
+                        .id
+                        .map_or(Some(get_activity_ap_id_from_uuid(uuid)), Some),
+                    ..Default::default()
+                }
+                .link_target(target)
+                .clone()),
+                _ => Err("UNDO OBJECT NOT IMPLEMENTED"),
+            },
+            ApActivity::Like(like) => Ok(NewActivity {
+                kind: to_kind(like.kind.into()),
+                uuid: uuid.clone(),
+                actor: like.actor.to_string(),
+                target_ap_id: like.object.reference(),
+                revoked: false,
+                ap_id: like
+                    .id
+                    .map_or(Some(get_activity_ap_id_from_uuid(uuid)), Some),
+                ap_to: to_serde(&like.to),
+                ..Default::default()
+            }
+            .link_target(target)
+            .clone()),
+
+            _ => Err("UNIMPLEMENTED ACTIVITY TYPE"),
+        }
     }
 }
 
-cfg_if! {
-    if #[cfg(feature = "pg")] {
-        pub use super::pg::activities::ActorActivity;
-    } else if #[cfg(feature = "sqlite")] {
-        pub use super::sqlite::activities::ActorActivity;
+// cfg_if! {
+//     if #[cfg(feature = "pg")] {
+//         pub use super::pg::activities::ActorActivity;
+//     } else if #[cfg(feature = "sqlite")] {
+//         pub use super::sqlite::activities::ActorActivity;
+//     }
+// }
+
+pub type ActorActivity = (
+    Option<Profile>,
+    Option<RemoteActor>,
+    ActivityType,
+    ApAddress,
+);
+
+impl From<ActorActivity> for NewActivity {
+    fn from((profile, remote_actor, kind, actor): ActorActivity) -> Self {
+        let (ap_to, target_ap_id) = {
+            if let Some(profile) = profile.clone() {
+                (
+                    Some(
+                        to_serde(vec![get_ap_id_from_username(profile.username.clone())]).unwrap(),
+                    ),
+                    Some(get_ap_id_from_username(profile.username)),
+                )
+            } else if let Some(remote_actor) = remote_actor.clone() {
+                (
+                    Some(to_serde(vec![remote_actor.ap_id.clone()]).unwrap()),
+                    Some(remote_actor.ap_id),
+                )
+            } else {
+                (None, None)
+            }
+        };
+
+        let uuid = uuid::Uuid::new_v4().to_string();
+
+        NewActivity {
+            kind: to_kind(kind),
+            uuid: uuid.clone(),
+            actor: actor.to_string(),
+            ap_to,
+            target_profile_id: profile.map(|x| x.id),
+            target_ap_id,
+            target_remote_actor_id: remote_actor.map(|x| x.id),
+            revoked: false,
+            ap_id: Some(get_activity_ap_id_from_uuid(uuid)),
+            ..Default::default()
+        }
     }
 }
 

@@ -12,11 +12,11 @@ use diesel::{AsChangeset, Identifiable, Insertable, Queryable};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use super::activities::{Activity, ActivityCc, ActivityTo, ActivityType};
 use super::notes::{Note, NoteType};
 use super::profiles::Profile;
 use super::remote_notes::RemoteNote;
 use super::timeline_hashtags::TimelineHashtag;
+use crate::models::activities::{Activity, ActivityCc, ActivityTo, ActivityType};
 use crate::routes::inbox::InboxView;
 
 #[derive(Serialize, Deserialize, Insertable, Default, Debug, Clone, AsChangeset)]

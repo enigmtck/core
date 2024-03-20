@@ -1,3 +1,5 @@
+use serde::Serialize;
+
 pub mod activities;
 
 cfg_if::cfg_if! {
@@ -45,5 +47,18 @@ cfg_if::cfg_if! {
         pub use sqlite::timeline_hashtags;
         pub use sqlite::vault;
         pub mod sqlite;
+    }
+}
+
+cfg_if::cfg_if! {
+    if #[cfg(feature = "pg")] {
+        use serde_json::Value;
+        pub fn to_serde<T: Serialize>(object: T) -> Option<Value> {
+            serde_json::to_value(object).ok()
+        }
+    } else if #[cfg(feature = "sqlite")] {
+        pub fn to_serde<T: Serialize>(object: T) -> Option<String> {
+            serde_json::to_string(&object).ok()
+        }
     }
 }

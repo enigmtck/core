@@ -2,7 +2,9 @@ use core::fmt;
 use std::fmt::Debug;
 
 use crate::{
-    activity_pub::{ApActivity, ApAddress, ApContext, ApNote, ApObject, Inbox, Outbox, Temporal},
+    activity_pub::{
+        ApActivity, ApAddress, ApContext, ApNote, ApNoteType, ApObject, Inbox, Outbox, Temporal,
+    },
     db::Db,
     fairings::events::EventChannels,
     models::{
@@ -62,6 +64,10 @@ impl Inbox for ApCreate {
         //inbox::activity::create(conn, faktory, self.clone()).await
         match self.clone().object {
             MaybeReference::Actual(ApObject::Note(x)) => {
+                if x.kind == ApNoteType::Question {
+                    log::debug!("QUESTION RAW JSON\n{raw:#?}");
+                }
+
                 let n = NewRemoteNote::from(x.clone());
                 //let ap_activity = ApActivity::Create(self.clone());
 
