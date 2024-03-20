@@ -8,10 +8,10 @@ use diesel::{AsChangeset, Identifiable, Insertable, Queryable};
 use rocket_sync_db_pools::diesel;
 use serde::{Deserialize, Serialize};
 
-use super::encrypted_sessions::get_encrypted_session_by_profile_id_and_ap_to;
 use super::profiles::Profile;
 use super::remote_encrypted_sessions::RemoteEncryptedSession;
 use super::remote_notes::RemoteNote;
+use crate::models::encrypted_sessions::get_encrypted_session_by_profile_id_and_ap_to;
 
 #[derive(Serialize, Deserialize, Insertable, Default, Debug, Clone)]
 #[diesel(table_name = processing_queue)]

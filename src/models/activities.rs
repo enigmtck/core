@@ -20,21 +20,56 @@ use super::profiles::{get_profile_by_ap_id, Profile};
 use super::remote_actors::RemoteActor;
 use super::remote_notes::RemoteNote;
 use super::to_serde;
-use cfg_if::cfg_if;
 
-cfg_if! {
+cfg_if::cfg_if! {
     if #[cfg(feature = "pg")] {
         pub use super::pg::activities::ActivityType;
 
         pub fn to_kind(kind: ActivityType) -> ActivityType {
             kind
         }
+
+        pub use super::pg::activities::NewActivity;
+        pub use super::pg::activities::NoteActivity;
+        pub use super::pg::activities::UndoActivity;
+        pub use super::pg::activities::Activity;
+
+        pub use super::pg::activities::ActivityCc;
+        pub use super::pg::activities::create_activity_cc;
+
+        pub use super::pg::activities::ActivityTo;
+        pub use super::pg::activities::create_activity_to;
+        pub use super::pg::activities::create_activity;
+
+        pub use super::pg::activities::get_activity_by_kind_profile_id_and_target_ap_id;
+        pub use super::pg::activities::get_outbox_count_by_profile_id;
+        pub use super::pg::activities::get_outbox_activities_by_profile_id;
+        pub use super::pg::activities::revoke_activity_by_uuid;
+        pub use super::pg::activities::revoke_activity_by_apid;
     } else if #[cfg(feature = "sqlite")] {
         pub use super::sqlite::activities::ActivityType;
 
         pub fn to_kind(kind: ActivityType) -> String {
             kind.to_string().to_lowercase()
         }
+
+        pub use super::sqlite::activities::NewActivity;
+        pub use super::sqlite::activities::NoteActivity;
+        pub use super::sqlite::activities::UndoActivity;
+        pub use super::sqlite::activities::Activity;
+
+        pub use super::sqlite::activities::ActivityCc;
+        pub use super::sqlite::activities::create_activity_cc;
+
+        pub use super::sqlite::activities::ActivityTo;
+        pub use super::sqlite::activities::create_activity_to;
+        pub use super::sqlite::activities::create_activity;
+
+        pub use super::sqlite::activities::get_activity_by_kind_profile_id_and_target_ap_id;
+        pub use super::sqlite::activities::get_outbox_count_by_profile_id;
+        pub use super::sqlite::activities::get_outbox_activities_by_profile_id;
+        pub use super::sqlite::activities::revoke_activity_by_uuid;
+        pub use super::sqlite::activities::revoke_activity_by_apid;
     }
 }
 
@@ -112,14 +147,6 @@ impl From<Note> for ActivityTarget {
     }
 }
 
-cfg_if! {
-    if #[cfg(feature = "pg")] {
-        pub use super::pg::activities::NewActivity;
-    } else if #[cfg(feature = "sqlite")] {
-        pub use super::sqlite::activities::NewActivity;
-    }
-}
-
 impl NewActivity {
     pub async fn link_profile(&mut self, conn: &Db) -> Self {
         if let Some(profile) = get_profile_by_ap_id(Some(conn), self.clone().actor).await {
@@ -160,14 +187,6 @@ impl NewActivity {
         self
     }
 }
-
-// cfg_if! {
-//     if #[cfg(feature = "pg")] {
-//         pub use super::pg::activities::ApActivityTarget;
-//     } else if #[cfg(feature = "sqlite")] {
-//         pub use super::sqlite::activities::ApActivityTarget;
-//     }
-// }
 
 pub type ApActivityTarget = (ApActivity, Option<ActivityTarget>);
 
@@ -306,14 +325,6 @@ impl TryFrom<ApActivityTarget> for NewActivity {
     }
 }
 
-// cfg_if! {
-//     if #[cfg(feature = "pg")] {
-//         pub use super::pg::activities::ActorActivity;
-//     } else if #[cfg(feature = "sqlite")] {
-//         pub use super::sqlite::activities::ActorActivity;
-//     }
-// }
-
 pub type ActorActivity = (
     Option<Profile>,
     Option<RemoteActor>,
@@ -358,24 +369,6 @@ impl From<ActorActivity> for NewActivity {
     }
 }
 
-cfg_if! {
-    if #[cfg(feature = "pg")] {
-        pub use super::pg::activities::NoteActivity;
-        pub use super::pg::activities::UndoActivity;
-    } else if #[cfg(feature = "sqlite")] {
-        pub use super::sqlite::activities::NoteActivity;
-        pub use super::sqlite::activities::UndoActivity;
-    }
-}
-
-cfg_if! {
-    if #[cfg(feature = "pg")] {
-        pub use super::pg::activities::Activity;
-    } else if #[cfg(feature = "sqlite")] {
-        pub use super::sqlite::activities::Activity;
-    }
-}
-
 type AssignedActivity = (Activity, String);
 
 impl From<AssignedActivity> for NewActivityCc {
@@ -403,33 +396,11 @@ pub struct NewActivityCc {
     pub ap_id: String,
 }
 
-cfg_if! {
-    if #[cfg(feature = "pg")] {
-        pub use super::pg::activities::ActivityCc;
-        pub use super::pg::activities::create_activity_cc;
-    } else if #[cfg(feature = "sqlite")] {
-        pub use super::sqlite::activities::ActivityCc;
-        pub use super::sqlite::activities::create_activity_cc;
-    }
-}
-
 #[derive(Serialize, Deserialize, Insertable, AsChangeset, Default, Debug, Clone)]
 #[diesel(table_name = activities_to)]
 pub struct NewActivityTo {
     pub activity_id: i32,
     pub ap_id: String,
-}
-
-cfg_if! {
-    if #[cfg(feature = "pg")] {
-        pub use super::pg::activities::ActivityTo;
-        pub use super::pg::activities::create_activity_to;
-        pub use super::pg::activities::create_activity;
-    } else if #[cfg(feature = "sqlite")] {
-        pub use super::sqlite::activities::ActivityTo;
-        pub use super::sqlite::activities::create_activity_to;
-        pub use super::sqlite::activities::create_activity;
-    }
 }
 
 pub type ExtendedActivity = (
@@ -549,22 +520,6 @@ pub async fn get_activity(conn: Option<&Db>, id: i32) -> Option<ExtendedActivity
                 .first::<ExtendedActivity>(&mut pool)
                 .ok()
         }
-    }
-}
-
-cfg_if! {
-    if #[cfg(feature = "pg")] {
-        pub use super::pg::activities::get_activity_by_kind_profile_id_and_target_ap_id;
-        pub use super::pg::activities::get_outbox_count_by_profile_id;
-        pub use super::pg::activities::get_outbox_activities_by_profile_id;
-        pub use super::pg::activities::revoke_activity_by_uuid;
-        pub use super::pg::activities::revoke_activity_by_apid;
-    } else if #[cfg(feature = "sqlite")] {
-        pub use super::sqlite::activities::get_activity_by_kind_profile_id_and_target_ap_id;
-        pub use super::sqlite::activities::get_outbox_count_by_profile_id;
-        pub use super::sqlite::activities::get_outbox_activities_by_profile_id;
-        pub use super::sqlite::activities::revoke_activity_by_uuid;
-        pub use super::sqlite::activities::revoke_activity_by_apid;
     }
 }
 

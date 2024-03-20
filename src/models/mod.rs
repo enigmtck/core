@@ -1,11 +1,11 @@
 use serde::Serialize;
 
 pub mod activities;
+pub mod cache;
+pub mod encrypted_sessions;
 
 cfg_if::cfg_if! {
     if #[cfg(feature = "pg")] {
-        pub use pg::cache;
-        pub use pg::encrypted_sessions;
         pub use pg::followers;
         pub use pg::instances;
         pub use pg::leaders;
@@ -26,8 +26,6 @@ cfg_if::cfg_if! {
         pub use pg::vault;
         pub mod pg;
     } else if #[cfg(feature = "sqlite")] {
-        pub use sqlite::cache;
-        pub use sqlite::encrypted_sessions;
         pub use sqlite::followers;
         pub use sqlite::instances;
         pub use sqlite::leaders;
