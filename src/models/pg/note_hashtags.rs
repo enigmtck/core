@@ -4,7 +4,7 @@ use crate::schema::note_hashtags;
 use crate::POOL;
 use chrono::{DateTime, Utc};
 use diesel::prelude::*;
-use diesel::{AsChangeset, Identifiable, Insertable, Queryable};
+use diesel::{AsChangeset, Identifiable, Queryable};
 use rocket_sync_db_pools::diesel;
 use serde::Serialize;
 

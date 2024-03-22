@@ -12,6 +12,7 @@ use crate::models::{from_serde, to_serde};
 
 cfg_if::cfg_if! {
     if #[cfg(feature = "pg")] {
+        use crate::models::pg::notes::NoteType;
         pub fn to_kind(kind: ApNoteType) -> NoteType {
             kind.into()
         }
@@ -40,7 +41,7 @@ impl From<IdentifiedRemoteNote> for NewProcessingItem {
 
         NewProcessingItem {
             profile_id,
-            kind: to_kind(ap_note.clone().kind),
+            kind: ap_note.clone().kind.to_string().to_lowercase(),
             ap_id: format!("{}#processing", note.ap_id),
             ap_to: note.clone().ap_to.unwrap(),
             attributed_to: note.clone().attributed_to,

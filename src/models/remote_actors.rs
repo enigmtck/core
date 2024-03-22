@@ -6,7 +6,6 @@ use crate::schema::{leaders, profiles, remote_actors};
 use crate::POOL;
 use anyhow::Result;
 use diesel::prelude::*;
-use diesel::Identifiable;
 
 use super::leaders::Leader;
 use super::profiles::Profile;

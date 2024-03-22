@@ -1,5 +1,4 @@
 use crate::db::Db;
-use crate::models::notifications::NewNotification;
 use crate::schema::notifications;
 use chrono::NaiveDateTime;
 use diesel::prelude::*;
@@ -21,6 +20,15 @@ pub enum NotificationType {
     Unfollow,
     Accept,
     Block,
+}
+
+#[derive(Serialize, Deserialize, Insertable, Default, Debug, Clone)]
+#[diesel(table_name = notifications)]
+pub struct NewNotification {
+    pub uuid: String,
+    pub kind: String,
+    pub profile_id: i32,
+    pub activity_id: i32,
 }
 
 #[derive(Identifiable, Queryable, AsChangeset, Serialize, Clone, Default, Debug)]

@@ -5,7 +5,7 @@ use crate::POOL;
 use diesel::prelude::*;
 
 use chrono::{DateTime, Utc};
-use diesel::{AsChangeset, Identifiable, Insertable, Queryable};
+use diesel::{AsChangeset, Identifiable, Queryable};
 use serde::Serialize;
 
 #[derive(Identifiable, Queryable, AsChangeset, Serialize, Clone, Default, Debug)]

@@ -1,4 +1,5 @@
 use crate::db::Db;
+use crate::models::olm_one_time_keys::NewOlmOneTimeKey;
 use crate::schema::olm_one_time_keys;
 use crate::POOL;
 use chrono::{DateTime, Utc};

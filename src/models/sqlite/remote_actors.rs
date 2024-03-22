@@ -1,4 +1,3 @@
-use crate::activity_pub::ApContext;
 use crate::db::Db;
 use crate::schema::remote_actors;
 use crate::POOL;

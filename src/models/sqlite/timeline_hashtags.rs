@@ -1,43 +1,12 @@
-use crate::activity_pub::{ApNote, ApTag};
 use crate::db::Db;
+use crate::models::timeline_hashtags::NewTimelineHashtag;
 use crate::schema::timeline_hashtags;
 use crate::POOL;
 use chrono::NaiveDateTime;
 use diesel::prelude::*;
-use diesel::{AsChangeset, Identifiable, Insertable, Queryable};
+use diesel::{AsChangeset, Identifiable, Queryable};
 use rocket_sync_db_pools::diesel;
-use serde::{Deserialize, Serialize};
-
-use super::timeline::TimelineItem;
-
-#[derive(Serialize, Deserialize, Insertable, Default, Debug, Clone)]
-#[diesel(table_name = timeline_hashtags)]
-pub struct NewTimelineHashtag {
-    pub hashtag: String,
-    pub timeline_id: i32,
-}
-
-impl From<TimelineItem> for Vec<NewTimelineHashtag> {
-    fn from(timeline_item: TimelineItem) -> Self {
-        let ap_note: ApNote = timeline_item.clone().into();
-
-        ap_note
-            .tag
-            .unwrap_or_default()
-            .iter()
-            .filter_map(|tag| {
-                if let ApTag::HashTag(tag) = tag {
-                    Some(NewTimelineHashtag {
-                        hashtag: tag.name.clone(),
-                        timeline_id: timeline_item.id,
-                    })
-                } else {
-                    None
-                }
-            })
-            .collect()
-    }
-}
+use serde::Serialize;
 
 #[derive(Identifiable, Queryable, AsChangeset, Serialize, Clone, Default, Debug)]
 #[diesel(table_name = timeline_hashtags)]

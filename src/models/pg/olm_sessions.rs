@@ -1,9 +1,10 @@
 use crate::db::Db;
+use crate::models::olm_sessions::NewOlmSession;
 use crate::schema::olm_sessions;
 use crate::POOL;
 use chrono::{DateTime, Utc};
 use diesel::prelude::*;
-use diesel::{AsChangeset, Identifiable, Insertable, Queryable};
+use diesel::{AsChangeset, Identifiable, Queryable};
 use rocket_sync_db_pools::diesel;
 use serde::Serialize;
 
