@@ -1,11 +1,12 @@
 use crate::db::Db;
+use crate::models::notifications::NewNotification;
 use crate::schema::notifications;
 use chrono::{DateTime, Utc};
 use diesel::pg::Pg;
 use diesel::prelude::*;
 use diesel::query_builder::QueryId;
 use diesel::sql_types::Bool;
-use diesel::{AsChangeset, Identifiable, Insertable, Queryable};
+use diesel::{AsChangeset, Identifiable, Queryable};
 use serde::{Deserialize, Serialize};
 
 #[derive(
@@ -25,15 +26,6 @@ pub enum NotificationType {
     Block,
 }
 
-#[derive(Serialize, Deserialize, Insertable, Default, Debug, Clone)]
-#[diesel(table_name = notifications)]
-pub struct NewNotification {
-    pub uuid: String,
-    pub kind: NotificationType,
-    pub profile_id: i32,
-    pub activity_id: i32,
-}
-
 #[derive(Identifiable, Queryable, AsChangeset, Serialize, Clone, Default, Debug)]
 #[diesel(table_name = notifications)]
 pub struct Notification {
@@ -45,16 +37,6 @@ pub struct Notification {
     pub kind: NotificationType,
     pub profile_id: i32,
     pub activity_id: i32,
-}
-
-pub async fn _get_notification_by_uuid(conn: &Db, uuid: String) -> Option<Notification> {
-    conn.run(move |c| {
-        notifications::table
-            .filter(notifications::uuid.eq(uuid))
-            .first::<Notification>(c)
-    })
-    .await
-    .ok()
 }
 
 pub async fn _create_notification(
@@ -70,15 +52,7 @@ pub async fn _create_notification(
     .ok()
 }
 
-pub async fn _delete_notification(conn: &Db, id: i32) -> bool {
-    _delete_by_filter(conn, notifications::id.eq(id)).await
-}
-
-pub async fn _delete_notification_by_uuid(conn: &Db, uuid: String) -> bool {
-    _delete_by_filter(conn, notifications::uuid.eq(uuid)).await
-}
-
-async fn _delete_by_filter<T>(conn: &Db, filter: T) -> bool
+pub async fn _delete_by_filter<T>(conn: &Db, filter: T) -> bool
 where
     T: diesel::BoxableExpression<notifications::table, Pg, SqlType = Bool>
         + QueryId

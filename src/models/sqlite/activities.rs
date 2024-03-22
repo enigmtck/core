@@ -15,9 +15,9 @@ use diesel::{AsChangeset, Identifiable, Insertable, Queryable};
 use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
 
-use super::notes::NoteLike;
 use super::profiles::Profile;
 use crate::models::activities::{ExtendedActivity, NewActivityCc, NewActivityTo};
+use crate::models::notes::NoteLike;
 
 #[derive(Debug, Serialize, Deserialize, Default, Clone, Eq, PartialEq)]
 pub enum ActivityType {

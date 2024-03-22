@@ -1,19 +1,12 @@
-use crate::activity_pub::{ApNote, ApNoteType};
+use crate::activity_pub::ApNoteType;
 use crate::db::Db;
-use crate::helper::{
-    get_local_identifier, get_note_ap_id_from_uuid, handle_option, is_local, LocalIdentifierType,
-};
 use crate::schema::notes;
-use crate::POOL;
-use anyhow::Result;
 use chrono::{DateTime, Utc};
 use diesel::prelude::*;
 use diesel::{AsChangeset, Identifiable, Insertable, Queryable};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::fmt;
-
-use super::remote_notes::{get_remote_note_by_ap_id, RemoteNote};
 
 #[derive(
     diesel_derive_enum::DbEnum, Debug, Serialize, Deserialize, Default, Clone, Eq, PartialEq,
@@ -62,43 +55,6 @@ pub struct NewNote {
     pub ap_id: Option<String>,
 }
 
-pub type IdentifiedApNote = (ApNote, i32);
-
-impl From<IdentifiedApNote> for NewNote {
-    fn from((note, profile_id): IdentifiedApNote) -> Self {
-        let uuid = uuid::Uuid::new_v4().to_string();
-
-        NewNote {
-            profile_id,
-            uuid: uuid.clone(),
-            kind: note.kind.into(),
-            ap_to: serde_json::to_value(&note.to).unwrap(),
-            attributed_to: note.attributed_to.to_string(),
-            tag: handle_option(serde_json::to_value(&note.tag).unwrap()),
-            attachment: handle_option(serde_json::to_value(&note.attachment).unwrap()),
-            instrument: handle_option(serde_json::to_value(&note.instrument).unwrap()),
-            content: note.content,
-            in_reply_to: note.in_reply_to,
-            cc: handle_option(serde_json::to_value(&note.cc).unwrap()),
-            conversation: {
-                if note.conversation.is_none() {
-                    Option::from(format!(
-                        "{}/conversation/{}",
-                        *crate::SERVER_URL,
-                        uuid::Uuid::new_v4()
-                    ))
-                } else {
-                    note.conversation
-                }
-            },
-            // I think this fn will only be used when submitting a new ApNote via an outbox call by
-            // the client - in that case we'd never want to accept an id from the client; this logic
-            // would better be to just always use the UUID as the basis for the ap_id
-            ap_id: note.id.map_or(Some(get_note_ap_id_from_uuid(uuid)), Some),
-        }
-    }
-}
-
 #[derive(Identifiable, Queryable, AsChangeset, Serialize, Clone, Default, Debug)]
 #[diesel(table_name = notes)]
 pub struct Note {
@@ -119,6 +75,16 @@ pub struct Note {
     pub attachment: Option<Value>,
     pub instrument: Option<Value>,
     pub ap_id: Option<String>,
+}
+
+pub async fn create_note(conn: &Db, note: NewNote) -> Option<Note> {
+    conn.run(move |c| {
+        diesel::insert_into(notes::table)
+            .values(&note)
+            .get_result::<Note>(c)
+    })
+    .await
+    .ok()
 }
 
 pub async fn get_notes_by_profile_id(
@@ -145,78 +111,4 @@ pub async fn get_notes_by_profile_id(
     })
     .await
     .unwrap_or(vec![])
-}
-
-pub async fn get_note_by_uuid(conn: Option<&Db>, uuid: String) -> Option<Note> {
-    match conn {
-        Some(conn) => conn
-            .run(move |c| notes::table.filter(notes::uuid.eq(uuid)).first::<Note>(c))
-            .await
-            .ok(),
-        None => {
-            let mut pool = POOL.get().ok()?;
-            notes::table
-                .filter(notes::uuid.eq(uuid))
-                .first::<Note>(&mut pool)
-                .ok()
-        }
-    }
-}
-
-pub async fn get_note_by_apid(conn: &Db, ap_id: String) -> Option<Note> {
-    conn.run(move |c| notes::table.filter(notes::ap_id.eq(ap_id)).first::<Note>(c))
-        .await
-        .ok()
-}
-
-pub async fn create_note(conn: &Db, note: NewNote) -> Option<Note> {
-    conn.run(move |c| {
-        diesel::insert_into(notes::table)
-            .values(&note)
-            .get_result::<Note>(c)
-    })
-    .await
-    .ok()
-}
-
-#[derive(Debug)]
-pub enum DeleteNoteError {
-    ConnectionError,
-    DatabaseError(diesel::result::Error),
-}
-
-pub async fn delete_note_by_uuid(conn: Option<&Db>, uuid: String) -> Result<usize> {
-    match conn {
-        Some(conn) => conn
-            .run(move |c| diesel::delete(notes::table.filter(notes::uuid.eq(uuid))).execute(c))
-            .await
-            .map_err(anyhow::Error::msg),
-        None => {
-            let mut pool = POOL.get()?;
-            diesel::delete(notes::table.filter(notes::uuid.eq(uuid)))
-                .execute(&mut pool)
-                .map_err(anyhow::Error::msg)
-        }
-    }
-}
-
-#[derive(Clone)]
-pub enum NoteLike {
-    Note(Note),
-    RemoteNote(RemoteNote),
-}
-
-pub async fn get_notey(conn: &Db, id: String) -> Option<NoteLike> {
-    if is_local(id.clone()) {
-        let identifier = get_local_identifier(id.clone())?;
-        if identifier.kind == LocalIdentifierType::Note {
-            let note = get_note_by_uuid(Some(conn), identifier.identifier).await?;
-            Some(NoteLike::Note(note))
-        } else {
-            None
-        }
-    } else {
-        let remote_note = get_remote_note_by_ap_id(Some(conn), id).await?;
-        Some(NoteLike::RemoteNote(remote_note))
-    }
 }

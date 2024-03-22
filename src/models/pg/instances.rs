@@ -28,16 +28,6 @@ pub struct Instance {
     pub last_message_at: DateTime<Utc>,
 }
 
-impl From<String> for NewInstance {
-    fn from(domain_name: String) -> Self {
-        NewInstance {
-            domain_name,
-            json: None,
-            blocked: false,
-        }
-    }
-}
-
 pub async fn create_instance(conn: Option<&Db>, instance: NewInstance) -> Option<Instance> {
     match conn {
         Some(conn) => conn
@@ -60,39 +50,6 @@ pub async fn create_instance(conn: Option<&Db>, instance: NewInstance) -> Option
                 .set(instances::last_message_at.eq(Utc::now()))
                 .get_result::<Instance>(&mut pool)
                 .ok()
-        }
-    }
-}
-
-pub async fn get_instance_by_domain_name(conn: &Db, domain_name: String) -> Option<Instance> {
-    conn.run(move |c| {
-        instances::table
-            .filter(instances::domain_name.eq(domain_name))
-            .first::<Instance>(c)
-    })
-    .await
-    .ok()
-}
-
-pub async fn get_blocked_instances(conn: Option<&Db>) -> Vec<Instance> {
-    match conn {
-        Some(conn) => conn
-            .run(move |c| {
-                instances::table
-                    .filter(instances::blocked.eq(true))
-                    .get_results::<Instance>(c)
-            })
-            .await
-            .unwrap_or(vec![]),
-        None => {
-            if let Ok(mut pool) = POOL.get() {
-                instances::table
-                    .filter(instances::blocked.eq(true))
-                    .get_results::<Instance>(&mut pool)
-                    .unwrap_or(vec![])
-            } else {
-                vec![]
-            }
         }
     }
 }

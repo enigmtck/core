@@ -15,9 +15,9 @@ use diesel::{AsChangeset, Identifiable, Insertable, Queryable};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use super::notes::NoteLike;
 use super::profiles::Profile;
 use crate::models::activities::{ExtendedActivity, NewActivityCc, NewActivityTo};
+use crate::models::notes::NoteLike;
 
 #[derive(
     diesel_derive_enum::DbEnum, Debug, Serialize, Deserialize, Default, Clone, Eq, PartialEq,
