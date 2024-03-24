@@ -43,25 +43,29 @@ pub async fn send_like_task(
                 .ok_or(TaskError::TaskFailed)?;
 
         log::debug!("FOUND ACTIVITY\n{activity:#?}");
-        if let Some(profile_id) = activity.profile_id {
-            if let Some(sender) = get_profile(conn, profile_id).await {
-                if let Ok(activity) = ApActivity::try_from((
-                    (
-                        activity,
-                        target_note,
-                        target_remote_note,
-                        target_profile,
-                        target_remote_actor,
-                    ),
-                    None,
-                )) {
-                    let inboxes: Vec<ApAddress> =
-                        get_inboxes(activity.clone(), sender.clone()).await;
+        let profile_id = activity.profile_id.ok_or(TaskError::TaskFailed)?;
 
-                    send_to_inboxes(inboxes, sender, activity.clone()).await;
-                }
-            }
-        }
+        let sender = get_profile(conn, profile_id)
+            .await
+            .ok_or(TaskError::TaskFailed)?;
+
+        let activity = ApActivity::try_from((
+            (
+                activity,
+                target_note,
+                target_remote_note,
+                target_profile,
+                target_remote_actor,
+            ),
+            None,
+        ))
+        .map_err(|_| TaskError::TaskFailed)?;
+
+        let inboxes: Vec<ApAddress> = get_inboxes(conn, activity.clone(), sender.clone()).await;
+
+        send_to_inboxes(inboxes, sender, activity.clone())
+            .await
+            .map_err(|_| TaskError::TaskFailed)?;
     }
 
     Ok(())

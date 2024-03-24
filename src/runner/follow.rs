@@ -1,13 +1,12 @@
 use anyhow::Result;
 
 use crate::{
-    activity_pub::{sender::send_activity, ApAccept, ApActivity, ApAddress, ApFollow},
+    activity_pub::{ApAccept, ApActivity, ApAddress, ApFollow},
     db::Db,
     fairings::events::EventChannels,
     models::{
         activities::{get_activity, get_activity_by_uuid},
         followers::{create_follower, delete_follower_by_ap_id, NewFollower},
-        //follows::Follow,
         leaders::{create_leader, NewLeader},
         profiles::{get_profile, get_profile_by_ap_id},
     },
@@ -48,9 +47,11 @@ pub async fn process_follow_task(
             None,
         ))
         .map_err(|_| TaskError::TaskFailed)?;
-        let inboxes: Vec<ApAddress> = get_inboxes(activity.clone(), sender.clone()).await;
+        let inboxes: Vec<ApAddress> = get_inboxes(conn, activity.clone(), sender.clone()).await;
 
-        send_to_inboxes(inboxes, sender, activity.clone()).await;
+        send_to_inboxes(inboxes, sender, activity.clone())
+            .await
+            .map_err(|_| TaskError::TaskFailed)?;
     }
     Ok(())
 }
@@ -149,15 +150,15 @@ pub async fn acknowledge_followers_task(
             .await
             .ok_or(TaskError::TaskFailed)?;
 
-        let actor = get_actor(profile.clone(), follow.actor.clone().to_string())
+        let actor = get_actor(conn, profile.clone(), follow.actor.clone().to_string())
             .await
             .ok_or(TaskError::TaskFailed)?
             .0;
 
-        send_activity(
-            ApActivity::Accept(Box::new(accept)),
+        send_to_inboxes(
+            vec![actor.inbox.clone().into()],
             profile.clone(),
-            actor.inbox.clone(),
+            ApActivity::Accept(Box::new(accept)),
         )
         .await
         .map_err(|_| TaskError::TaskFailed)?;

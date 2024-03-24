@@ -50,9 +50,11 @@ pub async fn send_announce_task(
             None,
         ))
         .map_err(|_| TaskError::TaskFailed)?;
-        let inboxes: Vec<ApAddress> = get_inboxes(activity.clone(), sender.clone()).await;
+        let inboxes: Vec<ApAddress> = get_inboxes(conn, activity.clone(), sender.clone()).await;
 
-        send_to_inboxes(inboxes, sender, activity.clone()).await;
+        send_to_inboxes(inboxes, sender, activity.clone())
+            .await
+            .map_err(|_| TaskError::TaskFailed)?;
     }
 
     Ok(())
@@ -107,7 +109,7 @@ pub async fn remote_announce_task(
         update_target_remote_note(
             conn,
             activity.clone(),
-            handle_remote_note(channels, remote_note, Some(activity.actor))
+            handle_remote_note(conn, channels, remote_note, Some(activity.actor))
                 .await
                 .map_err(|_| TaskError::TaskFailed)?,
         )

@@ -3,8 +3,8 @@ use std::collections::HashSet;
 
 use crate::{
     activity_pub::{
-        sender::send_activity, ApActivity, ApActor, ApInstrument, ApInstrumentType, ApInstruments,
-        ApInvite, ApJoin, ApNote, ApSession, JoinData,
+        ApActivity, ApActor, ApInstrument, ApInstrumentType, ApInstruments, ApInvite, ApJoin,
+        ApNote, ApSession, JoinData,
     },
     db::Db,
     fairings::events::EventChannels,
@@ -22,12 +22,13 @@ use crate::{
         remote_actors::get_remote_actor_by_ap_id,
         remote_encrypted_sessions::get_remote_encrypted_session_by_ap_id,
     },
-    runner::actor::get_actor,
+    runner::{actor::get_actor, send_to_inboxes},
 };
 
 use super::TaskError;
 
 pub async fn handle_encrypted_note(
+    conn: Option<&Db>,
     note: &mut Note,
     inboxes: &mut HashSet<String>,
     sender: Profile,
@@ -35,6 +36,7 @@ pub async fn handle_encrypted_note(
     log::debug!("ENCRYPTED NOTE\n{note:#?}");
 
     async fn do_it(
+        conn: Option<&Db>,
         instrument: ApInstrument,
         inboxes: &mut HashSet<String>,
         note: &mut Note,
@@ -59,7 +61,8 @@ pub async fn handle_encrypted_note(
                 ) {
                     log::debug!("FOUND UUID - UPDATING EXISTING SESSION");
                     if let Some(_session) = update_olm_session(None, uuid, content, hash).await {
-                        if let Some(receiver) = get_actor(sender.clone(), to[0].clone()).await {
+                        if let Some(receiver) = get_actor(conn, sender.clone(), to[0].clone()).await
+                        {
                             inboxes.insert(receiver.0.inbox);
                         }
                     }
@@ -68,7 +71,8 @@ pub async fn handle_encrypted_note(
                     if let Some(_session) =
                         create_olm_session(None, (instrument, encrypted_session.id).into()).await
                     {
-                        if let Some(receiver) = get_actor(sender.clone(), to[0].clone()).await {
+                        if let Some(receiver) = get_actor(conn, sender.clone(), to[0].clone()).await
+                        {
                             inboxes.insert(receiver.0.inbox);
                         }
                     }
@@ -91,11 +95,11 @@ pub async fn handle_encrypted_note(
         match instruments {
             ApInstruments::Multiple(instruments) => {
                 for instrument in instruments {
-                    let _ = do_it(instrument, inboxes, note, sender.clone()).await;
+                    let _ = do_it(conn, instrument, inboxes, note, sender.clone()).await;
                 }
             }
             ApInstruments::Single(instrument) => {
-                let _ = do_it(instrument, inboxes, note, sender).await;
+                let _ = do_it(conn, instrument, inboxes, note, sender).await;
             }
             _ => (),
         }
@@ -162,7 +166,7 @@ pub async fn send_kexinit_task(
             .ok_or(TaskError::TaskFailed)?;
 
         let mut session: ApSession = encrypted_session.clone().into();
-        session.id = Option::from(format!(
+        session.id = Some(format!(
             "{}/session/{}",
             *crate::SERVER_URL,
             encrypted_session.uuid
@@ -174,22 +178,26 @@ pub async fn send_kexinit_task(
             if let Some(x) = get_local_identifier(session.to.clone().to_string()) {
                 if x.kind == LocalIdentifierType::User {
                     if let Some(profile) = get_profile_by_username(conn, x.identifier).await {
-                        inbox = Option::from(ApActor::from(profile).inbox);
+                        inbox = Some(ApActor::from(profile).inbox);
                     }
                 }
             }
         } else if let Ok(actor) =
             get_remote_actor_by_ap_id(conn, session.to.clone().to_string()).await
         {
-            inbox = Option::from(actor.inbox);
+            inbox = Some(actor.inbox);
         }
 
         let inbox = inbox.ok_or(TaskError::TaskFailed)?;
         let activity = ApInvite::try_from(session).map_err(|_| TaskError::TaskFailed)?;
 
-        send_activity(ApActivity::Invite(activity), sender, inbox.clone())
-            .await
-            .map_err(|_| TaskError::TaskFailed)?
+        send_to_inboxes(
+            vec![inbox.clone().into()],
+            sender,
+            ApActivity::Invite(activity),
+        )
+        .await
+        .map_err(|_| TaskError::TaskFailed)?
     }
 
     Ok(())
@@ -245,7 +253,13 @@ pub async fn provide_one_time_key_task(
                 .await
                 .is_some()
             {
-                match send_activity(ApActivity::Join(activity), profile, actor.inbox).await {
+                match send_to_inboxes(
+                    vec![actor.inbox.into()],
+                    profile,
+                    ApActivity::Join(activity),
+                )
+                .await
+                {
                     Ok(_) => {
                         log::info!("JOIN SENT");
                     }

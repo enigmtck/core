@@ -12,3 +12,7 @@ pub mod webfinger;
 #[derive(Responder)]
 #[response(content_type = "application/activity+json")]
 pub struct ActivityJson<T>(Json<T>);
+
+#[derive(Responder)]
+#[response(content_type = "application/ld+json")]
+pub struct LdJson<T>(Json<T>);

@@ -47,9 +47,9 @@ impl Default for ApSession {
     fn default() -> ApSession {
         let uuid = Uuid::new_v4();
         ApSession {
-            context: Option::from(ApContext::default()),
+            context: Some(ApContext::default()),
             kind: ApSessionType::default(),
-            id: Option::from(format!("https://{}/session/{}", *crate::SERVER_NAME, uuid)),
+            id: Some(format!("https://{}/session/{}", *crate::SERVER_NAME, uuid)),
             to: ApAddress::None,
             attributed_to: ApAddress::None,
             instrument: ApInstruments::default(),
@@ -140,7 +140,7 @@ pub struct JoinData {
 impl From<JoinData> for ApSession {
     fn from(keys: JoinData) -> ApSession {
         ApSession {
-            reference: Option::from(keys.reference),
+            reference: Some(keys.reference),
             to: ApAddress::Address(keys.to),
             attributed_to: ApAddress::Address(keys.attributed_to),
             instrument: ApInstruments::Multiple(vec![
@@ -171,7 +171,7 @@ impl From<EncryptedSession> for ApSession {
         }
 
         ApSession {
-            id: Option::from(format!(
+            id: Some(format!(
                 "https://{}/session/{}",
                 *crate::SERVER_NAME,
                 session.uuid
@@ -222,7 +222,7 @@ impl From<RemoteEncryptedSession> for ApSession {
         }
 
         ApSession {
-            id: Option::from(session.ap_id),
+            id: Some(session.ap_id),
             reference: session.reference,
             to: ApAddress::Address(session.ap_to),
             attributed_to: ApAddress::Address(session.attributed_to),

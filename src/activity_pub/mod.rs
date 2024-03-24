@@ -1,5 +1,4 @@
 pub mod retriever;
-pub mod sender;
 mod types;
 
 use crate::db::Db;

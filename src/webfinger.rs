@@ -27,21 +27,21 @@ impl From<Profile> for WebFinger {
 
         WebFinger {
             subject: format!("acct:{}@{}", profile.username, server_name),
-            aliases: Option::from(vec![
+            aliases: Some(vec![
                 format!("{}/@{}", server_url, profile.username),
                 format!("{}/user/{}", server_url, profile.username),
             ]),
             links: vec![
                 WebFingerLink {
                     rel: "http://webfinger.net/rel/profile-page".to_string(),
-                    kind: Option::from("text/html".to_string()),
-                    href: Option::from(format!("{}/@{}", server_url, profile.username)),
+                    kind: Some("text/html".to_string()),
+                    href: Some(format!("{}/@{}", server_url, profile.username)),
                     ..Default::default()
                 },
                 WebFingerLink {
                     rel: "self".to_string(),
-                    kind: Option::from("application/activity+json".to_string()),
-                    href: Option::from(format!("{}/user/{}", server_url, profile.username)),
+                    kind: Some("application/activity+json".to_string()),
+                    href: Some(format!("{}/user/{}", server_url, profile.username)),
                     ..Default::default()
                 },
                 // WebFingerLink {

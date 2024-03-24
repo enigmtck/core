@@ -1,8 +1,11 @@
 use crate::{
-    activity_pub::{ApImage, ApImageType},
+    activity_pub::{ApActor, ApImage, ApImageType},
     db::Db,
     fairings::events::EventChannels,
-    models::profiles::{update_avatar_by_username, update_banner_by_username},
+    models::profiles::{
+        get_profile_by_username, update_avatar_by_username, update_banner_by_username,
+    },
+    routes::ActivityJson,
     runner,
 };
 use image::{imageops::FilterType, io::Reader, DynamicImage, ImageFormat};
@@ -55,17 +58,6 @@ pub async fn update_summary(
                 .await;
 
                 Ok(Json(profile))
-                // if assign_to_faktory(
-                //     faktory,
-                //     String::from("send_profile_update"),
-                //     vec![profile.uuid.clone()],
-                // )
-                // .is_ok()
-                // {
-                //     Ok(Json(profile))
-                // } else {
-                //     Err(Status::NoContent)
-                // }
             } else {
                 Err(Status::NoContent)
             }
@@ -250,5 +242,18 @@ pub async fn upload_banner(
     } else {
         log::error!("UNAUTHORIZED");
         Err(Status::Forbidden)
+    }
+}
+
+#[get("/api/user/<username>", format = "application/activity+json", rank = 2)]
+pub async fn user_activity_json(
+    conn: Db,
+    username: String,
+) -> Result<ActivityJson<ApActor>, Status> {
+    match get_profile_by_username((&conn).into(), username).await {
+        Some(profile) => Ok(ActivityJson(Json(
+            ApActor::from(profile).load_ephemeral(&conn).await,
+        ))),
+        None => Err(Status::NotFound),
     }
 }

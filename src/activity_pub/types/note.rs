@@ -582,9 +582,9 @@ impl From<FullyQualifiedTimelineItem> for ApNote {
 impl From<ApActor> for ApNote {
     fn from(actor: ApActor) -> Self {
         ApNote {
-            tag: Option::from(vec![]),
+            tag: Some(vec![]),
             attributed_to: actor.id.unwrap(),
-            id: Option::None,
+            id: None,
             kind: ApNoteType::Note,
             to: MaybeMultiple::Multiple(vec![]),
             content: String::new(),
@@ -604,7 +604,7 @@ impl From<NewNote> for ApNote {
                     },
                     attributed_to: ApAddress::Address(note.attributed_to),
                     published: Utc::now().format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string(),
-                    id: Option::from(format!(
+                    id: Some(format!(
                         "https://{}/notes/{}",
                         *crate::SERVER_NAME,
                         note.uuid
@@ -632,7 +632,7 @@ impl From<NewNote> for ApNote {
                         .and_then(|x| serde_json::from_str(x).ok()),
                     attributed_to: ApAddress::Address(note.attributed_to),
                     published: Utc::now().format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string(),
-                    id: Option::from(format!(
+                    id: Some(format!(
                         "https://{}/notes/{}",
                         *crate::SERVER_NAME,
                         note.uuid

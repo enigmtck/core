@@ -53,7 +53,8 @@ pub async fn send_profile_update_task(
             profile,
             ApActivity::Update(update),
         )
-        .await;
+        .await
+        .map_err(|_| TaskError::TaskFailed)?;
     }
 
     Ok(())

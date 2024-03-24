@@ -55,7 +55,7 @@ impl From<IdentifiedApNote> for NewNote {
             cc: to_serde(note.cc),
             conversation: {
                 if note.conversation.is_none() {
-                    Option::from(format!(
+                    Some(format!(
                         "{}/conversation/{}",
                         *crate::SERVER_URL,
                         uuid::Uuid::new_v4()

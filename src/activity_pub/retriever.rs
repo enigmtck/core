@@ -1,3 +1,4 @@
+use anyhow::anyhow;
 use anyhow::{Context, Result};
 use chrono::Duration;
 use chrono::Utc;
@@ -33,7 +34,12 @@ pub async fn get_remote_collection_page(
     url: String,
 ) -> Result<ApCollectionPage> {
     let response = signed_get(guaranteed_profile(conn.into(), profile).await, url, false).await?;
-    let page = response.json::<ApCollectionPage>().await?;
+
+    let raw = response.text().await?;
+    log::debug!("REMOTE COLLECTION PAGE RESPONSE\n{raw}");
+    let page: ApCollectionPage = serde_json::from_str(&raw).map_err(anyhow::Error::msg)?;
+
+    //let page = response.json::<ApCollectionPage>().await?;
     Ok(page.cache(conn).await.clone())
 }
 
@@ -43,12 +49,17 @@ pub async fn get_remote_collection(
     url: String,
 ) -> Result<ApCollection> {
     let response = signed_get(guaranteed_profile(conn.into(), profile).await, url, false).await?;
-    let page = response.json::<ApCollection>().await?;
+
+    let raw = response.text().await?;
+    log::debug!("REMOTE COLLECTION RESPONSE\n{raw}");
+    let page: ApCollection = serde_json::from_str(&raw).map_err(anyhow::Error::msg)?;
+
+    //let page = response.json::<ApCollection>().await?;
     Ok(page.cache(conn).await.clone())
 }
 
 pub async fn get_ap_id_from_webfinger(acct: String) -> Option<String> {
-    let webfinger = get_remote_webfinger(acct).await?;
+    let webfinger = get_remote_webfinger(acct).await.ok()?;
 
     webfinger
         .links
@@ -70,31 +81,38 @@ pub async fn get_ap_id_from_webfinger(acct: String) -> Option<String> {
         .next()
 }
 
-async fn get_remote_webfinger(acct: String) -> Option<WebFinger> {
-    let mut username = Option::<String>::None;
-    let mut server = Option::<String>::None;
+async fn get_remote_webfinger(handle: String) -> Result<WebFinger> {
+    let captures = WEBFINGER_RE
+        .captures_iter(&handle)
+        .next()
+        .ok_or("acct STRING NOT A WEBFINGER")
+        .map_err(anyhow::Error::msg)?;
 
-    if WEBFINGER_RE.captures_len() == 3 {
-        for cap in WEBFINGER_RE.captures_iter(&acct) {
-            username = Some(cap[1].to_string());
-            server = Some(cap[2].to_string());
-        }
+    // Ensure we have exactly 3 captures: the full match, username, and server
+    if captures.len() != 3 {
+        return Err(anyhow!("acct STRING NOT A WEBFINGER"));
     }
 
-    let username = username.unwrap_or_default();
-    let server = server.unwrap_or_default();
+    let username = captures.get(1).map_or("", |m| m.as_str());
+    let server = captures.get(2).map_or("", |m| m.as_str());
 
     let url = format!("https://{server}/.well-known/webfinger/?resource=acct:{username}@{server}");
 
-    let client = Client::new();
+    log::debug!("WEBFINGER URL: {url}");
 
-    if let Ok(response) = client.get(&url).send().await {
-        // fix this unwrap
-        let response: WebFinger = response.json().await.unwrap();
-        Some(response)
-    } else {
-        Some(WebFinger::default())
-    }
+    let client = Client::builder()
+        .user_agent("Enigmatick/0.1")
+        .build()
+        .map_err(anyhow::Error::msg)?;
+
+    let response = client
+        .get(&url)
+        .header("Accept", "application/jrd+json")
+        .send()
+        .await
+        .map_err(anyhow::Error::msg)?;
+
+    response.json().await.map_err(anyhow::Error::msg)
 }
 
 pub async fn get_note(conn: &Db, profile: Option<Profile>, id: String) -> Option<ApNote> {
@@ -208,8 +226,11 @@ pub async fn get_actor(
 }
 
 pub async fn signed_get(profile: Profile, url: String, accept_any: bool) -> Result<Response> {
-    let client = Client::builder();
-    let client = client.user_agent("Enigmatick/0.1").build().unwrap();
+    log::debug!("RETRIEVING: {url}");
+    let client = Client::builder()
+        .user_agent("Enigmatick/0.1")
+        .build()
+        .unwrap();
 
     let accept = if accept_any {
         "*/*"
@@ -231,13 +252,14 @@ pub async fn signed_get(profile: Profile, url: String, accept_any: bool) -> Resu
         method,
     })?;
 
-    client
+    let client = client
         .get(url_str)
         .timeout(std::time::Duration::new(5, 0))
         .header("Accept", accept)
         .header("Signature", &signature.signature)
-        .header("Date", signature.date)
-        .send()
-        .await
-        .map_err(anyhow::Error::msg)
+        .header("Date", signature.date);
+
+    log::debug!("CLIENT REQUEST\n{client:#?}");
+
+    client.send().await.map_err(anyhow::Error::msg)
 }

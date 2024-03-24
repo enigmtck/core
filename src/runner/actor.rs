@@ -1,6 +1,6 @@
+use crate::db::Db;
 use anyhow::Result;
 use reqwest::StatusCode;
-use rocket::futures::future::join_all;
 
 use crate::{
     activity_pub::{retriever::signed_get, ApActor},
@@ -35,24 +35,26 @@ async fn cache_actor(actor: &ApActor) -> &ApActor {
     actor
 }
 
-pub async fn update_tags(actor: RemoteActor) -> Result<()> {
+pub async fn update_tags(conn: Option<&Db>, actor: RemoteActor) -> Result<()> {
     let deleted = delete_remote_actor_hashtags_by_remote_actor_id(None, actor.id).await?;
 
     log::debug!("DELETED {deleted} ACTOR TAGS");
 
     let new_tags: Vec<NewRemoteActorHashtag> = actor.clone().into();
 
-    join_all(
-        new_tags
-            .iter()
-            .map(|tag| async { create_remote_actor_hashtag(None, tag.clone()).await }),
-    )
-    .await;
+    for tag in new_tags.iter() {
+        log::debug!("ADDING HASHTAG: {}", tag.hashtag);
+        create_remote_actor_hashtag(conn, tag.clone()).await;
+    }
 
     Ok(())
 }
 
-pub async fn get_actor(profile: Profile, id: String) -> Option<(RemoteActor, Option<Leader>)> {
+pub async fn get_actor(
+    conn: Option<&Db>,
+    profile: Profile,
+    id: String,
+) -> Option<(RemoteActor, Option<Leader>)> {
     // In the Rocket version of this, there's an option to force it not to make the external
     // call to update to avoid affecting response time to the browser. But here, that's not relevant.
     // And in fact, for local outbound Notes we use this call to check that the local user is
@@ -75,11 +77,11 @@ pub async fn get_actor(profile: Profile, id: String) -> Option<(RemoteActor, Opt
                 let new_remote_actor =
                     NewRemoteActor::try_from(cache_actor(&actor).await.clone()).ok()?;
 
-                let remote_actor = create_or_update_remote_actor(None, new_remote_actor)
+                let remote_actor = create_or_update_remote_actor(conn, new_remote_actor)
                     .await
                     .ok()?;
 
-                update_tags(remote_actor.clone()).await.ok()?;
+                update_tags(conn, remote_actor.clone()).await.ok()?;
 
                 Some((remote_actor, None))
             }

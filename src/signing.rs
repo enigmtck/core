@@ -50,8 +50,8 @@ fn build_verify_string(
 
     if let Some(captures) = LOCAL_USER_KEY_ID_RE.captures(key_id) {
         local = true;
-        username = Option::from(captures[2].to_string());
-        key_selector = Option::from(captures[3].to_string());
+        username = Some(captures[2].to_string());
+        key_selector = Some(captures[3].to_string());
     }
 
     let headers = signature_map

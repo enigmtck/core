@@ -37,13 +37,7 @@ pub struct VaultStorageResponse {
 impl From<Option<VaultItem>> for VaultStorageResponse {
     fn from(item: Option<VaultItem>) -> Self {
         VaultStorageResponse {
-            uuid: {
-                if let Some(item) = item {
-                    Option::from(item.uuid)
-                } else {
-                    Option::None
-                }
-            },
+            uuid: item.map(|x| x.uuid),
         }
     }
 }

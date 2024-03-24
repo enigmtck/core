@@ -298,6 +298,8 @@ impl ApActor {
                         })
                         .collect(),
                 );
+
+                self.ephemeral_summary_markdown = profile.summary_markdown;
             }
         }
 
@@ -332,7 +334,6 @@ impl From<Profile> for ApActor {
             context: Some(ApContext::default()),
             name: Some(profile.display_name),
             summary: profile.summary,
-            ephemeral_summary_markdown: profile.summary_markdown,
             id: Some(ApAddress::Address(format!(
                 "{}/user/{}",
                 server_url, profile.username
@@ -400,6 +401,7 @@ impl From<Profile> for ApActor {
             endpoints: Some(ApEndpoint {
                 shared_inbox: format!("{server_url}/inbox"),
             }),
+            ephemeral_summary_markdown: None,
             ephemeral_following: None,
             ephemeral_leader_ap_id: None,
             ephemeral_followers: None,

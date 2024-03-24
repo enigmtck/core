@@ -10,7 +10,7 @@ use crate::{
 };
 use rocket::{get, http::Status, response::Redirect, serde::json::Json};
 
-use super::ActivityJson;
+use super::{ActivityJson, LdJson};
 
 #[get("/user/<username>", format = "text/html", rank = 1)]
 pub async fn person_redirect(username: String) -> Redirect {
@@ -18,13 +18,43 @@ pub async fn person_redirect(username: String) -> Redirect {
     Redirect::to(format!("/@{username}"))
 }
 
-#[get("/user/<username>", rank = 2)]
-pub async fn person(conn: Db, username: String) -> Result<ActivityJson<ApActor>, Status> {
+#[get("/user/<username>", format = "application/activity+json", rank = 2)]
+pub async fn person_activity_json(
+    signed: Signed,
+    conn: Db,
+    username: String,
+) -> Result<ActivityJson<ApActor>, Status> {
     match get_profile_by_username((&conn).into(), username).await {
-        Some(profile) => Ok(ActivityJson(Json(
-            ApActor::from(profile).load_ephemeral(&conn).await,
-        ))),
-        None => Err(Status::NoContent),
+        Some(profile) => {
+            let actor = if signed.local() {
+                ApActor::from(profile).load_ephemeral(&conn).await
+            } else {
+                ApActor::from(profile)
+            };
+
+            Ok(ActivityJson(Json(actor)))
+        }
+        None => Err(Status::NotFound),
+    }
+}
+
+#[get("/user/<username>", format = "application/ld+json", rank = 3)]
+pub async fn person_ld_json(
+    signed: Signed,
+    conn: Db,
+    username: String,
+) -> Result<LdJson<ApActor>, Status> {
+    match get_profile_by_username((&conn).into(), username).await {
+        Some(profile) => {
+            let actor = if signed.local() {
+                ApActor::from(profile).load_ephemeral(&conn).await
+            } else {
+                ApActor::from(profile)
+            };
+
+            Ok(LdJson(Json(actor)))
+        }
+        None => Err(Status::NotFound),
     }
 }
 
@@ -33,7 +63,7 @@ pub async fn liked_get(conn: Db, username: String) -> Result<ActivityJson<ApColl
     if let Some(_profile) = get_profile_by_username((&conn).into(), username).await {
         Ok(ActivityJson(Json(ApCollection::default())))
     } else {
-        Err(Status::NoContent)
+        Err(Status::NotFound)
     }
 }
 
@@ -73,7 +103,7 @@ pub async fn get_followers(
                 .collect(),
         }))))
     } else {
-        Err(Status::NoContent)
+        Err(Status::NotFound)
     }
 }
 
@@ -110,6 +140,6 @@ pub async fn get_leaders(
             leaders: leaders.iter().map(|(leader, _)| leader.clone()).collect(),
         }))))
     } else {
-        Err(Status::NoContent)
+        Err(Status::NotFound)
     }
 }

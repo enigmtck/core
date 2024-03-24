@@ -38,44 +38,59 @@ pub fn clean_text(text: String) -> String {
     ammonia.clean(&text).to_string()
 }
 
-pub async fn send_to_inboxes(inboxes: Vec<ApAddress>, profile: Profile, message: ApActivity) {
+pub async fn send_to_inboxes(
+    inboxes: Vec<ApAddress>,
+    profile: Profile,
+    message: ApActivity,
+) -> Result<()> {
     log::debug!("INBOXES\n{inboxes:#?}");
 
-    for url_str in inboxes {
-        log::debug!("SENDING TO {url_str}");
+    for inbox in inboxes {
+        log::debug!("SENDING TO {inbox}");
 
-        let body = Option::from(serde_json::to_string(&message).unwrap());
-        let method = Method::Post;
+        let body = serde_json::to_string(&message).map_err(anyhow::Error::msg)?;
 
-        if let Ok(url) = Url::parse(&url_str.clone().to_string()) {
-            if let Ok(signature) = crate::signing::sign(SignParams {
-                profile: profile.clone(),
-                url: url.clone(),
-                body: body.clone(),
-                method,
-            }) {
-                let client = Client::new()
-                    .post(url_str.clone().to_string())
-                    .header("Date", signature.date)
-                    .header("Digest", signature.digest.unwrap())
-                    .header("Signature", &signature.signature)
-                    .header("Content-Type", "application/activity+json")
-                    .body(body.clone().unwrap());
+        let url = Url::parse(&inbox.clone().to_string()).map_err(anyhow::Error::msg)?;
 
-                log::debug!("{client:#?}");
-                log::debug!("{body:#?}");
+        let signature = crate::signing::sign(SignParams {
+            profile: profile.clone(),
+            url,
+            body: Some(body.clone()),
+            method: Method::Post,
+        })
+        .map_err(anyhow::Error::msg)?;
 
-                if let Ok(resp) = client.send().await {
-                    let code = resp.status();
-                    let message = resp.text().await;
-                    log::debug!("SEND RESULT FOR {url}: {code} {message:#?}");
-                }
-            }
+        let client = Client::builder()
+            .user_agent("Enigmatick/0.1")
+            .build()
+            .unwrap();
+
+        let client = client
+            .post(inbox.clone().to_string())
+            .timeout(std::time::Duration::new(5, 0))
+            .header("Date", signature.date)
+            .header("Digest", signature.digest.unwrap())
+            .header("Signature", &signature.signature)
+            .header("Content-Type", "application/activity+json")
+            .body(body.clone());
+
+        log::debug!("{client:#?}");
+        log::debug!("{body:#?}");
+
+        if let Ok(resp) = client.send().await {
+            log::debug!(
+                "SEND RESULT FOR {inbox}: {} {:#?}",
+                resp.status(),
+                resp.text().await
+            );
         }
     }
+
+    Ok(())
 }
 
 async fn handle_recipients(
+    conn: Option<&Db>,
     inboxes: &mut HashSet<ApAddress>,
     sender: &Profile,
     address: &ApAddress,
@@ -92,14 +107,18 @@ async fn handle_recipients(
         if address.to_string() == followers {
             inboxes.extend(get_follower_inboxes(sender.clone()).await);
         } else if let Some((actor, _)) =
-            get_actor(sender.clone(), address.clone().to_string()).await
+            get_actor(conn, sender.clone(), address.clone().to_string()).await
         {
             inboxes.insert(ApAddress::Address(actor.inbox));
         }
     }
 }
 
-pub async fn get_inboxes(activity: ApActivity, sender: Profile) -> Vec<ApAddress> {
+pub async fn get_inboxes(
+    conn: Option<&Db>,
+    activity: ApActivity,
+    sender: Profile,
+) -> Vec<ApAddress> {
     let mut inboxes = HashSet::<ApAddress>::new();
 
     let (to, cc) = match activity {
@@ -152,11 +171,11 @@ pub async fn get_inboxes(activity: ApActivity, sender: Profile) -> Vec<ApAddress
 
     match consolidated {
         MaybeMultiple::Single(to) => {
-            handle_recipients(&mut inboxes, &sender, &to).await;
+            handle_recipients(conn, &mut inboxes, &sender, &to).await;
         }
         MaybeMultiple::Multiple(to) => {
             for address in to.iter() {
-                handle_recipients(&mut inboxes, &sender, address).await;
+                handle_recipients(conn, &mut inboxes, &sender, address).await;
             }
         }
         MaybeMultiple::None => {}

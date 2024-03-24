@@ -48,11 +48,13 @@ pub async fn process_outbound_undo_task(
             target_activity.clone(),
         ))
         .map_err(|_| TaskError::TaskFailed)?;
-        let inboxes: Vec<ApAddress> = get_inboxes(ap_activity.clone(), sender.clone()).await;
+        let inboxes: Vec<ApAddress> = get_inboxes(conn, ap_activity.clone(), sender.clone()).await;
         log::debug!("INBOXES\n{inboxes:#?}");
         log::debug!("ACTIVITY\n{activity:#?}");
 
-        send_to_inboxes(inboxes, sender, ap_activity.clone()).await;
+        send_to_inboxes(inboxes, sender, ap_activity.clone())
+            .await
+            .map_err(|_| TaskError::TaskFailed)?;
 
         let target_activity = target_activity.ok_or(TaskError::TaskFailed)?;
         let target_activity =

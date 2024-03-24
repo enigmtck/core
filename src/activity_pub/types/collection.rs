@@ -118,9 +118,9 @@ impl Outbox for ApCollectionPage {
 impl Default for ApCollectionPage {
     fn default() -> ApCollectionPage {
         ApCollectionPage {
-            context: Option::from(ApContext::default()),
+            context: Some(ApContext::default()),
             kind: ApCollectionPageType::default(),
-            id: Option::from(format!(
+            id: Some(format!(
                 "https://{}/collections/{}",
                 *crate::SERVER_NAME,
                 Uuid::new_v4()
@@ -186,9 +186,9 @@ impl Outbox for ApCollection {
 impl Default for ApCollection {
     fn default() -> ApCollection {
         ApCollection {
-            context: Option::from(ApContext::default()),
+            context: Some(ApContext::default()),
             kind: ApCollectionType::Collection,
-            id: Option::from(format!(
+            id: Some(format!(
                 "https://{}/collections/{}",
                 *crate::SERVER_NAME,
                 Uuid::new_v4()
@@ -237,7 +237,7 @@ impl From<Vec<ActivityPub>> for ApCollection {
     fn from(objects: Vec<ActivityPub>) -> Self {
         ApCollection {
             total_items: Some(objects.len() as u32),
-            items: Option::from(objects),
+            items: Some(objects),
             ..Default::default()
         }
     }
@@ -247,7 +247,7 @@ impl From<Vec<ApObject>> for ApCollection {
     fn from(objects: Vec<ApObject>) -> Self {
         ApCollection {
             total_items: Some(objects.len() as u32),
-            items: Option::from(
+            items: Some(
                 objects
                     .iter()
                     .map(|x| ActivityPub::Object(x.clone()))
@@ -270,15 +270,15 @@ impl From<ActorsPage> for ApCollection {
         if request.page == 0 {
             ApCollection {
                 kind: ApCollectionType::OrderedCollection,
-                id: Option::from(format!(
+                id: Some(format!(
                     "{}/users/{}/actors",
                     *crate::SERVER_URL,
                     request.profile.username
                 )),
                 total_items: Some(request.actors.len() as u32),
-                first: Option::None,
-                part_of: Option::None,
-                ordered_items: Option::from(
+                first: None,
+                part_of: None,
+                ordered_items: Some(
                     request
                         .actors
                         .into_iter()
@@ -289,8 +289,8 @@ impl From<ActorsPage> for ApCollection {
             }
         } else {
             ApCollection {
-                part_of: Option::None,
-                ordered_items: Option::None,
+                part_of: None,
+                ordered_items: None,
                 ..Default::default()
             }
         }
@@ -309,15 +309,15 @@ impl From<FollowersPage> for ApCollection {
         if request.page == 0 {
             ApCollection {
                 kind: ApCollectionType::OrderedCollection,
-                id: Option::from(format!(
+                id: Some(format!(
                     "{}/users/{}/followers",
                     *crate::SERVER_URL,
                     request.profile.username
                 )),
                 total_items: Some(request.followers.len() as u32),
-                first: Option::None,
-                part_of: Option::None,
-                ordered_items: Option::from(
+                first: None,
+                part_of: None,
+                ordered_items: Some(
                     request
                         .followers
                         .into_iter()
@@ -328,8 +328,8 @@ impl From<FollowersPage> for ApCollection {
             }
         } else {
             ApCollection {
-                part_of: Option::None,
-                ordered_items: Option::None,
+                part_of: None,
+                ordered_items: None,
                 ..Default::default()
             }
         }
@@ -351,7 +351,7 @@ impl From<ActivitiesPage> for ApCollectionPage {
     fn from(request: ActivitiesPage) -> Self {
         ApCollectionPage {
             kind: ApCollectionPageType::OrderedCollectionPage,
-            id: Option::from(format!(
+            id: Some(format!(
                 "{}/users/{}/activities",
                 *crate::SERVER_URL,
                 request.profile.username
@@ -385,15 +385,15 @@ impl From<LeadersPage> for ApCollection {
         if request.page == 0 {
             ApCollection {
                 kind: ApCollectionType::OrderedCollection,
-                id: Option::from(format!(
+                id: Some(format!(
                     "{}/users/{}/following",
                     *crate::SERVER_URL,
                     request.profile.username
                 )),
                 total_items: Some(request.leaders.len() as u32),
-                first: Option::None,
-                part_of: Option::None,
-                ordered_items: Option::from(
+                first: None,
+                part_of: None,
+                ordered_items: Some(
                     request
                         .leaders
                         .into_iter()
@@ -404,8 +404,8 @@ impl From<LeadersPage> for ApCollection {
             }
         } else {
             ApCollection {
-                part_of: Option::None,
-                ordered_items: Option::None,
+                part_of: None,
+                ordered_items: None,
                 ..Default::default()
             }
         }
@@ -418,15 +418,15 @@ impl From<IdentifiedVaultItems> for ApCollection {
     fn from((items, profile): IdentifiedVaultItems) -> Self {
         ApCollection {
             kind: ApCollectionType::OrderedCollection,
-            id: Option::from(format!(
+            id: Some(format!(
                 "{}/ephemeral-collection/{}",
                 *crate::SERVER_URL,
                 uuid::Uuid::new_v4()
             )),
             total_items: Some(items.len() as u32),
-            first: Option::None,
-            part_of: Option::None,
-            ordered_items: Option::from(
+            first: None,
+            part_of: None,
+            ordered_items: Some(
                 items
                     .into_iter()
                     .map(|x| ActivityPub::Object(ApObject::Note((x, profile.clone()).into())))

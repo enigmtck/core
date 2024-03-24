@@ -1,7 +1,5 @@
 use anyhow::Result;
-use reqwest::{Client, StatusCode};
-use rocket::futures::future::join_all;
-use url::Url;
+use reqwest::StatusCode;
 
 use crate::activity_pub::retriever::signed_get;
 use crate::activity_pub::ApImage;
@@ -26,7 +24,7 @@ use crate::{
         get_inboxes,
         send_to_inboxes,
     },
-    signing::{Method, SignParams},
+    signing::Method,
     MaybeReference,
 };
 
@@ -94,9 +92,11 @@ pub async fn delete_note_task(
             None,
         ))
         .map_err(|_| TaskError::TaskFailed)?;
-        let inboxes: Vec<ApAddress> = get_inboxes(activity.clone(), sender.clone()).await;
+        let inboxes: Vec<ApAddress> = get_inboxes(conn, activity.clone(), sender.clone()).await;
 
-        send_to_inboxes(inboxes, sender, activity.clone()).await;
+        send_to_inboxes(inboxes, sender, activity.clone())
+            .await
+            .map_err(|_| TaskError::TaskFailed)?;
 
         let ap_id = get_note_ap_id_from_uuid(note.uuid.clone());
 
@@ -195,47 +195,51 @@ pub async fn outbound_note_task(
             }
         }
 
-        add_note_to_timeline(note, sender.clone()).await;
+        add_note_to_timeline(conn, note, sender.clone()).await;
 
         let activity = activity.ok_or(TaskError::TaskFailed)?;
 
-        let inboxes: Vec<ApAddress> = get_inboxes(activity.clone(), sender.clone()).await;
+        let inboxes: Vec<ApAddress> = get_inboxes(conn, activity.clone(), sender.clone()).await;
 
         log::debug!("SENDING ACTIVITY\n{activity:#?}");
         log::debug!("INBOXES\n{inboxes:#?}");
 
-        for url_str in inboxes {
-            let body = Option::from(serde_json::to_string(&activity).unwrap());
-            let method = Method::Post;
-
-            let url =
-                Url::parse(&url_str.clone().to_string()).map_err(|_| TaskError::TaskFailed)?;
-
-            let signature = crate::signing::sign(SignParams {
-                profile: sender.clone(),
-                url: url.clone(),
-                body: body.clone(),
-                method,
-            })
+        send_to_inboxes(inboxes, sender, activity)
+            .await
             .map_err(|_| TaskError::TaskFailed)?;
 
-            let client = Client::new()
-                .post(&url_str.to_string())
-                .header("Date", signature.date)
-                .header("Digest", signature.digest.unwrap())
-                .header("Signature", &signature.signature)
-                .header("Content-Type", "application/activity+json")
-                .body(body.unwrap());
+        // for url_str in inboxes {
+        //     let body = Some(serde_json::to_string(&activity).unwrap());
+        //     let method = Method::Post;
 
-            let resp = client.send().await.map_err(|_| TaskError::TaskFailed)?;
+        //     let url =
+        //         Url::parse(&url_str.clone().to_string()).map_err(|_| TaskError::TaskFailed)?;
 
-            match resp.status() {
-                StatusCode::ACCEPTED | StatusCode::OK => {
-                    log::debug!("SENT TO {url}")
-                }
-                _ => log::error!("ERROR SENDING TO {url}"),
-            }
-        }
+        //     let signature = crate::signing::sign(SignParams {
+        //         profile: sender.clone(),
+        //         url: url.clone(),
+        //         body: body.clone(),
+        //         method,
+        //     })
+        //     .map_err(|_| TaskError::TaskFailed)?;
+
+        //     let client = Client::new()
+        //         .post(&url_str.to_string())
+        //         .header("Date", signature.date)
+        //         .header("Digest", signature.digest.unwrap())
+        //         .header("Signature", &signature.signature)
+        //         .header("Content-Type", "application/activity+json")
+        //         .body(body.unwrap());
+
+        //     let resp = client.send().await.map_err(|_| TaskError::TaskFailed)?;
+
+        //     match resp.status() {
+        //         StatusCode::ACCEPTED | StatusCode::OK => {
+        //             log::debug!("SENT TO {url}")
+        //         }
+        //         _ => log::error!("ERROR SENDING TO {url}"),
+        //     }
+        // }
     }
 
     Ok(())
@@ -298,44 +302,41 @@ pub async fn fetch_remote_note(id: String, profile: Profile) -> Option<RemoteNot
     }
 }
 
-async fn add_note_to_timeline(note: Note, sender: Profile) {
+async fn add_note_to_timeline(conn: Option<&Db>, note: Note, sender: Profile) {
     // Add to local timeline - this checks to be sure that the profile is represented as a remote_actor
     // locally before adding the Note to the Timeline. This is important as the Timeline only uses the
     // remote_actor representation (not the profile) for attributed_to data. In this case, the sender
     // and the note.attributed_to should represent the same person.
-    if get_actor(sender, note.clone().attributed_to)
+    if get_actor(conn, sender, note.clone().attributed_to)
         .await
         .is_some()
     {
         if let Ok(timeline_item) = create_timeline_item(None, note.clone().into()).await {
-            add_to_timeline(Option::from(note.clone().ap_to), note.cc, timeline_item).await;
+            add_to_timeline(Some(note.clone().ap_to), note.cc, timeline_item).await;
         }
     }
 }
 
-pub async fn create_remote_note_tags(remote_note: RemoteNote) {
+pub async fn create_remote_note_tags(conn: Option<&Db>, remote_note: RemoteNote) {
     let new_tags: Vec<NewRemoteNoteHashtag> = remote_note.clone().into();
 
-    join_all(
-        new_tags
-            .iter()
-            .map(|tag| async { create_remote_note_hashtag(None, tag.clone()).await }),
-    )
-    .await;
+    for tag in new_tags.iter() {
+        log::debug!("ADDING HASHTAG: {}", tag.hashtag);
+        create_remote_note_hashtag(conn, tag.clone()).await;
+    }
 }
 
-pub async fn create_timeline_tags(timeline_item: TimelineItem) {
+pub async fn create_timeline_tags(conn: Option<&Db>, timeline_item: TimelineItem) {
     let new_tags: Vec<NewTimelineHashtag> = timeline_item.clone().into();
 
-    join_all(
-        new_tags
-            .iter()
-            .map(|tag| async { create_timeline_hashtag(None, tag.clone()).await }),
-    )
-    .await;
+    for tag in new_tags.iter() {
+        log::debug!("ADDING HASHTAG: {}", tag.hashtag);
+        create_timeline_hashtag(conn, tag.clone()).await;
+    }
 }
 
 pub async fn handle_remote_note(
+    conn: Option<&Db>,
     channels: Option<EventChannels>,
     remote_note: RemoteNote,
     announcer: Option<String>,
@@ -345,7 +346,7 @@ pub async fn handle_remote_note(
     let note: ApNote = remote_note.clone().into();
     let profile = guaranteed_profile(None, None);
 
-    let _ = get_actor(profile.await, note.attributed_to.to_string()).await;
+    let _ = get_actor(conn, profile.await, note.attributed_to.to_string()).await;
 
     let mut note = cache_note(&note).await.clone();
 
@@ -353,10 +354,10 @@ pub async fn handle_remote_note(
         note.ephemeral_announces = Some(vec![announcer]);
     }
 
-    create_remote_note_tags(remote_note.clone()).await;
+    create_remote_note_tags(conn, remote_note.clone()).await;
 
     if let Ok(timeline_item) = create_timeline_item(None, (None, note.clone()).into()).await {
-        create_timeline_tags(timeline_item.clone()).await;
+        create_timeline_tags(conn, timeline_item.clone()).await;
 
         add_to_timeline(
             remote_note.clone().ap_to,
@@ -418,7 +419,7 @@ pub async fn remote_note_task(
 
                 match remote_note.kind {
                     NoteType::Note => {
-                        let _ = handle_remote_note(channels, remote_note.clone(), None).await;
+                        let _ = handle_remote_note(conn, channels, remote_note.clone(), None).await;
                     }
                     NoteType::EncryptedNote => {
                         let _ = handle_remote_encrypted_note_task(conn, remote_note).await;
@@ -428,7 +429,7 @@ pub async fn remote_note_task(
             } else if #[cfg(feature = "sqlite")] {
                 match remote_note.kind.as_str() {
                     "note" => {
-                        let _ = handle_remote_note(channels.clone(), remote_note.clone(), None).await;
+                        let _ = handle_remote_note(conn, channels.clone(), remote_note.clone(), None).await;
                     }
                     "encrypted_note" => {
                         let _ = handle_remote_encrypted_note_task(conn, remote_note).await;

@@ -64,7 +64,7 @@ impl<'r> FromRequest<'r> for Signed {
             Some(val) => val,
             None => {
                 log::debug!("NO DATE PROVIDED");
-                return Outcome::Error((Status::BadRequest, SignatureError::NoDateProvided));
+                return Outcome::Success(Signed(false, VerificationType::None));
             }
         };
 

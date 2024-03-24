@@ -212,7 +212,8 @@ fn rocket() -> Rocket<Build> {
                 client_icons_file,
                 client_profile,
                 person_redirect,
-                person,
+                person_activity_json,
+                person_ld_json,
                 webfinger_jrd_json,
                 webfinger_activity_json,
                 webfinger_json,
@@ -259,6 +260,7 @@ fn rocket() -> Rocket<Build> {
                 authorize_stream,
                 host_meta,
                 cached_image,
+                user_activity_json,
             ],
         )
 }

@@ -73,13 +73,7 @@ impl From<ApNote> for NewRemoteNote {
             replies: to_serde(note.replies),
             tag: to_serde(note.tag),
             content: ammonia.clean(&note.content).to_string(),
-            summary: {
-                if let Some(summary) = note.summary {
-                    Option::from(ammonia.clean(&summary).to_string())
-                } else {
-                    Option::None
-                }
-            },
+            summary: note.summary.map(|x| ammonia.clean(&x).to_string()),
             ap_sensitive: note.sensitive,
             atom_uri: note.atom_uri,
             in_reply_to: note.in_reply_to,

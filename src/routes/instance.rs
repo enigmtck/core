@@ -16,7 +16,7 @@ impl Default for RegistrationInformation {
         RegistrationInformation {
             enabled: *crate::REGISTRATION_ENABLED,
             approval_required: *crate::REGISTRATION_APPROVAL_REQUIRED,
-            message: Option::from((*crate::REGISTRATION_MESSAGE).to_string()),
+            message: Some((*crate::REGISTRATION_MESSAGE).to_string()),
         }
     }
 }
