@@ -105,6 +105,18 @@ impl From<ApImage> for Cacheable {
     }
 }
 
+impl TryFrom<Result<ApImage>> for Cacheable {
+    type Error = anyhow::Error;
+
+    fn try_from(image: Result<ApImage>) -> Result<Self, Self::Error> {
+        if let Ok(image) = image {
+            Ok(Cacheable::Image(image))
+        } else {
+            Err(Self::Error::msg("failed to convert image to Cacheable"))
+        }
+    }
+}
+
 // I'm not sure if this is ridiculous or not, but if I use a Result here as a parameter
 // I can streamline the calls from the TryFrom bits above. E.g.,
 // cache_content(conn, attachment.try_into()).await;

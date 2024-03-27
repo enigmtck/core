@@ -90,20 +90,22 @@ pub async fn shared_inbox_post(
 ) -> Result<Status, Status> {
     if permitted.is_permitted() {
         let raw = serde_json::from_str::<Value>(&activity).map_err(|_| Status::BadRequest)?;
+        log::debug!("POSTING TO INBOX\n{raw:#?}");
+
         let activity =
             serde_json::from_str::<ApActivity>(&activity).map_err(|_| Status::BadRequest)?;
 
-        log::debug!("POSTING TO INBOX\n{activity:#?}");
+        //log::debug!("POSTING TO INBOX\n{activity:#?}");
 
         if signed.any() {
             activity.inbox(conn, channels, raw).await
         } else {
             log::debug!("REQUEST WAS UNSIGNED OR MALFORMED");
-            Err(Status::NoContent)
+            Err(Status::Unauthorized)
         }
     } else {
         log::debug!("REQUEST WAS EXPLICITLY PROHIBITED");
-        Err(Status::Unauthorized)
+        Err(Status::Forbidden)
     }
 }
 

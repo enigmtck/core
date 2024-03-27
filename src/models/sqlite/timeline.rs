@@ -11,7 +11,27 @@ use diesel::prelude::*;
 use diesel::{AsChangeset, Identifiable, Insertable, Queryable};
 use serde::{Deserialize, Serialize};
 
+use super::notes::NoteType;
 use super::profiles::Profile;
+
+#[derive(
+    diesel_derive_enum::DbEnum, Debug, Serialize, Deserialize, Default, Clone, Eq, PartialEq,
+)]
+pub enum TimelineType {
+    #[default]
+    Note,
+    Question,
+}
+
+impl TryFrom<NoteType> for TimelineType {
+    type Error = anyhow::Error;
+    fn try_from(kind: NoteType) -> Result<Self, Self::Error> {
+        match kind {
+            NoteType::Note => Ok(TimelineType::Note),
+            _ => Err(anyhow::Error::msg("CONVERSION NOT POSSIBLE")),
+        }
+    }
+}
 
 #[derive(Serialize, Deserialize, Insertable, Default, Debug, Clone, AsChangeset)]
 #[diesel(table_name = timeline)]
@@ -35,6 +55,10 @@ pub struct NewTimelineItem {
     pub attachment: Option<String>,
     pub ap_object: Option<String>,
     pub metadata: Option<String>,
+    pub end_time: Option<NaiveDateTime>,
+    pub one_of: Option<String>,
+    pub any_of: Option<String>,
+    pub voters_count: Option<i32>,
 }
 
 #[derive(Identifiable, Queryable, AsChangeset, Serialize, Clone, Default, Debug)]
@@ -63,6 +87,10 @@ pub struct TimelineItem {
     pub attachment: Option<String>,
     pub ap_object: Option<String>,
     pub metadata: Option<String>,
+    pub end_time: Option<NaiveDateTime>,
+    pub one_of: Option<String>,
+    pub any_of: Option<String>,
+    pub voters_count: Option<i32>,
 }
 
 #[derive(Identifiable, Queryable, AsChangeset, Associations, Serialize, Clone, Default, Debug)]

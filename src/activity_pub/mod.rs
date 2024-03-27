@@ -32,6 +32,8 @@ pub use types::object::{
     ApTag,
 };
 
+pub use types::question::{ApQuestion, ApQuestionType};
+
 pub use types::attachment::{
     ApAttachment, ApDocument, ApLink, ApProof, ApVerifiableIdentityStatement,
 };

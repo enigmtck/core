@@ -17,7 +17,6 @@ pub enum NoteType {
     Note,
     EncryptedNote,
     VaultNote,
-    Question,
 }
 
 impl fmt::Display for NoteType {
@@ -32,7 +31,6 @@ impl From<ApNoteType> for NoteType {
             ApNoteType::EncryptedNote => NoteType::EncryptedNote,
             ApNoteType::Note => NoteType::Note,
             ApNoteType::VaultNote => NoteType::VaultNote,
-            ApNoteType::Question => NoteType::Question,
         }
     }
 }

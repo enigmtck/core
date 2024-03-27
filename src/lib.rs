@@ -37,6 +37,8 @@ pub mod signing;
 pub mod webfinger;
 
 lazy_static! {
+    pub static ref IMAGE_MEDIA_RE: Regex =
+        Regex::new(r#"^image\/([a-z]+)$"#).expect("invalid image media regex");
     pub static ref ANCHOR_RE: Regex =
         Regex::new(r#"<a href="(.+?)".*?>"#).expect("invalid anchor regex");
     pub static ref WEBFINGER_RE: Regex =

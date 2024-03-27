@@ -2,9 +2,7 @@ use core::fmt;
 use std::fmt::Debug;
 
 use crate::{
-    activity_pub::{
-        ApActivity, ApAddress, ApContext, ApNote, ApNoteType, ApObject, Inbox, Outbox, Temporal,
-    },
+    activity_pub::{ApActivity, ApAddress, ApContext, ApNote, ApObject, Inbox, Outbox, Temporal},
     db::Db,
     fairings::events::EventChannels,
     models::{
@@ -13,6 +11,7 @@ use crate::{
         },
         profiles::Profile,
         remote_notes::{create_or_update_remote_note, NewRemoteNote},
+        remote_questions::create_or_update_remote_question,
     },
     runner, MaybeMultiple, MaybeReference,
 };
@@ -61,15 +60,9 @@ pub struct ApCreate {
 
 impl Inbox for ApCreate {
     async fn inbox(&self, conn: Db, channels: EventChannels, raw: Value) -> Result<Status, Status> {
-        //inbox::activity::create(conn, faktory, self.clone()).await
         match self.clone().object {
             MaybeReference::Actual(ApObject::Note(x)) => {
-                if x.kind == ApNoteType::Question {
-                    log::debug!("QUESTION RAW JSON\n{raw:#?}");
-                }
-
                 let n = NewRemoteNote::from(x.clone());
-                //let ap_activity = ApActivity::Create(self.clone());
 
                 // creating Activity after RemoteNote is weird, but currently necessary
                 // see comment in models/activities.rs on TryFrom<ApActivity>
@@ -93,15 +86,44 @@ impl Inbox for ApCreate {
                     )
                     .await;
                     Ok(Status::Accepted)
-                    //to_faktory(faktory, "process_remote_note", vec![created_note.ap_id])
                 } else {
                     log::error!("FAILED TO INSERT ACTIVITY");
                     Err(Status::NoContent)
                 }
             }
+            MaybeReference::Actual(ApObject::Question(question)) => {
+                let created_question = create_or_update_remote_question(&conn, question.into())
+                    .await
+                    .map_err(|e| {
+                        log::error!("{e:#?}");
+                        Status::new(520)
+                    })?;
+
+                let activity = NewActivity::try_from((
+                    ApActivity::Create(self.clone()),
+                    Some(ActivityTarget::from(created_question.clone())),
+                ) as ApActivityTarget)
+                .map_err(|_| Status::new(521))?;
+
+                log::debug!("ACTIVITY\n{activity:#?}");
+
+                if create_activity((&conn).into(), activity).await.is_ok() {
+                    runner::run(
+                        runner::question::remote_question_task,
+                        Some(conn),
+                        Some(channels),
+                        vec![created_question.ap_id],
+                    )
+                    .await;
+                    Ok(Status::Accepted)
+                } else {
+                    log::error!("FAILED TO INSERT ACTIVITY");
+                    Err(Status::InternalServerError)
+                }
+            }
             _ => {
                 log::error!("FAILED TO CREATE ACTIVITY\n{raw}");
-                Err(Status::NoContent)
+                Err(Status::NotImplemented)
             }
         }
     }

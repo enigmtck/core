@@ -20,6 +20,7 @@ use crate::models::remote_actors::NewRemoteActor;
 use crate::models::remote_notes::create_or_update_remote_note;
 use crate::models::remote_notes::get_remote_note_by_ap_id;
 use crate::models::remote_notes::NewRemoteNote;
+use crate::runner::actor::update_actor_tags;
 use crate::signing::{sign, Method, SignParams};
 use crate::webfinger::WebFinger;
 use crate::WEBFINGER_RE;
@@ -96,7 +97,7 @@ async fn get_remote_webfinger(handle: String) -> Result<WebFinger> {
     let username = captures.get(1).map_or("", |m| m.as_str());
     let server = captures.get(2).map_or("", |m| m.as_str());
 
-    let url = format!("https://{server}/.well-known/webfinger/?resource=acct:{username}@{server}");
+    let url = format!("https://{server}/.well-known/webfinger?resource=acct:{username}@{server}");
 
     log::debug!("WEBFINGER URL: {url}");
 
@@ -198,11 +199,15 @@ pub async fn process_remote_actor_retrieval(
             let actor = serde_json::from_str::<ApActor>(&text)?;
             let actor = NewRemoteActor::try_from(actor.cache(conn).await.clone())
                 .map_err(anyhow::Error::msg)?;
-            create_or_update_remote_actor(conn.into(), actor)
+            let remote_actor = create_or_update_remote_actor(conn.into(), actor)
                 .await
-                .ok()
-                .map(ApActor::from)
-                .context("failed to create or update remote actor")
+                .context("failed to create or update remote actor")?;
+
+            update_actor_tags(Some(conn), remote_actor.clone())
+                .await
+                .context("failed to create or update remote actor tags")?;
+
+            Ok(remote_actor.into())
         }
         _ => Err(anyhow::Error::msg("bad response")),
     }

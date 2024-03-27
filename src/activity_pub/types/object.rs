@@ -2,16 +2,19 @@ use crate::activity_pub::{ApActor, ApCollection, ApInstrument, ApNote, Outbox};
 use crate::db::Db;
 use crate::fairings::events::EventChannels;
 use crate::models::profiles::Profile;
-use crate::{Identifier, MaybeMultiple};
+use crate::{Identifier, MaybeMultiple, IMAGE_MEDIA_RE};
 
+use anyhow::Error;
 use enum_dispatch::enum_dispatch;
 use rocket::http::{ContentType, Status};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use url::Url;
 
+use super::attachment::ApDocument;
 use super::collection::ApCollectionPage;
 use super::delete::ApTombstone;
+use super::question::ApQuestion;
 use super::session::ApSession;
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -48,6 +51,7 @@ pub enum ApObject {
     Session(ApSession),
     Instrument(ApInstrument),
     Note(ApNote),
+    Question(ApQuestion),
     Actor(ApActor),
     Collection(ApCollection),
     CollectionPage(ApCollectionPage),
@@ -214,5 +218,25 @@ impl From<String> for ApImage {
             media_type: get_media_type(&url),
             url,
         }
+    }
+}
+
+impl TryFrom<ApDocument> for ApImage {
+    type Error = Error;
+
+    fn try_from(document: ApDocument) -> Result<Self, Self::Error> {
+        let url = document.url.ok_or(Self::Error::msg("url is None"))?;
+        let media_type = document
+            .media_type
+            .ok_or(Self::Error::msg("media_type is None"))?;
+
+        IMAGE_MEDIA_RE
+            .is_match(&media_type)
+            .then_some(ApImage {
+                kind: ApImageType::Image,
+                media_type: Some(media_type),
+                url,
+            })
+            .ok_or(Self::Error::msg("not cacheable"))
     }
 }

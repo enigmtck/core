@@ -13,7 +13,6 @@ pub enum NoteType {
     Note,
     EncryptedNote,
     VaultNote,
-    Question,
 }
 
 impl fmt::Display for NoteType {

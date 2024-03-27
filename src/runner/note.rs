@@ -2,8 +2,9 @@ use anyhow::Result;
 use reqwest::StatusCode;
 
 use crate::activity_pub::retriever::signed_get;
-use crate::activity_pub::ApImage;
+use crate::activity_pub::{ApAttachment, ApImage};
 use crate::fairings::events::EventChannels;
+use crate::models::cache::{Cache, Cacheable};
 use crate::models::note_hashtags::{create_note_hashtag, NewNoteHashtag};
 use crate::models::notes::delete_note_by_uuid;
 use crate::models::profiles::{get_profile, guaranteed_profile};
@@ -30,34 +31,6 @@ use crate::{
 
 use super::TaskError;
 use super::{actor::get_actor, timeline::add_to_timeline};
-
-async fn cache_note(note: &'_ ApNote) -> &'_ ApNote {
-    if let Some(attachments) = &note.attachment {
-        for attachment in attachments {
-            let _ = cache_content(attachment.clone().try_into()).await;
-        }
-    }
-
-    if let Some(tags) = &note.tag {
-        for tag in tags {
-            let _ = cache_content(tag.clone().try_into()).await;
-        }
-    }
-
-    if let Some(metadata_vec) = &note.ephemeral_metadata {
-        for metadata in metadata_vec {
-            if let Some(og_image) = metadata.og_image.clone() {
-                let _ = cache_content(Ok(ApImage::from(og_image).into())).await;
-            }
-
-            if let Some(twitter_image) = metadata.twitter_image.clone() {
-                let _ = cache_content(Ok(ApImage::from(twitter_image).into())).await;
-            }
-        }
-    }
-
-    note
-}
 
 pub async fn delete_note_task(
     conn: Option<Db>,
@@ -140,6 +113,18 @@ pub async fn outbound_note_task(
             .iter()
             .map(|tag| async { create_note_hashtag(None, tag.clone()).await });
 
+        // For the Svelte client, all images are passed through the server cache. To cache an image
+        // that's already on the server seems weird, but I think it's a better choice than trying
+        // to handle the URLs for local images differently.
+        let ap_note: ApNote = note.clone().into();
+        if let Some(attachments) = ap_note.attachment {
+            for attachment in attachments {
+                if let ApAttachment::Document(document) = attachment {
+                    let _ = cache_content(Cacheable::try_from(ApImage::try_from(document))).await;
+                }
+            }
+        }
+
         cfg_if::cfg_if! {
             if #[cfg(feature = "pg")] {
                 use crate::models::notes::NoteType;
@@ -207,57 +192,30 @@ pub async fn outbound_note_task(
         send_to_inboxes(inboxes, sender, activity)
             .await
             .map_err(|_| TaskError::TaskFailed)?;
-
-        // for url_str in inboxes {
-        //     let body = Some(serde_json::to_string(&activity).unwrap());
-        //     let method = Method::Post;
-
-        //     let url =
-        //         Url::parse(&url_str.clone().to_string()).map_err(|_| TaskError::TaskFailed)?;
-
-        //     let signature = crate::signing::sign(SignParams {
-        //         profile: sender.clone(),
-        //         url: url.clone(),
-        //         body: body.clone(),
-        //         method,
-        //     })
-        //     .map_err(|_| TaskError::TaskFailed)?;
-
-        //     let client = Client::new()
-        //         .post(&url_str.to_string())
-        //         .header("Date", signature.date)
-        //         .header("Digest", signature.digest.unwrap())
-        //         .header("Signature", &signature.signature)
-        //         .header("Content-Type", "application/activity+json")
-        //         .body(body.unwrap());
-
-        //     let resp = client.send().await.map_err(|_| TaskError::TaskFailed)?;
-
-        //     match resp.status() {
-        //         StatusCode::ACCEPTED | StatusCode::OK => {
-        //             log::debug!("SENT TO {url}")
-        //         }
-        //         _ => log::error!("ERROR SENDING TO {url}"),
-        //     }
-        // }
     }
 
     Ok(())
 }
 
 pub async fn retrieve_context_task(
-    _conn: Option<Db>,
+    conn: Option<Db>,
     _channels: Option<EventChannels>,
     ap_ids: Vec<String>,
 ) -> Result<(), TaskError> {
-    //let conn = conn.as_ref();
+    let conn = conn.as_ref();
 
     let profile = guaranteed_profile(None, None).await;
 
     for ap_id in ap_ids {
         let profile = profile.clone();
 
-        if let Some(note) = fetch_remote_note(ap_id.to_string(), profile).await {
+        if let Some(note) = fetch_remote_note(
+            conn.ok_or(TaskError::TaskFailed)?,
+            ap_id.to_string(),
+            profile,
+        )
+        .await
+        {
             log::debug!("REPLIES\n{:#?}", note.replies);
 
             if let Some(replies) = ApNote::from(note).replies {
@@ -269,7 +227,7 @@ pub async fn retrieve_context_task(
     Ok(())
 }
 
-pub async fn fetch_remote_note(id: String, profile: Profile) -> Option<RemoteNote> {
+pub async fn fetch_remote_note(conn: &Db, id: String, profile: Profile) -> Option<RemoteNote> {
     log::debug!("PERFORMING REMOTE LOOKUP FOR NOTE: {id}");
 
     let _url = id.clone();
@@ -279,7 +237,8 @@ pub async fn fetch_remote_note(id: String, profile: Profile) -> Option<RemoteNot
         match resp.status() {
             StatusCode::ACCEPTED | StatusCode::OK => match resp.json().await {
                 Ok(ApObject::Note(note)) => {
-                    create_or_update_remote_note(None, cache_note(&note).await.clone().into()).await
+                    create_or_update_remote_note(Some(conn), note.cache(conn).await.clone().into())
+                        .await
                 }
                 Err(e) => {
                     log::error!("FAILED TO DECODE REMOTE NOTE\n{e:#?}");
@@ -343,12 +302,10 @@ pub async fn handle_remote_note(
 ) -> anyhow::Result<RemoteNote> {
     log::debug!("HANDLING REMOTE NOTE");
 
-    let note: ApNote = remote_note.clone().into();
+    let mut note: ApNote = remote_note.clone().into();
     let profile = guaranteed_profile(None, None);
 
     let _ = get_actor(conn, profile.await, note.attributed_to.to_string()).await;
-
-    let mut note = cache_note(&note).await.clone();
 
     if let Some(announcer) = announcer {
         note.ephemeral_announces = Some(vec![announcer]);
@@ -356,7 +313,9 @@ pub async fn handle_remote_note(
 
     create_remote_note_tags(conn, remote_note.clone()).await;
 
-    if let Ok(timeline_item) = create_timeline_item(None, (None, note.clone()).into()).await {
+    if let Ok(timeline_item) =
+        create_timeline_item(conn, note.cache(conn.unwrap()).await.clone().into()).await
+    {
         create_timeline_tags(conn, timeline_item.clone()).await;
 
         add_to_timeline(

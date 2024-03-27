@@ -1,4 +1,6 @@
-use crate::activity_pub::{ApAnnounce, ApNote, ApNoteType};
+use std::fmt::Display;
+
+use crate::activity_pub::{ApAnnounce, ApNote, ApNoteType, ApQuestionType};
 use crate::db::Db;
 use crate::schema::{timeline, timeline_cc, timeline_to};
 use crate::POOL;
@@ -9,6 +11,7 @@ use serde::{Deserialize, Serialize};
 
 use super::notes::Note;
 use super::remote_notes::RemoteNote;
+use super::remote_questions::RemoteQuestion;
 use super::timeline_hashtags::TimelineHashtag;
 use crate::models::activities::{Activity, ActivityCc, ActivityTo};
 use crate::models::to_serde;
@@ -16,12 +19,12 @@ use crate::routes::inbox::InboxView;
 
 cfg_if::cfg_if! {
     if #[cfg(feature = "pg")] {
-        use crate::models::pg::notes::NoteType;
-        pub fn to_kind(kind: ApNoteType) -> NoteType {
+        fn convert_type<T1, T2: std::convert::From<T1>>(kind: T1) -> T2 {
             kind.into()
         }
 
         pub use crate::models::pg::timeline::NewTimelineItem;
+        pub use crate::models::pg::timeline::TimelineType;
         pub use crate::models::pg::timeline::TimelineItem;
         pub use crate::models::pg::timeline::TimelineItemCc;
         pub use crate::models::pg::timeline::TimelineItemTo;
@@ -29,17 +32,31 @@ cfg_if::cfg_if! {
         pub use crate::models::pg::timeline::create_timeline_item;
         pub use crate::models::pg::timeline::update_timeline_items;
     } else if #[cfg(feature = "sqlite")] {
-        pub fn to_kind(kind: ApNoteType) -> String {
+        fn convert_type<T: Display>(kind: T) -> String {
             kind.to_string().to_lowercase()
         }
 
         pub use crate::models::sqlite::timeline::NewTimelineItem;
+        pub use crate::models::sqlite::timeline::TimelineType;
         pub use crate::models::sqlite::timeline::TimelineItem;
         pub use crate::models::sqlite::timeline::TimelineItemCc;
         pub use crate::models::sqlite::timeline::TimelineItemTo;
         pub use crate::models::sqlite::timeline::get_timeline_items;
         pub use crate::models::sqlite::timeline::create_timeline_item;
         pub use crate::models::sqlite::timeline::update_timeline_items;
+    }
+}
+
+impl From<RemoteQuestion> for NewTimelineItem {
+    fn from(question: RemoteQuestion) -> Self {
+        NewTimelineItem {
+            ap_public: question.clone().is_public(),
+            tag: question.tag,
+            attributed_to: question.attributed_to,
+            ap_id: question.ap_id,
+
+            ..Default::default()
+        }
     }
 }
 
@@ -50,7 +67,7 @@ impl From<RemoteNote> for NewTimelineItem {
             tag: note.tag,
             attributed_to: note.attributed_to,
             ap_id: note.ap_id,
-            kind: note.kind,
+            kind: convert_type(note.kind),
             url: note.url,
             published: note.published,
             replies: note.replies,
@@ -65,6 +82,10 @@ impl From<RemoteNote> for NewTimelineItem {
             attachment: note.attachment,
             ap_object: None,
             metadata: None,
+            end_time: None,
+            one_of: None,
+            any_of: None,
+            voters_count: None,
         }
     }
 }
@@ -81,7 +102,7 @@ impl From<ApNote> for NewTimelineItem {
             tag: to_serde(note.tag.clone()),
             attributed_to: note.clone().attributed_to.to_string(),
             ap_id: note.clone().id.unwrap(),
-            kind: to_kind(note.clone().kind),
+            kind: convert_type(note.clone().kind),
             url: note.clone().url,
             published: Some(note.clone().published),
             replies: to_serde(note.replies.clone()),
@@ -111,6 +132,10 @@ impl From<ApNote> for NewTimelineItem {
             attachment: to_serde(note.attachment),
             ap_object: None,
             metadata: to_serde(note.ephemeral_metadata),
+            end_time: None,
+            one_of: None,
+            any_of: None,
+            voters_count: None,
         }
     }
 }
@@ -123,7 +148,7 @@ impl From<SynthesizedAnnounce> for NewTimelineItem {
             tag: to_serde(note.tag.clone()),
             attributed_to: note.clone().attributed_to.to_string(),
             ap_id: note.clone().id.unwrap(),
-            kind: to_kind(note.clone().kind),
+            kind: convert_type(note.clone().kind),
             url: note.clone().url,
             published: activity.map_or(Some(note.clone().published), |x| Some(x.published)),
             replies: to_serde(note.replies.clone()),
@@ -145,6 +170,10 @@ impl From<SynthesizedAnnounce> for NewTimelineItem {
             attachment: to_serde(note.attachment.unwrap_or_default()),
             ap_object: None,
             metadata: to_serde(note.ephemeral_metadata),
+            end_time: None,
+            one_of: None,
+            any_of: None,
+            voters_count: None,
         }
     }
 }

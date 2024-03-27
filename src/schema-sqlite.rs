@@ -19,6 +19,7 @@ diesel::table! {
         target_remote_actor_id -> Nullable<Integer>,
         revoked -> Bool,
         ap_id -> Nullable<Text>,
+        target_remote_question_id -> Nullable<Integer>,
     }
 }
 
@@ -377,6 +378,33 @@ diesel::table! {
 }
 
 diesel::table! {
+    remote_questions (id) {
+        id -> Integer,
+        created_at -> Timestamp,
+        updated_at -> Timestamp,
+        kind -> Text,
+        ap_id -> Text,
+        ap_to -> Nullable<Text>,
+        cc -> Nullable<Text>,
+        end_time -> Nullable<Timestamp>,
+        published -> Nullable<Timestamp>,
+        one_of -> Nullable<Text>,
+        any_of -> Nullable<Text>,
+        content -> Nullable<Text>,
+        content_map -> Nullable<Text>,
+        summary -> Nullable<Text>,
+        voters_count -> Nullable<Integer>,
+        url -> Nullable<Text>,
+        conversation -> Nullable<Text>,
+        tag -> Nullable<Text>,
+        attachment -> Nullable<Text>,
+        ap_sensitive -> Nullable<Bool>,
+        in_reply_to -> Nullable<Text>,
+        attributed_to -> Text,
+    }
+}
+
+diesel::table! {
     timeline (id) {
         id -> Integer,
         created_at -> Timestamp,
@@ -400,6 +428,10 @@ diesel::table! {
         attachment -> Nullable<Text>,
         ap_object -> Nullable<Text>,
         metadata -> Nullable<Text>,
+        end_time -> Nullable<Timestamp>,
+        one_of -> Nullable<Text>,
+        any_of -> Nullable<Text>,
+        voters_count -> Nullable<Integer>,
     }
 }
 
@@ -490,6 +522,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     remote_encrypted_sessions,
     remote_note_hashtags,
     remote_notes,
+    remote_questions,
     timeline,
     timeline_cc,
     timeline_hashtags,

@@ -11,7 +11,7 @@ use crate::models::followers::get_followers_by_profile_id;
 use crate::models::leaders::{get_leaders_by_profile_id, Leader};
 use crate::models::profiles::{get_profile_by_ap_id, Profile};
 use crate::models::remote_actors::RemoteActor;
-use crate::DOMAIN_RE;
+use crate::{MaybeMultiple, DOMAIN_RE};
 use rocket::http::Status;
 use serde::{Deserialize, Serialize};
 use serde_with::serde_as;
@@ -169,7 +169,7 @@ pub struct ApActor {
     pub image: Option<ApImage>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub also_known_as: Option<Vec<String>>,
+    pub also_known_as: Option<MaybeMultiple<String>>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
     pub discoverable: Option<bool>,
@@ -396,7 +396,7 @@ impl From<Profile> for ApActor {
                 enigmatick_encryption: Some(true),
             }),
             attachment: Some(vec![]),
-            also_known_as: Some(vec![]),
+            also_known_as: Some(vec![].into()),
             tag: Some(vec![]),
             endpoints: Some(ApEndpoint {
                 shared_inbox: format!("{server_url}/inbox"),

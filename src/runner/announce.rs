@@ -102,9 +102,13 @@ pub async fn remote_announce_task(
         .await
         .is_none()
     {
-        let remote_note = fetch_remote_note(target_ap_id.clone(), profile.clone())
-            .await
-            .ok_or(TaskError::TaskFailed)?;
+        let remote_note = fetch_remote_note(
+            conn.ok_or(TaskError::TaskFailed)?,
+            target_ap_id.clone(),
+            profile.clone(),
+        )
+        .await
+        .ok_or(TaskError::TaskFailed)?;
 
         update_target_remote_note(
             conn,

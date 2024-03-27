@@ -18,6 +18,7 @@ use std::fmt::Debug;
 use super::profiles::Profile;
 use crate::models::activities::{ExtendedActivity, NewActivityCc, NewActivityTo};
 use crate::models::notes::NoteLike;
+use std::fmt;
 
 #[derive(Debug, Serialize, Deserialize, Default, Clone, Eq, PartialEq)]
 pub enum ActivityType {
@@ -52,85 +53,7 @@ pub struct NewActivity {
     pub target_remote_actor_id: Option<i32>,
     pub revoked: bool,
     pub ap_id: Option<String>,
-}
-
-pub struct NoteActivity {
-    pub note: NoteLike,
-    pub profile: Profile,
-    pub kind: ActivityType,
-}
-
-impl From<NoteActivity> for NewActivity {
-    fn from(note_activity: NoteActivity) -> Self {
-        let mut activity = NewActivity {
-            kind: note_activity.kind.to_string().to_lowercase(),
-            uuid: uuid::Uuid::new_v4().to_string(),
-            actor: get_ap_id_from_username(note_activity.profile.username.clone()),
-            ap_to: serde_json::to_string(&vec![ApAddress::get_public()]).ok(),
-            cc: None,
-            target_note_id: None,
-            target_remote_note_id: None,
-            target_ap_id: None,
-            revoked: false,
-            ..Default::default()
-        };
-
-        match note_activity.note {
-            NoteLike::Note(note) => {
-                if note_activity.kind == ActivityType::Like
-                    || note_activity.kind == ActivityType::Announce
-                {
-                    activity.cc = serde_json::to_string(&vec![
-                        note.attributed_to,
-                        get_followers_ap_id_from_username(note_activity.profile.username),
-                    ])
-                    .ok();
-                } else {
-                    activity.cc = serde_json::to_string(&vec![get_followers_ap_id_from_username(
-                        note_activity.profile.username,
-                    )])
-                    .ok();
-                }
-                activity.target_note_id = Some(note.id);
-                activity.target_ap_id = Some(get_note_ap_id_from_uuid(note.uuid));
-            }
-            NoteLike::RemoteNote(remote_note) => {
-                if note_activity.kind == ActivityType::Like
-                    || note_activity.kind == ActivityType::Announce
-                {
-                    activity.cc = serde_json::to_string(&vec![
-                        remote_note.attributed_to,
-                        get_followers_ap_id_from_username(note_activity.profile.username),
-                    ])
-                    .ok();
-                } else {
-                    activity.cc = serde_json::to_string(&vec![get_followers_ap_id_from_username(
-                        note_activity.profile.username,
-                    )])
-                    .ok();
-                }
-                activity.target_remote_note_id = Some(remote_note.id);
-                activity.target_ap_id = Some(remote_note.ap_id);
-            }
-        }
-
-        activity
-    }
-}
-
-pub type UndoActivity = (Activity, ActivityType, ApAddress);
-impl From<UndoActivity> for NewActivity {
-    fn from((activity, kind, actor): UndoActivity) -> Self {
-        NewActivity {
-            kind: kind.to_string().to_lowercase(),
-            uuid: uuid::Uuid::new_v4().to_string(),
-            actor: actor.to_string(),
-            target_activity_id: Some(activity.id),
-            target_ap_id: Some(get_activity_ap_id_from_uuid(activity.uuid)),
-            revoked: false,
-            ..Default::default()
-        }
-    }
+    pub target_remote_question_id: Option<i32>,
 }
 
 #[derive(Identifiable, Queryable, AsChangeset, Serialize, Clone, Default, Debug)]
@@ -154,6 +77,7 @@ pub struct Activity {
     pub target_remote_actor_id: Option<i32>,
     pub revoked: bool,
     pub ap_id: Option<String>,
+    pub target_remote_question_id: Option<i32>,
 }
 
 #[derive(Identifiable, Queryable, AsChangeset, Associations, Serialize, Clone, Default, Debug)]
@@ -267,53 +191,6 @@ pub async fn create_activity(conn: Option<&Db>, activity: NewActivity) -> Result
     }
 
     Ok(activity)
-}
-
-pub async fn get_activity_by_kind_profile_id_and_target_ap_id(
-    conn: &Db,
-    kind: ActivityType,
-    profile_id: i32,
-    target_ap_id: String,
-) -> Option<ExtendedActivity> {
-    conn.run(move |c| {
-        activities::table
-            .filter(activities::revoked.eq(false))
-            .filter(activities::kind.eq(kind.to_string().to_lowercase()))
-            .filter(activities::profile_id.eq(profile_id))
-            .filter(activities::target_ap_id.eq(target_ap_id))
-            .left_join(notes::table.on(activities::target_note_id.eq(notes::id.nullable())))
-            .left_join(
-                remote_notes::table
-                    .on(activities::target_remote_note_id.eq(remote_notes::id.nullable())),
-            )
-            .left_join(
-                profiles::table.on(activities::target_profile_id.eq(profiles::id.nullable())),
-            )
-            .left_join(
-                remote_actors::table
-                    .on(activities::target_remote_actor_id.eq(remote_actors::id.nullable())),
-            )
-            .first::<ExtendedActivity>(c)
-    })
-    .await
-    .ok()
-}
-
-pub async fn get_outbox_count_by_profile_id(conn: &Db, profile_id: i32) -> Option<i64> {
-    conn.run(move |c| {
-        activities::table
-            .filter(activities::revoked.eq(false))
-            .filter(activities::profile_id.eq(profile_id))
-            .filter(
-                activities::kind
-                    .eq("create".to_string())
-                    .or(activities::kind.eq("announce".to_string())),
-            )
-            .count()
-            .get_result::<i64>(c)
-    })
-    .await
-    .ok()
 }
 
 pub async fn get_outbox_activities_by_profile_id(

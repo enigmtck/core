@@ -4,7 +4,8 @@ use crate::activity_pub::{
 };
 use crate::db::Db;
 use crate::helper::{
-    get_activity_ap_id_from_uuid, get_ap_id_from_username, get_note_ap_id_from_uuid,
+    get_activity_ap_id_from_uuid, get_ap_id_from_username, get_followers_ap_id_from_username,
+    get_note_ap_id_from_uuid,
 };
 use crate::schema::{
     activities, activities_cc, activities_to, notes, profiles, remote_actors, remote_notes,
@@ -15,10 +16,11 @@ use diesel::{AsChangeset, Insertable};
 use serde::{Deserialize, Serialize};
 use std::fmt::{self, Debug};
 
-use super::notes::Note;
+use super::notes::{Note, NoteLike};
 use super::profiles::{get_profile_by_ap_id, Profile};
 use super::remote_actors::RemoteActor;
 use super::remote_notes::RemoteNote;
+use super::remote_questions::RemoteQuestion;
 use super::to_serde;
 
 cfg_if::cfg_if! {
@@ -30,8 +32,6 @@ cfg_if::cfg_if! {
         }
 
         pub use super::pg::activities::NewActivity;
-        pub use super::pg::activities::NoteActivity;
-        pub use super::pg::activities::UndoActivity;
         pub use super::pg::activities::Activity;
 
         pub use super::pg::activities::ActivityCc;
@@ -41,8 +41,6 @@ cfg_if::cfg_if! {
         pub use super::pg::activities::create_activity_to;
         pub use super::pg::activities::create_activity;
 
-        pub use super::pg::activities::get_activity_by_kind_profile_id_and_target_ap_id;
-        pub use super::pg::activities::get_outbox_count_by_profile_id;
         pub use super::pg::activities::get_outbox_activities_by_profile_id;
         pub use super::pg::activities::revoke_activity_by_uuid;
         pub use super::pg::activities::revoke_activity_by_apid;
@@ -54,8 +52,6 @@ cfg_if::cfg_if! {
         }
 
         pub use super::sqlite::activities::NewActivity;
-        pub use super::sqlite::activities::NoteActivity;
-        pub use super::sqlite::activities::UndoActivity;
         pub use super::sqlite::activities::Activity;
 
         pub use super::sqlite::activities::ActivityCc;
@@ -65,8 +61,6 @@ cfg_if::cfg_if! {
         pub use super::sqlite::activities::create_activity_to;
         pub use super::sqlite::activities::create_activity;
 
-        pub use super::sqlite::activities::get_activity_by_kind_profile_id_and_target_ap_id;
-        pub use super::sqlite::activities::get_outbox_count_by_profile_id;
         pub use super::sqlite::activities::get_outbox_activities_by_profile_id;
         pub use super::sqlite::activities::revoke_activity_by_uuid;
         pub use super::sqlite::activities::revoke_activity_by_apid;
@@ -76,6 +70,25 @@ cfg_if::cfg_if! {
 impl fmt::Display for ActivityType {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         Debug::fmt(self, f)
+    }
+}
+
+impl From<String> for ActivityType {
+    fn from(activity: String) -> Self {
+        match activity.to_lowercase().as_str() {
+            "create" => ActivityType::Create,
+            "delete" => ActivityType::Delete,
+            "update" => ActivityType::Update,
+            "announce" => ActivityType::Announce,
+            "like" => ActivityType::Like,
+            "undo" => ActivityType::Undo,
+            "follow" => ActivityType::Follow,
+            "accept" => ActivityType::Accept,
+            "block" => ActivityType::Block,
+            "add" => ActivityType::Add,
+            "remove" => ActivityType::Remove,
+            _ => ActivityType::Create,
+        }
     }
 }
 
@@ -121,6 +134,13 @@ pub enum ActivityTarget {
     Profile(Box<Profile>),
     Activity(Activity),
     RemoteActor(RemoteActor),
+    RemoteQuestion(RemoteQuestion),
+}
+
+impl From<RemoteQuestion> for ActivityTarget {
+    fn from(remote_question: RemoteQuestion) -> Self {
+        ActivityTarget::RemoteQuestion(remote_question)
+    }
 }
 
 impl From<RemoteNote> for ActivityTarget {
@@ -180,6 +200,10 @@ impl NewActivity {
                 ActivityTarget::RemoteActor(remote_actor) => {
                     self.target_remote_actor_id = Some(remote_actor.id);
                     self.target_ap_id = Some(remote_actor.ap_id);
+                }
+                ActivityTarget::RemoteQuestion(remote_question) => {
+                    self.target_remote_question_id = Some(remote_question.id);
+                    self.target_ap_id = Some(remote_question.ap_id);
                 }
             }
         };
@@ -369,6 +393,76 @@ impl From<ActorActivity> for NewActivity {
     }
 }
 
+pub struct NoteActivity {
+    pub note: NoteLike,
+    pub profile: Profile,
+    pub kind: ActivityType,
+}
+
+impl From<NoteActivity> for NewActivity {
+    fn from(note_activity: NoteActivity) -> Self {
+        let mut activity = NewActivity {
+            kind: to_kind(note_activity.kind.clone()),
+            uuid: uuid::Uuid::new_v4().to_string(),
+            actor: get_ap_id_from_username(note_activity.profile.username.clone()),
+            ap_to: to_serde(vec![ApAddress::get_public()]),
+            ..Default::default()
+        };
+
+        match note_activity.note {
+            NoteLike::Note(note) => {
+                if note_activity.kind == ActivityType::Like
+                    || note_activity.kind == ActivityType::Announce
+                {
+                    activity.cc = to_serde(vec![
+                        note.attributed_to,
+                        get_followers_ap_id_from_username(note_activity.profile.username),
+                    ]);
+                } else {
+                    activity.cc = to_serde(vec![get_followers_ap_id_from_username(
+                        note_activity.profile.username,
+                    )]);
+                }
+                activity.target_note_id = Some(note.id);
+                activity.target_ap_id = Some(get_note_ap_id_from_uuid(note.uuid));
+            }
+            NoteLike::RemoteNote(remote_note) => {
+                if note_activity.kind == ActivityType::Like
+                    || note_activity.kind == ActivityType::Announce
+                {
+                    activity.cc = to_serde(vec![
+                        remote_note.attributed_to,
+                        get_followers_ap_id_from_username(note_activity.profile.username),
+                    ]);
+                } else {
+                    activity.cc = to_serde(vec![get_followers_ap_id_from_username(
+                        note_activity.profile.username,
+                    )]);
+                }
+                activity.target_remote_note_id = Some(remote_note.id);
+                activity.target_ap_id = Some(remote_note.ap_id);
+            }
+        }
+
+        activity
+    }
+}
+
+pub type UndoActivity = (Activity, ActivityType, ApAddress);
+impl From<UndoActivity> for NewActivity {
+    fn from((activity, kind, actor): UndoActivity) -> Self {
+        NewActivity {
+            kind: to_kind(kind),
+            uuid: uuid::Uuid::new_v4().to_string(),
+            actor: actor.to_string(),
+            target_activity_id: Some(activity.id),
+            target_ap_id: Some(get_activity_ap_id_from_uuid(activity.uuid)),
+            revoked: false,
+            ..Default::default()
+        }
+    }
+}
+
 type AssignedActivity = (Activity, String);
 
 impl From<AssignedActivity> for NewActivityCc {
@@ -478,6 +572,36 @@ pub async fn get_activity_by_apid(conn: &Db, ap_id: String) -> Option<ExtendedAc
     .ok()
 }
 
+pub async fn get_activity_by_kind_profile_id_and_target_ap_id(
+    conn: &Db,
+    kind: ActivityType,
+    profile_id: i32,
+    target_ap_id: String,
+) -> Option<ExtendedActivity> {
+    conn.run(move |c| {
+        activities::table
+            .filter(activities::revoked.eq(false))
+            .filter(activities::kind.eq(to_kind(kind)))
+            .filter(activities::profile_id.eq(profile_id))
+            .filter(activities::target_ap_id.eq(target_ap_id))
+            .left_join(notes::table.on(activities::target_note_id.eq(notes::id.nullable())))
+            .left_join(
+                remote_notes::table
+                    .on(activities::target_remote_note_id.eq(remote_notes::id.nullable())),
+            )
+            .left_join(
+                profiles::table.on(activities::target_profile_id.eq(profiles::id.nullable())),
+            )
+            .left_join(
+                remote_actors::table
+                    .on(activities::target_remote_actor_id.eq(remote_actors::id.nullable())),
+            )
+            .first::<ExtendedActivity>(c)
+    })
+    .await
+    .ok()
+}
+
 pub async fn get_activity(conn: Option<&Db>, id: i32) -> Option<ExtendedActivity> {
     match conn {
         Some(conn) => {
@@ -521,6 +645,23 @@ pub async fn get_activity(conn: Option<&Db>, id: i32) -> Option<ExtendedActivity
                 .ok()
         }
     }
+}
+
+pub async fn get_outbox_count_by_profile_id(conn: &Db, profile_id: i32) -> Option<i64> {
+    conn.run(move |c| {
+        activities::table
+            .filter(activities::revoked.eq(false))
+            .filter(activities::profile_id.eq(profile_id))
+            .filter(
+                activities::kind
+                    .eq(to_kind(ActivityType::Create))
+                    .or(activities::kind.eq(to_kind(ActivityType::Announce))),
+            )
+            .count()
+            .get_result::<i64>(c)
+    })
+    .await
+    .ok()
 }
 
 pub async fn update_target_remote_note(

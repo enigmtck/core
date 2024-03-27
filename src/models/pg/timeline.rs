@@ -12,9 +12,46 @@ use diesel::prelude::*;
 use diesel::{AsChangeset, Identifiable, Insertable, Queryable};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::fmt;
 
 use super::notes::NoteType;
 use super::profiles::Profile;
+use super::remote_questions::QuestionType;
+use crate::activity_pub::ApNoteType;
+
+#[derive(
+    diesel_derive_enum::DbEnum, Debug, Serialize, Deserialize, Default, Clone, Eq, PartialEq,
+)]
+#[ExistingTypePath = "crate::schema::sql_types::TimelineType"]
+pub enum TimelineType {
+    #[default]
+    Note,
+    Question,
+}
+
+impl fmt::Display for TimelineType {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{:?}", self)
+    }
+}
+
+impl From<NoteType> for TimelineType {
+    fn from(kind: NoteType) -> Self {
+        TimelineType::Note
+    }
+}
+
+impl From<ApNoteType> for TimelineType {
+    fn from(kind: ApNoteType) -> Self {
+        TimelineType::Note
+    }
+}
+
+impl From<QuestionType> for TimelineType {
+    fn from(kind: QuestionType) -> Self {
+        TimelineType::Question
+    }
+}
 
 #[derive(Serialize, Deserialize, Insertable, Default, Debug, Clone, AsChangeset)]
 #[diesel(table_name = timeline)]
@@ -22,7 +59,7 @@ pub struct NewTimelineItem {
     pub tag: Option<Value>,
     pub attributed_to: String,
     pub ap_id: String,
-    pub kind: NoteType,
+    pub kind: TimelineType,
     pub url: Option<String>,
     pub published: Option<String>,
     pub replies: Option<Value>,
@@ -38,6 +75,10 @@ pub struct NewTimelineItem {
     pub attachment: Option<Value>,
     pub ap_object: Option<Value>,
     pub metadata: Option<Value>,
+    pub end_time: Option<DateTime<Utc>>,
+    pub one_of: Option<Value>,
+    pub any_of: Option<Value>,
+    pub voters_count: Option<i32>,
 }
 
 #[derive(Identifiable, Queryable, AsChangeset, Serialize, Clone, Default, Debug)]
@@ -50,7 +91,7 @@ pub struct TimelineItem {
     pub tag: Option<Value>,
     pub attributed_to: String,
     pub ap_id: String,
-    pub kind: NoteType,
+    pub kind: TimelineType,
     pub url: Option<String>,
     pub published: Option<String>,
     pub replies: Option<Value>,
@@ -66,6 +107,10 @@ pub struct TimelineItem {
     pub attachment: Option<Value>,
     pub ap_object: Option<Value>,
     pub metadata: Option<Value>,
+    pub end_time: Option<DateTime<Utc>>,
+    pub one_of: Option<Value>,
+    pub any_of: Option<Value>,
+    pub voters_count: Option<i32>,
 }
 
 #[derive(Identifiable, Queryable, AsChangeset, Associations, Serialize, Clone, Default, Debug)]

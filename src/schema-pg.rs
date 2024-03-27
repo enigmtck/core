@@ -12,6 +12,14 @@ pub mod sql_types {
     #[derive(diesel::sql_types::SqlType, diesel::query_builder::QueryId)]
     #[diesel(postgres_type(name = "notification_type"))]
     pub struct NotificationType;
+
+    #[derive(diesel::sql_types::SqlType, diesel::query_builder::QueryId)]
+    #[diesel(postgres_type(name = "question_type"))]
+    pub struct QuestionType;
+
+    #[derive(diesel::sql_types::SqlType, diesel::query_builder::QueryId)]
+    #[diesel(postgres_type(name = "timeline_type"))]
+    pub struct TimelineType;
 }
 
 diesel::table! {
@@ -36,6 +44,7 @@ diesel::table! {
         target_remote_actor_id -> Nullable<Int4>,
         revoked -> Bool,
         ap_id -> Nullable<Varchar>,
+        target_remote_question_id -> Nullable<Int4>,
     }
 }
 
@@ -404,7 +413,37 @@ diesel::table! {
 
 diesel::table! {
     use diesel::sql_types::*;
-    use super::sql_types::NoteType;
+    use super::sql_types::QuestionType;
+
+    remote_questions (id) {
+        id -> Int4,
+        created_at -> Timestamptz,
+        updated_at -> Timestamptz,
+        kind -> QuestionType,
+        ap_id -> Varchar,
+        ap_to -> Nullable<Jsonb>,
+        cc -> Nullable<Jsonb>,
+        end_time -> Nullable<Timestamptz>,
+        published -> Nullable<Timestamptz>,
+        one_of -> Nullable<Jsonb>,
+        any_of -> Nullable<Jsonb>,
+        content -> Nullable<Varchar>,
+        content_map -> Nullable<Jsonb>,
+        summary -> Nullable<Varchar>,
+        voters_count -> Nullable<Int4>,
+        url -> Nullable<Text>,
+        conversation -> Nullable<Text>,
+        tag -> Nullable<Jsonb>,
+        attachment -> Nullable<Jsonb>,
+        ap_sensitive -> Nullable<Bool>,
+        in_reply_to -> Nullable<Text>,
+        attributed_to -> Varchar,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
+    use super::sql_types::TimelineType;
 
     timeline (id) {
         id -> Int4,
@@ -413,7 +452,7 @@ diesel::table! {
         tag -> Nullable<Jsonb>,
         attributed_to -> Varchar,
         ap_id -> Varchar,
-        kind -> NoteType,
+        kind -> TimelineType,
         url -> Nullable<Varchar>,
         published -> Nullable<Varchar>,
         replies -> Nullable<Jsonb>,
@@ -429,6 +468,10 @@ diesel::table! {
         attachment -> Nullable<Jsonb>,
         ap_object -> Nullable<Jsonb>,
         metadata -> Nullable<Jsonb>,
+        end_time -> Nullable<Timestamptz>,
+        one_of -> Nullable<Jsonb>,
+        any_of -> Nullable<Jsonb>,
+        voters_count -> Nullable<Int4>,
     }
 }
 
@@ -519,6 +562,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     remote_encrypted_sessions,
     remote_note_hashtags,
     remote_notes,
+    remote_questions,
     timeline,
     timeline_cc,
     timeline_hashtags,

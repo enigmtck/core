@@ -35,7 +35,7 @@ async fn cache_actor(actor: &ApActor) -> &ApActor {
     actor
 }
 
-pub async fn update_tags(conn: Option<&Db>, actor: RemoteActor) -> Result<()> {
+pub async fn update_actor_tags(conn: Option<&Db>, actor: RemoteActor) -> Result<()> {
     let deleted = delete_remote_actor_hashtags_by_remote_actor_id(None, actor.id).await?;
 
     log::debug!("DELETED {deleted} ACTOR TAGS");
@@ -81,7 +81,7 @@ pub async fn get_actor(
                     .await
                     .ok()?;
 
-                update_tags(conn, remote_actor.clone()).await.ok()?;
+                update_actor_tags(conn, remote_actor.clone()).await.ok()?;
 
                 Some((remote_actor, None))
             }
