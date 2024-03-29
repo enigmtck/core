@@ -42,10 +42,16 @@ pub async fn delete_note_task(
     for uuid in uuids {
         log::debug!("LOOKING FOR UUID {uuid}");
 
-        let (activity, target_note, target_remote_note, target_profile, target_remote_actor) =
-            get_activity_by_uuid(conn, uuid.clone())
-                .await
-                .ok_or(TaskError::TaskFailed)?;
+        let (
+            activity,
+            target_note,
+            target_remote_note,
+            target_profile,
+            target_remote_actor,
+            target_remote_question,
+        ) = get_activity_by_uuid(conn, uuid.clone())
+            .await
+            .ok_or(TaskError::TaskFailed)?;
 
         log::debug!("FOUND ACTIVITY\n{activity:#?}");
         let profile_id = activity.profile_id.ok_or(TaskError::TaskFailed)?;
@@ -61,6 +67,7 @@ pub async fn delete_note_task(
                 target_remote_note,
                 target_profile,
                 target_remote_actor,
+                target_remote_question,
             ),
             None,
         ))
@@ -95,10 +102,16 @@ pub async fn outbound_note_task(
     let conn = conn.as_ref();
 
     for uuid in uuids {
-        let (activity, target_note, target_remote_note, target_profile, target_remote_actor) =
-            get_activity_by_uuid(conn, uuid)
-                .await
-                .ok_or(TaskError::TaskFailed)?;
+        let (
+            activity,
+            target_note,
+            target_remote_note,
+            target_profile,
+            target_remote_actor,
+            target_remote_question,
+        ) = get_activity_by_uuid(conn, uuid)
+            .await
+            .ok_or(TaskError::TaskFailed)?;
 
         let profile_id = activity.profile_id.ok_or(TaskError::TaskFailed)?;
 
@@ -138,6 +151,7 @@ pub async fn outbound_note_task(
                                 target_remote_note,
                                 target_profile,
                                 target_remote_actor,
+                                target_remote_question,
                             ),
                             None,
                         )) {
@@ -162,6 +176,7 @@ pub async fn outbound_note_task(
                                 target_remote_note,
                                 target_profile,
                                 target_remote_actor,
+                                target_remote_question,
                             ),
                             None,
                         )) {
@@ -286,7 +301,7 @@ pub async fn create_remote_note_tags(conn: Option<&Db>, remote_note: RemoteNote)
 }
 
 pub async fn create_timeline_tags(conn: Option<&Db>, timeline_item: TimelineItem) {
-    let new_tags: Vec<NewTimelineHashtag> = timeline_item.clone().into();
+    let new_tags: Vec<NewTimelineHashtag> = timeline_item.clone().try_into().unwrap_or_default();
 
     for tag in new_tags.iter() {
         log::debug!("ADDING HASHTAG: {}", tag.hashtag);

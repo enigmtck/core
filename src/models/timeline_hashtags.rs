@@ -23,11 +23,12 @@ pub struct NewTimelineHashtag {
     pub timeline_id: i32,
 }
 
-impl From<TimelineItem> for Vec<NewTimelineHashtag> {
-    fn from(timeline_item: TimelineItem) -> Self {
-        let ap_note: ApNote = timeline_item.clone().into();
+impl TryFrom<TimelineItem> for Vec<NewTimelineHashtag> {
+    type Error = anyhow::Error;
+    fn try_from(timeline_item: TimelineItem) -> Result<Self, Self::Error> {
+        let ap_note: ApNote = timeline_item.clone().try_into()?;
 
-        ap_note
+        Ok(ap_note
             .tag
             .unwrap_or_default()
             .iter()
@@ -41,6 +42,6 @@ impl From<TimelineItem> for Vec<NewTimelineHashtag> {
                     None
                 }
             })
-            .collect()
+            .collect())
     }
 }

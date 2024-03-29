@@ -26,10 +26,10 @@ pub use types::follow::{ApFollow, ApFollowType};
 pub use types::invite::{ApInvite, ApInviteType};
 pub use types::join::{ApJoin, ApJoinType};
 pub use types::like::{ApLike, ApLikeType};
-pub use types::note::{ApNote, ApNoteType, FullyQualifiedTimelineItem, Metadata};
+pub use types::note::{ApNote, ApNoteType, Metadata};
 pub use types::object::{
     ApBasicContent, ApBasicContentType, ApContext, ApEndpoint, ApImage, ApImageType, ApObject,
-    ApTag,
+    ApTag, ApTimelineObject,
 };
 
 pub use types::question::{ApQuestion, ApQuestionType};

@@ -11,10 +11,13 @@ use crate::{
             create_activity, ActivityTarget, ActivityType, ApActivityTarget, ExtendedActivity,
             NewActivity,
         },
+        from_serde,
         profiles::{get_actory, get_profile_by_ap_id, ActorLike, Profile},
+        to_serde,
     },
     runner, MaybeMultiple, MaybeReference,
 };
+use anyhow::anyhow;
 use rocket::http::Status;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -146,67 +149,42 @@ async fn outbox(
 }
 
 impl TryFrom<ExtendedActivity> for ApFollow {
-    type Error = &'static str;
+    type Error = anyhow::Error;
 
     fn try_from(
-        (activity, _note, _remote_note, profile, remote_actor): ExtendedActivity,
+        (activity, _note, _remote_note, profile, remote_actor, remote_question): ExtendedActivity,
     ) -> Result<Self, Self::Error> {
-        cfg_if::cfg_if! {
-            if #[cfg(feature = "pg")] {
-                let to = activity.ap_to.and_then(|x| serde_json::from_value(x).ok());
-                let cc = activity.cc.and_then(|x| serde_json::from_value(x).ok());
-                let follow = activity.kind == ActivityType::Follow;
-            } else if #[cfg(feature = "sqlite")] {
-                let to = activity.ap_to.and_then(|x| serde_json::from_str(&x).ok());
-                let cc = activity.cc.and_then(|x| serde_json::from_str(&x).ok());
-                let follow = activity.kind.as_str() == "follow";
-            }
-        }
-
-        if follow {
-            match (profile, remote_actor) {
-                (Some(profile), None) => Ok(ApFollow {
-                    context: Some(ApContext::default()),
-                    kind: ApFollowType::default(),
-                    actor: activity.actor.into(),
-                    id: activity.ap_id.map_or(
-                        Some(format!(
-                            "{}/activities/{}",
-                            *crate::SERVER_URL,
-                            activity.uuid
-                        )),
-                        Some,
-                    ),
-                    to,
-                    cc,
-                    object: MaybeReference::Reference(
-                        ApActor::from(profile).id.unwrap().to_string(),
-                    ),
-                }),
-                (None, Some(remote_actor)) => Ok(ApFollow {
-                    context: Some(ApContext::default()),
-                    kind: ApFollowType::default(),
-                    actor: activity.actor.into(),
-                    id: activity.ap_id.map_or(
-                        Some(format!(
-                            "{}/activities/{}",
-                            *crate::SERVER_URL,
-                            activity.uuid
-                        )),
-                        Some,
-                    ),
-                    to,
-                    cc,
-                    object: MaybeReference::Reference(remote_actor.ap_id),
-                }),
+        if activity.kind.to_string().to_lowercase().as_str() == "follow" {
+            let object = match (profile, remote_actor) {
+                (Some(profile), None) => {
+                    MaybeReference::Reference(ApActor::from(profile).id.unwrap().to_string())
+                }
+                (None, Some(remote_actor)) => MaybeReference::Reference(remote_actor.ap_id),
                 _ => {
                     log::error!("INVALID ACTIVITY TYPE");
-                    Err("INVALID ACTIVITY TYPE")
+                    return Err(anyhow!("INVALID ACTIVITY TYPE"));
                 }
-            }
+            };
+
+            Ok(ApFollow {
+                context: Some(ApContext::default()),
+                kind: ApFollowType::default(),
+                actor: activity.actor.into(),
+                id: activity.ap_id.map_or(
+                    Some(format!(
+                        "{}/activities/{}",
+                        *crate::SERVER_URL,
+                        activity.uuid
+                    )),
+                    Some,
+                ),
+                to: activity.ap_to.and_then(from_serde),
+                cc: activity.cc.and_then(from_serde),
+                object,
+            })
         } else {
             log::error!("NOT A FOLLOW ACTIVITY");
-            Err("NOT A FOLLOW ACTIVITY")
+            Err(anyhow!("NOT A FOLLOW ACTIVITY"))
         }
     }
 }

@@ -15,6 +15,7 @@ use crate::{
     },
     runner, MaybeReference,
 };
+use anyhow::anyhow;
 use rocket::http::Status;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -171,7 +172,7 @@ async fn handle_undo(
 
     log::debug!("TARGET_AP_ID: {target_ap_id:#?}");
     if let Some(target_ap_id) = target_ap_id {
-        if let Some((target_activity, _, _, _, _)) =
+        if let Some((target_activity, _, _, _, _, _)) =
             get_activity_by_uuid(Some(&conn), target_ap_id).await
         {
             if let Ok(activity) = create_activity(
@@ -209,10 +210,10 @@ async fn handle_undo(
 }
 
 impl TryFrom<RecursiveActivity> for ApUndo {
-    type Error = &'static str;
+    type Error = anyhow::Error;
 
     fn try_from(
-        ((activity, _note, _remote_note, _profile, _remote_actor), recursive): RecursiveActivity,
+        ((activity, _note, _remote_note, _profile, _remote_actor, remote_question), recursive): RecursiveActivity,
     ) -> Result<Self, Self::Error> {
         if let Some(recursive) = recursive {
             if let Ok(recursive_activity) = ApActivity::try_from((recursive.clone(), None)) {
@@ -252,16 +253,16 @@ impl TryFrom<RecursiveActivity> for ApUndo {
                     }),
                     _ => {
                         log::error!("FAILED TO MATCH IMPLEMENTED UNDO: {activity:#?}");
-                        Err("FAILED TO MATCH IMPLEMENTED UNDO")
+                        Err(anyhow!("FAILED TO MATCH IMPLEMENTED UNDO"))
                     }
                 }
             } else {
                 log::error!("FAILED TO CONVERT ACTIVITY: {recursive:#?}");
-                Err("FAILED TO CONVERT ACTIVITY")
+                Err(anyhow!("FAILED TO CONVERT ACTIVITY"))
             }
         } else {
             log::error!("RECURSIVE CANNOT BE NONE");
-            Err("RECURSIVE CANNOT BE NONE")
+            Err(anyhow!("RECURSIVE CANNOT BE NONE"))
         }
     }
 }

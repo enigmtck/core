@@ -24,10 +24,16 @@ pub async fn process_follow_task(
     for uuid in uuids {
         log::debug!("LOOKING FOR UUID {uuid}");
 
-        let (activity, target_note, target_remote_note, target_profile, target_remote_actor) =
-            get_activity_by_uuid(conn, uuid.clone())
-                .await
-                .ok_or(TaskError::TaskFailed)?;
+        let (
+            activity,
+            target_note,
+            target_remote_note,
+            target_profile,
+            target_remote_actor,
+            target_remote_question,
+        ) = get_activity_by_uuid(conn, uuid.clone())
+            .await
+            .ok_or(TaskError::TaskFailed)?;
 
         log::debug!("FOUND ACTIVITY\n{activity:#?}");
         let profile_id = activity.profile_id.ok_or(TaskError::TaskFailed)?;
@@ -43,6 +49,7 @@ pub async fn process_follow_task(
                 target_remote_note,
                 target_profile,
                 target_remote_actor,
+                target_remote_question,
             ),
             None,
         ))

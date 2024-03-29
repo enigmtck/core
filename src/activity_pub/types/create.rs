@@ -9,12 +9,14 @@ use crate::{
         activities::{
             create_activity, ActivityTarget, ApActivityTarget, ExtendedActivity, NewActivity,
         },
+        from_serde, from_time,
         profiles::Profile,
         remote_notes::{create_or_update_remote_note, NewRemoteNote},
         remote_questions::create_or_update_remote_question,
     },
     runner, MaybeMultiple, MaybeReference,
 };
+use anyhow::anyhow;
 use chrono::{DateTime, Utc};
 use rocket::http::Status;
 use serde::{Deserialize, Serialize};
@@ -141,64 +143,31 @@ impl Outbox for ApCreate {
 }
 
 impl TryFrom<ExtendedActivity> for ApCreate {
-    type Error = &'static str;
-
-    cfg_if::cfg_if! {
-        if #[cfg(feature = "pg")] {
-            fn try_from(
-                (activity, note, _remote_note, _profile, _remote_actor): ExtendedActivity,
-            ) -> Result<Self, Self::Error> {
-                let note = note.ok_or("ACTIVITY MUST INCLUDE A LOCALLY CREATED NOTE")?;
-                let ap_to = activity.ap_to.ok_or("ACTIVITY DOES NOT HAVE A TO FIELD")?;
-                Ok(ApCreate {
-                    context: Some(ApContext::default()),
-                    kind: ApCreateType::default(),
-                    actor: ApAddress::Address(activity.actor.clone()),
-                    id: Some(format!(
-                        "{}/activities/{}",
-                        *crate::SERVER_URL,
-                        activity.uuid
-                    )),
-                    object: ApObject::Note(ApNote::from(note)).into(),
-                    to: serde_json::from_value(ap_to).unwrap(),
-                    cc: activity.cc.map(|cc| serde_json::from_value(cc).unwrap()),
-                    signature: None,
-                    published: Some(activity.created_at.to_rfc3339()),
-                    ephemeral_created_at: Some(activity.created_at),
-                    ephemeral_updated_at: Some(activity.updated_at),
-                })
-            }
-        } else if #[cfg(feature = "sqlite")] {
-            fn try_from(
-                (activity, note, _remote_note, _profile, _remote_actor): ExtendedActivity,
-            ) -> Result<Self, Self::Error> {
-                let note = note.ok_or("ACTIVITY MUST INCLUDE A LOCALLY CREATED NOTE")?;
-                let ap_to = activity.ap_to.ok_or("ACTIVITY DOES NOT HAVE A TO FIELD")?;
-                Ok(ApCreate {
-                    context: Some(ApContext::default()),
-                    kind: ApCreateType::default(),
-                    actor: ApAddress::Address(activity.actor.clone()),
-                    id: Some(format!(
-                        "{}/activities/{}",
-                        *crate::SERVER_URL,
-                        activity.uuid
-                    )),
-                    object: ApObject::Note(ApNote::from(note)).into(),
-                    to: serde_json::from_str(&ap_to).unwrap(),
-                    cc: activity.cc.map(|cc| serde_json::from_str(&cc).unwrap()),
-                    signature: None,
-                    published: Some(activity.created_at.to_string()),
-                    ephemeral_created_at: { Some(DateTime::<Utc>::from_naive_utc_and_offset(
-                        activity.created_at,
-                        Utc,
-                    )) },
-                    ephemeral_updated_at: { Some(DateTime::<Utc>::from_naive_utc_and_offset(
-                        activity.updated_at,
-                        Utc,
-                    ))},
-                })
-            }
-        }
+    type Error = anyhow::Error;
+    fn try_from(
+        (activity, note, _remote_note, _profile, _remote_actor, _remote_question): ExtendedActivity,
+    ) -> Result<Self, Self::Error> {
+        let note = note.ok_or(anyhow!("ACTIVITY MUST INCLUDE A LOCALLY CREATED NOTE"))?;
+        let ap_to = activity
+            .ap_to
+            .ok_or(anyhow!("ACTIVITY DOES NOT HAVE A TO FIELD"))?;
+        Ok(ApCreate {
+            context: Some(ApContext::default()),
+            kind: ApCreateType::default(),
+            actor: ApAddress::Address(activity.actor.clone()),
+            id: Some(format!(
+                "{}/activities/{}",
+                *crate::SERVER_URL,
+                activity.uuid
+            )),
+            object: ApObject::Note(ApNote::from(note)).into(),
+            to: from_serde(ap_to).unwrap(),
+            cc: activity.cc.and_then(from_serde),
+            signature: None,
+            published: Some(from_time(activity.created_at).unwrap().to_rfc3339()),
+            ephemeral_created_at: from_time(activity.created_at),
+            ephemeral_updated_at: from_time(activity.updated_at),
+        })
     }
 }
 

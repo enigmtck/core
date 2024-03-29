@@ -6,6 +6,7 @@ use crate::helper::{
 };
 use crate::schema::{
     activities, activities_cc, activities_to, notes, profiles, remote_actors, remote_notes,
+    remote_questions,
 };
 use crate::{MaybeMultiple, POOL};
 use anyhow::{anyhow, Result};
@@ -220,6 +221,10 @@ pub async fn get_outbox_activities_by_profile_id(
             .left_join(
                 remote_actors::table
                     .on(activities::target_remote_actor_id.eq(remote_actors::id.nullable())),
+            )
+            .left_join(
+                remote_questions::table
+                    .on(activities::target_remote_question_id.eq(remote_questions::id.nullable())),
             )
             .into_boxed();
 

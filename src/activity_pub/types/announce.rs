@@ -8,6 +8,7 @@ use crate::{
     helper::get_activity_ap_id_from_uuid,
     models::{
         activities::{create_activity, ActivityType, ExtendedActivity, NewActivity, NoteActivity},
+        from_serde, from_time,
         notes::get_notey,
         profiles::Profile,
     },
@@ -140,123 +141,44 @@ impl Temporal for ApAnnounce {
     }
 }
 
-cfg_if::cfg_if! {
-    if #[cfg(feature = "pg")] {
-        impl TryFrom<ExtendedActivity> for ApAnnounce {
-            type Error = &'static str;
+impl TryFrom<ExtendedActivity> for ApAnnounce {
+    type Error = anyhow::Error;
 
-            fn try_from(
-                (activity, note, remote_note, _profile, _remote_actor): ExtendedActivity,
-            ) -> Result<Self, Self::Error> {
-                if activity.kind == crate::models::activities::ActivityType::Announce {
-                    match (note, remote_note, activity.ap_to) {
-                        (Some(note), None, Some(ap_to)) => Ok(ApAnnounce {
-                            context: Some(ApContext::default()),
-                            kind: ApAnnounceType::default(),
-                            actor: activity.actor.into(),
-                            id: Some(format!(
-                                "{}/activities/{}",
-                                *crate::SERVER_URL,
-                                activity.uuid
-                            )),
-                            to: serde_json::from_value(ap_to).unwrap(),
-                            cc: activity.cc.map(|cc| serde_json::from_value(cc).unwrap()),
-                            published: activity.created_at.to_rfc3339(),
-                            object: MaybeReference::Reference(ApNote::from(note).id.unwrap()),
-                            ephemeral_created_at: Some(activity.created_at),
-                            ephemeral_updated_at: Some(activity.updated_at),
-                        }),
-                        (None, Some(remote_note), Some(ap_to)) => Ok(ApAnnounce {
-                            context: Some(ApContext::default()),
-                            kind: ApAnnounceType::default(),
-                            actor: activity.actor.into(),
-                            id: Some(format!(
-                                "{}/activities/{}",
-                                *crate::SERVER_URL,
-                                activity.uuid
-                            )),
-                            to: serde_json::from_value(ap_to).unwrap(),
-                            cc: activity.cc.map(|cc| serde_json::from_value(cc).unwrap()),
-                            published: activity.created_at.to_rfc3339(),
-                            object: MaybeReference::Reference(remote_note.ap_id),
-                            ephemeral_created_at: Some(activity.created_at),
-                            ephemeral_updated_at: Some(activity.updated_at),
-                        }),
-                        _ => {
-                            log::error!("INVALID ACTIVITY TYPE");
-                            Err("INVALID ACTIVITY TYPE")
-                        }
-                    }
-                } else {
-                    log::error!("NOT AN ANNOUNCE ACTIVITY");
-                    Err("NOT AN ANNOUNCE ACTIVITY")
+    fn try_from(
+        (activity, note, remote_note, _profile, _remote_actor, remote_question): ExtendedActivity,
+    ) -> Result<Self, Self::Error> {
+        if activity.kind.to_string().to_lowercase().as_str() == "announce" {
+            let ap_to = activity.ap_to.ok_or(anyhow::Error::msg("ap_to is None"))?;
+
+            let object = match (note, remote_note, remote_question) {
+                (Some(note), None, None) => {
+                    MaybeReference::Reference(ApNote::from(note).id.unwrap())
                 }
-            }
-        }
-    } else if #[cfg(feature = "sqlite")] {
-        impl TryFrom<ExtendedActivity> for ApAnnounce {
-            type Error = &'static str;
-
-            fn try_from(
-                (activity, note, remote_note, _profile, _remote_actor): ExtendedActivity,
-            ) -> Result<Self, Self::Error> {
-                if activity.kind.as_str() == "announce" {
-                    match (note, remote_note, activity.ap_to) {
-                        (Some(note), None, Some(ap_to)) => Ok(ApAnnounce {
-                            context: Some(ApContext::default()),
-                            kind: ApAnnounceType::default(),
-                            actor: activity.actor.into(),
-                            id: Some(format!(
-                                "{}/activities/{}",
-                                *crate::SERVER_URL,
-                                activity.uuid
-                            )),
-                            to: serde_json::from_str(&ap_to).unwrap(),
-                            cc: activity.cc.map(|cc| serde_json::from_str(&cc).unwrap()),
-                            published: activity.created_at.to_string(),
-                            object: MaybeReference::Reference(ApNote::from(note).id.unwrap()),
-                            ephemeral_created_at: { Some(DateTime::<Utc>::from_naive_utc_and_offset(
-                                activity.created_at,
-                                Utc,
-                            )) },
-                            ephemeral_updated_at: { Some(DateTime::<Utc>::from_naive_utc_and_offset(
-                                activity.updated_at,
-                                Utc,
-                            ))},
-                        }),
-                        (None, Some(remote_note), Some(ap_to)) => Ok(ApAnnounce {
-                            context: Some(ApContext::default()),
-                            kind: ApAnnounceType::default(),
-                            actor: activity.actor.into(),
-                            id: Some(format!(
-                                "{}/activities/{}",
-                                *crate::SERVER_URL,
-                                activity.uuid
-                            )),
-                            to: serde_json::from_str(&ap_to).unwrap(),
-                            cc: activity.cc.map(|cc| serde_json::from_str(&cc).unwrap()),
-                            published: activity.created_at.to_string(),
-                            object: MaybeReference::Reference(remote_note.ap_id),
-                            ephemeral_created_at: { Some(DateTime::<Utc>::from_naive_utc_and_offset(
-                                activity.created_at,
-                                Utc,
-                            )) },
-                            ephemeral_updated_at: { Some(DateTime::<Utc>::from_naive_utc_and_offset(
-                                activity.updated_at,
-                                Utc,
-                            ))},
-                        }),
-                        _ => {
-                            log::error!("INVALID ACTIVITY TYPE");
-                            Err("INVALID ACTIVITY TYPE")
-                        }
-                    }
-                } else {
-                    log::error!("NOT AN ANNOUNCE ACTIVITY");
-                    Err("NOT AN ANNOUNCE ACTIVITY")
+                (None, Some(remote_note), None) => MaybeReference::Reference(remote_note.ap_id),
+                (None, None, Some(remote_question)) => {
+                    MaybeReference::Reference(remote_question.ap_id)
                 }
-            }
+                _ => return Err(anyhow::Error::msg("INVALID ACTIVITY TYPE")),
+            };
+            Ok(ApAnnounce {
+                context: Some(ApContext::default()),
+                kind: ApAnnounceType::default(),
+                actor: activity.actor.into(),
+                id: Some(format!(
+                    "{}/activities/{}",
+                    *crate::SERVER_URL,
+                    activity.uuid
+                )),
+                to: from_serde(ap_to).unwrap(),
+                cc: activity.cc.and_then(from_serde),
+                published: from_time(activity.created_at).unwrap().to_rfc3339(),
+                object,
+                ephemeral_created_at: from_time(activity.created_at),
+                ephemeral_updated_at: from_time(activity.updated_at),
+            })
+        } else {
+            log::error!("NOT AN ANNOUNCE ACTIVITY");
+            Err(anyhow::Error::msg("NOT AN ANNOUNCE ACTIVITY"))
         }
-
     }
 }

@@ -9,6 +9,7 @@ use crate::helper::{
 };
 use crate::schema::{
     activities, activities_cc, activities_to, notes, profiles, remote_actors, remote_notes,
+    remote_questions,
 };
 use crate::{MaybeReference, POOL};
 use diesel::prelude::*;
@@ -503,6 +504,7 @@ pub type ExtendedActivity = (
     Option<RemoteNote>,
     Option<Profile>,
     Option<RemoteActor>,
+    Option<RemoteQuestion>,
 );
 
 pub async fn get_activity_by_uuid(conn: Option<&Db>, uuid: String) -> Option<ExtendedActivity> {
@@ -522,6 +524,10 @@ pub async fn get_activity_by_uuid(conn: Option<&Db>, uuid: String) -> Option<Ext
                     .left_join(
                         remote_actors::table
                             .on(activities::target_remote_actor_id.eq(remote_actors::id.nullable())),
+                    )
+                    .left_join(
+                        remote_questions::table
+                            .on(activities::target_remote_question_id.eq(remote_questions::id.nullable()))
                     )
                     .first::<ExtendedActivity>(c)
             })
@@ -544,6 +550,10 @@ pub async fn get_activity_by_uuid(conn: Option<&Db>, uuid: String) -> Option<Ext
                     remote_actors::table
                         .on(activities::target_remote_actor_id.eq(remote_actors::id.nullable())),
                 )
+                .left_join(
+                    remote_questions::table
+                        .on(activities::target_remote_question_id.eq(remote_questions::id.nullable()))
+                )
                 .first::<ExtendedActivity>(&mut pool)
                 .ok()
         }
@@ -565,6 +575,10 @@ pub async fn get_activity_by_apid(conn: &Db, ap_id: String) -> Option<ExtendedAc
             .left_join(
                 remote_actors::table
                     .on(activities::target_remote_actor_id.eq(remote_actors::id.nullable())),
+            )
+            .left_join(
+                remote_questions::table
+                    .on(activities::target_remote_question_id.eq(remote_questions::id.nullable())),
             )
             .first::<ExtendedActivity>(c)
     })
@@ -596,6 +610,10 @@ pub async fn get_activity_by_kind_profile_id_and_target_ap_id(
                 remote_actors::table
                     .on(activities::target_remote_actor_id.eq(remote_actors::id.nullable())),
             )
+            .left_join(
+                remote_questions::table
+                    .on(activities::target_remote_question_id.eq(remote_questions::id.nullable())),
+            )
             .first::<ExtendedActivity>(c)
     })
     .await
@@ -620,6 +638,10 @@ pub async fn get_activity(conn: Option<&Db>, id: i32) -> Option<ExtendedActivity
                         remote_actors::table
                             .on(activities::target_remote_actor_id.eq(remote_actors::id.nullable())),
                     )
+                    .left_join(
+                        remote_questions::table
+                            .on(activities::target_remote_question_id.eq(remote_questions::id.nullable()))
+                    )
                     .first::<ExtendedActivity>(c)
             })
                 .await
@@ -640,6 +662,10 @@ pub async fn get_activity(conn: Option<&Db>, id: i32) -> Option<ExtendedActivity
                 .left_join(
                     remote_actors::table
                         .on(activities::target_remote_actor_id.eq(remote_actors::id.nullable())),
+                )
+                .left_join(
+                    remote_questions::table
+                        .on(activities::target_remote_question_id.eq(remote_questions::id.nullable()))
                 )
                 .first::<ExtendedActivity>(&mut pool)
                 .ok()

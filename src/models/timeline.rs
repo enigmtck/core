@@ -1,6 +1,6 @@
 use std::fmt::Display;
 
-use crate::activity_pub::{ApAnnounce, ApNote, ApNoteType, ApQuestionType};
+use crate::activity_pub::{ApActor, ApAnnounce, ApNote, ApNoteType, ApQuestionType};
 use crate::db::Db;
 use crate::schema::{timeline, timeline_cc, timeline_to};
 use crate::POOL;
@@ -10,6 +10,8 @@ use diesel::{AsChangeset, Insertable};
 use serde::{Deserialize, Serialize};
 
 use super::notes::Note;
+use super::profiles::Profile;
+use super::remote_actors::RemoteActor;
 use super::remote_notes::RemoteNote;
 use super::remote_questions::RemoteQuestion;
 use super::timeline_hashtags::TimelineHashtag;
@@ -245,6 +247,18 @@ pub type AuthenticatedTimelineItem = (
     Option<TimelineItemCc>,
     Option<TimelineHashtag>,
 );
+
+#[derive(Serialize, Clone, Debug, Default)]
+pub struct ContextualizedTimelineItem {
+    pub item: TimelineItem,
+    pub activity: Option<Activity>,
+    pub cc: Option<TimelineItemCc>,
+    // This seems like it should use RemoteActor, but all the supporting functions
+    // for populating this Vec output ApActors right now, which doesn't really
+    // seem like a problem.
+    pub related: Option<Vec<ApActor>>,
+    pub requester: Option<Profile>,
+}
 
 pub async fn get_timeline_conversation_count(
     conn: Option<&Db>,

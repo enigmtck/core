@@ -18,6 +18,7 @@ use crate::{
     },
     runner, MaybeMultiple, MaybeReference,
 };
+use anyhow::anyhow;
 use rocket::http::Status;
 // use rsa::pkcs8::DecodePrivateKey;
 // use rsa::signature::{RandomizedSigner, Signature};
@@ -229,7 +230,7 @@ impl Outbox for ApTombstone {
 }
 
 impl TryFrom<ApNote> for ApTombstone {
-    type Error = &'static str;
+    type Error = anyhow::Error;
 
     fn try_from(note: ApNote) -> Result<Self, Self::Error> {
         if let Some(id) = note.id {
@@ -239,18 +240,17 @@ impl TryFrom<ApNote> for ApTombstone {
                 atom_uri: Some(id),
             })
         } else {
-            Err("ApNote must have an ID")
+            Err(anyhow!("ApNote must have an ID"))
         }
     }
 }
 
 impl TryFrom<ApNote> for ApDelete {
-    type Error = &'static str;
+    type Error = anyhow::Error;
 
     fn try_from(note: ApNote) -> Result<Self, Self::Error> {
-        let id = note.id.clone().ok_or("ApNote must have an ID")?;
-        let tombstone =
-            ApTombstone::try_from(note.clone()).map_err(|_| "ApNote must have an ID")?;
+        let id = note.id.clone().ok_or(anyhow!("ApNote must have an ID"))?;
+        let tombstone = ApTombstone::try_from(note.clone())?;
         Ok(ApDelete {
             context: Some(ApContext::default()),
             actor: note.attributed_to.clone(),

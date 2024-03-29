@@ -16,6 +16,7 @@ use crate::{
     },
     runner, MaybeMultiple, MaybeReference,
 };
+use anyhow::anyhow;
 use rocket::http::Status;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -151,10 +152,10 @@ async fn handle_like_outbox(
 }
 
 impl TryFrom<ExtendedActivity> for ApLike {
-    type Error = &'static str;
+    type Error = anyhow::Error;
 
     fn try_from(
-        (activity, note, remote_note, profile, _remote_actor): ExtendedActivity,
+        (activity, note, remote_note, profile, _remote_actor, remote_question): ExtendedActivity,
     ) -> Result<Self, Self::Error> {
         cfg_if::cfg_if! {
             if #[cfg(feature = "pg")] {
@@ -196,12 +197,12 @@ impl TryFrom<ExtendedActivity> for ApLike {
                 }),
                 _ => {
                     log::error!("INVALID ACTIVITY TYPE");
-                    Err("INVALID ACTIVITY TYPE")
+                    Err(anyhow!("INVALID ACTIVITY TYPE"))
                 }
             }
         } else {
             log::error!("NOT A LIKE ACTIVITY");
-            Err("NOT A LIKE ACTIVITY")
+            Err(anyhow!("NOT A LIKE ACTIVITY"))
         }
     }
 }

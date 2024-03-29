@@ -13,6 +13,7 @@ use crate::{
     },
     runner, MaybeReference,
 };
+use anyhow::anyhow;
 use rocket::http::Status;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -97,14 +98,13 @@ impl Outbox for Box<ApAccept> {
 }
 
 impl TryFrom<RecursiveActivity> for ApAccept {
-    type Error = &'static str;
+    type Error = anyhow::Error;
 
     fn try_from(
-        ((activity, _note, _remote_note, _profile, _remote_actor), recursive): RecursiveActivity,
+        ((activity, _note, _remote_note, _profile, _remote_actor, _remote_question), recursive): RecursiveActivity,
     ) -> Result<Self, Self::Error> {
-        let recursive = recursive.ok_or("RECURSIVE CANNOT BE NONE")?;
-        let recursive_activity = ApActivity::try_from((recursive.clone(), None))
-            .map_err(|_| "FAILED TO CONVERT ACTIVITY")?;
+        let recursive = recursive.ok_or(anyhow!("RECURSIVE CANNOT BE NONE"))?;
+        let recursive_activity = ApActivity::try_from((recursive.clone(), None))?;
         match recursive_activity {
             ApActivity::Follow(follow) => Ok(ApAccept {
                 context: Some(ApContext::default()),
@@ -122,14 +122,14 @@ impl TryFrom<RecursiveActivity> for ApAccept {
             }),
             _ => {
                 log::error!("FAILED TO MATCH IMPLEMENTED ACCEPT: {activity:#?}");
-                Err("FAILED TO MATCH IMPLEMENTED ACCEPT")
+                Err(anyhow!("FAILED TO MATCH IMPLEMENTED ACCEPT"))
             }
         }
     }
 }
 
 impl TryFrom<ApFollow> for ApAccept {
-    type Error = &'static str;
+    type Error = anyhow::Error;
 
     fn try_from(follow: ApFollow) -> Result<Self, Self::Error> {
         let actor = {
@@ -149,7 +149,7 @@ impl TryFrom<ApFollow> for ApAccept {
                 object: MaybeReference::Actual(ApActivity::Follow(follow)),
             })
         } else {
-            Err("COULD NOT IDENTIFY ACTOR")
+            Err(anyhow!("COULD NOT IDENTIFY ACTOR"))
         }
     }
 }

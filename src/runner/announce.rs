@@ -29,10 +29,16 @@ pub async fn send_announce_task(
     for uuid in uuids {
         log::debug!("LOOKING FOR UUID {uuid}");
 
-        let (activity, target_note, target_remote_note, target_profile, target_remote_actor) =
-            get_activity_by_uuid(conn, uuid.clone())
-                .await
-                .ok_or(TaskError::TaskFailed)?;
+        let (
+            activity,
+            target_note,
+            target_remote_note,
+            target_profile,
+            target_remote_actor,
+            target_remote_question,
+        ) = get_activity_by_uuid(conn, uuid.clone())
+            .await
+            .ok_or(TaskError::TaskFailed)?;
 
         log::debug!("FOUND ACTIVITY\n{activity:#?}");
         let profile_id = activity.profile_id.ok_or(TaskError::TaskFailed)?;
@@ -46,6 +52,7 @@ pub async fn send_announce_task(
                 target_remote_note,
                 target_profile,
                 target_remote_actor,
+                target_remote_question,
             ),
             None,
         ))
@@ -92,7 +99,7 @@ pub async fn remote_announce_task(
 
     let profile = profile.clone();
 
-    let (activity, _, _, _, _) = get_activity_by_uuid(conn, uuid.to_string())
+    let (activity, _, _, _, _, _) = get_activity_by_uuid(conn, uuid.to_string())
         .await
         .ok_or(TaskError::TaskFailed)?;
 

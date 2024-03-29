@@ -12,13 +12,13 @@ use crate::{
         get_note_url_from_uuid,
     },
     models::{
-        activities::{create_activity, Activity, ActivityType, NewActivity, NoteActivity},
+        activities::{create_activity, ActivityType, NewActivity, NoteActivity},
         cache::{cache_content, Cache},
         from_serde, from_time,
         notes::{create_note, NewNote, Note, NoteLike, NoteType},
         profiles::Profile,
         remote_notes::RemoteNote,
-        timeline::{TimelineItem, TimelineItemCc},
+        timeline::{ContextualizedTimelineItem, TimelineItem},
         vault::VaultItem,
     },
     runner, MaybeMultiple, ANCHOR_RE,
@@ -340,104 +340,107 @@ impl From<IdentifiedVaultItem> for ApNote {
     }
 }
 
-impl From<&TimelineItem> for ApNote {
-    fn from(timeline: &TimelineItem) -> Self {
-        ApNote::from(((timeline.clone(), None, None), None, None))
+impl TryFrom<&TimelineItem> for ApNote {
+    type Error = anyhow::Error;
+
+    fn try_from(timeline: &TimelineItem) -> Result<Self, Self::Error> {
+        ApNote::try_from(timeline.clone())
     }
 }
 
-impl From<TimelineItem> for ApNote {
-    fn from(timeline: TimelineItem) -> Self {
-        ApNote::from(((timeline, None, None), None, None))
+impl TryFrom<TimelineItem> for ApNote {
+    type Error = anyhow::Error;
+
+    fn try_from(item: TimelineItem) -> Result<Self, Self::Error> {
+        ApNote::try_from(ContextualizedTimelineItem {
+            item,
+            ..Default::default()
+        })
     }
 }
 
-// we're pre-loading the ApActor objects here so that we don't have to make
-// separate calls to retrieve that data at the client; making those extra calls
-// is particularly problematic for unauthenticated retrieval as it would require
-// that we expose the endpoint for retrieving RemoteActor data to the world
-pub type QualifiedTimelineItem = (TimelineItem, Option<Vec<ApActor>>);
+impl TryFrom<ContextualizedTimelineItem> for ApNote {
+    type Error = anyhow::Error;
 
-impl From<QualifiedTimelineItem> for ApNote {
-    fn from((timeline, actors): QualifiedTimelineItem) -> Self {
-        ApNote::from(((timeline, None, None), actors, None))
-    }
-}
-
-pub type FullyQualifiedTimelineItem = (
-    (TimelineItem, Option<Activity>, Option<TimelineItemCc>),
-    Option<Vec<ApActor>>,
-    Option<Profile>,
-);
-
-impl From<FullyQualifiedTimelineItem> for ApNote {
-    fn from(((timeline, activity, cc), actors, profile): FullyQualifiedTimelineItem) -> Self {
-        ApNote {
-            context: Some(ApContext::default()),
-            to: MaybeMultiple::Multiple(vec![]),
-            cc: None,
-            instrument: None,
-            kind: ApNoteType::Note,
-            tag: timeline.tag.and_then(from_serde),
-            attributed_to: ApAddress::Address(timeline.attributed_to),
-            id: Some(timeline.ap_id),
-            url: timeline.url,
-            published: timeline.published.unwrap_or("".to_string()),
-            replies: Option::None,
-            in_reply_to: timeline.in_reply_to,
-            content: timeline.content.unwrap_or_default(),
-            summary: timeline.summary,
-            sensitive: timeline.ap_sensitive,
-            atom_uri: timeline.atom_uri,
-            in_reply_to_atom_uri: timeline.in_reply_to_atom_uri,
-            conversation: timeline.conversation,
-            content_map: timeline.content_map.and_then(from_serde),
-            attachment: timeline.attachment.and_then(from_serde),
-            ephemeral_announces: activity
-                .clone()
-                .filter(|activity| {
-                    ActivityType::from(activity.kind.clone()) == ActivityType::Announce
-                        && !activity.revoked
-                })
-                .map(|announce| vec![announce.actor]),
-            ephemeral_announced: activity.clone().and_then(|x| {
-                if let Some(profile) = profile.clone() {
-                    if ActivityType::from(x.kind) == ActivityType::Announce
-                        && !x.revoked
-                        && x.actor == get_ap_id_from_username(profile.username)
-                    {
-                        Some(get_activity_ap_id_from_uuid(x.uuid))
+    fn try_from(
+        ContextualizedTimelineItem {
+            item,
+            activity,
+            cc,
+            related,
+            requester,
+        }: ContextualizedTimelineItem,
+    ) -> Result<Self, Self::Error> {
+        if item.kind.to_string().to_lowercase().as_str() == "note" {
+            Ok(ApNote {
+                context: Some(ApContext::default()),
+                to: MaybeMultiple::Multiple(vec![]),
+                cc: None,
+                instrument: None,
+                kind: ApNoteType::Note,
+                tag: item.tag.and_then(from_serde),
+                attributed_to: ApAddress::Address(item.attributed_to),
+                id: Some(item.ap_id),
+                url: item.url,
+                published: item.published.unwrap_or("".to_string()),
+                replies: None,
+                in_reply_to: item.in_reply_to,
+                content: item.content.unwrap_or_default(),
+                summary: item.summary,
+                sensitive: item.ap_sensitive,
+                atom_uri: item.atom_uri,
+                in_reply_to_atom_uri: item.in_reply_to_atom_uri,
+                conversation: item.conversation,
+                content_map: item.content_map.and_then(from_serde),
+                attachment: item.attachment.and_then(from_serde),
+                ephemeral_announces: activity
+                    .clone()
+                    .filter(|activity| {
+                        ActivityType::from(activity.kind.clone()) == ActivityType::Announce
+                            && !activity.revoked
+                    })
+                    .map(|announce| vec![announce.actor]),
+                ephemeral_announced: activity.clone().and_then(|x| {
+                    if let Some(profile) = requester.clone() {
+                        if ActivityType::from(x.kind) == ActivityType::Announce
+                            && !x.revoked
+                            && x.actor == get_ap_id_from_username(profile.username)
+                        {
+                            Some(get_activity_ap_id_from_uuid(x.uuid))
+                        } else {
+                            None
+                        }
                     } else {
                         None
                     }
-                } else {
-                    None
-                }
-            }),
-            ephemeral_actors: actors,
-            ephemeral_liked: activity.clone().and_then(|x| {
-                if let Some(profile) = profile {
-                    if ActivityType::from(x.kind) == ActivityType::Like
-                        && !x.revoked
-                        && x.actor == get_ap_id_from_username(profile.username)
-                    {
-                        Some(get_activity_ap_id_from_uuid(x.uuid))
+                }),
+                ephemeral_actors: related,
+                ephemeral_liked: activity.clone().and_then(|x| {
+                    if let Some(profile) = requester {
+                        if ActivityType::from(x.kind) == ActivityType::Like
+                            && !x.revoked
+                            && x.actor == get_ap_id_from_username(profile.username)
+                        {
+                            Some(get_activity_ap_id_from_uuid(x.uuid))
+                        } else {
+                            None
+                        }
                     } else {
                         None
                     }
-                } else {
-                    None
-                }
-            }),
-            ephemeral_likes: activity
-                .filter(|activity| {
-                    ActivityType::from(activity.kind.clone()) == ActivityType::Like
-                        && !activity.revoked
-                })
-                .map(|like| vec![like.actor]),
-            ephemeral_targeted: Some(cc.is_some()),
-            ephemeral_timestamp: from_time(timeline.created_at),
-            ephemeral_metadata: timeline.metadata.and_then(from_serde),
+                }),
+                ephemeral_likes: activity
+                    .filter(|activity| {
+                        ActivityType::from(activity.kind.clone()) == ActivityType::Like
+                            && !activity.revoked
+                    })
+                    .map(|like| vec![like.actor]),
+                ephemeral_targeted: Some(cc.is_some()),
+                ephemeral_timestamp: from_time(item.created_at),
+                ephemeral_metadata: item.metadata.and_then(from_serde),
+            })
+        } else {
+            Err(anyhow::Error::msg("wrong timeline_item type"))
         }
     }
 }

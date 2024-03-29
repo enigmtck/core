@@ -5,7 +5,10 @@ use crate::{
     activity_pub::{ApAttachment, ApContext, ApTag, Outbox},
     db::Db,
     fairings::events::EventChannels,
-    models::{from_serde, from_time, profiles::Profile, remote_questions::RemoteQuestion},
+    models::{
+        from_serde, from_time, profiles::Profile, remote_questions::RemoteQuestion,
+        timeline::ContextualizedTimelineItem,
+    },
     MaybeMultiple,
 };
 use anyhow::Result;
@@ -145,5 +148,47 @@ impl TryFrom<RemoteQuestion> for ApQuestion {
             ephemeral_updated_at: from_time(question.updated_at),
             ..Default::default()
         })
+    }
+}
+
+impl TryFrom<ContextualizedTimelineItem> for ApQuestion {
+    type Error = anyhow::Error;
+    fn try_from(
+        ContextualizedTimelineItem {
+            item,
+            activity,
+            cc,
+            related,
+            requester,
+        }: ContextualizedTimelineItem,
+    ) -> Result<Self, Self::Error> {
+        if item.kind.to_string().to_lowercase().as_str() == "question" {
+            Ok(ApQuestion {
+                context: Some(ApContext::default()),
+                to: MaybeMultiple::Multiple(vec![]),
+                cc: None,
+                kind: ApQuestionType::Question,
+                tag: item.tag.and_then(from_serde),
+                attributed_to: ApAddress::Address(item.attributed_to),
+                id: item.ap_id,
+                url: item.url,
+                published: item.published.and_then(|x| x.parse().ok()),
+                in_reply_to: item.in_reply_to,
+                content: item.content,
+                summary: item.summary,
+                end_time: item.end_time.and_then(from_time),
+                one_of: item.one_of.and_then(from_serde),
+                any_of: item.any_of.and_then(from_serde),
+                voters_count: item.voters_count,
+                sensitive: item.ap_sensitive,
+                conversation: item.conversation,
+                content_map: item.content_map.and_then(from_serde),
+                attachment: item.attachment.and_then(from_serde),
+                ephemeral_created_at: from_time(item.created_at),
+                ephemeral_updated_at: from_time(item.updated_at),
+            })
+        } else {
+            Err(anyhow::Error::msg("wrong timeline_item type"))
+        }
     }
 }
