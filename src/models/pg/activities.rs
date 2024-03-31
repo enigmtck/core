@@ -60,7 +60,7 @@ pub struct NewActivity {
     pub target_remote_question_id: Option<i32>,
 }
 
-#[derive(Identifiable, Queryable, AsChangeset, Serialize, Clone, Default, Debug)]
+#[derive(Identifiable, Queryable, AsChangeset, Serialize, Clone, Default, Debug, PartialEq, Eq)]
 #[diesel(table_name = activities)]
 pub struct Activity {
     #[serde(skip_serializing)]

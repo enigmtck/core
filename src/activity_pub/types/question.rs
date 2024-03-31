@@ -5,18 +5,23 @@ use crate::{
     activity_pub::{ApAttachment, ApContext, ApTag, Outbox},
     db::Db,
     fairings::events::EventChannels,
+    helper::{get_activity_ap_id_from_uuid, get_ap_id_from_username},
     models::{
-        from_serde, from_time, profiles::Profile, remote_questions::RemoteQuestion,
-        timeline::ContextualizedTimelineItem,
+        activities::ActivityType, from_serde, from_time, profiles::Profile,
+        remote_questions::RemoteQuestion, timeline::ContextualizedTimelineItem,
     },
     MaybeMultiple,
 };
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use chrono::{DateTime, Utc};
 use rocket::http::Status;
 use serde::{Deserialize, Serialize};
 
-use super::{actor::ApAddress, collection::ApCollectionType, note::ApNoteType};
+use super::{
+    actor::{ApActor, ApAddress},
+    collection::ApCollectionType,
+    note::{ApNoteType, Metadata},
+};
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default, Eq, PartialEq)]
 pub enum ApQuestionType {
@@ -103,10 +108,49 @@ pub struct ApQuestion {
     pub in_reply_to: Option<String>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub ephemeral_announces: Option<Vec<String>>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ephemeral_actors: Option<Vec<ApActor>>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ephemeral_liked: Option<String>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ephemeral_announced: Option<String>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ephemeral_targeted: Option<bool>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ephemeral_metadata: Option<Vec<Metadata>>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ephemeral_likes: Option<Vec<String>>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub ephemeral_created_at: Option<DateTime<Utc>>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ephemeral_updated_at: Option<DateTime<Utc>>,
+}
+
+impl ApQuestion {
+    pub fn dedup(mut self) -> Self {
+        if let Some(mut announces) = self.ephemeral_announces {
+            announces.sort();
+            announces.dedup();
+            self.ephemeral_announces = Some(announces);
+        }
+
+        if let Some(mut likes) = self.ephemeral_likes {
+            likes.sort();
+            likes.dedup();
+            self.ephemeral_likes = Some(likes);
+        }
+
+        self
+    }
 }
 
 impl Outbox for ApQuestion {
@@ -127,8 +171,8 @@ impl TryFrom<RemoteQuestion> for ApQuestion {
         Ok(ApQuestion {
             id: question.ap_id,
             attributed_to: question.attributed_to.into(),
-            to: from_serde(question.ap_to.ok_or(Self::Error::msg("ap_to is None"))?)
-                .ok_or(Self::Error::msg("failed to deserialize ap_to"))?,
+            to: from_serde(question.ap_to.ok_or(anyhow!("ap_to is None"))?)
+                .ok_or(anyhow!("failed to deserialize ap_to"))?,
             cc: question.cc.and_then(from_serde),
             end_time: question.end_time.and_then(from_time),
             published: question.published.and_then(from_time),
@@ -184,6 +228,56 @@ impl TryFrom<ContextualizedTimelineItem> for ApQuestion {
                 conversation: item.conversation,
                 content_map: item.content_map.and_then(from_serde),
                 attachment: item.attachment.and_then(from_serde),
+                ephemeral_announces: Some(
+                    activity
+                        .iter()
+                        .clone()
+                        .filter(|activity| {
+                            ActivityType::from(activity.kind.clone()) == ActivityType::Announce
+                                && !activity.revoked
+                        })
+                        .map(|announce| announce.actor.clone())
+                        .collect(),
+                ),
+                ephemeral_announced: {
+                    let requester_ap_id = requester
+                        .clone()
+                        .map(|r| get_ap_id_from_username(r.username));
+                    activity
+                        .iter()
+                        .find(|x| {
+                            ActivityType::from(x.kind.clone()) == ActivityType::Announce
+                                && !x.revoked
+                                && Some(x.actor.clone()) == requester_ap_id
+                        })
+                        .map(|x| get_activity_ap_id_from_uuid(x.uuid.clone()))
+                },
+                ephemeral_actors: Some(related),
+                ephemeral_liked: {
+                    let requester_ap_id = requester
+                        .as_ref()
+                        .map(|r| get_ap_id_from_username(r.username.clone()));
+                    activity
+                        .iter()
+                        .find(|x| {
+                            ActivityType::from(x.kind.clone()) == ActivityType::Like
+                                && !x.revoked
+                                && Some(x.actor.clone()) == requester_ap_id
+                        })
+                        .map(|x| get_activity_ap_id_from_uuid(x.uuid.clone()))
+                },
+                ephemeral_likes: Some(
+                    activity
+                        .iter()
+                        .filter(|activity| {
+                            ActivityType::from(activity.kind.clone()) == ActivityType::Like
+                                && !activity.revoked
+                        })
+                        .map(|like| like.actor.clone())
+                        .collect(),
+                ),
+                ephemeral_targeted: Some(!cc.is_empty()),
+                ephemeral_metadata: item.metadata.and_then(from_serde),
                 ephemeral_created_at: from_time(item.created_at),
                 ephemeral_updated_at: from_time(item.updated_at),
             })

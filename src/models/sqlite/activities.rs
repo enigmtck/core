@@ -1,9 +1,4 @@
-use crate::activity_pub::ApAddress;
 use crate::db::Db;
-use crate::helper::{
-    get_activity_ap_id_from_uuid, get_ap_id_from_username, get_followers_ap_id_from_username,
-    get_note_ap_id_from_uuid,
-};
 use crate::schema::{
     activities, activities_cc, activities_to, notes, profiles, remote_actors, remote_notes,
     remote_questions,
@@ -16,10 +11,7 @@ use diesel::{AsChangeset, Identifiable, Insertable, Queryable};
 use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
 
-use super::profiles::Profile;
 use crate::models::activities::{ExtendedActivity, NewActivityCc, NewActivityTo};
-use crate::models::notes::NoteLike;
-use std::fmt;
 
 #[derive(Debug, Serialize, Deserialize, Default, Clone, Eq, PartialEq)]
 pub enum ActivityType {
@@ -57,7 +49,9 @@ pub struct NewActivity {
     pub target_remote_question_id: Option<i32>,
 }
 
-#[derive(Identifiable, Queryable, AsChangeset, Serialize, Clone, Default, Debug)]
+#[derive(
+    Identifiable, Queryable, AsChangeset, Serialize, Clone, Default, Debug, Hash, PartialEq, Eq,
+)]
 #[diesel(table_name = activities)]
 pub struct Activity {
     #[serde(skip_serializing)]

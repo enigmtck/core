@@ -170,7 +170,7 @@ lazy_static! {
 //     }
 // }
 
-#[derive(Serialize, Deserialize, Clone, Debug, Default)]
+#[derive(Serialize, Deserialize, Clone, Debug, Default, Eq, PartialEq, Ord, PartialOrd)]
 #[serde(untagged)]
 pub enum MaybeMultiple<T> {
     Single(T),

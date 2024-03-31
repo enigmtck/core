@@ -3,7 +3,6 @@ use crate::db::Db;
 use crate::models::{to_serde, to_time};
 use crate::schema::remote_questions;
 use crate::{MaybeMultiple, POOL};
-use anyhow::Result;
 
 use diesel::prelude::*;
 

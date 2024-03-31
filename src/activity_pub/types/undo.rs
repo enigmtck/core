@@ -213,7 +213,7 @@ impl TryFrom<RecursiveActivity> for ApUndo {
     type Error = anyhow::Error;
 
     fn try_from(
-        ((activity, _note, _remote_note, _profile, _remote_actor, remote_question), recursive): RecursiveActivity,
+        ((activity, _note, _remote_note, _profile, _remote_actor, _remote_question), recursive): RecursiveActivity,
     ) -> Result<Self, Self::Error> {
         if let Some(recursive) = recursive {
             if let Ok(recursive_activity) = ApActivity::try_from((recursive.clone(), None)) {

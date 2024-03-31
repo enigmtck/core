@@ -222,6 +222,28 @@ impl ApNote {
         self.tag.as_mut().expect("unwrap failed").push(tag);
         self
     }
+
+    pub fn dedup(mut self) -> Self {
+        if let Some(mut announces) = self.ephemeral_announces {
+            announces.sort();
+            announces.dedup();
+            self.ephemeral_announces = Some(announces);
+        }
+
+        if let Some(mut likes) = self.ephemeral_likes {
+            likes.sort();
+            likes.dedup();
+            self.ephemeral_likes = Some(likes);
+        }
+
+        if let Some(mut actors) = self.ephemeral_actors {
+            actors.sort();
+            actors.dedup();
+            self.ephemeral_actors = Some(actors);
+        }
+
+        self
+    }
 }
 
 impl Cache for ApNote {
@@ -393,49 +415,55 @@ impl TryFrom<ContextualizedTimelineItem> for ApNote {
                 conversation: item.conversation,
                 content_map: item.content_map.and_then(from_serde),
                 attachment: item.attachment.and_then(from_serde),
-                ephemeral_announces: activity
-                    .clone()
-                    .filter(|activity| {
-                        ActivityType::from(activity.kind.clone()) == ActivityType::Announce
-                            && !activity.revoked
-                    })
-                    .map(|announce| vec![announce.actor]),
-                ephemeral_announced: activity.clone().and_then(|x| {
-                    if let Some(profile) = requester.clone() {
-                        if ActivityType::from(x.kind) == ActivityType::Announce
-                            && !x.revoked
-                            && x.actor == get_ap_id_from_username(profile.username)
-                        {
-                            Some(get_activity_ap_id_from_uuid(x.uuid))
-                        } else {
-                            None
-                        }
-                    } else {
-                        None
-                    }
-                }),
-                ephemeral_actors: related,
-                ephemeral_liked: activity.clone().and_then(|x| {
-                    if let Some(profile) = requester {
-                        if ActivityType::from(x.kind) == ActivityType::Like
-                            && !x.revoked
-                            && x.actor == get_ap_id_from_username(profile.username)
-                        {
-                            Some(get_activity_ap_id_from_uuid(x.uuid))
-                        } else {
-                            None
-                        }
-                    } else {
-                        None
-                    }
-                }),
-                ephemeral_likes: activity
-                    .filter(|activity| {
-                        ActivityType::from(activity.kind.clone()) == ActivityType::Like
-                            && !activity.revoked
-                    })
-                    .map(|like| vec![like.actor]),
-                ephemeral_targeted: Some(cc.is_some()),
+                ephemeral_announces: Some(
+                    activity
+                        .iter()
+                        .clone()
+                        .filter(|activity| {
+                            ActivityType::from(activity.kind.clone()) == ActivityType::Announce
+                                && !activity.revoked
+                        })
+                        .map(|announce| announce.actor.clone())
+                        .collect(),
+                ),
+                ephemeral_announced: {
+                    let requester_ap_id = requester
+                        .clone()
+                        .map(|r| get_ap_id_from_username(r.username));
+                    activity
+                        .iter()
+                        .find(|x| {
+                            ActivityType::from(x.kind.clone()) == ActivityType::Announce
+                                && !x.revoked
+                                && Some(x.actor.clone()) == requester_ap_id.clone()
+                        })
+                        .map(|x| get_activity_ap_id_from_uuid(x.uuid.clone()))
+                },
+                ephemeral_actors: Some(related),
+                ephemeral_liked: {
+                    let requester_ap_id = requester
+                        .as_ref()
+                        .map(|r| get_ap_id_from_username(r.username.clone()));
+                    activity
+                        .iter()
+                        .find(|x| {
+                            ActivityType::from(x.kind.clone()) == ActivityType::Like
+                                && !x.revoked
+                                && Some(x.actor.clone()) == requester_ap_id.clone()
+                        })
+                        .map(|x| get_activity_ap_id_from_uuid(x.uuid.clone()))
+                },
+                ephemeral_likes: Some(
+                    activity
+                        .iter()
+                        .filter(|activity| {
+                            ActivityType::from(activity.kind.clone()) == ActivityType::Like
+                                && !activity.revoked
+                        })
+                        .map(|like| like.actor.clone())
+                        .collect(),
+                ),
+                ephemeral_targeted: Some(!cc.is_empty()),
                 ephemeral_timestamp: from_time(item.created_at),
                 ephemeral_metadata: item.metadata.and_then(from_serde),
             })

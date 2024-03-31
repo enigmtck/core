@@ -13,7 +13,6 @@ use crate::{
         },
         from_serde,
         profiles::{get_actory, get_profile_by_ap_id, ActorLike, Profile},
-        to_serde,
     },
     runner, MaybeMultiple, MaybeReference,
 };
@@ -107,39 +106,34 @@ async fn outbox(
     if let MaybeReference::Reference(id) = follow.object {
         let actor_like = get_actory(&conn, id).await;
 
-        if let Some(actor_like) = actor_like {
-            let (actor, remote_actor) = match actor_like {
-                ActorLike::Profile(profile) => (Some(profile), None),
-                ActorLike::RemoteActor(remote_actor) => (None, Some(remote_actor)),
-            };
+        let (actor, remote_actor) = match actor_like.ok_or(Status::NotFound)? {
+            ActorLike::Profile(profile) => (Some(profile), None),
+            ActorLike::RemoteActor(remote_actor) => (None, Some(remote_actor)),
+        };
 
-            if let Ok(activity) = create_activity(
-                Some(&conn),
-                NewActivity::from((
-                    actor.clone(),
-                    remote_actor.clone(),
-                    ActivityType::Follow,
-                    ApAddress::Address(get_ap_id_from_username(profile.username.clone())),
-                ))
-                .link_profile(&conn)
-                .await,
+        if let Ok(activity) = create_activity(
+            Some(&conn),
+            NewActivity::from((
+                actor.clone(),
+                remote_actor.clone(),
+                ActivityType::Follow,
+                ApAddress::Address(get_ap_id_from_username(profile.username.clone())),
+            ))
+            .link_profile(&conn)
+            .await,
+        )
+        .await
+        {
+            runner::run(
+                runner::follow::process_follow_task,
+                Some(conn),
+                Some(channels),
+                vec![activity.uuid.clone()],
             )
-            .await
-            {
-                runner::run(
-                    runner::follow::process_follow_task,
-                    Some(conn),
-                    Some(channels),
-                    vec![activity.uuid.clone()],
-                )
-                .await;
-                Ok(get_activity_ap_id_from_uuid(activity.uuid))
-            } else {
-                log::error!("FAILED TO CREATE FOLLOW ACTIVITY");
-                Err(Status::NoContent)
-            }
+            .await;
+            Ok(get_activity_ap_id_from_uuid(activity.uuid))
         } else {
-            log::error!("ACTOR AND REMOTE_ACTOR CANNOT BOTH BE NONE");
+            log::error!("FAILED TO CREATE FOLLOW ACTIVITY");
             Err(Status::NoContent)
         }
     } else {
@@ -152,7 +146,7 @@ impl TryFrom<ExtendedActivity> for ApFollow {
     type Error = anyhow::Error;
 
     fn try_from(
-        (activity, _note, _remote_note, profile, remote_actor, remote_question): ExtendedActivity,
+        (activity, _note, _remote_note, profile, remote_actor, _remote_question): ExtendedActivity,
     ) -> Result<Self, Self::Error> {
         if activity.kind.to_string().to_lowercase().as_str() == "follow" {
             let object = match (profile, remote_actor) {

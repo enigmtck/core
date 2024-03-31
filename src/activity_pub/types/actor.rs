@@ -16,7 +16,7 @@ use rocket::http::Status;
 use serde::{Deserialize, Serialize};
 use serde_with::serde_as;
 
-#[derive(Serialize, Deserialize, Clone, PartialEq, Eq, Debug, Default, Hash)]
+#[derive(Serialize, Deserialize, Clone, PartialEq, Eq, Debug, Default, Hash, Ord, PartialOrd)]
 #[serde(untagged)]
 pub enum ApAddress {
     Address(String),
@@ -62,7 +62,7 @@ impl TryFrom<serde_json::Value> for ApAddress {
     }
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, Default)]
+#[derive(Serialize, Deserialize, Clone, Debug, Default, Hash, PartialEq, Eq, PartialOrd, Ord)]
 #[serde(rename_all = "camelCase")]
 pub struct ApPublicKey {
     pub id: String,
@@ -70,14 +70,14 @@ pub struct ApPublicKey {
     pub public_key_pem: String,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, Default)]
+#[derive(Serialize, Deserialize, Clone, Debug, Default, Hash, PartialEq, Eq, PartialOrd, Ord)]
 #[serde(rename_all = "camelCase")]
 pub struct ApCapabilities {
     pub accepts_chat_messages: Option<bool>,
     pub enigmatick_encryption: Option<bool>,
 }
 
-#[derive(Serialize, PartialEq, Eq, Deserialize, Clone, Debug, Default)]
+#[derive(Serialize, PartialEq, Eq, Deserialize, Clone, Debug, Default, Hash, Ord, PartialOrd)]
 pub enum ApActorType {
     #[serde(alias = "application")]
     Application,
@@ -101,7 +101,7 @@ impl fmt::Display for ApActorType {
 }
 
 #[serde_as]
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug, Eq, PartialEq, Ord, PartialOrd)]
 #[serde(rename_all = "camelCase")]
 pub struct ApActor {
     #[serde(rename = "@context")]

@@ -155,51 +155,41 @@ impl TryFrom<ExtendedActivity> for ApLike {
     type Error = anyhow::Error;
 
     fn try_from(
-        (activity, note, remote_note, profile, _remote_actor, remote_question): ExtendedActivity,
+        (activity, note, remote_note, _profile, _remote_actor, remote_question): ExtendedActivity,
     ) -> Result<Self, Self::Error> {
-        cfg_if::cfg_if! {
-            if #[cfg(feature = "pg")] {
-                let like = activity.kind == ActivityType::Like;
-            } else if #[cfg(feature = "sqlite")] {
-                let like = activity.kind.as_str() == "like";
-            }
-        }
-
-        if like {
-            match (note, remote_note, profile) {
-                (Some(note), None, None) => Ok(ApLike {
-                    context: Some(ApContext::default()),
-                    kind: ApLikeType::default(),
-                    actor: activity.actor.into(),
-                    id: Some(format!(
-                        "{}/activities/{}",
-                        *crate::SERVER_URL,
-                        activity.uuid
-                    )),
-                    to: Some(MaybeMultiple::Single(ApAddress::Address(
+        if activity.kind.to_string().to_lowercase().as_str() == "like" {
+            let (id, object): (String, MaybeReference<ApObject>) =
+                match (note, remote_note, remote_question) {
+                    (Some(note), None, None) => (
                         note.attributed_to.clone(),
-                    ))),
-                    object: MaybeReference::Reference(ApNote::from(note).id.unwrap()),
-                }),
-                (None, Some(remote_note), None) => Ok(ApLike {
-                    context: Some(ApContext::default()),
-                    kind: ApLikeType::default(),
-                    actor: activity.actor.into(),
-                    id: Some(format!(
-                        "{}/activities/{}",
-                        *crate::SERVER_URL,
-                        activity.uuid
-                    )),
-                    to: Some(MaybeMultiple::Single(ApAddress::Address(
+                        MaybeReference::Reference(ApNote::from(note).id.unwrap()),
+                    ),
+                    (None, Some(remote_note), None) => (
                         remote_note.attributed_to,
-                    ))),
-                    object: MaybeReference::Reference(remote_note.ap_id),
-                }),
-                _ => {
-                    log::error!("INVALID ACTIVITY TYPE");
-                    Err(anyhow!("INVALID ACTIVITY TYPE"))
-                }
-            }
+                        MaybeReference::Reference(remote_note.ap_id),
+                    ),
+                    (None, None, Some(remote_question)) => (
+                        remote_question.attributed_to,
+                        MaybeReference::Reference(remote_question.ap_id),
+                    ),
+                    _ => {
+                        log::error!("INVALID ACTIVITY TYPE");
+                        return Err(anyhow!("INVALID ACTIVITY TYPE"));
+                    }
+                };
+
+            Ok(ApLike {
+                context: Some(ApContext::default()),
+                kind: ApLikeType::default(),
+                actor: activity.actor.into(),
+                id: Some(format!(
+                    "{}/activities/{}",
+                    *crate::SERVER_URL,
+                    activity.uuid
+                )),
+                to: Some(MaybeMultiple::Single(ApAddress::Address(id))),
+                object,
+            })
         } else {
             log::error!("NOT A LIKE ACTIVITY");
             Err(anyhow!("NOT A LIKE ACTIVITY"))

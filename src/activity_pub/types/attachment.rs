@@ -5,7 +5,7 @@ use image::io::Reader;
 use image::ImageFormat;
 use serde::{Deserialize, Serialize};
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug, Eq, PartialEq, Ord, PartialOrd)]
 #[serde(rename_all = "camelCase")]
 #[serde(untagged)]
 pub enum ApAttachment {
@@ -54,13 +54,13 @@ impl TryFrom<String> for ApAttachment {
     }
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug, Eq, PartialEq, Ord, PartialOrd)]
 pub enum ApDocumentType {
     #[serde(alias = "document")]
     Document,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug, Eq, PartialEq, Ord, PartialOrd)]
 #[serde(rename_all = "camelCase")]
 pub struct ApDocument {
     #[serde(rename = "type")]
@@ -72,12 +72,12 @@ pub struct ApDocument {
     pub height: Option<i32>,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug, Eq, PartialEq, Ord, PartialOrd)]
 pub enum ApPropertyValueType {
     PropertyValue,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug, Eq, PartialEq, Ord, PartialOrd)]
 #[serde(rename_all = "camelCase")]
 pub struct ApPropertyValue {
     #[serde(rename = "type")]
@@ -86,7 +86,7 @@ pub struct ApPropertyValue {
     pub value: Option<String>,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug, Eq, PartialEq, Ord, PartialOrd)]
 pub enum ApLinkType {
     #[serde(alias = "link")]
     Link,
@@ -98,7 +98,7 @@ impl fmt::Display for ApLinkType {
     }
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug, Eq, PartialEq, Ord, PartialOrd)]
 #[serde(rename_all = "camelCase")]
 pub struct ApLink {
     #[serde(rename = "type")]
@@ -109,7 +109,7 @@ pub struct ApLink {
     pub rel: Option<Vec<String>>,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug, Eq, PartialEq, Ord, PartialOrd)]
 #[serde(rename_all = "camelCase")]
 pub struct ApProof {
     #[serde(rename = "type")]
@@ -120,12 +120,12 @@ pub struct ApProof {
     pub verification_method: Option<String>,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug, Eq, PartialEq, Ord, PartialOrd)]
 pub enum ApVerifiableIdentityStatementType {
     VerifiableIdentityStatement,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug, Eq, PartialEq, Ord, PartialOrd)]
 #[serde(rename_all = "camelCase")]
 pub struct ApVerifiableIdentityStatement {
     #[serde(rename = "type")]

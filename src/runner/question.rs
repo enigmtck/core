@@ -1,35 +1,12 @@
 use anyhow::Result;
-use reqwest::StatusCode;
 
-use crate::activity_pub::retriever::signed_get;
-use crate::activity_pub::{ApAttachment, ApImage, ApQuestion};
+use crate::activity_pub::ApQuestion;
+use crate::db::Db;
 use crate::fairings::events::EventChannels;
-use crate::models::cache::{Cache, Cacheable};
-use crate::models::note_hashtags::{create_note_hashtag, NewNoteHashtag};
-use crate::models::notes::delete_note_by_uuid;
-use crate::models::profiles::{get_profile, guaranteed_profile};
-use crate::models::remote_note_hashtags::{create_remote_note_hashtag, NewRemoteNoteHashtag};
-use crate::models::remote_notes::{create_or_update_remote_note, get_remote_note_by_ap_id};
+use crate::models::profiles::guaranteed_profile;
 use crate::models::remote_questions::{get_remote_question_by_ap_id, RemoteQuestion};
-use crate::models::timeline::{create_timeline_item, delete_timeline_item_by_ap_id, TimelineItem};
-use crate::models::timeline_hashtags::{create_timeline_hashtag, NewTimelineHashtag};
-use crate::runner::cache::cache_content;
+use crate::models::timeline::create_timeline_item;
 use crate::runner::note::create_timeline_tags;
-use crate::{
-    activity_pub::{ApActivity, ApAddress, ApNote, ApObject},
-    db::Db,
-    helper::get_note_ap_id_from_uuid,
-    models::{
-        activities::get_activity_by_uuid, notes::Note, profiles::Profile, remote_notes::RemoteNote,
-    },
-    runner::{
-        //encrypted::handle_encrypted_note,
-        get_inboxes,
-        send_to_inboxes,
-    },
-    signing::Method,
-    MaybeReference,
-};
 
 use super::TaskError;
 use super::{actor::get_actor, timeline::add_to_timeline};
@@ -54,7 +31,7 @@ pub async fn remote_question_task(
 
 pub async fn handle_remote_question(
     conn: Option<&Db>,
-    channels: Option<EventChannels>,
+    _channels: Option<EventChannels>,
     remote_question: RemoteQuestion,
 ) -> anyhow::Result<RemoteQuestion> {
     log::debug!("HANDLING REMOTE QUESTION");

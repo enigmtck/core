@@ -1,6 +1,5 @@
 use crate::db::Db;
 use crate::schema::remote_questions;
-use crate::POOL;
 use anyhow::Result;
 use chrono::NaiveDateTime;
 use diesel::prelude::*;

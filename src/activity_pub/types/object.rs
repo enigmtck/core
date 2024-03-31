@@ -1,9 +1,8 @@
 use crate::activity_pub::{ApActor, ApCollection, ApInstrument, ApNote, Outbox};
 use crate::db::Db;
 use crate::fairings::events::EventChannels;
-use crate::models::activities::Activity;
 use crate::models::profiles::Profile;
-use crate::models::timeline::{ContextualizedTimelineItem, TimelineItem, TimelineItemCc};
+use crate::models::timeline::ContextualizedTimelineItem;
 use crate::{Identifier, MaybeMultiple, IMAGE_MEDIA_RE};
 
 use anyhow::Error;
@@ -19,11 +18,40 @@ use super::delete::ApTombstone;
 use super::question::ApQuestion;
 use super::session::ApSession;
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 #[serde(untagged)]
 pub enum ApContext {
     Plain(String),
     Complex(Vec<Value>),
+}
+
+impl PartialOrd for ApContext {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+// This freaking sucks. Super annoying that we can't automatically derive ord and partialord
+// for serde_json::Value
+impl Ord for ApContext {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        match self {
+            ApContext::Plain(string) => match other {
+                ApContext::Plain(other_string) => string.cmp(other_string),
+                ApContext::Complex(other_complex) => {
+                    string.cmp(&serde_json::to_string(&other_complex).unwrap())
+                }
+            },
+            ApContext::Complex(complex) => match other {
+                ApContext::Plain(other_string) => {
+                    serde_json::to_string(&complex).unwrap().cmp(other_string)
+                }
+                ApContext::Complex(other_complex) => serde_json::to_string(&complex)
+                    .unwrap()
+                    .cmp(&serde_json::to_string(&other_complex).unwrap()),
+            },
+        }
+    }
 }
 
 impl Default for ApContext {
@@ -65,6 +93,15 @@ impl TryFrom<ContextualizedTimelineItem> for ApTimelineObject {
 pub enum ApTimelineObject {
     Note(ApNote),
     Question(ApQuestion),
+}
+
+impl ApTimelineObject {
+    pub fn dedup(self) -> Self {
+        match self {
+            ApTimelineObject::Note(note) => ApTimelineObject::Note(note.dedup()),
+            ApTimelineObject::Question(question) => ApTimelineObject::Question(question.dedup()),
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -153,22 +190,22 @@ impl ApObject {
     }
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, Ord, PartialOrd)]
 pub enum ApMentionType {
     Mention,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, Ord, PartialOrd)]
 pub enum ApHashtagType {
     Hashtag,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, Ord, PartialOrd)]
 pub enum ApEmojiType {
     Emoji,
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Ord, PartialOrd)]
 pub struct ApMention {
     #[serde(rename = "type")]
     pub kind: ApMentionType,
@@ -177,7 +214,7 @@ pub struct ApMention {
     pub value: Option<String>,
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Ord, PartialOrd)]
 pub struct ApHashtag {
     #[serde(rename = "type")]
     pub kind: ApHashtagType,
@@ -185,7 +222,7 @@ pub struct ApHashtag {
     pub href: String,
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Ord, PartialOrd)]
 pub struct ApEmoji {
     #[serde(rename = "type")]
     pub kind: ApEmojiType,
@@ -195,7 +232,7 @@ pub struct ApEmoji {
     pub icon: ApImage,
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, Eq, PartialEq, Ord, PartialOrd)]
 #[serde(untagged)]
 pub enum ApTag {
     Emoji(ApEmoji),
@@ -203,19 +240,19 @@ pub enum ApTag {
     HashTag(ApHashtag),
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, Ord, PartialOrd)]
 #[serde(rename_all = "camelCase")]
 pub struct ApEndpoint {
     pub shared_inbox: String,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, Ord, PartialOrd)]
 pub enum ApImageType {
     #[serde(alias = "image")]
     Image,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, Ord, PartialOrd)]
 #[serde(rename_all = "camelCase")]
 pub struct ApImage {
     #[serde(rename = "type")]
