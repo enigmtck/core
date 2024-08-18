@@ -131,6 +131,15 @@ lazy_static! {
         dotenv().ok();
         env::var("INSTANCE_DESCRIPTION").expect("INSTANCE_DESCRIPTION must be set")
     };
+
+    // SIGNING_OVERRIDE turns off signature checking so that I can test the API using curl
+    pub static ref SIGNING_OVERRIDE: bool = {
+        dotenv().ok();
+        env::var("SIGNING_OVERRIDE")
+            .ok()
+            .and_then(|x| x.parse().ok())
+            .unwrap_or(false)
+    };
 }
 
 // This was an idea I had to return an un-awaited Future from the model calls so that I could use

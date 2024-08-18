@@ -11,7 +11,6 @@ use rocket::serde::json::Json;
 use rocket::{get, post};
 use serde::{Deserialize, Serialize};
 
-use crate::signing::VerificationType;
 use crate::{fairings::signatures::Signed, models::vault::VaultItem};
 
 #[derive(Deserialize, Debug, Clone)]
@@ -49,7 +48,7 @@ pub async fn store_vault_item(
     username: String,
     data: Json<VaultStorageRequest>,
 ) -> Result<Json<VaultStorageResponse>, Status> {
-    if let Signed(true, VerificationType::Local) = signed {
+    if signed.local() {
         log::debug!("STORE VAULT REQUEST\n{data:#?}");
 
         if let Some(profile) = get_profile_by_username((&conn).into(), username).await {
@@ -142,25 +141,26 @@ pub async fn vault_get(
     limit: u8,
     actor: String,
 ) -> Result<Json<ApObject>, Status> {
-    if let (Some(profile), Signed(true, VerificationType::Local)) = (
-        get_profile_by_username((&conn).into(), username).await,
-        signed,
-    ) {
-        if let Ok(actor) = general_purpose::STANDARD.decode(actor) {
-            let items: Vec<VaultItem> = get_vault_items_by_profile_id_and_remote_actor(
-                &conn,
-                profile.id,
-                limit.into(),
-                offset.into(),
-                String::from_utf8(actor).unwrap(),
-            )
-            .await;
+    if signed.local() {
+        if let Some(profile) = get_profile_by_username((&conn).into(), username).await {
+            if let Ok(actor) = general_purpose::STANDARD.decode(actor) {
+                let items: Vec<VaultItem> = get_vault_items_by_profile_id_and_remote_actor(
+                    &conn,
+                    profile.id,
+                    limit.into(),
+                    offset.into(),
+                    String::from_utf8(actor).unwrap(),
+                )
+                .await;
 
-            Ok(Json(ApObject::Collection(ApCollection::from(
-                (items, profile) as IdentifiedVaultItems,
-            ))))
+                Ok(Json(ApObject::Collection(ApCollection::from(
+                    (items, profile) as IdentifiedVaultItems,
+                ))))
+            } else {
+                Err(Status::Forbidden)
+            }
         } else {
-            Err(Status::Forbidden)
+            Err(Status::NoContent)
         }
     } else {
         Err(Status::NoContent)

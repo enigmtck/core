@@ -6,7 +6,6 @@ use crate::{
         followers::get_followers_by_profile_id, leaders::get_leaders_by_profile_id,
         profiles::get_profile_by_username,
     },
-    signing::VerificationType,
 };
 use rocket::{get, http::Status, response::Redirect, serde::json::Json};
 
@@ -73,35 +72,36 @@ pub async fn get_followers(
     conn: Db,
     username: String,
 ) -> Result<ActivityJson<ApCollection>, Status> {
-    if let (Signed(true, VerificationType::Local), Some(profile)) = (
-        signed,
-        get_profile_by_username((&conn).into(), username.clone()).await,
-    ) {
-        let followers = get_followers_by_profile_id(Some(&conn), profile.id).await;
+    if signed.local() {
+        if let Some(profile) = get_profile_by_username((&conn).into(), username.clone()).await {
+            let followers = get_followers_by_profile_id(Some(&conn), profile.id).await;
 
-        Ok(ActivityJson(Json(ApCollection::from(ActorsPage {
-            page: 0,
-            profile,
-            actors: followers
-                .iter()
-                .filter_map(|(_, remote_actor)| {
-                    remote_actor
-                        .as_ref()
-                        .map(|remote_actor| remote_actor.clone().into())
-                })
-                .collect(),
-        }))))
-    } else if let Some(profile) = get_profile_by_username((&conn).into(), username).await {
-        let followers = get_followers_by_profile_id(Some(&conn), profile.id).await;
+            Ok(ActivityJson(Json(ApCollection::from(ActorsPage {
+                page: 0,
+                profile,
+                actors: followers
+                    .iter()
+                    .filter_map(|(_, remote_actor)| {
+                        remote_actor
+                            .as_ref()
+                            .map(|remote_actor| remote_actor.clone().into())
+                    })
+                    .collect(),
+            }))))
+        } else if let Some(profile) = get_profile_by_username((&conn).into(), username).await {
+            let followers = get_followers_by_profile_id(Some(&conn), profile.id).await;
 
-        Ok(ActivityJson(Json(ApCollection::from(FollowersPage {
-            page: 0,
-            profile,
-            followers: followers
-                .iter()
-                .map(|(follower, _)| follower.clone())
-                .collect(),
-        }))))
+            Ok(ActivityJson(Json(ApCollection::from(FollowersPage {
+                page: 0,
+                profile,
+                followers: followers
+                    .iter()
+                    .map(|(follower, _)| follower.clone())
+                    .collect(),
+            }))))
+        } else {
+            Err(Status::NotFound)
+        }
     } else {
         Err(Status::NotFound)
     }
@@ -113,32 +113,33 @@ pub async fn get_leaders(
     conn: Db,
     username: String,
 ) -> Result<ActivityJson<ApCollection>, Status> {
-    if let (Signed(true, VerificationType::Local), Some(profile)) = (
-        signed,
-        get_profile_by_username((&conn).into(), username.clone()).await,
-    ) {
-        let leaders = get_leaders_by_profile_id(&conn, profile.id).await;
+    if signed.local() {
+        if let Some(profile) = get_profile_by_username((&conn).into(), username.clone()).await {
+            let leaders = get_leaders_by_profile_id(&conn, profile.id).await;
 
-        Ok(ActivityJson(Json(ApCollection::from(ActorsPage {
-            page: 0,
-            profile,
-            actors: leaders
-                .iter()
-                .filter_map(|(_, remote_actor)| {
-                    remote_actor
-                        .as_ref()
-                        .map(|remote_actor| remote_actor.clone().into())
-                })
-                .collect(),
-        }))))
-    } else if let Some(profile) = get_profile_by_username((&conn).into(), username).await {
-        let leaders = get_leaders_by_profile_id(&conn, profile.id).await;
+            Ok(ActivityJson(Json(ApCollection::from(ActorsPage {
+                page: 0,
+                profile,
+                actors: leaders
+                    .iter()
+                    .filter_map(|(_, remote_actor)| {
+                        remote_actor
+                            .as_ref()
+                            .map(|remote_actor| remote_actor.clone().into())
+                    })
+                    .collect(),
+            }))))
+        } else if let Some(profile) = get_profile_by_username((&conn).into(), username).await {
+            let leaders = get_leaders_by_profile_id(&conn, profile.id).await;
 
-        Ok(ActivityJson(Json(ApCollection::from(LeadersPage {
-            page: 0,
-            profile,
-            leaders: leaders.iter().map(|(leader, _)| leader.clone()).collect(),
-        }))))
+            Ok(ActivityJson(Json(ApCollection::from(LeadersPage {
+                page: 0,
+                profile,
+                leaders: leaders.iter().map(|(leader, _)| leader.clone()).collect(),
+            }))))
+        } else {
+            Err(Status::NotFound)
+        }
     } else {
         Err(Status::NotFound)
     }

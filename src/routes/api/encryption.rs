@@ -14,7 +14,6 @@ use crate::{
         processing_queue::{self, resolve_processed_item_by_ap_id_and_profile_id},
         profiles::{get_profile_by_username, update_olm_account_by_username},
     },
-    signing::VerificationType,
 };
 use base64::{engine::general_purpose, engine::Engine as _};
 use rocket::{get, http::Status, post, serde::json::Error, serde::json::Json};
@@ -85,7 +84,7 @@ pub async fn get_processing_queue(
     conn: Db,
     username: String,
 ) -> Result<Json<ApObject>, Status> {
-    if let Signed(true, VerificationType::Local) = signed {
+    if signed.local() {
         if let Some(profile) = get_profile_by_username((&conn).into(), username).await {
             let l = processing_queue::retrieve(&conn, profile).await;
 
@@ -118,7 +117,7 @@ pub async fn update_processing_queue_item(
     username: String,
     item: Result<Json<QueueAction>, Error<'_>>,
 ) -> Result<Status, Status> {
-    if let Signed(true, VerificationType::Local) = signed {
+    if signed.local() {
         if let Ok(Json(item)) = item {
             if let Some(profile) = get_profile_by_username((&conn).into(), username).await {
                 if item.action == QueueTask::Resolve {
@@ -161,7 +160,7 @@ pub async fn add_one_time_keys(
 ) -> Result<Status, Status> {
     log::debug!("ADDING ONE-TIME-KEYS\n{params:#?}");
 
-    if let Signed(true, VerificationType::Local) = signed {
+    if signed.local() {
         if let Some(profile) = get_profile_by_username((&conn).into(), username.clone()).await {
             if let Ok(Json(params)) = params {
                 if profile.olm_pickled_account_hash == params.mutation_of.into() {

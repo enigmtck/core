@@ -21,7 +21,6 @@ use serde::Deserialize;
 use crate::{
     fairings::signatures::Signed,
     models::profiles::{update_summary_by_username, Profile},
-    signing::VerificationType,
 };
 
 #[derive(Deserialize, Debug, Clone)]
@@ -44,7 +43,7 @@ pub async fn update_summary(
 ) -> Result<Json<Profile>, Status> {
     log::debug!("UPDATING SUMMARY\n{summary:#?}");
 
-    if let Signed(true, VerificationType::Local) = signed {
+    if signed.local() {
         if let Ok(Json(summary)) = summary {
             if let Some(profile) =
                 update_summary_by_username(&conn, username, summary.content, summary.markdown).await
@@ -162,7 +161,7 @@ pub async fn upload_avatar(
     extension: String,
     media: Data<'_>,
 ) -> Result<Status, Status> {
-    if let Signed(true, VerificationType::Local) = signed {
+    if signed.local() {
         let filename = uuid::Uuid::new_v4().to_string();
 
         if let Ok(file) = media
@@ -208,7 +207,7 @@ pub async fn upload_banner(
     extension: String,
     media: Data<'_>,
 ) -> Result<Status, Status> {
-    if let Signed(true, VerificationType::Local) = signed {
+    if signed.local() {
         let filename = uuid::Uuid::new_v4().to_string();
 
         if let Ok(file) = media

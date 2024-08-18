@@ -6,7 +6,6 @@ use crate::admin::{self, verify_and_generate_password};
 use crate::db::Db;
 use crate::fairings::signatures::Signed;
 use crate::models::profiles::{update_password_by_username, Profile};
-use crate::signing::VerificationType;
 
 #[derive(Deserialize, Debug, Clone)]
 pub struct AuthenticationData {
@@ -52,8 +51,8 @@ pub async fn change_password(
     username: String,
     password: Result<Json<UpdatePassword>, Error<'_>>,
 ) -> Result<Json<Profile>, Status> {
-    match (&signed, password) {
-        (Signed(true, VerificationType::Local), Ok(password)) => {
+    if signed.local() {
+        if let Ok(password) = password {
             let client_private_key = password.encrypted_client_private_key.clone();
             let olm_pickled_account = password.encrypted_olm_pickled_account.clone();
 
@@ -80,10 +79,10 @@ pub async fn change_password(
                 log::debug!("verify_and_generate_password failed");
                 Err(Status::Forbidden)
             }
+        } else {
+            Err(Status::Forbidden)
         }
-        _ => Err(match signed {
-            Signed(true, _) => Status::Forbidden,
-            _ => Status::BadRequest,
-        }),
+    } else {
+        Err(Status::Forbidden)
     }
 }

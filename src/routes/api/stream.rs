@@ -10,10 +10,7 @@ use rocket::{
 };
 use serde::{Deserialize, Serialize};
 
-use crate::{
-    fairings::{events::EventChannels, signatures::Signed},
-    signing::VerificationType,
-};
+use crate::fairings::{events::EventChannels, signatures::Signed};
 
 #[derive(Deserialize, Serialize, Debug, Clone)]
 pub struct StreamAuthorization {
@@ -31,7 +28,7 @@ pub async fn authorize_stream(
     username: &str,
     authorization: Result<Json<StreamAuthorization>, Error<'_>>,
 ) -> Result<Json<StreamAuthorization>, Status> {
-    if let Signed(true, VerificationType::Local) = signed {
+    if signed.local() {
         if let Ok(authorization) = authorization {
             events.authorize(authorization.uuid.clone(), username.to_string());
             Ok(authorization)

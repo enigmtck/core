@@ -1,6 +1,7 @@
 use crate::{
     db::Db,
     signing::{verify, VerificationType, VerifyParams},
+    SIGNING_OVERRIDE,
 };
 
 use rocket::{
@@ -43,6 +44,10 @@ impl<'r> FromRequest<'r> for Signed {
     type Error = SignatureError;
 
     async fn from_request(request: &'r Request<'_>) -> Outcome<Self, Self::Error> {
+        if *SIGNING_OVERRIDE {
+            return Outcome::Success(Signed(true, VerificationType::Local));
+        };
+
         // Retrieve a header value by name
         let get_header = |header_name| {
             request
