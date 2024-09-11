@@ -31,6 +31,7 @@ pub async fn process_outbound_undo_task(
             target_profile,
             target_remote_actor,
             target_remote_question,
+            target_remote_note_hashtag,
         ) = get_activity_by_uuid(conn, uuid.clone())
             .await
             .ok_or(TaskError::TaskFailed)?;
@@ -51,6 +52,7 @@ pub async fn process_outbound_undo_task(
                 target_profile,
                 target_remote_actor,
                 target_remote_question,
+                target_remote_note_hashtag,
             ),
             target_activity.clone(),
         ))

@@ -3,7 +3,7 @@ use crate::{
         ApAccept, ApAdd, ApAnnounce, ApBlock, ApCreate, ApDelete, ApInvite, ApJoin, ApLike, ApNote,
         ApRemove, ApUndo, ApUpdate,
     },
-    models::activities::ExtendedActivity,
+    models::{activities::ExtendedActivity, pg::coalesced_activity::CoalescedActivity},
 };
 use anyhow::anyhow;
 use enum_dispatch::enum_dispatch;
@@ -33,40 +33,75 @@ pub enum ApActivity {
 
 pub type RecursiveActivity = (ExtendedActivity, Option<ExtendedActivity>);
 
+impl TryFrom<ExtendedActivity> for ApActivity {
+    type Error = anyhow::Error;
+
+    fn try_from(activity: ExtendedActivity) -> Result<Self, Self::Error> {
+        ApActivity::try_from((activity, None))
+    }
+}
+
+impl TryFrom<CoalescedActivity> for ApActivity {
+    type Error = anyhow::Error;
+
+    fn try_from(coalesced: CoalescedActivity) -> Result<Self, Self::Error> {
+        match coalesced.kind.to_string().to_lowercase().as_str() {
+            "create" => ApCreate::try_from(coalesced).map(ApActivity::Create),
+            "announce" => ApAnnounce::try_from(coalesced).map(ApActivity::Announce),
+            _ => {
+                log::error!("FAILED TO MATCH IMPLEMENTED ACTIVITY\n{coalesced:#?}");
+                Err(anyhow!("FAILED TO MATCH IMPLEMENTED ACTIVITY"))
+            }
+        }
+    }
+}
+
 impl TryFrom<RecursiveActivity> for ApActivity {
     type Error = anyhow::Error;
 
     fn try_from(
-        ((activity, note, remote_note, profile, remote_actor, remote_question), recursive): RecursiveActivity,
+        (
+            (activity, note, remote_note, profile, remote_actor, remote_question, hashtags),
+            recursive,
+        ): RecursiveActivity,
     ) -> Result<Self, Self::Error> {
         match activity.kind.to_string().to_lowercase().as_str() {
-            "create" if note.is_some() => ApCreate::try_from((
-                activity,
-                note,
-                remote_note,
-                profile,
-                remote_actor,
-                remote_question,
-            ))
-            .map(ApActivity::Create),
-            "announce" if note.is_some() || remote_note.is_some() => ApAnnounce::try_from((
-                activity,
-                note,
-                remote_note,
-                profile,
-                remote_actor,
-                remote_question,
-            ))
-            .map(ApActivity::Announce),
-            "like" if note.is_some() || remote_note.is_some() => ApLike::try_from((
-                activity,
-                note,
-                remote_note,
-                profile,
-                remote_actor,
-                remote_question,
-            ))
-            .map(|activity| ApActivity::Like(Box::new(activity))),
+            "create" if note.is_some() || remote_note.is_some() || remote_question.is_some() => {
+                ApCreate::try_from((
+                    activity,
+                    note,
+                    remote_note,
+                    profile,
+                    remote_actor,
+                    remote_question,
+                    hashtags,
+                ))
+                .map(ApActivity::Create)
+            }
+            "announce" if note.is_some() || remote_note.is_some() || remote_question.is_some() => {
+                ApAnnounce::try_from((
+                    activity,
+                    note,
+                    remote_note,
+                    profile,
+                    remote_actor,
+                    remote_question,
+                    hashtags,
+                ))
+                .map(ApActivity::Announce)
+            }
+            "like" if note.is_some() || remote_note.is_some() || remote_question.is_some() => {
+                ApLike::try_from((
+                    activity,
+                    note,
+                    remote_note,
+                    profile,
+                    remote_actor,
+                    remote_question,
+                    hashtags,
+                ))
+                .map(|activity| ApActivity::Like(Box::new(activity)))
+            }
             "delete" if note.is_some() => ApDelete::try_from(ApNote::from(note.unwrap()))
                 .map(|delete| ApActivity::Delete(Box::new(delete))),
             "follow" if profile.is_some() || remote_actor.is_some() => ApFollow::try_from((
@@ -76,6 +111,7 @@ impl TryFrom<RecursiveActivity> for ApActivity {
                 profile,
                 remote_actor,
                 remote_question,
+                hashtags,
             ))
             .map(ApActivity::Follow),
             "undo" if recursive.is_some() => ApUndo::try_from((
@@ -86,6 +122,7 @@ impl TryFrom<RecursiveActivity> for ApActivity {
                     profile,
                     remote_actor,
                     remote_question,
+                    hashtags,
                 ),
                 recursive,
             ))
@@ -98,6 +135,7 @@ impl TryFrom<RecursiveActivity> for ApActivity {
                     profile,
                     remote_actor,
                     remote_question,
+                    hashtags,
                 ),
                 recursive,
             ))

@@ -66,7 +66,7 @@ impl RemoteQuestion {
         }
 
         if let Some(cc) = self.cc.clone() {
-            if let Ok(cc) = serde_json::from_value::<MaybeMultiple<ApAddress>>(cc.into()) {
+            if let Ok(cc) = serde_json::from_value::<MaybeMultiple<ApAddress>>(cc) {
                 for address in cc.multiple() {
                     if address.is_public() {
                         return true;

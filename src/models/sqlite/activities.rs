@@ -222,10 +222,6 @@ pub async fn get_outbox_activities_by_profile_id(
             )
             .into_boxed();
 
-        if let Some(limit) = limit {
-            query = query.limit(limit.into());
-        }
-
         if let Some(min) = min {
             let date = NaiveDateTime::from_timestamp_micros(min).unwrap();
 
@@ -244,6 +240,10 @@ pub async fn get_outbox_activities_by_profile_id(
                 .order(activities::created_at.desc());
         } else {
             query = query.order(activities::created_at.desc());
+        }
+
+        if let Some(limit) = limit {
+            query = query.limit(limit.into());
         }
 
         query.get_results::<ExtendedActivity>(c)

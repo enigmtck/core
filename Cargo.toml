@@ -26,7 +26,7 @@ rsa = "0.9"
 rand = "0.8"
 sha2 = { version = "0.10", features = ["oid"] }
 base64 = "0.21.7"
-reqwest = { version = "0.11", features = ["json", "blocking"] }
+reqwest = { version = "0.12", features = ["json", "blocking"] }
 url = "2.5"
 hex = "0.4"
 httpdate = "1"
@@ -43,7 +43,7 @@ futures-lite = "^2.2"
 async_once = "0.2"
 webpage = { version = "2.0", features = ["serde"] }
 
-rocket = { version = "0.5", features = ["json"] }
+rocket = { version = "0.5.1", features = ["json"] }
 diesel = { version = "2.1.4", features = ["postgres", "sqlite", "chrono", "r2d2", "serde_json"] }
 diesel-derive-enum = { version = "2.1.0", features = ["postgres"] }
 image = "0.24.9"
@@ -70,6 +70,6 @@ opt-level = 3
 name = "enigmatick"
 
 [features]
-default = ["sqlite"]
+default = ["pg"]
 pg =  []
 sqlite = []

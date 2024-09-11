@@ -155,7 +155,7 @@ impl TryFrom<ExtendedActivity> for ApLike {
     type Error = anyhow::Error;
 
     fn try_from(
-        (activity, note, remote_note, _profile, _remote_actor, remote_question): ExtendedActivity,
+        (activity, note, remote_note, _profile, _remote_actor, remote_question, _hashtags): ExtendedActivity,
     ) -> Result<Self, Self::Error> {
         if activity.kind.to_string().to_lowercase().as_str() == "like" {
             let (id, object): (String, MaybeReference<ApObject>) =

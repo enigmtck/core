@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use crate::{
-    activity_pub::{ApCollection, ApObject, ApSession},
+    activity_pub::{ActivityPub, ApCollection, ApObject, ApSession},
     db::Db,
     fairings::signatures::Signed,
     models::{
@@ -32,12 +32,15 @@ pub async fn get_sessions(
 
         // this converts EncryptedSession to ApSession and (ApSession, Option<OlmSession>)
         // into merged Vec<ApObject::Session> in one shot - see types/session.rs for details
-        let normalized: Vec<ApObject> = sessions
+        let normalized: Vec<ActivityPub> = sessions
             .iter()
             .map(|(x, y)| ApObject::Session(((*x).clone().into(), (*y).clone()).into()))
+            .map(ActivityPub::from)
             .collect();
 
-        Ok(Json(ApObject::Collection(ApCollection::from(normalized))))
+        Ok(Json(ApObject::Collection(ApCollection::from((
+            normalized, None,
+        )))))
     } else {
         Err(Status::NoContent)
     }
@@ -86,9 +89,13 @@ pub async fn get_processing_queue(
 ) -> Result<Json<ApObject>, Status> {
     if signed.local() {
         if let Some(profile) = get_profile_by_username((&conn).into(), username).await {
-            let l = processing_queue::retrieve(&conn, profile).await;
+            let l = processing_queue::retrieve(&conn, profile)
+                .await
+                .iter()
+                .map(ActivityPub::from)
+                .collect();
 
-            Ok(Json(ApObject::Collection(ApCollection::from(l))))
+            Ok(Json(ApObject::Collection(ApCollection::from((l, None)))))
         } else {
             Err(Status::NoContent)
         }

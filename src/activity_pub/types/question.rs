@@ -7,8 +7,8 @@ use crate::{
     fairings::events::EventChannels,
     helper::{get_activity_ap_id_from_uuid, get_ap_id_from_username},
     models::{
-        activities::ActivityType, from_serde, from_time, profiles::Profile,
-        remote_questions::RemoteQuestion, timeline::ContextualizedTimelineItem,
+        activities::ActivityType, from_serde, from_time, pg::coalesced_activity::CoalescedActivity,
+        profiles::Profile, remote_questions::RemoteQuestion, timeline::ContextualizedTimelineItem,
     },
     MaybeMultiple,
 };
@@ -33,6 +33,17 @@ pub enum ApQuestionType {
 impl fmt::Display for ApQuestionType {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         Debug::fmt(self, f)
+    }
+}
+
+impl TryFrom<String> for ApQuestionType {
+    type Error = &'static str;
+
+    fn try_from(kind: String) -> Result<Self, Self::Error> {
+        match kind.as_str() {
+            "question" => Ok(ApQuestionType::Question),
+            _ => Err("no match for {kind}"),
+        }
     }
 }
 
@@ -164,6 +175,69 @@ impl Outbox for ApQuestion {
     }
 }
 
+impl TryFrom<CoalescedActivity> for ApQuestion {
+    type Error = anyhow::Error;
+
+    fn try_from(coalesced: CoalescedActivity) -> Result<Self, Self::Error> {
+        let kind = coalesced
+            .object_type
+            .ok_or_else(|| anyhow::anyhow!("object_type is None"))?
+            .try_into()
+            .map_err(|e| anyhow::anyhow!("Failed to convert object_type: {}", e))?;
+
+        let id = coalesced
+            .object_id
+            .ok_or_else(|| anyhow::anyhow!("object_id is None"))?;
+        let url = coalesced.object_url;
+        let to = coalesced
+            .object_to
+            .and_then(from_serde)
+            .ok_or_else(|| anyhow::anyhow!("object_to is None"))?;
+        let cc = coalesced.object_cc.and_then(from_serde);
+        let tag = coalesced.object_tag.and_then(from_serde);
+        let attributed_to = ApAddress::from(
+            coalesced
+                .object_attributed_to
+                .ok_or_else(|| anyhow::anyhow!("object_attributed_to is None"))?,
+        );
+        let in_reply_to = coalesced.object_in_reply_to;
+        let content = coalesced.object_content;
+        let conversation = coalesced.object_conversation;
+        let attachment = coalesced.object_attachment.and_then(from_serde);
+        let summary = coalesced.object_summary;
+        let sensitive = coalesced.object_sensitive;
+        let published = coalesced
+            .object_published
+            .and_then(|x| Some(DateTime::parse_from_rfc3339(&x).ok()?.with_timezone(&Utc)));
+        let end_time = coalesced.object_end_time;
+        let one_of = coalesced.object_one_of.and_then(from_serde);
+        let any_of = coalesced.object_any_of.and_then(from_serde);
+        let voters_count = coalesced.object_voters_count;
+
+        Ok(ApQuestion {
+            kind,
+            id,
+            url,
+            to,
+            cc,
+            tag,
+            attributed_to,
+            in_reply_to,
+            content,
+            conversation,
+            attachment,
+            summary,
+            sensitive,
+            published,
+            end_time,
+            one_of,
+            any_of,
+            voters_count,
+            ..Default::default()
+        })
+    }
+}
+
 impl TryFrom<RemoteQuestion> for ApQuestion {
     type Error = anyhow::Error;
 
@@ -233,8 +307,7 @@ impl TryFrom<ContextualizedTimelineItem> for ApQuestion {
                         .iter()
                         .clone()
                         .filter(|activity| {
-                            ActivityType::from(activity.kind.clone()) == ActivityType::Announce
-                                && !activity.revoked
+                            activity.kind.clone() == ActivityType::Announce && !activity.revoked
                         })
                         .map(|announce| announce.actor.clone())
                         .collect(),
@@ -246,7 +319,7 @@ impl TryFrom<ContextualizedTimelineItem> for ApQuestion {
                     activity
                         .iter()
                         .find(|x| {
-                            ActivityType::from(x.kind.clone()) == ActivityType::Announce
+                            x.kind.clone() == ActivityType::Announce
                                 && !x.revoked
                                 && Some(x.actor.clone()) == requester_ap_id
                         })
@@ -260,7 +333,7 @@ impl TryFrom<ContextualizedTimelineItem> for ApQuestion {
                     activity
                         .iter()
                         .find(|x| {
-                            ActivityType::from(x.kind.clone()) == ActivityType::Like
+                            x.kind.clone() == ActivityType::Like
                                 && !x.revoked
                                 && Some(x.actor.clone()) == requester_ap_id
                         })
@@ -270,8 +343,7 @@ impl TryFrom<ContextualizedTimelineItem> for ApQuestion {
                     activity
                         .iter()
                         .filter(|activity| {
-                            ActivityType::from(activity.kind.clone()) == ActivityType::Like
-                                && !activity.revoked
+                            activity.kind.clone() == ActivityType::Like && !activity.revoked
                         })
                         .map(|like| like.actor.clone())
                         .collect(),

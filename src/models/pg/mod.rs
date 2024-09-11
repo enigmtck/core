@@ -1,5 +1,6 @@
 pub mod activities;
 pub mod cache;
+pub mod coalesced_activity;
 pub mod encrypted_sessions;
 pub mod followers;
 pub mod instances;

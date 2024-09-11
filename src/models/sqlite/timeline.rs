@@ -120,7 +120,8 @@ pub struct TimelineItemTo {
 pub async fn get_timeline_items(
     conn: &Db,
     limit: i64,
-    offset: i64,
+    min: Option<i64>,
+    max: Option<i64>,
     profile: Option<Profile>,
     filters: Option<TimelineFilters>,
 ) -> Vec<AuthenticatedTimelineItem> {
@@ -175,10 +176,23 @@ pub async fn get_timeline_items(
             query = query.filter(timeline::ap_public.eq(true));
         }
 
+        if let Some(min) = min {
+            let date = NaiveDateTime::from_timestamp_micros(min).unwrap();
+
+            log::debug!("MINIMUM {date:#?}");
+
+            query = query.filter(timeline::created_at.gt(date));
+        } else if let Some(max) = max {
+            let date = NaiveDateTime::from_timestamp_micros(max).unwrap();
+
+            log::debug!("MAXIMUM {date:#?}");
+
+            query = query.filter(timeline::created_at.lt(date));
+        }
+
         query
-            .order(timeline::created_at.desc())
-            .limit(limit)
-            .offset(offset)
+            .order(timeline::created_at.asc())
+            .limit(limit.into())
             .get_results::<AuthenticatedTimelineItem>(c)
     })
     .await

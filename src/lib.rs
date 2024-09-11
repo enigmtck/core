@@ -1,11 +1,10 @@
 #![allow(async_fn_in_trait)]
+extern crate diesel;
 extern crate log;
-
 #[macro_use]
 extern crate rocket;
 
-extern crate diesel;
-
+use activity_pub::ApCollectionPage;
 use activity_pub::{ApActivity, ApObject};
 use anyhow::anyhow;
 use anyhow::Result;
@@ -27,9 +26,15 @@ pub mod models;
 pub mod routes;
 pub mod runner;
 
-#[allow(unused_attributes)]
-#[cfg_attr(feature = "pg", path = "schema-pg.rs")]
-#[cfg_attr(feature = "sqlite", path = "schema-sqlite.rs")]
+#[cfg(all(feature = "pg", feature = "sqlite"))]
+compile_error!("Features 'pg' and 'sqlite' cannot be enabled at the same time.");
+
+#[cfg(feature = "pg")]
+#[path = "schema-pg.rs"]
+pub mod schema;
+
+#[cfg(feature = "sqlite")]
+#[path = "schema-sqlite.rs"]
 pub mod schema;
 
 pub mod server;
@@ -285,6 +290,12 @@ impl<T> fmt::Display for MaybeReference<T> {
 impl From<ApObject> for MaybeReference<ApObject> {
     fn from(object: ApObject) -> Self {
         MaybeReference::Actual(object)
+    }
+}
+
+impl From<String> for MaybeReference<ApCollectionPage> {
+    fn from(reference: String) -> Self {
+        MaybeReference::Reference(reference)
     }
 }
 

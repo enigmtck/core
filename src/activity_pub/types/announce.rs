@@ -10,14 +10,18 @@ use crate::{
         activities::{create_activity, ActivityType, ExtendedActivity, NewActivity, NoteActivity},
         from_serde, from_time,
         notes::get_notey,
+        pg::coalesced_activity::CoalescedActivity,
         profiles::Profile,
     },
     runner, MaybeMultiple, MaybeReference,
 };
+use anyhow::anyhow;
 use chrono::{DateTime, Utc};
 use rocket::http::Status;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+
+use super::question::ApQuestion;
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub enum ApAnnounceType {
@@ -29,6 +33,17 @@ pub enum ApAnnounceType {
 impl fmt::Display for ApAnnounceType {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         Debug::fmt(self, f)
+    }
+}
+
+impl TryFrom<ActivityType> for ApAnnounceType {
+    type Error = anyhow::Error;
+
+    fn try_from(t: ActivityType) -> Result<Self, Self::Error> {
+        match t {
+            ActivityType::Announce => Ok(ApAnnounceType::Announce),
+            _ => Err(anyhow!("invalid ActivityType")),
+        }
     }
 }
 
@@ -141,22 +156,72 @@ impl Temporal for ApAnnounce {
     }
 }
 
+impl TryFrom<CoalescedActivity> for ApAnnounce {
+    type Error = anyhow::Error;
+
+    fn try_from(coalesced: CoalescedActivity) -> Result<Self, Self::Error> {
+        let object = match coalesced
+            .clone()
+            .object_type
+            .ok_or_else(|| anyhow::anyhow!("object_type is None"))?
+            .to_lowercase()
+            .as_str()
+        {
+            "note" => Ok(ApObject::Note(ApNote::try_from(coalesced.clone())?).into()),
+            "question" => Ok(ApObject::Question(ApQuestion::try_from(coalesced.clone())?).into()),
+            _ => Err(anyhow!("invalid type")),
+        }?;
+        let kind = coalesced.kind.clone().try_into()?;
+        let actor = ApAddress::Address(coalesced.actor.clone());
+        let id = coalesced.ap_id.clone();
+        let context = Some(ApContext::default());
+        let to = coalesced
+            .ap_to
+            .clone()
+            .and_then(from_serde)
+            .ok_or_else(|| anyhow::anyhow!("ap_to is None"))?;
+        let cc = coalesced.clone().cc.and_then(from_serde);
+        let published = from_time(coalesced.created_at).unwrap().to_rfc3339();
+        let ephemeral_created_at = from_time(coalesced.created_at);
+        let ephemeral_updated_at = from_time(coalesced.updated_at);
+
+        Ok(ApAnnounce {
+            context,
+            kind,
+            actor,
+            id,
+            object,
+            to,
+            cc,
+            published,
+            ephemeral_created_at,
+            ephemeral_updated_at,
+        })
+    }
+}
+
 impl TryFrom<ExtendedActivity> for ApAnnounce {
     type Error = anyhow::Error;
 
     fn try_from(
-        (activity, note, remote_note, _profile, _remote_actor, remote_question): ExtendedActivity,
+        (activity, note, remote_note, _profile, _remote_actor, remote_question, _hashtags): ExtendedActivity,
     ) -> Result<Self, Self::Error> {
         if activity.kind.to_string().to_lowercase().as_str() == "announce" {
             let ap_to = activity.ap_to.ok_or(anyhow::Error::msg("ap_to is None"))?;
 
             let object = match (note, remote_note, remote_question) {
                 (Some(note), None, None) => {
-                    MaybeReference::Reference(ApNote::from(note).id.unwrap())
+                    MaybeReference::Actual(ApObject::Note(ApNote::from(note)))
                 }
-                (None, Some(remote_note), None) => MaybeReference::Reference(remote_note.ap_id),
+                (None, Some(remote_note), None) => {
+                    MaybeReference::Actual(ApObject::Note(ApNote::from(remote_note)))
+                }
                 (None, None, Some(remote_question)) => {
-                    MaybeReference::Reference(remote_question.ap_id)
+                    if let Ok(ap_question) = ApQuestion::try_from(remote_question.clone()) {
+                        MaybeReference::Actual(ApObject::Question(ap_question))
+                    } else {
+                        MaybeReference::Reference(remote_question.ap_id)
+                    }
                 }
                 _ => return Err(anyhow::Error::msg("INVALID ACTIVITY TYPE")),
             };

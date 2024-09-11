@@ -6,6 +6,7 @@ use crate::models::timeline::ContextualizedTimelineItem;
 use crate::{Identifier, MaybeMultiple, IMAGE_MEDIA_RE};
 
 use anyhow::Error;
+use chrono::{DateTime, Utc};
 use enum_dispatch::enum_dispatch;
 use rocket::http::{ContentType, Status};
 use serde::{Deserialize, Serialize};
@@ -83,7 +84,10 @@ impl TryFrom<ContextualizedTimelineItem> for ApTimelineObject {
         match contextualized.item.kind.to_string().to_lowercase().as_str() {
             "note" => Ok(ApTimelineObject::Note(contextualized.try_into()?)),
             "question" => Ok(ApTimelineObject::Question(contextualized.try_into()?)),
-            _ => Err(anyhow::Error::msg("item type not implemented")),
+            _ => {
+                log::debug!("failed to convert ContextualizedTimelineItem to ApTimelineObject\n{contextualized:#?}");
+                Err(anyhow::Error::msg("item type not implemented"))
+            }
         }
     }
 }
@@ -187,6 +191,14 @@ impl Outbox for ApBasicContent {
 impl ApObject {
     pub fn is_plain(&self) -> bool {
         matches!(*self, ApObject::Plain(_))
+    }
+
+    pub fn timestamp(&self) -> DateTime<Utc> {
+        match self {
+            ApObject::Note(note) => note.ephemeral_timestamp.unwrap_or(Utc::now()),
+            ApObject::Question(question) => question.ephemeral_updated_at.unwrap_or(Utc::now()),
+            _ => Utc::now(),
+        }
     }
 }
 

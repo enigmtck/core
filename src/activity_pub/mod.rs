@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 pub use types::accept::{ApAccept, ApAcceptType};
 pub use types::activity::ApActivity;
-pub use types::actor::{ApActor, ApActorType, ApAddress, ApPublicKey};
+pub use types::actor::{ApActor, ApActorType, ApAddress, ApPublicKey, PUBLIC_COLLECTION};
 pub use types::add::{ApAdd, ApAddType};
 pub use types::announce::{ApAnnounce, ApAnnounceType};
 pub use types::block::{ApBlock, ApBlockType};
@@ -50,6 +50,56 @@ pub enum ActivityPub {
     Activity(ApActivity),
     Actor(ApActor),
     Object(ApObject),
+}
+
+impl From<ApActivity> for ActivityPub {
+    fn from(activity: ApActivity) -> Self {
+        ActivityPub::Activity(activity)
+    }
+}
+
+impl From<&ApActivity> for ActivityPub {
+    fn from(activity: &ApActivity) -> Self {
+        ActivityPub::Activity(activity.clone())
+    }
+}
+
+impl From<ApObject> for ActivityPub {
+    fn from(object: ApObject) -> Self {
+        ActivityPub::Object(object)
+    }
+}
+
+impl From<&ApObject> for ActivityPub {
+    fn from(object: &ApObject) -> Self {
+        ActivityPub::Object(object.clone())
+    }
+}
+
+impl From<ApActor> for ActivityPub {
+    fn from(actor: ApActor) -> Self {
+        ActivityPub::Actor(actor)
+    }
+}
+
+impl ActivityPub {
+    pub fn timestamp(&self) -> DateTime<Utc> {
+        match self {
+            ActivityPub::Object(object) => match object {
+                ApObject::Note(note) => note.ephemeral_timestamp.unwrap_or(Utc::now()),
+                ApObject::Question(question) => question.ephemeral_updated_at.unwrap_or(Utc::now()),
+                _ => Utc::now(),
+            },
+            ActivityPub::Activity(activity) => match activity {
+                ApActivity::Create(create) => create.ephemeral_created_at.unwrap_or(Utc::now()),
+                ApActivity::Announce(announce) => {
+                    announce.ephemeral_created_at.unwrap_or(Utc::now())
+                }
+                _ => Utc::now(),
+            },
+            _ => Utc::now(),
+        }
+    }
 }
 
 pub trait Temporal {

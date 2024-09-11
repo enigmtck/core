@@ -2,7 +2,6 @@ use crate::activity_pub::{ApInstruments, ApNote, ApNoteType, ApObject, ApSession
 use crate::db::Db;
 use crate::schema::processing_queue;
 use diesel::prelude::*;
-use rocket_sync_db_pools::diesel;
 
 use super::profiles::Profile;
 use super::remote_encrypted_sessions::RemoteEncryptedSession;

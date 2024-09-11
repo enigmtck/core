@@ -16,6 +16,7 @@ use crate::{
         cache::{cache_content, Cache},
         from_serde, from_time,
         notes::{create_note, NewNote, Note, NoteLike, NoteType},
+        pg::coalesced_activity::CoalescedActivity,
         profiles::Profile,
         remote_notes::RemoteNote,
         timeline::{ContextualizedTimelineItem, TimelineItem},
@@ -420,8 +421,7 @@ impl TryFrom<ContextualizedTimelineItem> for ApNote {
                         .iter()
                         .clone()
                         .filter(|activity| {
-                            ActivityType::from(activity.kind.clone()) == ActivityType::Announce
-                                && !activity.revoked
+                            activity.kind.clone() == ActivityType::Announce && !activity.revoked
                         })
                         .map(|announce| announce.actor.clone())
                         .collect(),
@@ -433,7 +433,7 @@ impl TryFrom<ContextualizedTimelineItem> for ApNote {
                     activity
                         .iter()
                         .find(|x| {
-                            ActivityType::from(x.kind.clone()) == ActivityType::Announce
+                            x.kind.clone() == ActivityType::Announce
                                 && !x.revoked
                                 && Some(x.actor.clone()) == requester_ap_id.clone()
                         })
@@ -447,7 +447,7 @@ impl TryFrom<ContextualizedTimelineItem> for ApNote {
                     activity
                         .iter()
                         .find(|x| {
-                            ActivityType::from(x.kind.clone()) == ActivityType::Like
+                            x.kind.clone() == ActivityType::Like
                                 && !x.revoked
                                 && Some(x.actor.clone()) == requester_ap_id.clone()
                         })
@@ -457,8 +457,7 @@ impl TryFrom<ContextualizedTimelineItem> for ApNote {
                     activity
                         .iter()
                         .filter(|activity| {
-                            ActivityType::from(activity.kind.clone()) == ActivityType::Like
-                                && !activity.revoked
+                            activity.kind.clone() == ActivityType::Like && !activity.revoked
                         })
                         .map(|like| like.actor.clone())
                         .collect(),
@@ -468,6 +467,7 @@ impl TryFrom<ContextualizedTimelineItem> for ApNote {
                 ephemeral_metadata: item.metadata.and_then(from_serde),
             })
         } else {
+            log::debug!("failed to convert ContextualizedTimelineItem to ApNote\n{item:#?}");
             Err(anyhow::Error::msg("wrong timeline_item type"))
         }
     }
@@ -498,7 +498,7 @@ impl From<NewNote> for ApNote {
                 *crate::SERVER_NAME,
                 note.uuid
             )),
-            kind: note.kind.try_into().expect("failed to match kind"),
+            kind: note.kind.into(),
             to: from_serde(note.ap_to).unwrap(),
             content: note.content,
             cc: note.cc.and_then(from_serde),
@@ -507,6 +507,61 @@ impl From<NewNote> for ApNote {
             attachment: note.attachment.and_then(from_serde),
             ..Default::default()
         }
+    }
+}
+
+impl TryFrom<CoalescedActivity> for ApNote {
+    type Error = anyhow::Error;
+
+    fn try_from(coalesced: CoalescedActivity) -> Result<Self, Self::Error> {
+        let kind = coalesced
+            .object_type
+            .ok_or_else(|| anyhow::anyhow!("object_type is None"))?
+            .try_into()
+            .map_err(|e| anyhow::anyhow!("Failed to convert object_type: {}", e))?;
+
+        let id = coalesced.object_id;
+        let url = coalesced.object_url;
+        let to = coalesced
+            .object_to
+            .and_then(from_serde)
+            .ok_or_else(|| anyhow::anyhow!("object_to is None"))?;
+        let cc = coalesced.object_cc.and_then(from_serde);
+        let tag = coalesced.object_tag.and_then(from_serde);
+        let attributed_to = ApAddress::from(
+            coalesced
+                .object_attributed_to
+                .ok_or_else(|| anyhow::anyhow!("object_attributed_to is None"))?,
+        );
+        let in_reply_to = coalesced.object_in_reply_to;
+        let content = coalesced
+            .object_content
+            .ok_or_else(|| anyhow::anyhow!("object_content is None"))?;
+        let conversation = coalesced.object_conversation;
+        let attachment = coalesced.object_attachment.and_then(from_serde);
+        let summary = coalesced.object_summary;
+        let sensitive = coalesced.object_sensitive;
+        let published = coalesced
+            .object_published
+            .ok_or_else(|| anyhow::anyhow!("object_published is None"))?;
+
+        Ok(ApNote {
+            kind,
+            id,
+            url,
+            to,
+            cc,
+            tag,
+            attributed_to,
+            in_reply_to,
+            content,
+            conversation,
+            attachment,
+            summary,
+            sensitive,
+            published,
+            ..Default::default()
+        })
     }
 }
 

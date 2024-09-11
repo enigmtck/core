@@ -7,9 +7,11 @@ use crate::{
     fairings::events::EventChannels,
     models::{
         activities::{
-            create_activity, ActivityTarget, ApActivityTarget, ExtendedActivity, NewActivity,
+            create_activity, ActivityTarget, ActivityType, ApActivityTarget, ExtendedActivity,
+            NewActivity,
         },
         from_serde, from_time,
+        pg::coalesced_activity::CoalescedActivity,
         profiles::Profile,
         remote_notes::{create_or_update_remote_note, NewRemoteNote},
         remote_questions::create_or_update_remote_question,
@@ -22,7 +24,7 @@ use rocket::http::Status;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use super::signature::ApSignature;
+use super::{question::ApQuestion, signature::ApSignature};
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub enum ApCreateType {
@@ -34,6 +36,29 @@ pub enum ApCreateType {
 impl fmt::Display for ApCreateType {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         Debug::fmt(self, f)
+    }
+}
+
+impl TryFrom<String> for ApCreateType {
+    type Error = anyhow::Error;
+
+    fn try_from(s: String) -> Result<Self, Self::Error> {
+        if s.to_lowercase() == "create" {
+            Ok(ApCreateType::Create)
+        } else {
+            Err(anyhow!("not a create type"))
+        }
+    }
+}
+
+impl TryFrom<ActivityType> for ApCreateType {
+    type Error = anyhow::Error;
+
+    fn try_from(t: ActivityType) -> Result<Self, Self::Error> {
+        match t {
+            ActivityType::Create => Ok(ApCreateType::Create),
+            _ => Err(anyhow!("invalid ActivityType")),
+        }
     }
 }
 
@@ -142,12 +167,69 @@ impl Outbox for ApCreate {
     }
 }
 
+impl TryFrom<CoalescedActivity> for ApCreate {
+    type Error = anyhow::Error;
+
+    fn try_from(coalesced: CoalescedActivity) -> Result<Self, Self::Error> {
+        let object = match coalesced
+            .clone()
+            .object_type
+            .ok_or_else(|| anyhow::anyhow!("object_type is None"))?
+            .to_lowercase()
+            .as_str()
+        {
+            "note" => Ok(ApObject::Note(ApNote::try_from(coalesced.clone())?).into()),
+            "question" => Ok(ApObject::Question(ApQuestion::try_from(coalesced.clone())?).into()),
+            _ => Err(anyhow!("invalid type")),
+        }?;
+        let kind = coalesced.kind.clone().try_into()?;
+        let actor = ApAddress::Address(coalesced.actor.clone());
+        let id = coalesced.ap_id.clone();
+        let context = Some(ApContext::default());
+        let to = coalesced
+            .ap_to
+            .clone()
+            .and_then(from_serde)
+            .ok_or_else(|| anyhow::anyhow!("ap_to is None"))?;
+        let cc = coalesced.clone().cc.and_then(from_serde);
+        let signature = None;
+        let published = Some(from_time(coalesced.created_at).unwrap().to_rfc3339());
+        let ephemeral_created_at = from_time(coalesced.created_at);
+        let ephemeral_updated_at = from_time(coalesced.updated_at);
+
+        Ok(ApCreate {
+            context,
+            kind,
+            actor,
+            id,
+            object,
+            to,
+            cc,
+            signature,
+            published,
+            ephemeral_created_at,
+            ephemeral_updated_at,
+        })
+    }
+}
+
 impl TryFrom<ExtendedActivity> for ApCreate {
     type Error = anyhow::Error;
     fn try_from(
-        (activity, note, _remote_note, _profile, _remote_actor, _remote_question): ExtendedActivity,
+        (activity, note, remote_note, _profile, _remote_actor, remote_question, _hashtags): ExtendedActivity,
     ) -> Result<Self, Self::Error> {
-        let note = note.ok_or(anyhow!("ACTIVITY MUST INCLUDE A LOCALLY CREATED NOTE"))?;
+        let note = {
+            if let Some(note) = note {
+                ApObject::Note(ApNote::from(note))
+            } else if let Some(remote_note) = remote_note {
+                ApObject::Note(ApNote::from(remote_note))
+            } else if let Some(remote_question) = remote_question {
+                ApObject::Question(ApQuestion::try_from(remote_question)?)
+            } else {
+                return Err(anyhow!("ACTIVITY MUST INCLUDE A NOTE OR REMOTE_NOTE"));
+            }
+        };
+
         let ap_to = activity
             .ap_to
             .ok_or(anyhow!("ACTIVITY DOES NOT HAVE A TO FIELD"))?;
@@ -160,7 +242,7 @@ impl TryFrom<ExtendedActivity> for ApCreate {
                 *crate::SERVER_URL,
                 activity.uuid
             )),
-            object: ApObject::Note(ApNote::from(note)).into(),
+            object: note.into(),
             to: from_serde(ap_to).unwrap(),
             cc: activity.cc.and_then(from_serde),
             signature: None,

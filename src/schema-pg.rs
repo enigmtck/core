@@ -45,6 +45,7 @@ diesel::table! {
         revoked -> Bool,
         ap_id -> Nullable<Varchar>,
         target_remote_question_id -> Nullable<Int4>,
+        reply -> Bool,
     }
 }
 

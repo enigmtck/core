@@ -23,12 +23,13 @@ pub enum InboxView {
     Global,
 }
 
-#[get("/user/<username>/inbox?<offset>&<limit>&<view>")]
+#[get("/user/<username>/inbox?<min>&<max>&<limit>&<view>")]
 pub async fn inbox_get(
     signed: Signed,
     conn: Db,
     username: String,
-    offset: u16,
+    min: Option<i64>,
+    max: Option<i64>,
     limit: u8,
     view: InboxView,
 ) -> Result<ActivityJson<ApObject>, Status> {
@@ -55,17 +56,22 @@ pub async fn inbox_get(
         };
 
         Ok(ActivityJson(Json(
-            retrieve::inbox(&conn, limit.into(), offset.into(), profile, filters).await,
+            retrieve::inbox(&conn, limit.into(), min, max, profile, filters).await,
         )))
     } else {
         Err(Status::Unauthorized)
     }
 }
 
-#[get("/api/timeline?<offset>&<limit>")]
-pub async fn timeline(conn: Db, offset: u16, limit: u8) -> Result<ActivityJson<ApObject>, Status> {
+#[get("/api/timeline?<min>&<max>&<limit>")]
+pub async fn timeline(
+    conn: Db,
+    min: Option<i64>,
+    max: Option<i64>,
+    limit: u8,
+) -> Result<ActivityJson<ApObject>, Status> {
     Ok(ActivityJson(Json(
-        retrieve::timeline(&conn, limit.into(), offset.into()).await,
+        retrieve::timeline(&conn, limit.into(), min, max).await,
     )))
 }
 
@@ -78,6 +84,24 @@ pub async fn inbox_post(
     activity: String,
 ) -> Result<Status, Status> {
     shared_inbox_post(permitted, signed, conn, channels, activity).await
+}
+
+#[get("/inbox?<min>&<max>&<limit>&<hashtags>")]
+pub async fn shared_inbox_get(
+    conn: Db,
+    min: Option<i64>,
+    max: Option<i64>,
+    limit: u8,
+    hashtags: Option<Vec<String>>,
+) -> Result<ActivityJson<ApObject>, Status> {
+    let filters = TimelineFilters {
+        view: TimelineView::Global,
+        hashtags: hashtags.unwrap_or_default(),
+    };
+
+    Ok(ActivityJson(Json(
+        retrieve::activities(&conn, limit.into(), min, max, None, filters).await,
+    )))
 }
 
 #[post("/inbox", data = "<activity>")]

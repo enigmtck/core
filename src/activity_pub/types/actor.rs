@@ -12,9 +12,20 @@ use crate::models::leaders::{get_leaders_by_profile_id, Leader};
 use crate::models::profiles::{get_profile_by_ap_id, Profile};
 use crate::models::remote_actors::RemoteActor;
 use crate::{MaybeMultiple, DOMAIN_RE};
+use lazy_static::lazy_static;
 use rocket::http::Status;
 use serde::{Deserialize, Serialize};
 use serde_with::serde_as;
+
+lazy_static! {
+    pub static ref PUBLIC_COLLECTION: Vec<String> = {
+        vec![
+            "https://www.w3.org/ns/activitystreams#Public".to_string(),
+            "as:Public".to_string(),
+            "Public".to_string(),
+        ]
+    };
+}
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, Eq, Debug, Default, Hash, Ord, PartialOrd)]
 #[serde(untagged)]

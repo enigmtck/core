@@ -104,7 +104,7 @@ pub async fn outbox_get(
                 // prev (newer) will be a min of the first record
                 // next (older) will be a max of the last record
 
-                // this is also the default when min/max is not specifed (i.e., the first
+                // this is also the default when min/max is not specified (i.e., the first
                 // record is the newest in the database)
                 (None, Some(_)) | (None, None) => (
                     activities.first().and_then(|x| match x {

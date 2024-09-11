@@ -222,6 +222,7 @@ fn rocket() -> Rocket<Build> {
                 outbox_get,
                 inbox_post,
                 shared_inbox_post,
+                shared_inbox_get,
                 timeline,
                 inbox_get,
                 liked_get,

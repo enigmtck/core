@@ -1,4 +1,5 @@
 use core::fmt;
+use std::cmp::Reverse;
 use std::fmt::Debug;
 
 use crate::activity_pub::{ActivityPub, ApActivity, ApActor, ApContext, ApObject, Outbox};
@@ -243,16 +244,25 @@ impl From<Vec<ActivityPub>> for ApCollection {
     }
 }
 
-impl From<Vec<ApObject>> for ApCollection {
-    fn from(objects: Vec<ApObject>) -> Self {
+type ApCollectionParams = (Vec<ActivityPub>, Option<String>);
+
+impl From<ApCollectionParams> for ApCollection {
+    fn from((mut objects, base_url): ApCollectionParams) -> Self {
+        objects.sort_by_key(|x| Reverse(x.timestamp()));
+
         ApCollection {
             total_items: Some(objects.len() as u32),
-            items: Some(
+            ordered_items: Some(objects.clone()),
+            prev: base_url.clone().and_then(|y| {
                 objects
-                    .iter()
-                    .map(|x| ActivityPub::Object(x.clone()))
-                    .collect::<Vec<ActivityPub>>(),
-            ),
+                    .first()
+                    .map(|x| format!("{y}&min={}", x.timestamp().timestamp_micros()).into())
+            }),
+            next: base_url.and_then(|y| {
+                objects
+                    .last()
+                    .map(|x| format!("{y}&max={}", x.timestamp().timestamp_micros()).into())
+            }),
             ..Default::default()
         }
     }
