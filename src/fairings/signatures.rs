@@ -1,7 +1,7 @@
 use crate::{
     db::Db,
+    models::profiles::Profile,
     signing::{verify, VerificationType, VerifyParams},
-    SIGNING_OVERRIDE,
 };
 
 use rocket::{
@@ -14,7 +14,7 @@ pub struct Signed(pub bool, pub VerificationType);
 
 impl Signed {
     pub fn local(&self) -> bool {
-        matches!(self, Signed(true, VerificationType::Local))
+        matches!(self, Signed(true, VerificationType::Local(_)))
     }
 
     pub fn remote(&self) -> bool {
@@ -23,6 +23,13 @@ impl Signed {
 
     pub fn any(&self) -> bool {
         matches!(self, Signed(true, _))
+    }
+
+    pub fn profile(&self) -> Option<Profile> {
+        match self {
+            Signed(true, VerificationType::Local(profile)) => Some(*profile.clone()),
+            _ => None,
+        }
     }
 }
 
@@ -44,10 +51,6 @@ impl<'r> FromRequest<'r> for Signed {
     type Error = SignatureError;
 
     async fn from_request(request: &'r Request<'_>) -> Outcome<Self, Self::Error> {
-        if *SIGNING_OVERRIDE {
-            return Outcome::Success(Signed(true, VerificationType::Local));
-        };
-
         // Retrieve a header value by name
         let get_header = |header_name| {
             request

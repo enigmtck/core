@@ -253,8 +253,8 @@ pub async fn get_activities_coalesced(
  WHERE a.kind IN ('announce','create') \
    AND NOT a.reply \
    AND (a.target_note_id IS NOT NULL OR a.target_remote_note_id IS NOT NULL OR a.target_remote_question_id IS NOT NULL) \
-   AND a.ap_to ?| {}",
-            param_gen()
+   AND (a.ap_to ?| {} OR a.cc ?| {})",
+            param_gen(), param_gen()
         );
 
         // Add date filtering to the subquery
@@ -307,6 +307,7 @@ pub async fn get_activities_coalesced(
         log::debug!("COALESCED QUERY\n{query:#?}");
 
         let mut query = sql_query(query).into_boxed();
+        query = query.bind::<diesel::sql_types::Array<diesel::sql_types::Text>, _>(&to);
         query = query.bind::<diesel::sql_types::Array<diesel::sql_types::Text>, _>(&to);
 
         if min.is_some() || max.is_some() {

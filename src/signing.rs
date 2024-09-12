@@ -97,7 +97,7 @@ fn build_verify_string(
 #[derive(Clone)]
 pub enum VerificationType {
     Remote,
-    Local,
+    Local(Box<Profile>),
     None,
 }
 
@@ -145,11 +145,11 @@ pub async fn verify(conn: Db, params: VerifyParams) -> Result<VerificationType, 
     if local && key_selector == Some("client-key".to_string()) {
         if let Some(username) = username {
             if let Some(profile) = get_profile_by_username((&conn).into(), username).await {
-                if let Some(public_key) = profile.client_public_key {
+                if let Some(public_key) = profile.client_public_key.clone() {
                     RsaPublicKey::from_public_key_pem(public_key.trim_end())
                         .map_err(|_| VerificationError::PublicKeyError)
                         .and_then(|pk| verify(&pk, &signature_str, &verify_string))?;
-                    Ok(VerificationType::Local)
+                    Ok(VerificationType::Local(Box::from(profile)))
                 } else {
                     Err(VerificationError::ClientKeyNotFound)
                 }

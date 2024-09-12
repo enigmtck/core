@@ -86,21 +86,54 @@ pub async fn inbox_post(
     shared_inbox_post(permitted, signed, conn, channels, activity).await
 }
 
-#[get("/inbox?<min>&<max>&<limit>&<hashtags>")]
+#[get("/inbox?<min>&<max>&<limit>&<hashtags>&<view>")]
 pub async fn shared_inbox_get(
+    signed: Signed,
     conn: Db,
     min: Option<i64>,
     max: Option<i64>,
     limit: u8,
+    view: Option<InboxView>,
     hashtags: Option<Vec<String>>,
 ) -> Result<ActivityJson<ApObject>, Status> {
-    let filters = TimelineFilters {
-        view: TimelineView::Global,
-        hashtags: hashtags.unwrap_or_default(),
+    let profile = signed.profile();
+
+    let filters = {
+        if let Some(view) = view {
+            match view {
+                InboxView::Global => TimelineFilters {
+                    view: view.into(),
+                    hashtags: hashtags.unwrap_or_default(),
+                },
+                InboxView::Home => TimelineFilters {
+                    view: if let Some(profile) = profile.clone() {
+                        TimelineView::Home(
+                            get_leaders_by_profile_id(&conn, profile.id)
+                                .await
+                                .iter()
+                                .map(|leader| leader.0.leader_ap_id.clone())
+                                .collect(),
+                        )
+                    } else {
+                        TimelineView::Global
+                    },
+                    hashtags: hashtags.unwrap_or_default(),
+                },
+                InboxView::Local => TimelineFilters {
+                    view: view.into(),
+                    hashtags: hashtags.unwrap_or_default(),
+                },
+            }
+        } else {
+            TimelineFilters {
+                view: TimelineView::Global,
+                hashtags: hashtags.unwrap_or_default(),
+            }
+        }
     };
 
     Ok(ActivityJson(Json(
-        retrieve::activities(&conn, limit.into(), min, max, None, filters).await,
+        retrieve::activities(&conn, limit.into(), min, max, profile, filters).await,
     )))
 }
 

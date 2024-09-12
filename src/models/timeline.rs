@@ -4,7 +4,7 @@ use crate::activity_pub::{ApActor, ApAnnounce, ApNote};
 use crate::db::Db;
 use crate::schema::{timeline, timeline_cc, timeline_to};
 use crate::POOL;
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use diesel::prelude::*;
 use diesel::{AsChangeset, Insertable};
 use serde::{Deserialize, Serialize};
@@ -220,6 +220,19 @@ pub enum TimelineView {
     Home(Vec<String>),
     Local,
     Global,
+}
+
+impl TryFrom<String> for TimelineView {
+    type Error = anyhow::Error;
+
+    fn try_from(s: String) -> Result<Self, Self::Error> {
+        match s.to_lowercase().as_str() {
+            "local" => Ok(TimelineView::Local),
+            "global" => Ok(TimelineView::Global),
+            "home" => Ok(TimelineView::Home(vec![])),
+            _ => Err(anyhow!("invalid view")),
+        }
+    }
 }
 
 impl From<InboxView> for TimelineView {
