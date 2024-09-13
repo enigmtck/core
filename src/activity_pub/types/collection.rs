@@ -251,6 +251,7 @@ impl From<ApCollectionParams> for ApCollection {
         objects.sort_by_key(|x| Reverse(x.timestamp()));
 
         ApCollection {
+            kind: ApCollectionType::OrderedCollection,
             total_items: Some(objects.len() as u32),
             ordered_items: Some(objects.clone()),
             prev: base_url.clone().and_then(|y| {

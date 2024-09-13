@@ -482,6 +482,12 @@ cfg_if::cfg_if! {
                 }
             }
         }
+
+        impl From<&RemoteActor> for ApActor {
+            fn from(actor: &RemoteActor) -> Self {
+                actor.clone().into()
+            }
+        }
     } else if #[cfg(feature = "sqlite")] {
         impl From<RemoteActor> for ApActor {
             fn from(actor: RemoteActor) -> Self {

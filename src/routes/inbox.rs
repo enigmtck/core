@@ -3,15 +3,17 @@ use rocket::serde::json::Json;
 use rocket::{get, post};
 use serde_json::Value;
 
-use crate::activity_pub::{ApActivity, ApObject, Inbox};
+use crate::activity_pub::{ActivityPub, ApActivity, ApActor, ApCollection, ApObject, Inbox};
 use crate::db::Db;
 use crate::fairings::access_control::Permitted;
 use crate::fairings::events::EventChannels;
 use crate::fairings::signatures::Signed;
 use crate::models::leaders::get_leaders_by_profile_id;
+use crate::models::pg::activities::get_announcers;
 use crate::models::{
     profiles::get_profile_by_username, timeline::TimelineFilters, timeline::TimelineView,
 };
+use crate::SERVER_URL;
 //use crate::models::remote_activities::create_remote_activity;
 
 use super::{retrieve, ActivityJson};
@@ -34,7 +36,7 @@ pub async fn inbox_get(
     view: InboxView,
 ) -> Result<ActivityJson<ApObject>, Status> {
     if signed.local() {
-        let profile = get_profile_by_username((&conn).into(), username)
+        let profile = get_profile_by_username((&conn).into(), username.clone())
             .await
             .ok_or(Status::new(520))?;
 
@@ -53,6 +55,7 @@ pub async fn inbox_get(
                 }
             },
             hashtags: vec![],
+            username: None,
         };
 
         Ok(ActivityJson(Json(
@@ -61,18 +64,6 @@ pub async fn inbox_get(
     } else {
         Err(Status::Unauthorized)
     }
-}
-
-#[get("/api/timeline?<min>&<max>&<limit>")]
-pub async fn timeline(
-    conn: Db,
-    min: Option<i64>,
-    max: Option<i64>,
-    limit: u8,
-) -> Result<ActivityJson<ApObject>, Status> {
-    Ok(ActivityJson(Json(
-        retrieve::timeline(&conn, limit.into(), min, max).await,
-    )))
 }
 
 #[post("/user/<_>/inbox", data = "<activity>")]
@@ -104,6 +95,7 @@ pub async fn shared_inbox_get(
                 InboxView::Global => TimelineFilters {
                     view: view.into(),
                     hashtags: hashtags.unwrap_or_default(),
+                    username: None,
                 },
                 InboxView::Home => TimelineFilters {
                     view: if let Some(profile) = profile.clone() {
@@ -118,22 +110,25 @@ pub async fn shared_inbox_get(
                         TimelineView::Global
                     },
                     hashtags: hashtags.unwrap_or_default(),
+                    username: None,
                 },
                 InboxView::Local => TimelineFilters {
                     view: view.into(),
                     hashtags: hashtags.unwrap_or_default(),
+                    username: None,
                 },
             }
         } else {
             TimelineFilters {
                 view: TimelineView::Global,
                 hashtags: hashtags.unwrap_or_default(),
+                username: None,
             }
         }
     };
 
     Ok(ActivityJson(Json(
-        retrieve::activities(&conn, limit.into(), min, max, profile, filters).await,
+        retrieve::activities(&conn, limit.into(), min, max, profile, filters, None).await,
     )))
 }
 
@@ -146,11 +141,12 @@ pub async fn shared_inbox_post(
     activity: String,
 ) -> Result<Status, Status> {
     if permitted.is_permitted() {
-        let raw = serde_json::from_str::<Value>(&activity).map_err(|_| Status::BadRequest)?;
+        let raw =
+            serde_json::from_str::<Value>(&activity).map_err(|_| Status::UnprocessableEntity)?;
         log::debug!("POSTING TO INBOX\n{raw:#?}");
 
-        let activity =
-            serde_json::from_str::<ApActivity>(&activity).map_err(|_| Status::BadRequest)?;
+        let activity = serde_json::from_str::<ApActivity>(&activity)
+            .map_err(|_| Status::UnprocessableEntity)?;
 
         //log::debug!("POSTING TO INBOX\n{activity:#?}");
 
@@ -164,6 +160,42 @@ pub async fn shared_inbox_post(
         log::debug!("REQUEST WAS EXPLICITLY PROHIBITED");
         Err(Status::Forbidden)
     }
+}
+
+#[get("/api/announcers?<limit>&<min>&<max>&<target>")]
+pub async fn announcers_get(
+    permitted: Permitted,
+    signed: Signed,
+    conn: Db,
+    target: String,
+    min: Option<i64>,
+    max: Option<i64>,
+    limit: Option<u8>,
+) -> Result<ActivityJson<ApObject>, Status> {
+    //if permitted.is_permitted() {
+    //if signed.local() {
+    let server_url = &*SERVER_URL;
+    let limit = limit.unwrap_or(50);
+    let base_url = format!("{server_url}/api/announcers?limit={limit}&target={target}");
+
+    let decoded = urlencoding::decode(&target).map_err(|_| Status::UnprocessableEntity)?;
+
+    let actors = get_announcers(&conn, min, max, Some(limit), decoded.to_string())
+        .await
+        .iter()
+        .map(ApActor::from)
+        .map(ActivityPub::from)
+        .collect();
+
+    Ok(ActivityJson(Json(ApObject::Collection(
+        ApCollection::from((actors, Some(base_url))),
+    ))))
+    // } else {
+    //     Err(Status::Unauthorized)
+    // }
+    // } else {
+    //     Err(Status::Forbidden)
+    // }
 }
 
 #[get("/api/user/<username>/conversation?<conversation>&<offset>&<limit>")]
@@ -181,7 +213,8 @@ pub async fn conversation_get(
             .await
             .is_some()
         {
-            let decoded = urlencoding::decode(&conversation).map_err(|_| Status::new(524))?;
+            let decoded =
+                urlencoding::decode(&conversation).map_err(|_| Status::UnprocessableEntity)?;
 
             retrieve::conversation(
                 conn,
@@ -192,9 +225,9 @@ pub async fn conversation_get(
             )
             .await
             .map(|inbox| ActivityJson(Json(inbox)))
-            .map_err(|_| Status::new(525))
+            .map_err(|_| Status::InternalServerError)
         } else {
-            Err(Status::new(526))
+            Err(Status::NotFound)
         }
     } else {
         Err(Status::Unauthorized)

@@ -17,7 +17,7 @@ use serde_json::Value;
 
 use super::coalesced_activity::CoalescedActivity;
 use super::profiles::Profile;
-use super::timeline::JoinedTimelineItem;
+use super::remote_actors::RemoteActor;
 use crate::models::activities::{
     transform_records_to_extended_activities, ExtendedActivity, ExtendedActivityRecord,
     NewActivityCc, NewActivityTo,
@@ -100,52 +100,6 @@ pub struct Activity {
     pub reply: bool,
 }
 
-impl From<JoinedTimelineItem> for Activity {
-    fn from(item: JoinedTimelineItem) -> Self {
-        let id = item.activity_id;
-        let created_at = item.activity_created_at;
-        let updated_at = item.activity_updated_at;
-        let profile_id = item.activity_profile_id;
-        let kind = item.activity_kind;
-        let uuid = item.activity_uuid;
-        let actor = item.activity_actor;
-        let ap_to = item.activity_ap_to;
-        let cc = item.activity_cc;
-        let target_note_id = item.activity_target_note_id;
-        let target_remote_note_id = item.activity_target_remote_note_id;
-        let target_profile_id = item.activity_target_profile_id;
-        let target_activity_id = item.activity_target_activity_id;
-        let target_ap_id = item.activity_target_ap_id;
-        let target_remote_actor_id = item.activity_target_remote_actor_id;
-        let revoked = item.activity_revoked;
-        let ap_id = item.activity_ap_id;
-        let target_remote_question_id = item.activity_target_remote_question_id;
-        let reply = false;
-
-        Activity {
-            id,
-            created_at,
-            updated_at,
-            profile_id,
-            kind,
-            uuid,
-            actor,
-            ap_to,
-            cc,
-            target_note_id,
-            target_remote_note_id,
-            target_profile_id,
-            target_activity_id,
-            target_ap_id,
-            target_remote_actor_id,
-            revoked,
-            ap_id,
-            target_remote_question_id,
-            reply,
-        }
-    }
-}
-
 #[derive(
     Identifiable,
     Queryable,
@@ -169,36 +123,6 @@ pub struct ActivityCc {
     pub ap_id: String,
 }
 
-impl TryFrom<JoinedTimelineItem> for ActivityCc {
-    type Error = anyhow::Error;
-
-    fn try_from(item: JoinedTimelineItem) -> Result<Self, Self::Error> {
-        let id = item
-            .activity_cc_id
-            .ok_or_else(|| anyhow::Error::msg("missing id"))?;
-        let created_at = item
-            .activity_cc_created_at
-            .ok_or_else(|| anyhow::Error::msg("missing created_at"))?;
-        let updated_at = item
-            .activity_cc_updated_at
-            .ok_or_else(|| anyhow::Error::msg("missing updated_at"))?;
-        let activity_id = item
-            .activity_cc_activity_id
-            .ok_or_else(|| anyhow::Error::msg("missing activity_id"))?;
-        let ap_id = item
-            .activity_cc_ap_id
-            .ok_or_else(|| anyhow::Error::msg("missing ap_id"))?;
-
-        Ok(ActivityCc {
-            id,
-            created_at,
-            updated_at,
-            activity_id,
-            ap_id,
-        })
-    }
-}
-
 fn parameter_generator() -> impl FnMut() -> String {
     let mut counter = 1;
     move || {
@@ -219,6 +143,7 @@ pub async fn get_activities_coalesced(
     let mut to: Vec<String> = vec![];
     let mut hashtags: Vec<String> = vec![];
     let mut date = Utc::now();
+    let mut username: Option<String> = None;
 
     log::debug!("IN COALESCED");
     let mut param_gen = parameter_generator();
@@ -246,7 +171,7 @@ pub async fn get_activities_coalesced(
        COALESCE(q.voters_count, NULL) AS object_voters_count,\
        COALESCE(r.ap_sensitive, q.ap_sensitive) AS object_sensitive \
   FROM activities a \
-       LEFT JOIN notes n ON (n.id = a.target_note_id) \
+       LEFT JOIN (notes n INNER JOIN profiles p ON (p.id = n.profile_id)) ON (n.id = a.target_note_id) \
        LEFT JOIN remote_notes r ON (r.id = a.target_remote_note_id) \
        LEFT JOIN remote_questions q ON (q.id = a.target_remote_question_id) \
        LEFT JOIN remote_note_hashtags h ON (r.id = h.remote_note_id) \
@@ -276,24 +201,30 @@ pub async fn get_activities_coalesced(
 
         // Add filters based on the provided options
         if let Some(filters) = filters {
-            hashtags.extend(filters.hashtags);
-
-            match filters.view {
-                TimelineView::Global => {
-                    to.extend((*PUBLIC_COLLECTION).clone());
-                }
-                TimelineView::Local => {
-                    to.extend((*PUBLIC_COLLECTION).clone());
-                }
-                TimelineView::Home(leaders) => {
-                    if let Some(profile) = profile {
-                        let ap_id = get_ap_id_from_username(profile.username.clone());
-                        to.extend(vec![ap_id]);
-                        to.extend(leaders);
+            if filters.username.is_some() {
+                to.extend((*PUBLIC_COLLECTION).clone());
+                query.push_str(&format!(" AND p.username = {}", param_gen()));
+                username = filters.username;
+            } else {
+                match filters.view {
+                    TimelineView::Global => {
+                        to.extend((*PUBLIC_COLLECTION).clone());
+                    }
+                    TimelineView::Local => {
+                        to.extend((*PUBLIC_COLLECTION).clone());
+                        query.push_str(" AND a.target_note_id IS NOT NULL");
+                    }
+                    TimelineView::Home(leaders) => {
+                        if let Some(profile) = profile {
+                            let ap_id = get_ap_id_from_username(profile.username.clone());
+                            to.extend(vec![ap_id]);
+                            to.extend(leaders);
+                        }
                     }
                 }
             }
 
+            hashtags.extend(filters.hashtags);
             if !hashtags.is_empty() {
                 query.push_str(&format!(" AND to_jsonb(h.hashtag) ?| {}", param_gen()));
             }
@@ -312,6 +243,10 @@ pub async fn get_activities_coalesced(
 
         if min.is_some() || max.is_some() {
             query = query.bind::<diesel::sql_types::Timestamptz, _>(&date);
+        }
+
+        if let Some(username) = username {
+            query = query.bind::<diesel::sql_types::Text, _>(username);
         }
 
         if !hashtags.is_empty() {
@@ -366,24 +301,6 @@ pub struct ActivityTo {
     pub updated_at: DateTime<Utc>,
     pub activity_id: i32,
     pub ap_id: String,
-}
-
-impl From<JoinedTimelineItem> for ActivityTo {
-    fn from(item: JoinedTimelineItem) -> Self {
-        let id = item.activity_to_id;
-        let created_at = item.activity_to_created_at;
-        let updated_at = item.activity_to_updated_at;
-        let activity_id = item.activity_to_activity_id;
-        let ap_id = item.activity_to_ap_id;
-
-        ActivityTo {
-            id,
-            created_at,
-            updated_at,
-            activity_id,
-            ap_id,
-        }
-    }
 }
 
 pub async fn create_activity_to(
@@ -449,6 +366,47 @@ pub async fn create_activity(conn: Option<&Db>, activity: NewActivity) -> Result
     }
 
     Ok(activity)
+}
+
+pub async fn get_announcers(
+    conn: &Db,
+    min: Option<i64>,
+    max: Option<i64>,
+    limit: Option<u8>,
+    target_ap_id: String,
+) -> Vec<RemoteActor> {
+    conn.run(move |c| {
+        let mut query = remote_actors::table
+            .select(remote_actors::all_columns)
+            .left_join(activities::table.on(activities::actor.eq(remote_actors::ap_id)))
+            .filter(activities::kind.eq(ActivityType::Announce))
+            .filter(activities::target_ap_id.eq(target_ap_id))
+            .into_boxed();
+
+        if let Some(limit) = limit {
+            query = query.limit(limit.into());
+        }
+
+        if let Some(min) = min {
+            let date: DateTime<Utc> = DateTime::from_naive_utc_and_offset(
+                NaiveDateTime::from_timestamp_micros(min).unwrap(),
+                Utc,
+            );
+
+            query = query.filter(activities::created_at.gt(date));
+        } else if let Some(max) = max {
+            let date: DateTime<Utc> = DateTime::from_naive_utc_and_offset(
+                NaiveDateTime::from_timestamp_micros(max).unwrap(),
+                Utc,
+            );
+
+            query = query.filter(activities::created_at.lt(date));
+        }
+
+        query = query.order(activities::created_at.desc());
+        query.get_results(c).unwrap_or(vec![])
+    })
+    .await
 }
 
 pub async fn get_outbox_activities_by_profile_id(

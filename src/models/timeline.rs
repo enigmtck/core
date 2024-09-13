@@ -24,14 +24,12 @@ cfg_if::cfg_if! {
             kind.into()
         }
 
-        pub use crate::models::pg::timeline::JoinedTimelineItem;
         pub use crate::models::pg::timeline::NewTimelineItem;
         pub use crate::models::pg::timeline::TimelineType;
         pub use crate::models::pg::timeline::TimelineItem;
         pub use crate::models::pg::timeline::TimelineItemCc;
         pub use crate::models::pg::timeline::TimelineItemTo;
         pub use crate::models::pg::timeline::get_timeline_items;
-        pub use crate::models::pg::timeline::get_timeline_items_raw;
         pub use crate::models::pg::timeline::create_timeline_item;
         pub use crate::models::pg::timeline::update_timeline_items;
     } else if #[cfg(feature = "sqlite")] {
@@ -249,6 +247,7 @@ impl From<InboxView> for TimelineView {
 pub struct TimelineFilters {
     pub view: TimelineView,
     pub hashtags: Vec<String>,
+    pub username: Option<String>,
 }
 // this is used in inbox/retrieve to accommodate authenticated calls for
 // more detailed timeline data (e.g., to include whether or not I've liked
@@ -263,20 +262,6 @@ pub type AuthenticatedTimelineItem = (
     Option<TimelineItemCc>,
     Option<TimelineHashtag>,
 );
-
-impl From<&JoinedTimelineItem> for AuthenticatedTimelineItem {
-    fn from(joined: &JoinedTimelineItem) -> Self {
-        (
-            joined.clone().into(),
-            joined.clone().into(),
-            joined.clone().into(),
-            ActivityCc::try_from(joined.clone()).ok(),
-            joined.clone().into(),
-            TimelineItemCc::try_from(joined.clone()).ok(),
-            TimelineHashtag::try_from(joined.clone()).ok(),
-        )
-    }
-}
 
 #[derive(Serialize, Clone, Debug, Default)]
 pub struct ContextualizedTimelineItemRaw {

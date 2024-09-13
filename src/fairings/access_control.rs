@@ -36,27 +36,32 @@ impl<'r> FromRequest<'r> for Permitted {
             .expect("failed to retrieve BlockList");
 
         let signature_vec: Vec<_> = request.headers().get("signature").collect();
-        let signature = signature_vec[0].to_string();
-        let mut signature_map = HashMap::<String, String>::new();
 
-        for cap in ASSIGNMENT_RE.captures_iter(&signature) {
-            signature_map.insert(cap[1].to_string(), cap[2].to_string());
-        }
+        if signature_vec.len() > 1 {
+            let signature = signature_vec[0].to_string();
+            let mut signature_map = HashMap::<String, String>::new();
 
-        let key_id = signature_map
-            .get("keyId")
-            .expect("keyId not found in signature_map");
+            for cap in ASSIGNMENT_RE.captures_iter(&signature) {
+                signature_map.insert(cap[1].to_string(), cap[2].to_string());
+            }
 
-        let domain_name = DOMAIN_RE
-            .captures(key_id)
-            .expect("unable to locate domain name")[1]
-            .to_string();
+            let key_id = signature_map
+                .get("keyId")
+                .expect("keyId not found in signature_map");
 
-        if blocks.is_blocked(domain_name.clone()) {
-            log::debug!("BLOCKED MESSAGE FROM {domain_name}");
-            Outcome::Success(Permitted(false))
+            let domain_name = DOMAIN_RE
+                .captures(key_id)
+                .expect("unable to locate domain name")[1]
+                .to_string();
+
+            if blocks.is_blocked(domain_name.clone()) {
+                log::debug!("BLOCKED MESSAGE FROM {domain_name}");
+                Outcome::Success(Permitted(false))
+            } else {
+                Outcome::Success(Permitted(true))
+            }
         } else {
-            Outcome::Success(Permitted(true))
+            Outcome::Success(Permitted(false))
         }
     }
 }

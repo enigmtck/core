@@ -223,7 +223,6 @@ fn rocket() -> Rocket<Build> {
                 inbox_post,
                 shared_inbox_post,
                 shared_inbox_get,
-                timeline,
                 inbox_get,
                 liked_get,
                 get_followers,
@@ -262,6 +261,7 @@ fn rocket() -> Rocket<Build> {
                 host_meta,
                 cached_image,
                 user_activity_json,
+                announcers_get,
             ],
         )
 }

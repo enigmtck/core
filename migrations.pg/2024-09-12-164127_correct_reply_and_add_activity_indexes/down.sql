@@ -1,0 +1,5 @@
+DROP INDEX idx_activities_ap_to;
+DROP INDEX idx_activities_created_at_desc;
+DROP INDEX idx_activities_kind_created_at;
+DROP INDEX idx_activities_target_note_id;
+DROP INDEX idx_activities_target_remote_note_id;

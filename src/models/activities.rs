@@ -185,6 +185,7 @@ impl NewActivity {
                 ActivityTarget::Note(note) => {
                     self.target_note_id = Some(note.id);
                     self.target_ap_id = Some(get_note_ap_id_from_uuid(note.uuid));
+                    self.reply = note.in_reply_to.is_some();
                 }
                 ActivityTarget::RemoteNote(remote_note) => {
                     self.target_remote_note_id = Some(remote_note.id);
