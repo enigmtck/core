@@ -409,6 +409,7 @@ diesel::table! {
         in_reply_to_atom_uri -> Nullable<Varchar>,
         conversation -> Nullable<Varchar>,
         content_map -> Nullable<Jsonb>,
+        metadata -> Nullable<Jsonb>,
     }
 }
 

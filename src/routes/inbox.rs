@@ -25,45 +25,17 @@ pub enum InboxView {
     Global,
 }
 
-#[get("/user/<username>/inbox?<min>&<max>&<limit>&<view>")]
+#[get("/user/<_username>/inbox?<min>&<max>&<limit>&<view>")]
 pub async fn inbox_get(
     signed: Signed,
     conn: Db,
-    username: String,
+    _username: String,
     min: Option<i64>,
     max: Option<i64>,
     limit: u8,
     view: InboxView,
 ) -> Result<ActivityJson<ApObject>, Status> {
-    if signed.local() {
-        let profile = get_profile_by_username((&conn).into(), username.clone())
-            .await
-            .ok_or(Status::new(520))?;
-
-        let filters = TimelineFilters {
-            view: {
-                if view == InboxView::Home {
-                    TimelineView::Home(
-                        get_leaders_by_profile_id(&conn, profile.id)
-                            .await
-                            .iter()
-                            .map(|leader| leader.0.leader_ap_id.clone())
-                            .collect(),
-                    )
-                } else {
-                    view.into()
-                }
-            },
-            hashtags: vec![],
-            username: None,
-        };
-
-        Ok(ActivityJson(Json(
-            retrieve::inbox(&conn, limit.into(), min, max, profile, filters).await,
-        )))
-    } else {
-        Err(Status::Unauthorized)
-    }
+    shared_inbox_get(signed, conn, min, max, limit, Some(view), None).await
 }
 
 #[post("/user/<_>/inbox", data = "<activity>")]
@@ -103,7 +75,7 @@ pub async fn shared_inbox_get(
                             get_leaders_by_profile_id(&conn, profile.id)
                                 .await
                                 .iter()
-                                .map(|leader| leader.0.leader_ap_id.clone())
+                                .filter_map(|leader| leader.1.clone()?.followers.clone())
                                 .collect(),
                         )
                     } else {

@@ -124,4 +124,13 @@ pub struct CoalescedActivity {
 
     #[diesel(sql_type = Nullable<Bool>)]
     pub object_sensitive: Option<bool>,
+
+    #[diesel(sql_type = Nullable<Jsonb>)]
+    pub object_metadata: Option<Value>,
+
+    #[diesel(sql_type = Jsonb)]
+    pub object_announcers: Value,
+
+    #[diesel(sql_type = Jsonb)]
+    pub object_likers: Value,
 }

@@ -42,7 +42,7 @@ pub enum ActivityType {
     Remove,
 }
 
-#[derive(Serialize, Deserialize, Insertable, Default, Debug, Clone)]
+#[derive(Serialize, Deserialize, Insertable, Default, Debug, Clone, AsChangeset)]
 #[diesel(table_name = activities)]
 pub struct NewActivity {
     pub kind: ActivityType,
@@ -140,6 +140,8 @@ pub async fn get_activities_coalesced(
     profile: Option<Profile>,
     filters: Option<TimelineFilters>,
 ) -> Vec<CoalescedActivity> {
+    use diesel::sql_types::{Array, Integer, Text, Timestamptz};
+
     let mut to: Vec<String> = vec![];
     let mut hashtags: Vec<String> = vec![];
     let mut date = Utc::now();
@@ -149,38 +151,51 @@ pub async fn get_activities_coalesced(
     let mut param_gen = parameter_generator();
 
     conn.run(move |c| {
-        let mut query = format!(
-            "SELECT a.*,\
-       COALESCE(n.uuid, NULL) AS object_uuid,\
-       COALESCE(r.kind::text, n.kind::text, q.kind::text, NULL) AS object_type,\
-       COALESCE(r.published, n.created_at::text, q.published::text, NULL) AS object_published,\
-       COALESCE(r.ap_id, n.ap_id, q.ap_id, NULL) AS object_id,\
-       COALESCE(r.url, q.url, NULL) AS object_url,\
-       COALESCE(r.ap_to, n.ap_to, q.ap_to, NULL) AS object_to,\
-       COALESCE(r.cc, n.cc, q.cc, NULL) AS object_cc,\
-       COALESCE(r.tag, n.tag, q.tag, NULL) AS object_tag,\
-       COALESCE(r.attributed_to, n.attributed_to, q.attributed_to, NULL) AS object_attributed_to,\
-       COALESCE(r.in_reply_to, n.in_reply_to, q.in_reply_to, NULL) AS object_in_reply_to,\
-       COALESCE(r.content, n.content, q.content, NULL) AS object_content,\
-       COALESCE(r.conversation, n.conversation, q.conversation, NULL) AS object_conversation,\
-       COALESCE(r.attachment, n.attachment, q.attachment, NULL) AS object_attachment,\
-       COALESCE(r.summary, q.summary, NULL) AS object_summary,\
-       COALESCE(q.end_time, NULL) AS object_end_time,\
-       COALESCE(q.one_of, NULL) AS object_one_of,\
-       COALESCE(q.any_of, NULL) AS object_any_of,\
-       COALESCE(q.voters_count, NULL) AS object_voters_count,\
-       COALESCE(r.ap_sensitive, q.ap_sensitive) AS object_sensitive \
-  FROM activities a \
-       LEFT JOIN (notes n INNER JOIN profiles p ON (p.id = n.profile_id)) ON (n.id = a.target_note_id) \
-       LEFT JOIN remote_notes r ON (r.id = a.target_remote_note_id) \
-       LEFT JOIN remote_questions q ON (q.id = a.target_remote_question_id) \
-       LEFT JOIN remote_note_hashtags h ON (r.id = h.remote_note_id) \
- WHERE a.kind IN ('announce','create') \
-   AND NOT a.reply \
-   AND (a.target_note_id IS NOT NULL OR a.target_remote_note_id IS NOT NULL OR a.target_remote_question_id IS NOT NULL) \
-   AND (a.ap_to ?| {} OR a.cc ?| {})",
+        let mut query = "WITH main AS (\
+                         SELECT DISTINCT ON (a.created_at) a.*,\
+                         COALESCE(n.uuid, NULL) AS object_uuid,\
+                         COALESCE(r.kind::text, n.kind::text, q.kind::text, NULL) AS object_type,\
+                         COALESCE(r.published, n.created_at::text, q.published::text, NULL) AS object_published,\
+                         COALESCE(r.ap_id, n.ap_id, q.ap_id, NULL) AS object_id,\
+                         COALESCE(r.url, q.url, NULL) AS object_url,\
+                         COALESCE(r.ap_to, n.ap_to, q.ap_to, NULL) AS object_to,\
+                         COALESCE(r.cc, n.cc, q.cc, NULL) AS object_cc,\
+                         COALESCE(r.tag, n.tag, q.tag, NULL) AS object_tag,\
+                         COALESCE(r.attributed_to, n.attributed_to, q.attributed_to, NULL) AS object_attributed_to,\
+                         COALESCE(r.in_reply_to, n.in_reply_to, q.in_reply_to, NULL) AS object_in_reply_to,\
+                         COALESCE(r.content, n.content, q.content, NULL) AS object_content,\
+                         COALESCE(r.conversation, n.conversation, q.conversation, NULL) AS object_conversation,\
+                         COALESCE(r.attachment, n.attachment, q.attachment, NULL) AS object_attachment,\
+                         COALESCE(r.summary, q.summary, NULL) AS object_summary,\
+                         COALESCE(q.end_time, NULL) AS object_end_time,\
+                         COALESCE(q.one_of, NULL) AS object_one_of,\
+                         COALESCE(q.any_of, NULL) AS object_any_of,\
+                         COALESCE(q.voters_count, NULL) AS object_voters_count,\
+                         COALESCE(r.ap_sensitive, q.ap_sensitive) AS object_sensitive, \
+                         COALESCE(r.metadata, NULL) AS object_metadata".to_string();
+
+        if let Some(filters) = filters.clone() {
+            if !filters.hashtags.is_empty() {
+                query.push_str(
+                    " FROM remote_note_hashtags h \
+                     INNER JOIN activities a ON (a.target_remote_note_id = h.remote_note_id)");
+            } else {
+                query.push_str(" FROM activities a");
+            }
+        }
+
+        query.push_str(&format!(
+            " LEFT JOIN (notes n INNER JOIN profiles p ON (p.id = n.profile_id)) ON (n.id = a.target_note_id) \
+             LEFT JOIN remote_questions q ON (q.id = a.target_remote_question_id) \
+             LEFT JOIN remote_notes r ON (r.id = a.target_remote_note_id) \
+             WHERE a.kind IN ('announce','create') \
+             AND NOT a.reply \
+             AND NOT a.revoked \
+             AND (a.target_note_id IS NOT NULL OR a.target_remote_note_id IS NOT NULL \
+             OR a.target_remote_question_id IS NOT NULL) \
+             AND (a.ap_to ?| {} OR a.cc ?| {})",
             param_gen(), param_gen()
-        );
+        ));
 
         // Add date filtering to the subquery
         if let Some(min) = min {
@@ -215,6 +230,7 @@ pub async fn get_activities_coalesced(
                         query.push_str(" AND a.target_note_id IS NOT NULL");
                     }
                     TimelineView::Home(leaders) => {
+                        log::debug!("LEADERS\n{leaders:#?}");
                         if let Some(profile) = profile {
                             let ap_id = get_ap_id_from_username(profile.username.clone());
                             to.extend(vec![ap_id]);
@@ -226,33 +242,53 @@ pub async fn get_activities_coalesced(
 
             hashtags.extend(filters.hashtags);
             if !hashtags.is_empty() {
-                query.push_str(&format!(" AND to_jsonb(h.hashtag) ?| {}", param_gen()));
+                query.push_str(&format!(" AND h.hashtag = ANY({})", param_gen()));
             }
         }
 
         query.push_str(&format!(
-            " ORDER BY a.created_at DESC LIMIT {}",
+            " ORDER BY created_at DESC LIMIT {})",
             param_gen()
         ));
+
+        query.push_str(" SELECT DISTINCT m.*, \
+                        COALESCE(JSONB_AGG(a.actor) \
+                        FILTER (WHERE a.actor IS NOT NULL), '[]') \
+                        AS object_announcers, \
+                        COALESCE(JSONB_AGG(a.actor) \
+                        FILTER (WHERE a.actor IS NOT NULL AND NOT a.revoked AND a.kind = 'like'), '[]') \
+                        AS object_likers \
+                        FROM main m \
+                        LEFT JOIN activities a ON (a.target_ap_id = m.object_id AND a.kind = 'announce') \
+                        GROUP BY m.id, m.created_at, m.updated_at, m.profile_id, \
+                        m.kind, m.uuid, m.actor, m.ap_to, m.cc, m.target_note_id, m.target_remote_note_id, \
+                        m.target_profile_id, m.target_activity_id, m.target_ap_id, m.target_remote_actor_id, \
+                        m.revoked, m.ap_id, m.target_remote_question_id, m.reply, m.object_uuid, m.object_type, \
+                        m.object_published, m.object_id, m.object_url, m.object_to, m.object_cc, m.object_tag, \
+                        m.object_attributed_to, m.object_in_reply_to, m.object_content, m.object_conversation, \
+                        m.object_attachment, m.object_summary, m.object_end_time, m.object_one_of, \
+                        m.object_any_of, m.object_voters_count, m.object_sensitive, m.object_metadata \
+                        ORDER BY m.created_at DESC");
 
         log::debug!("COALESCED QUERY\n{query:#?}");
 
         let mut query = sql_query(query).into_boxed();
-        query = query.bind::<diesel::sql_types::Array<diesel::sql_types::Text>, _>(&to);
-        query = query.bind::<diesel::sql_types::Array<diesel::sql_types::Text>, _>(&to);
+
+        query = query.bind::<Array<Text>, _>(&to);
+        query = query.bind::<Array<Text>, _>(&to);
 
         if min.is_some() || max.is_some() {
-            query = query.bind::<diesel::sql_types::Timestamptz, _>(&date);
+            query = query.bind::<Timestamptz, _>(&date);
         }
 
         if let Some(username) = username {
-            query = query.bind::<diesel::sql_types::Text, _>(username);
+            query = query.bind::<Text, _>(username);
         }
 
         if !hashtags.is_empty() {
-            query = query.bind::<diesel::sql_types::Array<diesel::sql_types::Text>, _>(&hashtags);
+            query = query.bind::<Array<Text>, _>(&hashtags);
         }
-        query = query.bind::<diesel::sql_types::Integer, _>(&limit);
+        query = query.bind::<Integer, _>(&limit);
 
         query.load::<CoalescedActivity>(c).expect("bad sql query")
     })
@@ -337,6 +373,9 @@ pub async fn create_activity(conn: Option<&Db>, activity: NewActivity) -> Result
             conn.run(move |c| {
                 diesel::insert_into(activities::table)
                     .values(&activity)
+                    .on_conflict(activities::ap_id)
+                    .do_update()
+                    .set(&activity)
                     .get_result::<Activity>(c)
             })
             .await?
@@ -345,6 +384,9 @@ pub async fn create_activity(conn: Option<&Db>, activity: NewActivity) -> Result
             let mut pool = POOL.get()?;
             diesel::insert_into(activities::table)
                 .values(&activity)
+                .on_conflict(activities::ap_id)
+                .do_update()
+                .set(&activity)
                 .get_result::<Activity>(&mut pool)?
         }
     };
@@ -380,6 +422,47 @@ pub async fn get_announcers(
             .select(remote_actors::all_columns)
             .left_join(activities::table.on(activities::actor.eq(remote_actors::ap_id)))
             .filter(activities::kind.eq(ActivityType::Announce))
+            .filter(activities::target_ap_id.eq(target_ap_id))
+            .into_boxed();
+
+        if let Some(limit) = limit {
+            query = query.limit(limit.into());
+        }
+
+        if let Some(min) = min {
+            let date: DateTime<Utc> = DateTime::from_naive_utc_and_offset(
+                NaiveDateTime::from_timestamp_micros(min).unwrap(),
+                Utc,
+            );
+
+            query = query.filter(activities::created_at.gt(date));
+        } else if let Some(max) = max {
+            let date: DateTime<Utc> = DateTime::from_naive_utc_and_offset(
+                NaiveDateTime::from_timestamp_micros(max).unwrap(),
+                Utc,
+            );
+
+            query = query.filter(activities::created_at.lt(date));
+        }
+
+        query = query.order(activities::created_at.desc());
+        query.get_results(c).unwrap_or(vec![])
+    })
+    .await
+}
+
+pub async fn get_likers(
+    conn: &Db,
+    min: Option<i64>,
+    max: Option<i64>,
+    limit: Option<u8>,
+    target_ap_id: String,
+) -> Vec<RemoteActor> {
+    conn.run(move |c| {
+        let mut query = remote_actors::table
+            .select(remote_actors::all_columns)
+            .left_join(activities::table.on(activities::actor.eq(remote_actors::ap_id)))
+            .filter(activities::kind.eq(ActivityType::Like))
             .filter(activities::target_ap_id.eq(target_ap_id))
             .into_boxed();
 

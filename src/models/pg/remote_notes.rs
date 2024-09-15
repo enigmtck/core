@@ -31,6 +31,7 @@ pub struct NewRemoteNote {
     pub in_reply_to_atom_uri: Option<String>,
     pub conversation: Option<String>,
     pub content_map: Option<Value>,
+    pub metadata: Option<Value>,
 }
 
 #[derive(Identifiable, Queryable, AsChangeset, Serialize, Deserialize, Clone, Default, Debug)]
@@ -59,6 +60,31 @@ pub struct RemoteNote {
     pub in_reply_to_atom_uri: Option<String>,
     pub conversation: Option<String>,
     pub content_map: Option<Value>,
+    pub metadata: Option<Value>,
+}
+
+pub async fn update_metadata(
+    conn: Option<&Db>,
+    id: i32,
+    metadata: Value,
+) -> Result<RemoteNote, anyhow::Error> {
+    match conn {
+        Some(conn) => conn
+            .run(move |c| {
+                diesel::update(remote_notes::table.filter(remote_notes::id.eq(id)))
+                    .set(remote_notes::metadata.eq(Some(metadata)))
+                    .get_result::<RemoteNote>(c)
+            })
+            .await
+            .map_err(anyhow::Error::msg),
+        None => {
+            let mut pool = POOL.get()?;
+            diesel::update(remote_notes::table.filter(remote_notes::id.eq(id)))
+                .set(remote_notes::metadata.eq(Some(metadata)))
+                .get_result::<RemoteNote>(&mut pool)
+                .map_err(anyhow::Error::msg)
+        }
+    }
 }
 
 pub async fn create_or_update_remote_note(

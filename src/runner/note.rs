@@ -1,18 +1,21 @@
 use anyhow::Result;
 use reqwest::StatusCode;
+use webpage::{Webpage, WebpageOptions};
 
 use crate::activity_pub::retriever::signed_get;
-use crate::activity_pub::{ApAttachment, ApImage};
+use crate::activity_pub::{ApAttachment, ApImage, Metadata};
 use crate::fairings::events::EventChannels;
 use crate::models::cache::{Cache, Cacheable};
 use crate::models::note_hashtags::{create_note_hashtag, NewNoteHashtag};
 use crate::models::notes::delete_note_by_uuid;
+use crate::models::pg::remote_notes::update_metadata;
 use crate::models::profiles::{get_profile, guaranteed_profile};
 use crate::models::remote_note_hashtags::{create_remote_note_hashtag, NewRemoteNoteHashtag};
 use crate::models::remote_notes::{create_or_update_remote_note, get_remote_note_by_ap_id};
 use crate::models::timeline::{create_timeline_item, delete_timeline_item_by_ap_id, TimelineItem};
 use crate::models::timeline_hashtags::{create_timeline_hashtag, NewTimelineHashtag};
 use crate::runner::cache::cache_content;
+use crate::ANCHOR_RE;
 use crate::{
     activity_pub::{ApActivity, ApAddress, ApNote, ApObject},
     db::Db,
@@ -314,13 +317,56 @@ pub async fn create_timeline_tags(conn: Option<&Db>, timeline_item: TimelineItem
     }
 }
 
+// TODO: This is problematic for links that point to large files; the filter tries
+// to account for some of that, but that's not really a solution. Maybe a whitelist?
+// That would suck. I wish the Webpage crate had a size limit (i.e., load pages with
+// a maximum size of 10MB or whatever a reasonable amount would be).
+fn get_links(text: String) -> Vec<String> {
+    ANCHOR_RE
+        .captures_iter(&text)
+        .filter(|cap| {
+            !cap[0].to_lowercase().contains("mention")
+                && !cap[0].to_lowercase().contains("u-url")
+                && !cap[0].to_lowercase().contains("hashtag")
+                && !cap[0].to_lowercase().contains("download")
+                && !cap[1].to_lowercase().contains(".pdf")
+        })
+        .map(|cap| cap[1].to_string())
+        .collect()
+}
+
+fn metadata(remote_note: &RemoteNote) -> Vec<Metadata> {
+    get_links(remote_note.content.clone())
+        .iter()
+        .map(|link| {
+            (
+                link.clone(),
+                Webpage::from_url(link, WebpageOptions::default()),
+            )
+        })
+        .filter(|(_, metadata)| metadata.is_ok())
+        .map(|(link, metadata)| (link, metadata.unwrap().html.meta).into())
+        .collect()
+}
+
 pub async fn handle_remote_note(
     conn: Option<&Db>,
     channels: Option<EventChannels>,
-    remote_note: RemoteNote,
+    mut remote_note: RemoteNote,
     announcer: Option<String>,
 ) -> anyhow::Result<RemoteNote> {
     log::debug!("HANDLING REMOTE NOTE");
+
+    let metadata = metadata(&remote_note);
+
+    if !metadata.is_empty() {
+        remote_note = update_metadata(
+            conn,
+            remote_note.id,
+            serde_json::to_value(metadata).unwrap(),
+        )
+        .await?;
+    }
 
     let mut note: ApNote = remote_note.clone().into();
     let profile = guaranteed_profile(None, None);
@@ -332,23 +378,24 @@ pub async fn handle_remote_note(
     }
 
     create_remote_note_tags(conn, remote_note.clone()).await;
+    note.cache(conn.unwrap()).await;
 
-    if let Ok(timeline_item) =
-        create_timeline_item(conn, note.cache(conn.unwrap()).await.clone().into()).await
-    {
-        create_timeline_tags(conn, timeline_item.clone()).await;
+    // if let Ok(timeline_item) =
+    //     create_timeline_item(conn, note.cache(conn.unwrap()).await.clone().into()).await
+    // {
+    //     create_timeline_tags(conn, timeline_item.clone()).await;
 
-        add_to_timeline(
-            remote_note.clone().ap_to,
-            remote_note.clone().cc,
-            timeline_item,
-        )
-        .await;
+    //     add_to_timeline(
+    //         remote_note.clone().ap_to,
+    //         remote_note.clone().cc,
+    //         timeline_item,
+    //     )
+    //     .await;
 
-        if let Some(mut channels) = channels {
-            channels.send(None, serde_json::to_string(&note.clone()).unwrap());
-        }
+    if let Some(mut channels) = channels {
+        channels.send(None, serde_json::to_string(&note.clone()).unwrap());
     }
+    // }
 
     Ok(remote_note)
 }

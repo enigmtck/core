@@ -16,18 +16,20 @@ use crate::{
         cache::{cache_content, Cache},
         from_serde, from_time,
         notes::{create_note, NewNote, Note, NoteLike, NoteType},
-        pg::coalesced_activity::CoalescedActivity,
+        pg::{
+            activities::{get_announcers, get_likers},
+            coalesced_activity::CoalescedActivity,
+        },
         profiles::Profile,
         remote_notes::RemoteNote,
         timeline::{ContextualizedTimelineItem, TimelineItem},
         vault::VaultItem,
     },
-    runner, MaybeMultiple, ANCHOR_RE,
+    runner, MaybeMultiple,
 };
 use chrono::{DateTime, Utc};
 use rocket::http::Status;
 use serde::{Deserialize, Serialize};
-use webpage::{Webpage, WebpageOptions};
 
 use super::actor::ApAddress;
 
@@ -224,25 +226,65 @@ impl ApNote {
         self
     }
 
-    pub fn dedup(mut self) -> Self {
-        if let Some(mut announces) = self.ephemeral_announces {
+    pub fn dedup(&mut self) -> Self {
+        if let Some(mut announces) = self.ephemeral_announces.clone() {
             announces.sort();
             announces.dedup();
             self.ephemeral_announces = Some(announces);
         }
 
-        if let Some(mut likes) = self.ephemeral_likes {
+        if let Some(mut likes) = self.ephemeral_likes.clone() {
             likes.sort();
             likes.dedup();
             self.ephemeral_likes = Some(likes);
         }
 
-        if let Some(mut actors) = self.ephemeral_actors {
+        if let Some(mut actors) = self.ephemeral_actors.clone() {
             actors.sort();
             actors.dedup();
             self.ephemeral_actors = Some(actors);
         }
 
+        self.clone()
+    }
+
+    pub async fn activities(&mut self, conn: &Db) -> &Self {
+        if let Some(id) = self.id.clone() {
+            let mut announcers: Vec<ApActor> =
+                get_announcers(conn, None, None, Some(50), id.clone())
+                    .await
+                    .iter()
+                    .map(ApActor::from)
+                    .collect();
+
+            let mut likers: Vec<ApActor> = get_likers(conn, None, None, Some(50), id)
+                .await
+                .iter()
+                .map(ApActor::from)
+                .collect();
+
+            self.ephemeral_announces = Some(
+                announcers
+                    .iter()
+                    .filter_map(|x| x.id.clone())
+                    .map(|x| x.to_string())
+                    .collect(),
+            );
+
+            self.ephemeral_likes = Some(
+                likers
+                    .iter()
+                    .filter_map(|x| x.id.clone())
+                    .map(|x| x.to_string())
+                    .collect(),
+            );
+
+            let mut actors = vec![];
+            actors.append(&mut announcers);
+            actors.append(&mut likers);
+            self.ephemeral_actors = Some(actors);
+            self.dedup();
+        }
         self
     }
 }
@@ -544,6 +586,9 @@ impl TryFrom<CoalescedActivity> for ApNote {
         let published = coalesced
             .object_published
             .ok_or_else(|| anyhow::anyhow!("object_published is None"))?;
+        let ephemeral_metadata = coalesced.object_metadata.and_then(from_serde);
+        let ephemeral_announces = from_serde(coalesced.object_announcers);
+        let ephemeral_likes = from_serde(coalesced.object_likers);
 
         Ok(ApNote {
             kind,
@@ -560,6 +605,9 @@ impl TryFrom<CoalescedActivity> for ApNote {
             summary,
             sensitive,
             published,
+            ephemeral_metadata,
+            ephemeral_announces,
+            ephemeral_likes,
             ..Default::default()
         })
     }
@@ -625,38 +673,6 @@ impl From<Note> for ApNote {
     }
 }
 
-// TODO: This is problematic for links that point to large files; the filter tries
-// to account for some of that, but that's not really a solution. Maybe a whitelist?
-// That would suck. I wish the Webpage crate had a size limit (i.e., load pages with
-// a maximum size of 10MB or whatever a reasonable amount would be).
-fn get_links(text: String) -> Vec<String> {
-    ANCHOR_RE
-        .captures_iter(&text)
-        .filter(|cap| {
-            !cap[0].to_lowercase().contains("mention")
-                && !cap[0].to_lowercase().contains("u-url")
-                && !cap[0].to_lowercase().contains("hashtag")
-                && !cap[0].to_lowercase().contains("download")
-                && !cap[1].to_lowercase().contains(".pdf")
-        })
-        .map(|cap| cap[1].to_string())
-        .collect()
-}
-
-fn metadata(remote_note: &RemoteNote) -> Vec<Metadata> {
-    get_links(remote_note.content.clone())
-        .iter()
-        .map(|link| {
-            (
-                link.clone(),
-                Webpage::from_url(link, WebpageOptions::default()),
-            )
-        })
-        .filter(|(_, metadata)| metadata.is_ok())
-        .map(|(link, metadata)| (link, metadata.unwrap().html.meta).into())
-        .collect()
-}
-
 impl From<RemoteNote> for ApNote {
     fn from(remote_note: RemoteNote) -> ApNote {
         cfg_if::cfg_if! {
@@ -699,7 +715,7 @@ impl From<RemoteNote> for ApNote {
                     },
                     conversation: remote_note.conversation.clone(),
                     ephemeral_timestamp: Some(remote_note.created_at),
-                    ephemeral_metadata: Some(metadata(&remote_note)),
+                    ephemeral_metadata: remote_note.metadata.and_then(from_serde),
                     ..Default::default()
                 }
             } else if #[cfg(feature = "sqlite")] {

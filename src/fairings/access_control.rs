@@ -37,7 +37,7 @@ impl<'r> FromRequest<'r> for Permitted {
 
         let signature_vec: Vec<_> = request.headers().get("signature").collect();
 
-        if signature_vec.len() > 1 {
+        if signature_vec.len() == 1 {
             let signature = signature_vec[0].to_string();
             let mut signature_map = HashMap::<String, String>::new();
 

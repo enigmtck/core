@@ -102,7 +102,7 @@ pub enum ApTimelineObject {
 impl ApTimelineObject {
     pub fn dedup(self) -> Self {
         match self {
-            ApTimelineObject::Note(note) => ApTimelineObject::Note(note.dedup()),
+            ApTimelineObject::Note(mut note) => ApTimelineObject::Note(note.dedup()),
             ApTimelineObject::Question(question) => ApTimelineObject::Question(question.dedup()),
         }
     }
