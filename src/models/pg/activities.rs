@@ -146,11 +146,12 @@ pub async fn get_activities_coalesced(
     let mut hashtags: Vec<String> = vec![];
     let mut date = Utc::now();
     let mut username: Option<String> = None;
+    let mut conversation: Option<String> = None;
 
     log::debug!("IN COALESCED");
     let mut param_gen = parameter_generator();
 
-    conn.run(move |c| {
+    let ret = conn.run(move |c| {
         let mut query = "WITH main AS (\
                          SELECT DISTINCT ON (a.created_at) a.*,\
                          COALESCE(n.uuid, NULL) AS object_uuid,\
@@ -184,13 +185,23 @@ pub async fn get_activities_coalesced(
             }
         }
 
-        query.push_str(&format!(
+        query.push_str(
             " LEFT JOIN (notes n INNER JOIN profiles p ON (p.id = n.profile_id)) ON (n.id = a.target_note_id) \
              LEFT JOIN remote_questions q ON (q.id = a.target_remote_question_id) \
              LEFT JOIN remote_notes r ON (r.id = a.target_remote_note_id) \
-             WHERE a.kind IN ('announce','create') \
-             AND NOT a.reply \
-             AND NOT a.revoked \
+             WHERE a.kind IN ('announce','create') ");
+
+        if let Some(filters) = filters.clone() {
+            if filters.conversation.is_some() {
+                conversation = filters.conversation;
+                query.push_str(&format!("AND r.conversation = {} ", param_gen()));
+            } else {
+                query.push_str("AND NOT a.reply ");
+            }
+        }
+
+        query.push_str(&format!(
+             "AND NOT a.revoked \
              AND (a.target_note_id IS NOT NULL OR a.target_remote_note_id IS NOT NULL \
              OR a.target_remote_question_id IS NOT NULL) \
              AND (a.ap_to ?| {} OR a.cc ?| {})",
@@ -253,13 +264,13 @@ pub async fn get_activities_coalesced(
 
         query.push_str(" SELECT DISTINCT m.*, \
                         COALESCE(JSONB_AGG(a.actor) \
-                        FILTER (WHERE a.actor IS NOT NULL), '[]') \
+                        FILTER (WHERE a.actor IS NOT NULL AND a.kind = 'announce'), '[]') \
                         AS object_announcers, \
                         COALESCE(JSONB_AGG(a.actor) \
-                        FILTER (WHERE a.actor IS NOT NULL AND NOT a.revoked AND a.kind = 'like'), '[]') \
+                        FILTER (WHERE a.actor IS NOT NULL AND a.kind = 'like'), '[]') \
                         AS object_likers \
                         FROM main m \
-                        LEFT JOIN activities a ON (a.target_ap_id = m.object_id AND a.kind = 'announce') \
+                        LEFT JOIN activities a ON (a.target_ap_id = m.object_id AND NOT a.revoked AND (a.kind = 'announce' OR a.kind = 'like')) \
                         GROUP BY m.id, m.created_at, m.updated_at, m.profile_id, \
                         m.kind, m.uuid, m.actor, m.ap_to, m.cc, m.target_note_id, m.target_remote_note_id, \
                         m.target_profile_id, m.target_activity_id, m.target_ap_id, m.target_remote_actor_id, \
@@ -274,25 +285,40 @@ pub async fn get_activities_coalesced(
 
         let mut query = sql_query(query).into_boxed();
 
+        if let Some(conversation) = conversation {
+            log::debug!("SETTING CONVERSATION: |{conversation}|");
+            query = query.bind::<Text, _>(conversation);
+        }
+
+        log::debug!("SETTING TO: |{to:#?}|");
         query = query.bind::<Array<Text>, _>(&to);
         query = query.bind::<Array<Text>, _>(&to);
 
         if min.is_some() || max.is_some() {
+            log::debug!("SETTING DATE: |{date}|");
             query = query.bind::<Timestamptz, _>(&date);
         }
 
         if let Some(username) = username {
+            log::debug!("SETTING USERNAME: |{username}|");
             query = query.bind::<Text, _>(username);
         }
 
         if !hashtags.is_empty() {
+            log::debug!("SETTING HASHTAGS: |{hashtags:#?}|");
             query = query.bind::<Array<Text>, _>(&hashtags);
         }
+
+        log::debug!("SETTING LIMIT: |{limit}|");
         query = query.bind::<Integer, _>(&limit);
 
         query.load::<CoalescedActivity>(c).expect("bad sql query")
     })
-    .await
+        .await;
+
+    log::debug!("ACTIVITIES VEC\n{ret:#?}");
+
+    ret
 }
 
 pub async fn create_activity_cc(conn: Option<&Db>, activity_cc: NewActivityCc) -> bool {

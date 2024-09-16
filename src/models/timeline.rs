@@ -248,6 +248,7 @@ pub struct TimelineFilters {
     pub view: TimelineView,
     pub hashtags: Vec<String>,
     pub username: Option<String>,
+    pub conversation: Option<String>,
 }
 // this is used in inbox/retrieve to accommodate authenticated calls for
 // more detailed timeline data (e.g., to include whether or not I've liked

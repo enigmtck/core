@@ -1,9 +1,10 @@
 use anyhow::Result;
+use rocket::serde::json::Json;
 
 use crate::activity_pub::{ActivityPub, ApActivity};
 use crate::fairings::events::EventChannels;
 use crate::models::pg::activities::get_activities_coalesced;
-use crate::models::timeline::ContextualizedTimelineItem;
+use crate::models::timeline::{ContextualizedTimelineItem, TimelineView};
 use crate::{
     activity_pub::{ApCollection, ApObject},
     db::Db,
@@ -13,6 +14,8 @@ use crate::{
     },
 };
 use crate::{runner, SERVER_URL};
+
+use super::ActivityJson;
 
 pub async fn activities(
     conn: &Db,
@@ -69,45 +72,4 @@ pub async fn inbox(
         Some(base_url),
     )
     .await
-}
-
-pub async fn conversation(
-    conn: Db,
-    channels: EventChannels,
-    conversation: String,
-    limit: i64,
-    offset: i64,
-) -> Result<ApObject> {
-    let conversations =
-        get_timeline_items_by_conversation(Some(&conn), conversation.clone(), limit, offset)
-            .await
-            .unwrap_or(vec![]);
-
-    if let Some(top) = conversations.first() {
-        runner::run(
-            runner::note::retrieve_context_task,
-            Some(conn),
-            Some(channels),
-            vec![top.ap_id.clone()],
-        )
-        .await;
-    }
-
-    let ap_objects: Result<Vec<ActivityPub>> = conversations
-        .iter()
-        .map(|item| {
-            ContextualizedTimelineItem {
-                item: item.clone(),
-                ..Default::default()
-            }
-            .try_into()
-            .map(ApObject::Note)
-            .map(ActivityPub::Object)
-        })
-        .collect();
-
-    Ok(ApObject::Collection(ApCollection::from((
-        ap_objects?,
-        None,
-    ))))
 }

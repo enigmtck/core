@@ -256,7 +256,7 @@ fn rocket() -> Rocket<Build> {
                 change_password,
                 note_get,
                 conversation_get,
-                conversation_get_local,
+                //conversation_get_local,
                 authorize_stream,
                 host_meta,
                 cached_image,

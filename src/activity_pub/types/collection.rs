@@ -238,7 +238,7 @@ impl From<Vec<ActivityPub>> for ApCollection {
     fn from(objects: Vec<ActivityPub>) -> Self {
         ApCollection {
             total_items: Some(objects.len() as u32),
-            items: Some(objects),
+            ordered_items: Some(objects),
             ..Default::default()
         }
     }

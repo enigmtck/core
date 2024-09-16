@@ -16,3 +16,11 @@ pub struct ActivityJson<T>(Json<T>);
 #[derive(Responder)]
 #[response(content_type = "application/ld+json")]
 pub struct LdJson<T>(Json<T>);
+
+#[derive(Responder)]
+#[response(content_type = "application/jrd+json")]
+pub struct JrdJson<T>(Json<T>);
+
+#[derive(Responder)]
+#[response(content_type = "application/xrd+xml")]
+pub struct XrdXml(String);

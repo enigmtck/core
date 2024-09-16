@@ -28,6 +28,7 @@ pub async fn outbox_get(
             view: TimelineView::Global,
             hashtags: vec![],
             username: Some(username),
+            conversation: None,
         }
     };
 

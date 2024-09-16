@@ -68,6 +68,7 @@ pub async fn shared_inbox_get(
                     view: view.into(),
                     hashtags: hashtags.unwrap_or_default(),
                     username: None,
+                    conversation: None,
                 },
                 InboxView::Home => TimelineFilters {
                     view: if let Some(profile) = profile.clone() {
@@ -83,11 +84,13 @@ pub async fn shared_inbox_get(
                     },
                     hashtags: hashtags.unwrap_or_default(),
                     username: None,
+                    conversation: None,
                 },
                 InboxView::Local => TimelineFilters {
                     view: view.into(),
                     hashtags: hashtags.unwrap_or_default(),
                     username: None,
+                    conversation: None,
                 },
             }
         } else {
@@ -95,6 +98,7 @@ pub async fn shared_inbox_get(
                 view: TimelineView::Global,
                 hashtags: hashtags.unwrap_or_default(),
                 username: None,
+                conversation: None,
             }
         }
     };
@@ -170,52 +174,77 @@ pub async fn announcers_get(
     // }
 }
 
-#[get("/api/user/<username>/conversation?<conversation>&<offset>&<limit>")]
+#[get("/api/conversation?<id>&<min>&<max>&<limit>")]
 pub async fn conversation_get(
-    signed: Signed,
     conn: Db,
-    channels: EventChannels,
-    username: String,
-    offset: u16,
-    limit: u8,
-    conversation: String,
+    id: String,
+    limit: Option<u8>,
+    min: Option<i64>,
+    max: Option<i64>,
 ) -> Result<ActivityJson<ApObject>, Status> {
-    if signed.local() {
-        if get_profile_by_username((&conn).into(), username)
-            .await
-            .is_some()
-        {
-            let decoded =
-                urlencoding::decode(&conversation).map_err(|_| Status::UnprocessableEntity)?;
+    let decoded = urlencoding::decode(&id).map_err(|_| Status::UnprocessableEntity)?;
+    let limit = limit.unwrap_or(20);
 
-            retrieve::conversation(
-                conn,
-                channels,
-                decoded.to_string(),
-                limit.into(),
-                offset.into(),
-            )
-            .await
-            .map(|inbox| ActivityJson(Json(inbox)))
-            .map_err(|_| Status::InternalServerError)
-        } else {
-            Err(Status::NotFound)
-        }
-    } else {
-        Err(Status::Unauthorized)
-    }
+    log::debug!("RETRIEVING CONVERSATION: {decoded}");
+
+    let filters = TimelineFilters {
+        view: TimelineView::Global,
+        hashtags: vec![],
+        username: None,
+        conversation: Some(decoded.to_string()),
+    };
+
+    Ok(ActivityJson(Json(
+        retrieve::activities(&conn, limit.into(), min, max, None, filters, None).await,
+    )))
 }
 
-#[get("/conversation/<uuid>")]
-pub async fn conversation_get_local(
-    conn: Db,
-    channels: EventChannels,
-    uuid: String,
-) -> Result<ActivityJson<ApObject>, Status> {
-    let conversation = format!("{}/conversation/{}", *crate::SERVER_URL, uuid);
+// #[get("/api/user/<username>/conversation?<conversation>&<offset>&<limit>")]
+// pub async fn conversation_get(
+//     signed: Signed,
+//     conn: Db,
+//     channels: EventChannels,
+//     username: String,
+//     offset: u16,
+//     limit: u8,
+//     conversation: String,
+// ) -> Result<ActivityJson<ApObject>, Status> {
+//     if signed.local() {
+//         if get_profile_by_username((&conn).into(), username)
+//             .await
+//             .is_some()
+//         {
+//             let decoded =
+//                 urlencoding::decode(&conversation).map_err(|_| Status::UnprocessableEntity)?;
 
-    retrieve::conversation(conn, channels, conversation.to_string(), 40, 0)
-        .await
-        .map(|conversation| ActivityJson(Json(conversation)))
-        .map_err(|_| Status::new(525))
-}
+//             retrieve::conversation(
+//                 conn,
+//                 channels,
+//                 decoded.to_string(),
+//                 limit.into(),
+//                 offset.into(),
+//             )
+//             .await
+//             .map(|inbox| ActivityJson(Json(inbox)))
+//             .map_err(|_| Status::InternalServerError)
+//         } else {
+//             Err(Status::NotFound)
+//         }
+//     } else {
+//         Err(Status::Unauthorized)
+//     }
+// }
+
+// #[get("/conversation/<uuid>")]
+// pub async fn conversation_get_local(
+//     conn: Db,
+//     channels: EventChannels,
+//     uuid: String,
+// ) -> Result<ActivityJson<ApObject>, Status> {
+//     let conversation = format!("{}/conversation/{}", *crate::SERVER_URL, uuid);
+
+//     retrieve::conversation(conn, channels, conversation.to_string(), 40, 0)
+//         .await
+//         .map(|conversation| ActivityJson(Json(conversation)))
+//         .map_err(|_| Status::new(525))
+// }

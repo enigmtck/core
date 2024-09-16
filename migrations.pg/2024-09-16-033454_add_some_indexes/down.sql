@@ -1,0 +1,1 @@
+DROP INDEX idx_remote_notes_conversation;
