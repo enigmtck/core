@@ -20,8 +20,6 @@ pub mod remote_encrypted_sessions;
 pub mod remote_note_hashtags;
 pub mod remote_notes;
 pub mod remote_questions;
-pub mod timeline;
-pub mod timeline_hashtags;
 pub mod vault;
 
 cfg_if::cfg_if! {

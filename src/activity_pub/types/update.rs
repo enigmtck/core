@@ -10,7 +10,7 @@ use crate::{
         remote_actors::{create_or_update_remote_actor, NewRemoteActor},
         remote_notes::create_or_update_remote_note,
     },
-    runner, MaybeMultiple, MaybeReference,
+    MaybeMultiple, MaybeReference,
 };
 use rocket::http::Status;
 use serde::{Deserialize, Serialize};
@@ -47,7 +47,12 @@ pub struct ApUpdate {
 }
 
 impl Inbox for ApUpdate {
-    async fn inbox(&self, conn: Db, channels: EventChannels, raw: Value) -> Result<Status, Status> {
+    async fn inbox(
+        &self,
+        conn: Db,
+        _channels: EventChannels,
+        raw: Value,
+    ) -> Result<Status, Status> {
         match self.clone().object {
             MaybeReference::Actual(actual) => match actual {
                 ApObject::Actor(actor) => {
@@ -78,13 +83,6 @@ impl Inbox for ApUpdate {
                                 .await
                                 .is_some()
                         {
-                            runner::run(
-                                runner::timeline::update_timeline_record_task,
-                                Some(conn),
-                                Some(channels),
-                                vec![id],
-                            )
-                            .await;
                             Ok(Status::Accepted)
                         } else {
                             log::error!("FAILED TO HANDLE ACTIVITY\n{raw}");

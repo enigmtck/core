@@ -7,11 +7,13 @@ use crate::helper::{
     get_activity_ap_id_from_uuid, get_ap_id_from_username, get_followers_ap_id_from_username,
     get_note_ap_id_from_uuid,
 };
+use crate::routes::inbox::InboxView;
 use crate::schema::{
     activities, activities_cc, activities_to, notes, profiles, remote_actors, remote_note_hashtags,
     remote_notes, remote_questions,
 };
 use crate::{MaybeReference, POOL};
+use anyhow::anyhow;
 use diesel::prelude::*;
 use diesel::{AsChangeset, Insertable};
 use serde::{Deserialize, Serialize};
@@ -168,6 +170,44 @@ impl From<Note> for ActivityTarget {
     fn from(note: Note) -> Self {
         ActivityTarget::Note(Box::new(note))
     }
+}
+
+#[derive(Eq, PartialEq, Clone)]
+pub enum TimelineView {
+    Home(Vec<String>),
+    Local,
+    Global,
+}
+
+impl TryFrom<String> for TimelineView {
+    type Error = anyhow::Error;
+
+    fn try_from(s: String) -> Result<Self, Self::Error> {
+        match s.to_lowercase().as_str() {
+            "local" => Ok(TimelineView::Local),
+            "global" => Ok(TimelineView::Global),
+            "home" => Ok(TimelineView::Home(vec![])),
+            _ => Err(anyhow!("invalid view")),
+        }
+    }
+}
+
+impl From<InboxView> for TimelineView {
+    fn from(view: InboxView) -> Self {
+        match view {
+            InboxView::Local => TimelineView::Local,
+            InboxView::Global => TimelineView::Global,
+            InboxView::Home => TimelineView::Home(vec![]),
+        }
+    }
+}
+
+#[derive(Clone)]
+pub struct TimelineFilters {
+    pub view: TimelineView,
+    pub hashtags: Vec<String>,
+    pub username: Option<String>,
+    pub conversation: Option<String>,
 }
 
 impl NewActivity {
@@ -719,42 +759,19 @@ pub async fn get_activity_by_kind_profile_id_and_target_ap_id(
     kind: ActivityType,
     profile_id: i32,
     target_ap_id: String,
-) -> Option<ExtendedActivity> {
-    let records = conn
-        .run(move |c| {
-            activities::table
-                .filter(activities::revoked.eq(false))
-                .filter(activities::kind.eq(to_kind(kind)))
-                .filter(activities::profile_id.eq(profile_id))
-                .filter(activities::target_ap_id.eq(target_ap_id))
-                .left_join(notes::table.on(activities::target_note_id.eq(notes::id.nullable())))
-                .left_join(
-                    remote_notes::table
-                        .on(activities::target_remote_note_id.eq(remote_notes::id.nullable())),
-                )
-                .left_join(
-                    profiles::table.on(activities::target_profile_id.eq(profiles::id.nullable())),
-                )
-                .left_join(
-                    remote_actors::table
-                        .on(activities::target_remote_actor_id.eq(remote_actors::id.nullable())),
-                )
-                .left_join(
-                    remote_questions::table
-                        .on(activities::target_remote_question_id
-                            .eq(remote_questions::id.nullable())),
-                )
-                .left_join(
-                    remote_note_hashtags::table.on(remote_note_hashtags::remote_note_id
-                        .nullable()
-                        .eq(remote_notes::id.nullable())),
-                )
-                .load::<ExtendedActivityRecord>(c)
-        })
-        .await
-        .ok()?;
-
-    fold_extended_activity_records(records)
+) -> Option<Activity> {
+    conn.run(move |c| {
+        activities::table
+            .filter(activities::revoked.eq(false))
+            .filter(activities::kind.eq(to_kind(kind)))
+            .filter(activities::profile_id.eq(profile_id))
+            .filter(activities::target_ap_id.eq(target_ap_id))
+            .load::<Activity>(c)
+    })
+    .await
+    .ok()?
+    .first()
+    .cloned()
 }
 
 pub async fn get_activity(conn: Option<&Db>, id: i32) -> Option<ExtendedActivity> {

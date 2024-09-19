@@ -82,17 +82,17 @@ pub struct ApCollectionPage {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub first: Option<String>,
+    pub first: Option<MaybeReference<Box<ApCollectionPage>>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub last: Option<String>,
+    pub last: Option<MaybeReference<Box<ApCollectionPage>>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub prev: Option<String>,
+    pub next: Option<MaybeReference<Box<ApCollectionPage>>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub next: Option<String>,
+    pub prev: Option<MaybeReference<Box<ApCollectionPage>>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub part_of: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub total_items: Option<i32>,
+    pub total_items: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     items: Option<Vec<ActivityPub>>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -148,7 +148,7 @@ pub struct ApCollection {
     pub kind: ApCollectionType,
     pub id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub total_items: Option<u32>,
+    pub total_items: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     items: Option<Vec<ActivityPub>>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -208,7 +208,7 @@ impl Default for ApCollection {
 }
 
 impl ApCollection {
-    pub fn total_items(&mut self, total: Option<u32>) -> &mut Self {
+    pub fn total_items(&mut self, total: Option<i64>) -> &mut Self {
         self.total_items = total;
         self
     }
@@ -234,36 +234,39 @@ impl ApCollection {
     }
 }
 
-impl From<Vec<ActivityPub>> for ApCollection {
-    fn from(objects: Vec<ActivityPub>) -> Self {
+type ApCollectionParams = (i64, String);
+impl From<ApCollectionParams> for ApCollection {
+    fn from((count, base_url): ApCollectionParams) -> Self {
         ApCollection {
-            total_items: Some(objects.len() as u32),
-            ordered_items: Some(objects),
+            kind: ApCollectionType::OrderedCollection,
+            total_items: Some(count),
+            first: Some(MaybeReference::from(format!("{base_url}?page=true"))),
+            last: Some(MaybeReference::from(format!("{base_url}?page=true&min=0"))),
             ..Default::default()
         }
     }
 }
 
-type ApCollectionParams = (Vec<ActivityPub>, Option<String>);
-
-impl From<ApCollectionParams> for ApCollection {
-    fn from((mut objects, base_url): ApCollectionParams) -> Self {
+type ApCollectionPageParams = (Vec<ActivityPub>, Option<String>);
+impl From<ApCollectionPageParams> for ApCollectionPage {
+    fn from((mut objects, base_url): ApCollectionPageParams) -> Self {
         objects.sort_by_key(|x| Reverse(x.timestamp()));
 
-        ApCollection {
-            kind: ApCollectionType::OrderedCollection,
-            total_items: Some(objects.len() as u32),
+        ApCollectionPage {
+            kind: ApCollectionPageType::OrderedCollectionPage,
+            total_items: None,
             ordered_items: Some(objects.clone()),
             prev: base_url.clone().and_then(|y| {
-                objects
-                    .first()
-                    .map(|x| format!("{y}&min={}", x.timestamp().timestamp_micros()).into())
+                objects.first().map(|x| {
+                    MaybeReference::from(format!("{y}&min={}", x.timestamp().timestamp_micros()))
+                })
             }),
-            next: base_url.and_then(|y| {
-                objects
-                    .last()
-                    .map(|x| format!("{y}&max={}", x.timestamp().timestamp_micros()).into())
+            next: base_url.clone().and_then(|y| {
+                objects.last().map(|x| {
+                    MaybeReference::from(format!("{y}&max={}", x.timestamp().timestamp_micros()))
+                })
             }),
+            part_of: base_url,
             ..Default::default()
         }
     }
@@ -286,7 +289,7 @@ impl From<ActorsPage> for ApCollection {
                     *crate::SERVER_URL,
                     request.profile.username
                 )),
-                total_items: Some(request.actors.len() as u32),
+                total_items: Some(request.actors.len() as i64),
                 first: None,
                 part_of: None,
                 ordered_items: Some(
@@ -325,7 +328,7 @@ impl From<FollowersPage> for ApCollection {
                     *crate::SERVER_URL,
                     request.profile.username
                 )),
-                total_items: Some(request.followers.len() as u32),
+                total_items: Some(request.followers.len() as i64),
                 first: None,
                 part_of: None,
                 ordered_items: Some(
@@ -347,42 +350,42 @@ impl From<FollowersPage> for ApCollection {
     }
 }
 
-#[derive(Clone)]
-pub struct ActivitiesPage {
-    pub profile: Profile,
-    pub activities: Vec<ApActivity>,
-    pub first: Option<String>,
-    pub last: Option<String>,
-    pub next: Option<String>,
-    pub prev: Option<String>,
-    pub part_of: Option<String>,
-}
+// #[derive(Clone)]
+// pub struct ActivitiesPage {
+//     pub profile: Profile,
+//     pub activities: Vec<ApActivity>,
+//     pub first: Option<String>,
+//     pub last: Option<String>,
+//     pub next: Option<String>,
+//     pub prev: Option<String>,
+//     pub part_of: Option<String>,
+// }
 
-impl From<ActivitiesPage> for ApCollectionPage {
-    fn from(request: ActivitiesPage) -> Self {
-        ApCollectionPage {
-            kind: ApCollectionPageType::OrderedCollectionPage,
-            id: Some(format!(
-                "{}/users/{}/activities",
-                *crate::SERVER_URL,
-                request.profile.username
-            )),
-            first: request.first,
-            last: request.last,
-            next: request.next,
-            prev: request.prev,
-            part_of: request.part_of,
-            ordered_items: Some(
-                request
-                    .activities
-                    .into_iter()
-                    .map(ActivityPub::Activity)
-                    .collect::<Vec<ActivityPub>>(),
-            ),
-            ..Default::default()
-        }
-    }
-}
+// impl From<ActivitiesPage> for ApCollectionPage {
+//     fn from(request: ActivitiesPage) -> Self {
+//         ApCollectionPage {
+//             kind: ApCollectionPageType::OrderedCollectionPage,
+//             id: Some(format!(
+//                 "{}/users/{}/activities",
+//                 *crate::SERVER_URL,
+//                 request.profile.username
+//             )),
+//             first: request.first,
+//             last: request.last,
+//             next: request.next,
+//             prev: request.prev,
+//             part_of: request.part_of,
+//             ordered_items: Some(
+//                 request
+//                     .activities
+//                     .into_iter()
+//                     .map(ActivityPub::Activity)
+//                     .collect::<Vec<ActivityPub>>(),
+//             ),
+//             ..Default::default()
+//         }
+//     }
+// }
 
 #[derive(Clone)]
 pub struct LeadersPage {
@@ -401,7 +404,7 @@ impl From<LeadersPage> for ApCollection {
                     *crate::SERVER_URL,
                     request.profile.username
                 )),
-                total_items: Some(request.leaders.len() as u32),
+                total_items: Some(request.leaders.len() as i64),
                 first: None,
                 part_of: None,
                 ordered_items: Some(
@@ -434,7 +437,7 @@ impl From<IdentifiedVaultItems> for ApCollection {
                 *crate::SERVER_URL,
                 uuid::Uuid::new_v4()
             )),
-            total_items: Some(items.len() as u32),
+            total_items: Some(items.len() as i64),
             first: None,
             part_of: None,
             ordered_items: Some(

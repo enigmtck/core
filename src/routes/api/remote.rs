@@ -93,14 +93,9 @@ pub async fn remote_actor(
 async fn remote_actor_authenticated_response(
     signed: Signed,
     conn: &Db,
-    username: String,
     webfinger: String,
 ) -> Result<Json<ApActor>, Status> {
-    if signed.local() {
-        let profile = get_profile_by_username(conn.into(), username)
-            .await
-            .ok_or(Status::NotFound)?;
-
+    if let Some(profile) = signed.profile() {
         let ap_id = get_ap_id_from_webfinger(webfinger)
             .await
             .ok_or(Status::new(525))?;
@@ -110,28 +105,22 @@ async fn remote_actor_authenticated_response(
             .ok_or(Status::NotFound)?;
         Ok(Json(actor))
     } else {
-        Err(Status::NoContent)
+        Err(Status::Unauthorized)
     }
 }
 
-#[get("/api/user/<username>/remote/actor?<webfinger>")]
+#[get("/api/user/<_username>/remote/actor?<webfinger>")]
 pub async fn remote_actor_authenticated(
     blocks: BlockList,
     signed: Signed,
     conn: Db,
-    username: &str,
+    _username: &str,
     webfinger: &str,
 ) -> Result<Json<ApActor>, Status> {
     if blocks.is_blocked(get_domain_from_webfinger(webfinger.to_string())) {
         Err(Status::Forbidden)
     } else {
-        remote_actor_authenticated_response(
-            signed,
-            &conn,
-            username.to_string(),
-            webfinger.to_string(),
-        )
-        .await
+        remote_actor_authenticated_response(signed, &conn, webfinger.to_string()).await
     }
 }
 
@@ -177,39 +166,31 @@ pub async fn remote_followers(
 /// with the actor for the ApCollectionPage. The `page` parameter is URL encoded because
 /// it's the standard URL ID that ActivityPub uses for such things and includes characters
 /// that would interfere with the match (`?`, `:`, `/`, and `=`);
-#[get("/api/user/<username>/remote/followers?<webfinger>&<page>")]
+#[get("/api/user/<_username>/remote/followers?<webfinger>&<page>")]
 pub async fn remote_followers_authenticated(
     blocks: BlockList,
     signed: Signed,
     conn: Db,
-    username: &str,
+    _username: &str,
     webfinger: &str,
     page: Option<&str>,
 ) -> Result<Json<ApObject>, Status> {
     if blocks.is_blocked(get_domain_from_webfinger(webfinger.to_string())) {
         Err(Status::Forbidden)
-    } else if signed.local() {
-        let profile = get_profile_by_username((&conn).into(), username.to_string())
-            .await
-            .ok_or(Status::NotFound)?;
-        if let Ok(Json(actor)) = remote_actor_authenticated_response(
-            signed,
-            &conn,
-            username.to_string(),
-            webfinger.to_string(),
-        )
-        .await
+    } else if let Some(profile) = signed.profile() {
+        if let Ok(Json(actor)) =
+            remote_actor_authenticated_response(signed, &conn, webfinger.to_string()).await
         {
-            let followers = actor.followers.ok_or(Status::new(526))?;
+            let followers = actor.followers.ok_or(Status::InternalServerError)?;
             if let Some(page) = page {
-                let url = urlencoding::decode(page).map_err(|_| Status::new(527))?;
+                let url = urlencoding::decode(page).map_err(|_| Status::UnprocessableEntity)?;
                 let url = &(*url).to_string();
 
                 if url.contains(&followers) {
                     let collection =
                         get_remote_collection_page(&conn, Some(profile), page.to_string())
                             .await
-                            .map_err(|_| Status::NoContent)?;
+                            .map_err(|_| Status::InternalServerError)?;
                     Ok(Json(ApObject::CollectionPage(collection)))
                 } else {
                     Err(Status::NoContent)
@@ -221,10 +202,10 @@ pub async fn remote_followers_authenticated(
                 Ok(Json(ApObject::Collection(collection)))
             }
         } else {
-            Err(Status::NoContent)
+            Err(Status::InternalServerError)
         }
     } else {
-        Err(Status::NoContent)
+        Err(Status::Unauthorized)
     }
 }
 
@@ -244,76 +225,70 @@ pub async fn remote_following(
     if blocks.is_blocked(get_domain_from_webfinger(webfinger.to_string())) {
         Err(Status::Forbidden)
     } else if let Ok(Json(actor)) = remote_actor_response(&conn, webfinger.to_string()).await {
-        let following = actor.following.ok_or(Status::new(526))?;
+        let following = actor.following.ok_or(Status::InternalServerError)?;
         if let Some(page) = page {
-            let url = urlencoding::decode(page).map_err(|_| Status::new(524))?;
+            let url = urlencoding::decode(page).map_err(|_| Status::UnprocessableEntity)?;
             let url = &(*url).to_string();
 
             if url.contains(&following) {
                 let collection = get_remote_collection_page(&conn, None, page.to_string())
                     .await
-                    .map_err(|_| Status::NoContent)?;
+                    .map_err(|_| Status::InternalServerError)?;
                 Ok(Json(ApObject::CollectionPage(collection)))
             } else {
-                Err(Status::NoContent)
+                Err(Status::InternalServerError)
             }
         } else {
             let collection = get_remote_collection(&conn, None, following)
                 .await
-                .map_err(|_| Status::NoContent)?;
+                .map_err(|_| Status::InternalServerError)?;
             Ok(Json(ApObject::Collection(collection)))
         }
     } else {
-        Err(Status::new(520))
+        Err(Status::Unauthorized)
     }
 }
 
-#[get("/api/user/<username>/remote/following?<webfinger>&<page>")]
+#[get("/api/user/<_username>/remote/following?<webfinger>&<page>")]
 pub async fn remote_following_authenticated(
     blocks: BlockList,
     signed: Signed,
     conn: Db,
-    username: &str,
+    _username: &str,
     webfinger: &str,
     page: Option<&str>,
 ) -> Result<Json<ApObject>, Status> {
     if blocks.is_blocked(get_domain_from_webfinger(webfinger.to_string())) {
         Err(Status::Forbidden)
-    } else if !signed.local() {
-        Err(Status::Unauthorized)
-    } else if let Ok(Json(actor)) = remote_actor_authenticated_response(
-        signed,
-        &conn,
-        username.to_string(),
-        webfinger.to_string(),
-    )
-    .await
-    {
-        let profile = get_profile_by_username((&conn).into(), username.to_string())
-            .await
-            .ok_or(Status::new(521))?;
+    } else if let Some(profile) = signed.profile() {
+        if let Ok(Json(actor)) =
+            remote_actor_authenticated_response(signed, &conn, webfinger.to_string()).await
+        {
+            let following = actor.following.ok_or(Status::InternalServerError)?;
+            if let Some(page) = page {
+                let url = urlencoding::decode(page).map_err(|_| Status::UnprocessableEntity)?;
+                let url = &(*url).to_string();
+                if url.contains(&following) {
+                    let collection =
+                        get_remote_collection_page(&conn, Some(profile), page.to_string())
+                            .await
+                            .map_err(|_| Status::NoContent)?;
 
-        let following = actor.following.ok_or(Status::new(526))?;
-        if let Some(page) = page {
-            let url = urlencoding::decode(page).map_err(|_| Status::new(522))?;
-            let url = &(*url).to_string();
-            if url.contains(&following) {
-                let collection = get_remote_collection_page(&conn, Some(profile), page.to_string())
+                    Ok(Json(ApObject::CollectionPage(collection)))
+                } else {
+                    Err(Status::NoContent)
+                }
+            } else {
+                let collection = get_remote_collection(&conn, Some(profile), following)
                     .await
                     .map_err(|_| Status::NoContent)?;
-
-                Ok(Json(ApObject::CollectionPage(collection)))
-            } else {
-                Err(Status::NoContent)
+                Ok(Json(ApObject::Collection(collection)))
             }
         } else {
-            let collection = get_remote_collection(&conn, Some(profile), following)
-                .await
-                .map_err(|_| Status::NoContent)?;
-            Ok(Json(ApObject::Collection(collection)))
+            Err(Status::NotFound)
         }
     } else {
-        Err(Status::NoContent)
+        Err(Status::Unauthorized)
     }
 }
 
@@ -334,7 +309,7 @@ pub async fn remote_outbox(
         Err(Status::Forbidden)
     } else if let Ok(Json(actor)) = remote_actor_response(&conn, webfinger.to_string()).await {
         if let Some(page) = page {
-            let url = urlencoding::decode(page).map_err(|_| Status::new(524))?;
+            let url = urlencoding::decode(page).map_err(|_| Status::UnprocessableEntity)?;
             let url = &(*url).to_string();
             if url.contains(&actor.outbox) {
                 let collection = get_remote_collection_page(&conn, None, page.to_string())
@@ -374,7 +349,7 @@ pub async fn remote_outbox_authenticated(
             .await
             .ok_or(Status::new(521))?;
         if let Some(page) = page {
-            let url = urlencoding::decode(page).map_err(|_| Status::new(524))?;
+            let url = urlencoding::decode(page).map_err(|_| Status::UnprocessableEntity)?;
             let url = &(*url).to_string();
             if url.contains(&actor.outbox) {
                 let collection = get_remote_collection_page(&conn, Some(profile), page.to_string())
@@ -413,23 +388,19 @@ pub async fn remote_note(blocks: BlockList, conn: Db, id: &str) -> Result<Json<A
     }
 }
 
-#[get("/api/user/<username>/remote/note?<id>")]
+#[get("/api/user/<_username>/remote/note?<id>")]
 pub async fn remote_note_authenticated(
     blocks: BlockList,
     signed: Signed,
     conn: Db,
-    username: &str,
+    _username: &str,
     id: &str,
 ) -> Result<Json<ApNote>, Status> {
     // it feels like id should be encoded, but it doesn't look like I wrote this to be
     // will need to revisit
     if blocks.is_blocked(get_domain_from_url(id.to_string())) {
         Err(Status::Forbidden)
-    } else if signed.local() {
-        let profile = get_profile_by_username((&conn).into(), username.to_string())
-            .await
-            .ok_or(Status::new(523))?;
-
+    } else if let Some(profile) = signed.profile() {
         let note = get_note(&conn, Some(profile), id.to_string())
             .await
             .ok_or(Status::new(524))?;

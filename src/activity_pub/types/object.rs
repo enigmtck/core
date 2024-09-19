@@ -2,7 +2,6 @@ use crate::activity_pub::{ApActor, ApCollection, ApInstrument, ApNote, Outbox};
 use crate::db::Db;
 use crate::fairings::events::EventChannels;
 use crate::models::profiles::Profile;
-use crate::models::timeline::ContextualizedTimelineItem;
 use crate::{Identifier, MaybeMultiple, IMAGE_MEDIA_RE};
 
 use anyhow::Error;
@@ -74,38 +73,11 @@ pub struct ApBasicContent {
     pub content: String,
 }
 
-impl TryFrom<ContextualizedTimelineItem> for ApTimelineObject {
-    type Error = anyhow::Error;
-
-    fn try_from(contextualized: ContextualizedTimelineItem) -> Result<Self, Self::Error> {
-        // sqlite kind is a String, while pg is a custom_type mapped to an enum
-        // here we convert both to a String (which is a noop for sqlite) for the match
-        // so we don't need two separate functions
-        match contextualized.item.kind.to_string().to_lowercase().as_str() {
-            "note" => Ok(ApTimelineObject::Note(contextualized.try_into()?)),
-            "question" => Ok(ApTimelineObject::Question(contextualized.try_into()?)),
-            _ => {
-                log::debug!("failed to convert ContextualizedTimelineItem to ApTimelineObject\n{contextualized:#?}");
-                Err(anyhow::Error::msg("item type not implemented"))
-            }
-        }
-    }
-}
-
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(untagged)]
 pub enum ApTimelineObject {
     Note(ApNote),
     Question(ApQuestion),
-}
-
-impl ApTimelineObject {
-    pub fn dedup(self) -> Self {
-        match self {
-            ApTimelineObject::Note(mut note) => ApTimelineObject::Note(note.dedup()),
-            ApTimelineObject::Question(question) => ApTimelineObject::Question(question.dedup()),
-        }
-    }
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]

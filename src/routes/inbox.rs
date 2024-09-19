@@ -3,16 +3,16 @@ use rocket::serde::json::Json;
 use rocket::{get, post};
 use serde_json::Value;
 
-use crate::activity_pub::{ActivityPub, ApActivity, ApActor, ApCollection, ApObject, Inbox};
+use crate::activity_pub::{
+    ActivityPub, ApActivity, ApActor, ApCollection, ApCollectionPage, ApObject, Inbox,
+};
 use crate::db::Db;
 use crate::fairings::access_control::Permitted;
 use crate::fairings::events::EventChannels;
 use crate::fairings::signatures::Signed;
+use crate::models::activities::{TimelineFilters, TimelineView};
 use crate::models::leaders::get_leaders_by_profile_id;
 use crate::models::pg::activities::get_announcers;
-use crate::models::{
-    profiles::get_profile_by_username, timeline::TimelineFilters, timeline::TimelineView,
-};
 use crate::SERVER_URL;
 //use crate::models::remote_activities::create_remote_activity;
 
@@ -163,8 +163,8 @@ pub async fn announcers_get(
         .map(ActivityPub::from)
         .collect();
 
-    Ok(ActivityJson(Json(ApObject::Collection(
-        ApCollection::from((actors, Some(base_url))),
+    Ok(ActivityJson(Json(ApObject::CollectionPage(
+        ApCollectionPage::from((actors, Some(base_url))),
     ))))
     // } else {
     //     Err(Status::Unauthorized)

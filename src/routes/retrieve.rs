@@ -1,21 +1,22 @@
-use anyhow::Result;
-use rocket::serde::json::Json;
-
-use crate::activity_pub::{ActivityPub, ApActivity};
-use crate::fairings::events::EventChannels;
+use crate::models::activities::{get_outbox_count_by_profile_id, TimelineFilters};
 use crate::models::pg::activities::get_activities_coalesced;
-use crate::models::timeline::{ContextualizedTimelineItem, TimelineView};
 use crate::{
-    activity_pub::{ApCollection, ApObject},
+    activity_pub::{ActivityPub, ApActivity, ApCollection, ApCollectionPage, ApObject},
     db::Db,
-    models::{
-        profiles::Profile,
-        timeline::{get_timeline_items_by_conversation, TimelineFilters},
-    },
+    models::profiles::Profile,
 };
-use crate::{runner, SERVER_URL};
+use crate::{MaybeReference, SERVER_URL};
 
-use super::ActivityJson;
+pub async fn outbox_collection(conn: &Db, profile: Profile, base_url: Option<String>) -> ApObject {
+    let server_url = &*SERVER_URL;
+    let username = profile.username;
+    let base_url = base_url.unwrap_or(format!("{server_url}/{username}/outbox"));
+    let count = get_outbox_count_by_profile_id(conn, profile.id)
+        .await
+        .unwrap_or(0);
+
+    ApObject::Collection(ApCollection::from((count, base_url)))
+}
 
 pub async fn activities(
     conn: &Db,
@@ -39,15 +40,38 @@ pub async fn activities(
     )
     .await;
 
-    log::debug!("ACTIVITIES:{activities:#?}");
-
-    let activities = activities
-        .iter()
+    let mut activities: Vec<ApActivity> = activities
+        .into_iter()
         .filter_map(|activity| ApActivity::try_from(activity.clone()).ok())
-        .map(ActivityPub::from)
         .collect();
 
-    ApObject::Collection(ApCollection::from((activities, Some(base_url))))
+    let mut updated: Vec<ApActivity> = vec![];
+    if let Some(profile) = requester.clone() {
+        for activity in &mut activities {
+            let mut activity = activity.clone();
+            match activity {
+                ApActivity::Create(ref mut create) => {
+                    if let MaybeReference::Actual(ApObject::Note(ref mut note)) = create.object {
+                        note.contextualize(conn, profile.clone()).await;
+                    }
+                }
+                ApActivity::Announce(ref mut announce) => {
+                    if let MaybeReference::Actual(ApObject::Note(ref mut note)) = announce.object {
+                        note.contextualize(conn, profile.clone()).await;
+                    }
+                }
+                _ => {}
+            }
+
+            updated.push(activity.clone());
+        }
+    } else {
+        updated.extend(activities.clone());
+    }
+
+    let activities = updated.iter().map(ActivityPub::from).collect();
+
+    ApObject::CollectionPage(ApCollectionPage::from((activities, Some(base_url))))
 }
 
 pub async fn inbox(

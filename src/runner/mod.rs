@@ -26,7 +26,6 @@ pub mod follow;
 pub mod like;
 pub mod note;
 pub mod question;
-pub mod timeline;
 pub mod undo;
 pub mod user;
 

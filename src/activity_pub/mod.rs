@@ -17,8 +17,8 @@ pub use types::add::{ApAdd, ApAddType};
 pub use types::announce::{ApAnnounce, ApAnnounceType};
 pub use types::block::{ApBlock, ApBlockType};
 pub use types::collection::{
-    ActivitiesPage, ActorsPage, ApCollection, ApCollectionPage, ApCollectionPageType,
-    ApCollectionType, Collectible, FollowersPage, IdentifiedVaultItems, LeadersPage,
+    ActorsPage, ApCollection, ApCollectionPage, ApCollectionPageType, ApCollectionType,
+    Collectible, FollowersPage, IdentifiedVaultItems, LeadersPage,
 };
 pub use types::create::{ApCreate, ApCreateType};
 pub use types::delete::{ApDelete, ApDeleteType, ApTombstone};

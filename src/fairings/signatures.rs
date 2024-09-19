@@ -60,60 +60,73 @@ impl<'r> FromRequest<'r> for Signed {
                 .map(|val| val.to_string())
         };
 
-        let conn = request.guard::<Db>().await.expect("DB connection failed");
+        match request.guard::<Db>().await {
+            Outcome::Success(conn) => {
+                let method = request.method().to_string();
+                let host = request.host().expect("Host not found").to_string();
+                let path = request.uri().to_string();
+                let path = path.trim_end_matches('&');
+                let request_target = format!("{} {}", method.to_lowercase(), path);
 
-        let method = request.method().to_string();
-        let host = request.host().expect("Host not found").to_string();
-        let path = request.uri().to_string();
-        let path = path.trim_end_matches('&');
-        let request_target = format!("{} {}", method.to_lowercase(), path);
+                let date = match get_header("date").or_else(|| get_header("enigmatick-date")) {
+                    Some(val) => val,
+                    None => {
+                        log::debug!("NO DATE PROVIDED");
+                        return Outcome::Success(Signed(false, VerificationType::None));
+                    }
+                };
 
-        let date = match get_header("date").or_else(|| get_header("enigmatick-date")) {
-            Some(val) => val,
-            None => {
-                log::debug!("NO DATE PROVIDED");
-                return Outcome::Success(Signed(false, VerificationType::None));
-            }
-        };
+                let digest = get_header("digest");
+                let user_agent = get_header("user-agent");
+                let content_length = get_header("content-length");
 
-        let digest = get_header("digest");
-        let user_agent = get_header("user-agent");
-        let content_length = get_header("content-length");
+                if let Some(content_type) = request.content_type() {
+                    let content_type = content_type.to_string();
+                    let signature_vec: Vec<_> = request.headers().get("signature").collect();
 
-        if let Some(content_type) = request.content_type() {
-            let content_type = content_type.to_string();
-            let signature_vec: Vec<_> = request.headers().get("signature").collect();
-
-            match signature_vec.len() {
-                0 => Outcome::Success(Signed(false, VerificationType::None)),
-                1 => {
-                    let signature = signature_vec[0].to_string();
-                    let verify_params = VerifyParams {
-                        signature,
-                        request_target,
-                        host,
-                        date,
-                        digest,
-                        content_type,
-                        content_length,
-                        user_agent,
-                    };
-                    match verify(conn, verify_params.clone()).await {
-                        Ok(t) => Outcome::Success(Signed(true, t)),
-                        Err(e) => {
-                            log::debug!("{e:#?}");
-                            Outcome::Error((Status::BadRequest, SignatureError::SignatureInvalid))
+                    match signature_vec.len() {
+                        0 => Outcome::Success(Signed(false, VerificationType::None)),
+                        1 => {
+                            let signature = signature_vec[0].to_string();
+                            let verify_params = VerifyParams {
+                                signature,
+                                request_target,
+                                host,
+                                date,
+                                digest,
+                                content_type,
+                                content_length,
+                                user_agent,
+                            };
+                            match verify(conn, verify_params.clone()).await {
+                                Ok(t) => Outcome::Success(Signed(true, t)),
+                                Err(e) => {
+                                    log::debug!("{e:#?}");
+                                    Outcome::Error((
+                                        Status::BadRequest,
+                                        SignatureError::SignatureInvalid,
+                                    ))
+                                }
+                            }
+                        }
+                        _ => {
+                            log::debug!("MULTIPLE SIGNATURES");
+                            Outcome::Error((Status::BadRequest, SignatureError::MultipleSignatures))
                         }
                     }
-                }
-                _ => {
-                    log::debug!("MULTIPLE SIGNATURES");
-                    Outcome::Error((Status::BadRequest, SignatureError::MultipleSignatures))
+                } else {
+                    log::debug!("NO CONTENT-TYPE SPECIFIED");
+                    Outcome::Success(Signed(false, VerificationType::None))
                 }
             }
-        } else {
-            log::debug!("NO CONTENT-TYPE SPECIFIED");
-            Outcome::Success(Signed(false, VerificationType::None))
+            Outcome::Error(e) => {
+                log::error!("UNABLE TO CONNECT TO DATABASE: {e:?}");
+                Outcome::Error((Status::InternalServerError, SignatureError::NoDbConnection))
+            }
+            _ => {
+                log::error!("UNKNOWN PROBLEM");
+                Outcome::Error((Status::InternalServerError, SignatureError::NoDbConnection))
+            }
         }
     }
 }

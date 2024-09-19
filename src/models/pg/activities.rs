@@ -1,7 +1,6 @@
 use crate::activity_pub::PUBLIC_COLLECTION;
 use crate::db::Db;
-use crate::helper::get_ap_id_from_username;
-use crate::models::timeline::{TimelineFilters, TimelineView};
+use crate::helper::{get_activity_ap_id_from_uuid, get_ap_id_from_username};
 use crate::schema::{
     activities, activities_cc, activities_to, notes, profiles, remote_actors, remote_note_hashtags,
     remote_notes, remote_questions,
@@ -20,7 +19,7 @@ use super::profiles::Profile;
 use super::remote_actors::RemoteActor;
 use crate::models::activities::{
     transform_records_to_extended_activities, ExtendedActivity, ExtendedActivityRecord,
-    NewActivityCc, NewActivityTo,
+    NewActivityCc, NewActivityTo, TimelineFilters, TimelineView,
 };
 
 #[derive(
@@ -42,7 +41,7 @@ pub enum ActivityType {
     Remove,
 }
 
-#[derive(Serialize, Deserialize, Insertable, Default, Debug, Clone, AsChangeset)]
+#[derive(Serialize, Deserialize, Insertable, Debug, Clone, AsChangeset)]
 #[diesel(table_name = activities)]
 pub struct NewActivity {
     pub kind: ActivityType,
@@ -61,6 +60,31 @@ pub struct NewActivity {
     pub ap_id: Option<String>,
     pub target_remote_question_id: Option<i32>,
     pub reply: bool,
+}
+
+impl Default for NewActivity {
+    fn default() -> Self {
+        let uuid = uuid::Uuid::new_v4().to_string();
+
+        NewActivity {
+            kind: ActivityType::default(),
+            uuid: uuid.clone(),
+            actor: String::new(),
+            ap_to: None,
+            cc: None,
+            profile_id: None,
+            target_note_id: None,
+            target_remote_note_id: None,
+            target_profile_id: None,
+            target_activity_id: None,
+            target_ap_id: None,
+            target_remote_actor_id: None,
+            revoked: false,
+            ap_id: Some(get_activity_ap_id_from_uuid(uuid)),
+            target_remote_question_id: None,
+            reply: false,
+        }
+    }
 }
 
 #[derive(
@@ -210,12 +234,14 @@ pub async fn get_activities_coalesced(
 
         // Add date filtering to the subquery
         if let Some(min) = min {
-            date = DateTime::from_naive_utc_and_offset(
-                NaiveDateTime::from_timestamp_micros(min).unwrap(),
-                Utc,
-            );
+            if min != 0 {
+                date = DateTime::from_naive_utc_and_offset(
+                    NaiveDateTime::from_timestamp_micros(min).unwrap(),
+                    Utc,
+                );
 
-            query.push_str(&format!(" AND a.created_at > {}", param_gen()));
+                query.push_str(&format!(" AND a.created_at > {}", param_gen()));
+            }
         } else if let Some(max) = max {
             date = DateTime::from_naive_utc_and_offset(
                 NaiveDateTime::from_timestamp_micros(max).unwrap(),
@@ -257,10 +283,17 @@ pub async fn get_activities_coalesced(
             }
         }
 
-        query.push_str(&format!(
-            " ORDER BY created_at DESC LIMIT {})",
-            param_gen()
-        ));
+        if min.is_some() && min.unwrap() == 0 {
+            query.push_str(&format!(
+                " ORDER BY created_at ASC LIMIT {})",
+                param_gen()
+            ));
+        } else {
+            query.push_str(&format!(
+                " ORDER BY created_at DESC LIMIT {})",
+                param_gen()
+            ));
+        }
 
         query.push_str(" SELECT DISTINCT m.*, \
                         COALESCE(JSONB_AGG(a.actor) \
@@ -294,7 +327,7 @@ pub async fn get_activities_coalesced(
         query = query.bind::<Array<Text>, _>(&to);
         query = query.bind::<Array<Text>, _>(&to);
 
-        if min.is_some() || max.is_some() {
+        if (min.is_some() && min.unwrap() != 0) || max.is_some() {
             log::debug!("SETTING DATE: |{date}|");
             query = query.bind::<Timestamptz, _>(&date);
         }

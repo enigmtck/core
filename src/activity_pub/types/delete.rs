@@ -14,7 +14,6 @@ use crate::{
         profiles::Profile,
         remote_actors::delete_remote_actor_by_ap_id,
         remote_notes::{delete_remote_note_by_ap_id, get_remote_note_by_ap_id},
-        timeline::delete_timeline_item_by_ap_id,
     },
     runner, MaybeMultiple, MaybeReference,
 };
@@ -83,18 +82,6 @@ impl Inbox for Box<ApDelete> {
             }
         }
 
-        async fn delete_timeline(conn: &Db, ap_id: String) -> Result<Status, Status> {
-            if delete_timeline_item_by_ap_id(conn.into(), ap_id)
-                .await
-                .is_ok()
-            {
-                log::debug!("TIMELINE RECORD DELETED");
-                Ok(Status::Accepted)
-            } else {
-                Err(Status::NoContent)
-            }
-        }
-
         match self.object.clone() {
             MaybeReference::Actual(actual) => match actual {
                 ApObject::Tombstone(tombstone) => {
@@ -102,11 +89,7 @@ impl Inbox for Box<ApDelete> {
                         .await
                         .ok_or(Status::NotFound)?;
                     if remote_note.attributed_to == self.actor.clone().to_string() {
-                        if delete_note(&conn, tombstone.id.clone()).await.is_ok() {
-                            delete_timeline(&conn, tombstone.id).await
-                        } else {
-                            Err(Status::new(520))
-                        }
+                        delete_note(&conn, tombstone.id.clone()).await
                     } else {
                         Err(Status::Unauthorized)
                     }
@@ -116,11 +99,7 @@ impl Inbox for Box<ApDelete> {
                         delete_actor(&conn, obj.id).await
                     } else {
                         log::debug!("DOESN'T MATCH ACTOR; ASSUMING NOTE");
-                        if delete_note(&conn, obj.clone().id).await.is_ok() {
-                            delete_timeline(&conn, obj.id).await
-                        } else {
-                            Err(Status::new(521))
-                        }
+                        delete_note(&conn, obj.clone().id).await
                     }
                 }
                 _ => {
@@ -133,11 +112,7 @@ impl Inbox for Box<ApDelete> {
                     delete_actor(&conn, ap_id).await
                 } else {
                     log::debug!("DOESN'T MATCH ACTOR; ASSUMING NOTE");
-                    if delete_note(&conn, ap_id.clone()).await.is_ok() {
-                        delete_timeline(&conn, ap_id).await
-                    } else {
-                        Err(Status::new(522))
-                    }
+                    delete_note(&conn, ap_id.clone()).await
                 }
             }
             _ => {

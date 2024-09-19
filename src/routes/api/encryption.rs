@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use crate::{
-    activity_pub::{ActivityPub, ApCollection, ApObject, ApSession},
+    activity_pub::{ActivityPub, ApCollection, ApCollectionPage, ApObject, ApSession},
     db::Db,
     fairings::signatures::Signed,
     models::{
@@ -38,7 +38,7 @@ pub async fn get_sessions(
             .map(ActivityPub::from)
             .collect();
 
-        Ok(Json(ApObject::Collection(ApCollection::from((
+        Ok(Json(ApObject::CollectionPage(ApCollectionPage::from((
             normalized, None,
         )))))
     } else {
@@ -95,7 +95,9 @@ pub async fn get_processing_queue(
                 .map(ActivityPub::from)
                 .collect();
 
-            Ok(Json(ApObject::Collection(ApCollection::from((l, None)))))
+            Ok(Json(ApObject::CollectionPage(ApCollectionPage::from((
+                l, None,
+            )))))
         } else {
             Err(Status::NoContent)
         }

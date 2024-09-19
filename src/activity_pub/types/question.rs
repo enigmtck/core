@@ -5,10 +5,12 @@ use crate::{
     activity_pub::{ApAttachment, ApContext, ApTag, Outbox},
     db::Db,
     fairings::events::EventChannels,
-    helper::{get_activity_ap_id_from_uuid, get_ap_id_from_username},
     models::{
-        activities::ActivityType, from_serde, from_time, pg::coalesced_activity::CoalescedActivity,
-        profiles::Profile, remote_questions::RemoteQuestion, timeline::ContextualizedTimelineItem,
+        from_serde,
+        from_time,
+        pg::coalesced_activity::CoalescedActivity,
+        profiles::Profile,
+        remote_questions::RemoteQuestion, //timeline::ContextualizedTimelineItem,
     },
     MaybeMultiple,
 };
@@ -266,95 +268,5 @@ impl TryFrom<RemoteQuestion> for ApQuestion {
             ephemeral_updated_at: from_time(question.updated_at),
             ..Default::default()
         })
-    }
-}
-
-impl TryFrom<ContextualizedTimelineItem> for ApQuestion {
-    type Error = anyhow::Error;
-    fn try_from(
-        ContextualizedTimelineItem {
-            item,
-            activity,
-            cc,
-            related,
-            requester,
-        }: ContextualizedTimelineItem,
-    ) -> Result<Self, Self::Error> {
-        if item.kind.to_string().to_lowercase().as_str() == "question" {
-            Ok(ApQuestion {
-                context: Some(ApContext::default()),
-                to: MaybeMultiple::Multiple(vec![]),
-                cc: None,
-                kind: ApQuestionType::Question,
-                tag: item.tag.and_then(from_serde),
-                attributed_to: ApAddress::Address(item.attributed_to),
-                id: item.ap_id,
-                url: item.url,
-                published: item.published.and_then(|x| x.parse().ok()),
-                in_reply_to: item.in_reply_to,
-                content: item.content,
-                summary: item.summary,
-                end_time: item.end_time.and_then(from_time),
-                one_of: item.one_of.and_then(from_serde),
-                any_of: item.any_of.and_then(from_serde),
-                voters_count: item.voters_count,
-                sensitive: item.ap_sensitive,
-                conversation: item.conversation,
-                content_map: item.content_map.and_then(from_serde),
-                attachment: item.attachment.and_then(from_serde),
-                ephemeral_announces: Some(
-                    activity
-                        .iter()
-                        .clone()
-                        .filter(|activity| {
-                            activity.kind.clone() == ActivityType::Announce && !activity.revoked
-                        })
-                        .map(|announce| announce.actor.clone())
-                        .collect(),
-                ),
-                ephemeral_announced: {
-                    let requester_ap_id = requester
-                        .clone()
-                        .map(|r| get_ap_id_from_username(r.username));
-                    activity
-                        .iter()
-                        .find(|x| {
-                            x.kind.clone() == ActivityType::Announce
-                                && !x.revoked
-                                && Some(x.actor.clone()) == requester_ap_id
-                        })
-                        .map(|x| get_activity_ap_id_from_uuid(x.uuid.clone()))
-                },
-                ephemeral_actors: Some(related),
-                ephemeral_liked: {
-                    let requester_ap_id = requester
-                        .as_ref()
-                        .map(|r| get_ap_id_from_username(r.username.clone()));
-                    activity
-                        .iter()
-                        .find(|x| {
-                            x.kind.clone() == ActivityType::Like
-                                && !x.revoked
-                                && Some(x.actor.clone()) == requester_ap_id
-                        })
-                        .map(|x| get_activity_ap_id_from_uuid(x.uuid.clone()))
-                },
-                ephemeral_likes: Some(
-                    activity
-                        .iter()
-                        .filter(|activity| {
-                            activity.kind.clone() == ActivityType::Like && !activity.revoked
-                        })
-                        .map(|like| like.actor.clone())
-                        .collect(),
-                ),
-                ephemeral_targeted: Some(!cc.is_empty()),
-                ephemeral_metadata: item.metadata.and_then(from_serde),
-                ephemeral_created_at: from_time(item.created_at),
-                ephemeral_updated_at: from_time(item.updated_at),
-            })
-        } else {
-            Err(anyhow::Error::msg("wrong timeline_item type"))
-        }
     }
 }

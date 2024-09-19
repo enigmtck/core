@@ -7,7 +7,7 @@ use crate::{
     models::{
         activities::{get_activity_by_uuid, revoke_activity_by_apid, update_target_remote_note},
         profiles::{get_profile, guaranteed_profile},
-        timeline::get_timeline_item_by_ap_id,
+        remote_notes::get_remote_note_by_ap_id,
     },
     runner::{
         get_inboxes,
@@ -107,7 +107,7 @@ pub async fn remote_announce_task(
 
     let target_ap_id = activity.clone().target_ap_id.ok_or(TaskError::TaskFailed)?;
 
-    if get_timeline_item_by_ap_id(conn, target_ap_id.clone())
+    if get_remote_note_by_ap_id(conn, target_ap_id.clone())
         .await
         .is_none()
     {

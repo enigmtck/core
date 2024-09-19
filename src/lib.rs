@@ -4,8 +4,8 @@ extern crate log;
 #[macro_use]
 extern crate rocket;
 
-use activity_pub::ApCollectionPage;
 use activity_pub::{ApActivity, ApObject};
+use activity_pub::{ApCollection, ApCollectionPage};
 use anyhow::anyhow;
 use anyhow::Result;
 use db::Pool;
@@ -269,7 +269,7 @@ impl<T> MaybeReference<T> {
         }
     }
 
-    pub fn actual(&self) -> Option<&T> {
+    pub fn actual(self) -> Option<T> {
         match self {
             MaybeReference::Actual(actual) => Some(actual),
             _ => None,
@@ -293,7 +293,19 @@ impl From<ApObject> for MaybeReference<ApObject> {
     }
 }
 
+impl From<String> for MaybeReference<ApCollection> {
+    fn from(reference: String) -> Self {
+        MaybeReference::Reference(reference)
+    }
+}
+
 impl From<String> for MaybeReference<ApCollectionPage> {
+    fn from(reference: String) -> Self {
+        MaybeReference::Reference(reference)
+    }
+}
+
+impl From<String> for MaybeReference<Box<ApCollectionPage>> {
     fn from(reference: String) -> Self {
         MaybeReference::Reference(reference)
     }

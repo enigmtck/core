@@ -12,17 +12,12 @@ use crate::models::pg::remote_notes::update_metadata;
 use crate::models::profiles::{get_profile, guaranteed_profile};
 use crate::models::remote_note_hashtags::{create_remote_note_hashtag, NewRemoteNoteHashtag};
 use crate::models::remote_notes::{create_or_update_remote_note, get_remote_note_by_ap_id};
-use crate::models::timeline::{create_timeline_item, delete_timeline_item_by_ap_id, TimelineItem};
-use crate::models::timeline_hashtags::{create_timeline_hashtag, NewTimelineHashtag};
 use crate::runner::cache::cache_content;
 use crate::ANCHOR_RE;
 use crate::{
     activity_pub::{ApActivity, ApAddress, ApNote, ApObject},
     db::Db,
-    helper::get_note_ap_id_from_uuid,
-    models::{
-        activities::get_activity_by_uuid, notes::Note, profiles::Profile, remote_notes::RemoteNote,
-    },
+    models::{activities::get_activity_by_uuid, profiles::Profile, remote_notes::RemoteNote},
     runner::{
         //encrypted::handle_encrypted_note,
         get_inboxes,
@@ -32,8 +27,8 @@ use crate::{
     MaybeReference,
 };
 
+use super::actor::get_actor;
 use super::TaskError;
-use super::{actor::get_actor, timeline::add_to_timeline};
 
 pub async fn delete_note_task(
     conn: Option<Db>,
@@ -82,13 +77,6 @@ pub async fn delete_note_task(
         send_to_inboxes(inboxes, sender, activity.clone())
             .await
             .map_err(|_| TaskError::TaskFailed)?;
-
-        let ap_id = get_note_ap_id_from_uuid(note.uuid.clone());
-
-        let records = delete_timeline_item_by_ap_id(conn, ap_id)
-            .await
-            .map_err(|_| TaskError::TaskFailed)?;
-        log::debug!("TIMELINE RECORDS DELETED: {records}");
 
         let records = delete_note_by_uuid(conn, note.uuid)
             .await
@@ -203,7 +191,7 @@ pub async fn outbound_note_task(
             }
         }
 
-        add_note_to_timeline(conn, note, sender.clone()).await;
+        let _ = get_actor(conn, sender.clone(), note.clone().attributed_to).await;
 
         let activity = activity.ok_or(TaskError::TaskFailed)?;
 
@@ -284,36 +272,12 @@ pub async fn fetch_remote_note(conn: &Db, id: String, profile: Profile) -> Optio
     }
 }
 
-async fn add_note_to_timeline(conn: Option<&Db>, note: Note, sender: Profile) {
-    // Add to local timeline - this checks to be sure that the profile is represented as a remote_actor
-    // locally before adding the Note to the Timeline. This is important as the Timeline only uses the
-    // remote_actor representation (not the profile) for attributed_to data. In this case, the sender
-    // and the note.attributed_to should represent the same person.
-    if get_actor(conn, sender, note.clone().attributed_to)
-        .await
-        .is_some()
-    {
-        if let Ok(timeline_item) = create_timeline_item(None, note.clone().into()).await {
-            add_to_timeline(Some(note.clone().ap_to), note.cc, timeline_item).await;
-        }
-    }
-}
-
 pub async fn create_remote_note_tags(conn: Option<&Db>, remote_note: RemoteNote) {
     let new_tags: Vec<NewRemoteNoteHashtag> = remote_note.clone().into();
 
     for tag in new_tags.iter() {
         log::debug!("ADDING HASHTAG: {}", tag.hashtag);
         create_remote_note_hashtag(conn, tag.clone()).await;
-    }
-}
-
-pub async fn create_timeline_tags(conn: Option<&Db>, timeline_item: TimelineItem) {
-    let new_tags: Vec<NewTimelineHashtag> = timeline_item.clone().try_into().unwrap_or_default();
-
-    for tag in new_tags.iter() {
-        log::debug!("ADDING HASHTAG: {}", tag.hashtag);
-        create_timeline_hashtag(conn, tag.clone()).await;
     }
 }
 
@@ -380,22 +344,9 @@ pub async fn handle_remote_note(
     create_remote_note_tags(conn, remote_note.clone()).await;
     note.cache(conn.unwrap()).await;
 
-    // if let Ok(timeline_item) =
-    //     create_timeline_item(conn, note.cache(conn.unwrap()).await.clone().into()).await
-    // {
-    //     create_timeline_tags(conn, timeline_item.clone()).await;
-
-    //     add_to_timeline(
-    //         remote_note.clone().ap_to,
-    //         remote_note.clone().cc,
-    //         timeline_item,
-    //     )
-    //     .await;
-
     if let Some(mut channels) = channels {
         channels.send(None, serde_json::to_string(&note.clone()).unwrap());
     }
-    // }
 
     Ok(remote_note)
 }

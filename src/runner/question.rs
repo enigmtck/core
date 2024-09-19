@@ -5,11 +5,9 @@ use crate::db::Db;
 use crate::fairings::events::EventChannels;
 use crate::models::profiles::guaranteed_profile;
 use crate::models::remote_questions::{get_remote_question_by_ap_id, RemoteQuestion};
-use crate::models::timeline::create_timeline_item;
-use crate::runner::note::create_timeline_tags;
 
+use super::actor::get_actor;
 use super::TaskError;
-use super::{actor::get_actor, timeline::add_to_timeline};
 
 pub async fn remote_question_task(
     conn: Option<Db>,
@@ -40,17 +38,6 @@ pub async fn handle_remote_question(
     let profile = guaranteed_profile(None, None).await;
 
     let _ = get_actor(conn, profile, question.attributed_to.to_string()).await;
-
-    if let Ok(timeline_item) = create_timeline_item(conn, remote_question.clone().into()).await {
-        create_timeline_tags(conn, timeline_item.clone()).await;
-
-        add_to_timeline(
-            remote_question.clone().ap_to,
-            remote_question.clone().cc,
-            timeline_item,
-        )
-        .await;
-    }
 
     Ok(remote_question)
 }

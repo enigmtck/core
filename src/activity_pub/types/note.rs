@@ -7,22 +7,18 @@ use crate::{
     },
     db::Db,
     fairings::events::EventChannels,
-    helper::{
-        get_activity_ap_id_from_uuid, get_ap_id_from_username, get_note_ap_id_from_uuid,
-        get_note_url_from_uuid,
-    },
+    helper::{get_ap_id_from_username, get_note_ap_id_from_uuid, get_note_url_from_uuid},
     models::{
-        activities::{create_activity, ActivityType, NewActivity, NoteActivity},
+        activities::{
+            create_activity, get_activity_by_kind_profile_id_and_target_ap_id, ActivityType,
+            NewActivity, NoteActivity,
+        },
         cache::{cache_content, Cache},
         from_serde, from_time,
         notes::{create_note, NewNote, Note, NoteLike, NoteType},
-        pg::{
-            activities::{get_announcers, get_likers},
-            coalesced_activity::CoalescedActivity,
-        },
+        pg::coalesced_activity::CoalescedActivity,
         profiles::Profile,
         remote_notes::RemoteNote,
-        timeline::{ContextualizedTimelineItem, TimelineItem},
         vault::VaultItem,
     },
     runner, MaybeMultiple,
@@ -226,65 +222,33 @@ impl ApNote {
         self
     }
 
-    pub fn dedup(&mut self) -> Self {
-        if let Some(mut announces) = self.ephemeral_announces.clone() {
-            announces.sort();
-            announces.dedup();
-            self.ephemeral_announces = Some(announces);
-        }
-
-        if let Some(mut likes) = self.ephemeral_likes.clone() {
-            likes.sort();
-            likes.dedup();
-            self.ephemeral_likes = Some(likes);
-        }
-
-        if let Some(mut actors) = self.ephemeral_actors.clone() {
-            actors.sort();
-            actors.dedup();
-            self.ephemeral_actors = Some(actors);
-        }
-
-        self.clone()
-    }
-
-    pub async fn activities(&mut self, conn: &Db) -> &Self {
+    pub async fn contextualize(&mut self, conn: &Db, profile: Profile) -> &Self {
         if let Some(id) = self.id.clone() {
-            let mut announcers: Vec<ApActor> =
-                get_announcers(conn, None, None, Some(50), id.clone())
-                    .await
-                    .iter()
-                    .map(ApActor::from)
-                    .collect();
+            let liked = get_activity_by_kind_profile_id_and_target_ap_id(
+                conn,
+                ActivityType::Like,
+                profile.id,
+                id.clone(),
+            )
+            .await;
 
-            let mut likers: Vec<ApActor> = get_likers(conn, None, None, Some(50), id)
-                .await
-                .iter()
-                .map(ApActor::from)
-                .collect();
+            if let Some(liked) = liked {
+                self.ephemeral_liked = Some(liked.uuid);
+            }
 
-            self.ephemeral_announces = Some(
-                announcers
-                    .iter()
-                    .filter_map(|x| x.id.clone())
-                    .map(|x| x.to_string())
-                    .collect(),
-            );
+            let announced = get_activity_by_kind_profile_id_and_target_ap_id(
+                conn,
+                ActivityType::Announce,
+                profile.id,
+                id,
+            )
+            .await;
 
-            self.ephemeral_likes = Some(
-                likers
-                    .iter()
-                    .filter_map(|x| x.id.clone())
-                    .map(|x| x.to_string())
-                    .collect(),
-            );
-
-            let mut actors = vec![];
-            actors.append(&mut announcers);
-            actors.append(&mut likers);
-            self.ephemeral_actors = Some(actors);
-            self.dedup();
+            if let Some(announced) = announced {
+                self.ephemeral_announced = Some(announced.uuid);
+            }
         }
+
         self
     }
 }
@@ -401,116 +365,6 @@ impl From<IdentifiedVaultItem> for ApNote {
             content: vault.encrypted_data,
             published: from_time(vault.created_at).unwrap().to_rfc3339(),
             ..Default::default()
-        }
-    }
-}
-
-impl TryFrom<&TimelineItem> for ApNote {
-    type Error = anyhow::Error;
-
-    fn try_from(timeline: &TimelineItem) -> Result<Self, Self::Error> {
-        ApNote::try_from(timeline.clone())
-    }
-}
-
-impl TryFrom<TimelineItem> for ApNote {
-    type Error = anyhow::Error;
-
-    fn try_from(item: TimelineItem) -> Result<Self, Self::Error> {
-        ApNote::try_from(ContextualizedTimelineItem {
-            item,
-            ..Default::default()
-        })
-    }
-}
-
-impl TryFrom<ContextualizedTimelineItem> for ApNote {
-    type Error = anyhow::Error;
-
-    fn try_from(
-        ContextualizedTimelineItem {
-            item,
-            activity,
-            cc,
-            related,
-            requester,
-        }: ContextualizedTimelineItem,
-    ) -> Result<Self, Self::Error> {
-        if item.kind.to_string().to_lowercase().as_str() == "note" {
-            Ok(ApNote {
-                context: Some(ApContext::default()),
-                to: MaybeMultiple::Multiple(vec![]),
-                cc: None,
-                instrument: None,
-                kind: ApNoteType::Note,
-                tag: item.tag.and_then(from_serde),
-                attributed_to: ApAddress::Address(item.attributed_to),
-                id: Some(item.ap_id),
-                url: item.url,
-                published: item.published.unwrap_or("".to_string()),
-                replies: None,
-                in_reply_to: item.in_reply_to,
-                content: item.content.unwrap_or_default(),
-                summary: item.summary,
-                sensitive: item.ap_sensitive,
-                atom_uri: item.atom_uri,
-                in_reply_to_atom_uri: item.in_reply_to_atom_uri,
-                conversation: item.conversation,
-                content_map: item.content_map.and_then(from_serde),
-                attachment: item.attachment.and_then(from_serde),
-                ephemeral_announces: Some(
-                    activity
-                        .iter()
-                        .clone()
-                        .filter(|activity| {
-                            activity.kind.clone() == ActivityType::Announce && !activity.revoked
-                        })
-                        .map(|announce| announce.actor.clone())
-                        .collect(),
-                ),
-                ephemeral_announced: {
-                    let requester_ap_id = requester
-                        .clone()
-                        .map(|r| get_ap_id_from_username(r.username));
-                    activity
-                        .iter()
-                        .find(|x| {
-                            x.kind.clone() == ActivityType::Announce
-                                && !x.revoked
-                                && Some(x.actor.clone()) == requester_ap_id.clone()
-                        })
-                        .map(|x| get_activity_ap_id_from_uuid(x.uuid.clone()))
-                },
-                ephemeral_actors: Some(related),
-                ephemeral_liked: {
-                    let requester_ap_id = requester
-                        .as_ref()
-                        .map(|r| get_ap_id_from_username(r.username.clone()));
-                    activity
-                        .iter()
-                        .find(|x| {
-                            x.kind.clone() == ActivityType::Like
-                                && !x.revoked
-                                && Some(x.actor.clone()) == requester_ap_id.clone()
-                        })
-                        .map(|x| get_activity_ap_id_from_uuid(x.uuid.clone()))
-                },
-                ephemeral_likes: Some(
-                    activity
-                        .iter()
-                        .filter(|activity| {
-                            activity.kind.clone() == ActivityType::Like && !activity.revoked
-                        })
-                        .map(|like| like.actor.clone())
-                        .collect(),
-                ),
-                ephemeral_targeted: Some(!cc.is_empty()),
-                ephemeral_timestamp: from_time(item.created_at),
-                ephemeral_metadata: item.metadata.and_then(from_serde),
-            })
-        } else {
-            log::debug!("failed to convert ContextualizedTimelineItem to ApNote\n{item:#?}");
-            Err(anyhow::Error::msg("wrong timeline_item type"))
         }
     }
 }
