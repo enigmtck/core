@@ -112,7 +112,10 @@ pub enum VerificationError {
     ClientKeyNotFound,
 }
 
-pub async fn verify(conn: Db, params: VerifyParams) -> Result<VerificationType, VerificationError> {
+pub async fn verify(
+    conn: &Db,
+    params: VerifyParams,
+) -> Result<VerificationType, VerificationError> {
     let (verify_string, signature_str, ap_id, key_selector, local, username) =
         build_verify_string(params.clone());
 
@@ -144,7 +147,7 @@ pub async fn verify(conn: Db, params: VerifyParams) -> Result<VerificationType, 
 
     if local && key_selector == Some("client-key".to_string()) {
         if let Some(username) = username {
-            if let Some(profile) = get_profile_by_username((&conn).into(), username).await {
+            if let Some(profile) = get_profile_by_username((conn).into(), username).await {
                 if let Some(public_key) = profile.client_public_key.clone() {
                     RsaPublicKey::from_public_key_pem(public_key.trim_end())
                         .map_err(|_| VerificationError::PublicKeyError)
@@ -159,7 +162,7 @@ pub async fn verify(conn: Db, params: VerifyParams) -> Result<VerificationType, 
         } else {
             Err(VerificationError::ProfileNotFound)
         }
-    } else if let Some(actor) = retriever::get_actor(&conn, ap_id, Option::None, true).await {
+    } else if let Some(actor) = retriever::get_actor(conn, ap_id, Option::None, true).await {
         RsaPublicKey::from_public_key_pem(actor.public_key.public_key_pem.trim_end())
             .map_err(|_| VerificationError::PublicKeyError)
             .and_then(|pk| verify(&pk, &signature_str, &verify_string))?;

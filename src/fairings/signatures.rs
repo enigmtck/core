@@ -1,7 +1,10 @@
+use std::collections::HashMap;
+
 use crate::{
     db::Db,
-    models::profiles::Profile,
+    models::{instances::create_or_update_instance, profiles::Profile},
     signing::{verify, VerificationType, VerifyParams},
+    ASSIGNMENT_RE, DOMAIN_RE,
 };
 
 use rocket::{
@@ -46,6 +49,27 @@ pub enum SignatureError {
     SignatureInvalid,
 }
 
+async fn update_instance(conn: &Db, signature: String) {
+    let mut signature_map = HashMap::<String, String>::new();
+
+    for cap in ASSIGNMENT_RE.captures_iter(&signature) {
+        signature_map.insert(cap[1].to_string(), cap[2].to_string());
+    }
+
+    let key_id = signature_map
+        .get("keyId")
+        .expect("keyId not found in signature_map");
+
+    let domain_name = DOMAIN_RE
+        .captures(key_id)
+        .expect("unable to locate domain name")[1]
+        .to_string();
+
+    if let Err(e) = create_or_update_instance(Some(conn), domain_name.into()).await {
+        log::error!("INSTANCE UPDATE ERROR: {e}");
+    }
+}
+
 #[rocket::async_trait]
 impl<'r> FromRequest<'r> for Signed {
     type Error = SignatureError;
@@ -88,8 +112,9 @@ impl<'r> FromRequest<'r> for Signed {
                         0 => Outcome::Success(Signed(false, VerificationType::None)),
                         1 => {
                             let signature = signature_vec[0].to_string();
+
                             let verify_params = VerifyParams {
-                                signature,
+                                signature: signature.clone(),
                                 request_target,
                                 host,
                                 date,
@@ -98,8 +123,11 @@ impl<'r> FromRequest<'r> for Signed {
                                 content_length,
                                 user_agent,
                             };
-                            match verify(conn, verify_params.clone()).await {
-                                Ok(t) => Outcome::Success(Signed(true, t)),
+                            match verify(&conn, verify_params.clone()).await {
+                                Ok(t) => {
+                                    update_instance(&conn, signature.to_string()).await;
+                                    Outcome::Success(Signed(true, t))
+                                }
                                 Err(e) => {
                                     log::debug!("{e:#?}");
                                     Outcome::Error((

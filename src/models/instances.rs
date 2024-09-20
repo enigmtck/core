@@ -7,11 +7,11 @@ cfg_if::cfg_if! {
     if #[cfg(feature = "pg")] {
         pub use crate::models::pg::instances::NewInstance;
         pub use crate::models::pg::instances::Instance;
-        pub use crate::models::pg::instances::create_instance;
+        pub use crate::models::pg::instances::create_or_update_instance;
     } else if #[cfg(feature = "sqlite")] {
         pub use crate::models::sqlite::instances::NewInstance;
         pub use crate::models::sqlite::instances::Instance;
-        pub use crate::models::sqlite::instances::create_instance;
+        pub use crate::models::sqlite::instances::create_or_update_instance;
     }
 }
 

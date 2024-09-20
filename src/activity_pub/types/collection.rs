@@ -258,12 +258,18 @@ impl From<ApCollectionPageParams> for ApCollectionPage {
             ordered_items: Some(objects.clone()),
             prev: base_url.clone().and_then(|y| {
                 objects.first().map(|x| {
-                    MaybeReference::from(format!("{y}&min={}", x.timestamp().timestamp_micros()))
+                    MaybeReference::from(format!(
+                        "{y}?page=true&min={}",
+                        x.timestamp().timestamp_micros()
+                    ))
                 })
             }),
             next: base_url.clone().and_then(|y| {
                 objects.last().map(|x| {
-                    MaybeReference::from(format!("{y}&max={}", x.timestamp().timestamp_micros()))
+                    MaybeReference::from(format!(
+                        "{y}?page=true&max={}",
+                        x.timestamp().timestamp_micros()
+                    ))
                 })
             }),
             part_of: base_url,

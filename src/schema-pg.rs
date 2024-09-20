@@ -16,10 +16,6 @@ pub mod sql_types {
     #[derive(diesel::sql_types::SqlType, diesel::query_builder::QueryId)]
     #[diesel(postgres_type(name = "question_type"))]
     pub struct QuestionType;
-
-    #[derive(diesel::sql_types::SqlType, diesel::query_builder::QueryId)]
-    #[diesel(postgres_type(name = "timeline_type"))]
-    pub struct TimelineType;
 }
 
 diesel::table! {
@@ -444,70 +440,6 @@ diesel::table! {
 }
 
 diesel::table! {
-    use diesel::sql_types::*;
-    use super::sql_types::TimelineType;
-
-    timeline (id) {
-        id -> Int4,
-        created_at -> Timestamptz,
-        updated_at -> Timestamptz,
-        tag -> Nullable<Jsonb>,
-        attributed_to -> Varchar,
-        ap_id -> Varchar,
-        kind -> TimelineType,
-        url -> Nullable<Varchar>,
-        published -> Nullable<Varchar>,
-        replies -> Nullable<Jsonb>,
-        in_reply_to -> Nullable<Varchar>,
-        content -> Nullable<Varchar>,
-        ap_public -> Bool,
-        summary -> Nullable<Varchar>,
-        ap_sensitive -> Nullable<Bool>,
-        atom_uri -> Nullable<Varchar>,
-        in_reply_to_atom_uri -> Nullable<Varchar>,
-        conversation -> Nullable<Varchar>,
-        content_map -> Nullable<Jsonb>,
-        attachment -> Nullable<Jsonb>,
-        ap_object -> Nullable<Jsonb>,
-        metadata -> Nullable<Jsonb>,
-        end_time -> Nullable<Timestamptz>,
-        one_of -> Nullable<Jsonb>,
-        any_of -> Nullable<Jsonb>,
-        voters_count -> Nullable<Int4>,
-    }
-}
-
-diesel::table! {
-    timeline_cc (id) {
-        id -> Int4,
-        created_at -> Timestamptz,
-        updated_at -> Timestamptz,
-        timeline_id -> Int4,
-        ap_id -> Varchar,
-    }
-}
-
-diesel::table! {
-    timeline_hashtags (id) {
-        id -> Int4,
-        created_at -> Timestamptz,
-        updated_at -> Timestamptz,
-        hashtag -> Varchar,
-        timeline_id -> Int4,
-    }
-}
-
-diesel::table! {
-    timeline_to (id) {
-        id -> Int4,
-        created_at -> Timestamptz,
-        updated_at -> Timestamptz,
-        timeline_id -> Int4,
-        ap_id -> Varchar,
-    }
-}
-
-diesel::table! {
     vault (id) {
         id -> Int4,
         created_at -> Timestamptz,
@@ -533,9 +465,6 @@ diesel::joinable!(profile_hashtags -> profiles (profile_id));
 diesel::joinable!(remote_actor_hashtags -> remote_actors (remote_actor_id));
 diesel::joinable!(remote_encrypted_sessions -> profiles (profile_id));
 diesel::joinable!(remote_note_hashtags -> remote_notes (remote_note_id));
-diesel::joinable!(timeline_cc -> timeline (timeline_id));
-diesel::joinable!(timeline_hashtags -> timeline (timeline_id));
-diesel::joinable!(timeline_to -> timeline (timeline_id));
 diesel::joinable!(vault -> profiles (profile_id));
 
 diesel::allow_tables_to_appear_in_same_query!(
@@ -565,9 +494,5 @@ diesel::allow_tables_to_appear_in_same_query!(
     remote_note_hashtags,
     remote_notes,
     remote_questions,
-    timeline,
-    timeline_cc,
-    timeline_hashtags,
-    timeline_to,
     vault,
 );
