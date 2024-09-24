@@ -158,28 +158,19 @@ impl TryFrom<ExtendedActivity> for ApLike {
     type Error = anyhow::Error;
 
     fn try_from(
-        (activity, note, remote_note, _profile, _remote_actor, remote_question, _hashtags): ExtendedActivity,
+        (activity, note, _profile, _remote_actor): ExtendedActivity,
     ) -> Result<Self, Self::Error> {
         if activity.kind.to_string().to_lowercase().as_str() == "like" {
-            let (id, object): (String, MaybeReference<ApObject>) =
-                match (note, remote_note, remote_question) {
-                    (Some(note), None, None) => (
-                        note.attributed_to.clone(),
-                        MaybeReference::Reference(ApNote::from(note).id.unwrap()),
-                    ),
-                    (None, Some(remote_note), None) => (
-                        remote_note.attributed_to,
-                        MaybeReference::Reference(remote_note.ap_id),
-                    ),
-                    (None, None, Some(remote_question)) => (
-                        remote_question.attributed_to,
-                        MaybeReference::Reference(remote_question.ap_id),
-                    ),
-                    _ => {
-                        log::error!("INVALID ACTIVITY TYPE");
-                        return Err(anyhow!("INVALID ACTIVITY TYPE"));
-                    }
-                };
+            let (id, object): (String, MaybeReference<ApObject>) = match note {
+                Some(note) => (
+                    note.attributed_to.clone(),
+                    MaybeReference::Reference(ApNote::from(note).id.unwrap()),
+                ),
+                _ => {
+                    log::error!("INVALID ACTIVITY TYPE");
+                    return Err(anyhow!("INVALID ACTIVITY TYPE"));
+                }
+            };
 
             Ok(ApLike {
                 context: Some(ApContext::default()),

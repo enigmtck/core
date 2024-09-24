@@ -11,9 +11,9 @@ use crate::{
     models::{
         activities::{create_activity, ActivityType, NewActivity, NoteActivity},
         notes::get_notey,
+        objects::{delete_object_by_as_id, get_object_by_as_id},
         profiles::Profile,
         remote_actors::delete_remote_actor_by_ap_id,
-        remote_notes::{delete_remote_note_by_ap_id, get_remote_note_by_ap_id},
     },
     runner, MaybeMultiple, MaybeReference,
 };
@@ -73,9 +73,9 @@ impl Inbox for Box<ApDelete> {
             }
         }
 
-        async fn delete_note(conn: &Db, ap_id: String) -> Result<Status, Status> {
-            if delete_remote_note_by_ap_id(conn, ap_id).await {
-                log::debug!("REMOTE NOTE RECORD DELETED");
+        async fn delete_object(conn: &Db, as_id: String) -> Result<Status, Status> {
+            if delete_object_by_as_id(conn, as_id).await.is_ok() {
+                log::debug!("OBJECT RECORD DELETED");
                 Ok(Status::Accepted)
             } else {
                 Err(Status::NoContent)
@@ -85,21 +85,27 @@ impl Inbox for Box<ApDelete> {
         match self.object.clone() {
             MaybeReference::Actual(actual) => match actual {
                 ApObject::Tombstone(tombstone) => {
-                    let remote_note = get_remote_note_by_ap_id(Some(&conn), tombstone.id.clone())
+                    let object = get_object_by_as_id(Some(&conn), tombstone.id.clone())
                         .await
-                        .ok_or(Status::NotFound)?;
-                    if remote_note.attributed_to == self.actor.clone().to_string() {
-                        delete_note(&conn, tombstone.id.clone()).await
+                        .map_err(|_| Status::NotFound)?;
+
+                    if let Some(attributed_to) = object.as_attributed_to {
+                        let attributed_to: String = serde_json::from_value(attributed_to).unwrap();
+                        if attributed_to == self.actor.clone().to_string() {
+                            delete_object(&conn, tombstone.id.clone()).await
+                        } else {
+                            Err(Status::Unauthorized)
+                        }
                     } else {
-                        Err(Status::Unauthorized)
+                        Err(Status::NotFound)
                     }
                 }
                 ApObject::Identifier(obj) => {
                     if obj.id == self.actor.clone().to_string() {
                         delete_actor(&conn, obj.id).await
                     } else {
-                        log::debug!("DOESN'T MATCH ACTOR; ASSUMING NOTE");
-                        delete_note(&conn, obj.clone().id).await
+                        log::debug!("DOESN'T MATCH ACTOR; ASSUMING OBJECT");
+                        delete_object(&conn, obj.clone().id).await
                     }
                 }
                 _ => {
@@ -111,8 +117,8 @@ impl Inbox for Box<ApDelete> {
                 if ap_id == self.actor.clone().to_string() {
                     delete_actor(&conn, ap_id).await
                 } else {
-                    log::debug!("DOESN'T MATCH ACTOR; ASSUMING NOTE");
-                    delete_note(&conn, ap_id.clone()).await
+                    log::debug!("DOESN'T MATCH ACTOR; ASSUMING OBJECT");
+                    delete_object(&conn, ap_id.clone()).await
                 }
             }
             _ => {

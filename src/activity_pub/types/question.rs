@@ -7,12 +7,10 @@ use crate::{
     fairings::events::EventChannels,
     models::{
         cache::{cache_content, Cache},
-        from_serde,
-        from_time,
+        from_serde, from_time,
         objects::Object,
         pg::coalesced_activity::CoalescedActivity,
         profiles::Profile,
-        remote_questions::RemoteQuestion, //timeline::ContextualizedTimelineItem,
     },
     MaybeMultiple,
 };
@@ -267,37 +265,6 @@ impl TryFrom<CoalescedActivity> for ApQuestion {
             one_of,
             any_of,
             voters_count,
-            ..Default::default()
-        })
-    }
-}
-
-impl TryFrom<RemoteQuestion> for ApQuestion {
-    type Error = anyhow::Error;
-
-    fn try_from(question: RemoteQuestion) -> Result<Self, Self::Error> {
-        Ok(ApQuestion {
-            id: question.ap_id,
-            attributed_to: question.attributed_to.into(),
-            to: from_serde(question.ap_to.ok_or(anyhow!("ap_to is None"))?)
-                .ok_or(anyhow!("failed to deserialize ap_to"))?,
-            cc: question.cc.and_then(from_serde),
-            end_time: question.end_time.and_then(from_time),
-            published: question.published.and_then(from_time),
-            one_of: question.one_of.and_then(from_serde),
-            any_of: question.any_of.and_then(from_serde),
-            content: question.content,
-            content_map: question.content_map.and_then(from_serde),
-            summary: question.summary,
-            voters_count: question.voters_count,
-            url: question.url,
-            conversation: question.conversation,
-            tag: question.tag.and_then(from_serde),
-            attachment: question.attachment.and_then(from_serde),
-            sensitive: question.ap_sensitive,
-            in_reply_to: question.in_reply_to,
-            ephemeral_created_at: from_time(question.created_at),
-            ephemeral_updated_at: from_time(question.updated_at),
             ..Default::default()
         })
     }

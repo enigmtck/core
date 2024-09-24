@@ -1,11 +1,10 @@
-use crate::activity_pub::{ApInstruments, ApNote, ApNoteType, ApObject, ApSession};
+use crate::activity_pub::{ApInstruments, ApNoteType, ApObject, ApSession};
 use crate::db::Db;
 use crate::schema::processing_queue;
 use diesel::prelude::*;
 
 use super::profiles::Profile;
 use super::remote_encrypted_sessions::RemoteEncryptedSession;
-use super::remote_notes::RemoteNote;
 use crate::models::encrypted_sessions::get_encrypted_session_by_profile_id_and_ap_to;
 use crate::models::{from_serde, to_serde};
 
@@ -29,25 +28,6 @@ cfg_if::cfg_if! {
         pub use crate::models::sqlite::processing_queue::ProcessingItem;
         pub use crate::models::sqlite::processing_queue::create_processing_item;
         pub use crate::models::sqlite::processing_queue::resolve_processed_item_by_ap_id_and_profile_id;
-    }
-}
-
-type IdentifiedRemoteNote = (RemoteNote, i32);
-impl From<IdentifiedRemoteNote> for NewProcessingItem {
-    fn from(note: IdentifiedRemoteNote) -> Self {
-        let (note, profile_id) = (note.0, note.1);
-        let ap_note: ApNote = note.clone().into();
-
-        NewProcessingItem {
-            profile_id,
-            kind: ap_note.clone().kind.to_string().to_lowercase(),
-            ap_id: format!("{}#processing", note.ap_id),
-            ap_to: note.clone().ap_to.unwrap(),
-            attributed_to: note.clone().attributed_to,
-            cc: note.cc,
-            ap_object: to_serde(ap_note).unwrap(),
-            processed: false,
-        }
     }
 }
 

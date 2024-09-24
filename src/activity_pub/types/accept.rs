@@ -101,18 +101,7 @@ impl TryFrom<RecursiveActivity> for ApAccept {
     type Error = anyhow::Error;
 
     fn try_from(
-        (
-            (
-                activity,
-                _note,
-                _remote_note,
-                _profile,
-                _remote_actor,
-                _remote_question,
-                _remote_note_hashtag,
-            ),
-            recursive,
-        ): RecursiveActivity,
+        ((activity, _note, _profile, _remote_actor), recursive): RecursiveActivity,
     ) -> Result<Self, Self::Error> {
         let recursive = recursive.ok_or(anyhow!("RECURSIVE CANNOT BE NONE"))?;
         let recursive_activity = ApActivity::try_from((recursive.clone(), None))?;

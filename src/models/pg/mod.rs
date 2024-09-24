@@ -16,9 +16,9 @@ pub mod profiles;
 pub mod remote_actor_hashtags;
 pub mod remote_actors;
 pub mod remote_encrypted_sessions;
-pub mod remote_note_hashtags;
-pub mod remote_notes;
-pub mod remote_questions;
+//pub mod remote_note_hashtags;
+//pub mod remote_notes;
+//pub mod remote_questions;
 pub mod vault;
 
 pub fn parameter_generator() -> impl FnMut() -> String {

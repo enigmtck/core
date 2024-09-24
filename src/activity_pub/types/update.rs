@@ -6,9 +6,9 @@ use crate::{
     db::Db,
     fairings::events::EventChannels,
     models::{
+        objects::create_or_update_object,
         profiles::Profile,
         remote_actors::{create_or_update_remote_actor, NewRemoteActor},
-        remote_notes::create_or_update_remote_note,
     },
     MaybeMultiple, MaybeReference,
 };
@@ -79,9 +79,7 @@ impl Inbox for ApUpdate {
                         log::debug!("UPDATING NOTE: {}", id);
 
                         if note.clone().attributed_to == self.actor.clone()
-                            && create_or_update_remote_note(Some(&conn), note.into())
-                                .await
-                                .is_some()
+                            && create_or_update_object(&conn, note.into()).await.is_ok()
                         {
                             Ok(Status::Accepted)
                         } else {
@@ -90,6 +88,21 @@ impl Inbox for ApUpdate {
                         }
                     } else {
                         log::warn!("MISSING NOTE ID: {note:#?}");
+                        log::error!("FAILED TO HANDLE ACTIVITY\n{raw}");
+                        Err(Status::NoContent)
+                    }
+                }
+                ApObject::Question(question) => {
+                    let id = question.clone().id;
+                    log::debug!("UPDATING QUESTION: {id}");
+
+                    if question.clone().attributed_to == self.actor.clone()
+                        && create_or_update_object(&conn, question.into())
+                            .await
+                            .is_ok()
+                    {
+                        Ok(Status::Accepted)
+                    } else {
                         log::error!("FAILED TO HANDLE ACTIVITY\n{raw}");
                         Err(Status::NoContent)
                     }

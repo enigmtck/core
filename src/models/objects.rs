@@ -1,11 +1,11 @@
 use std::collections::HashMap;
 
-use crate::activity_pub::{ApAddress, ApNote, ApNoteType, ApQuestion, ApQuestionType};
+use crate::activity_pub::{ApAddress, ApNote, ApNoteType, ApObject, ApQuestion, ApQuestionType};
 use crate::db::Db;
 use crate::models::{to_serde, to_time};
 use crate::schema::objects;
 use crate::{MaybeMultiple, POOL};
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use chrono::{DateTime, Utc};
 use diesel::prelude::*;
 use maplit::{hashmap, hashset};
@@ -47,6 +47,20 @@ impl From<ApQuestionType> for ObjectType {
     fn from(kind: ApQuestionType) -> Self {
         match kind {
             ApQuestionType::Question => ObjectType::Question,
+        }
+    }
+}
+
+impl TryFrom<ApObject> for NewObject {
+    type Error = anyhow::Error;
+
+    fn try_from(object: ApObject) -> Result<Self, Self::Error> {
+        match object {
+            ApObject::Note(note) => Ok(note.into()),
+            ApObject::Question(question) => Ok(question.into()),
+            _ => Err(anyhow!(
+                "conversion to NewObject not implemented: {object:#?}"
+            )),
         }
     }
 }

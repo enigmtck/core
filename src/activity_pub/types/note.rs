@@ -16,7 +16,6 @@ use crate::{
         objects::Object,
         pg::{coalesced_activity::CoalescedActivity, objects::ObjectType},
         profiles::Profile,
-        remote_notes::RemoteNote,
         vault::VaultItem,
     },
     runner, MaybeMultiple,
@@ -548,106 +547,6 @@ impl TryFrom<Object> for ApNote {
             })
         } else {
             Err(anyhow!("ObjectType is not Note"))
-        }
-    }
-}
-
-impl From<RemoteNote> for ApNote {
-    fn from(remote_note: RemoteNote) -> ApNote {
-        cfg_if::cfg_if! {
-            if #[cfg(feature = "pg")] {
-                let kind = match remote_note.kind {
-                    NoteType::Note => ApNoteType::Note,
-                    NoteType::EncryptedNote => ApNoteType::EncryptedNote,
-                    _ => ApNoteType::default(),
-                };
-
-                ApNote {
-                    id: Some(remote_note.ap_id.clone()),
-                    kind,
-                    published: remote_note.published.clone().unwrap_or("".to_string()),
-                    url: remote_note.url.clone(),
-                    to: match serde_json::from_value(remote_note.ap_to.clone().into()) {
-                        Ok(x) => x,
-                        Err(_) => MaybeMultiple::Multiple(vec![]),
-                    },
-                    cc: match serde_json::from_value(remote_note.cc.clone().into()) {
-                        Ok(x) => x,
-                        Err(_) => None,
-                    },
-                    tag: match serde_json::from_value(remote_note.tag.clone().into()) {
-                        Ok(x) => x,
-                        Err(_) => None,
-                    },
-                    attributed_to: ApAddress::Address(remote_note.attributed_to.clone()),
-                    content: remote_note.content.clone(),
-                    replies: match serde_json::from_value(remote_note.replies.clone().into()) {
-                        Ok(x) => x,
-                        Err(_) => None,
-                    },
-                    in_reply_to: remote_note.in_reply_to.clone(),
-                    attachment: match serde_json::from_value(
-                        remote_note.attachment.clone().unwrap_or_default(),
-                    ) {
-                        Ok(x) => x,
-                        Err(_) => None,
-                    },
-                    conversation: remote_note.conversation.clone(),
-                    ephemeral_timestamp: Some(remote_note.created_at),
-                    ephemeral_metadata: remote_note.metadata.and_then(from_serde),
-                    ..Default::default()
-                }
-            } else if #[cfg(feature = "sqlite")] {
-                let kind = match remote_note.kind.as_str() {
-                    "note" => ApNoteType::Note,
-                    "encrypted_note" => ApNoteType::EncryptedNote,
-                    _ => ApNoteType::default(),
-                };
-
-                ApNote {
-                    id: Some(remote_note.ap_id.clone()),
-                    kind,
-                    published: remote_note.published.clone().unwrap_or("".to_string()),
-                    url: remote_note.url.clone(),
-                    to: remote_note
-                        .ap_to
-                        .clone()
-                        .as_deref()
-                        .and_then(|x| serde_json::from_str(x).ok())
-                        .expect("no to in RemoteNote"),
-                    cc: remote_note
-                        .cc
-                        .clone()
-                        .as_deref()
-                        .and_then(|x| serde_json::from_str(x).ok()),
-                    tag: remote_note
-                        .tag
-                        .clone()
-                        .as_deref()
-                        .and_then(|x| serde_json::from_str(x).ok()),
-                    attributed_to: ApAddress::Address(remote_note.attributed_to.clone()),
-                    content: remote_note.content.clone(),
-                    replies: remote_note
-                        .replies
-                        .clone()
-                        .as_deref()
-                        .and_then(|x| serde_json::from_str(x).ok()),
-                    in_reply_to: remote_note.in_reply_to.clone(),
-                    attachment: remote_note
-                        .attachment
-                        .clone()
-                        .as_deref()
-                        .and_then(|x| serde_json::from_str(x).ok()),
-                    conversation: remote_note.conversation.clone(),
-                    ephemeral_timestamp: Some(DateTime::<Utc>::from_naive_utc_and_offset(
-                        remote_note.created_at,
-                        Utc,
-                    )),
-                    ephemeral_metadata: Some(metadata(&remote_note)),
-                    ..Default::default()
-                }
-
-            }
         }
     }
 }

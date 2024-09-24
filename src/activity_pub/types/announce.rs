@@ -207,25 +207,13 @@ impl TryFrom<ExtendedActivity> for ApAnnounce {
     type Error = anyhow::Error;
 
     fn try_from(
-        (activity, note, remote_note, _profile, _remote_actor, remote_question, _hashtags): ExtendedActivity,
+        (activity, note, _profile, _remote_actor): ExtendedActivity,
     ) -> Result<Self, Self::Error> {
         if activity.kind.to_string().to_lowercase().as_str() == "announce" {
             let ap_to = activity.ap_to.ok_or(anyhow::Error::msg("ap_to is None"))?;
 
-            let object = match (note, remote_note, remote_question) {
-                (Some(note), None, None) => {
-                    MaybeReference::Actual(ApObject::Note(ApNote::from(note)))
-                }
-                (None, Some(remote_note), None) => {
-                    MaybeReference::Actual(ApObject::Note(ApNote::from(remote_note)))
-                }
-                (None, None, Some(remote_question)) => {
-                    if let Ok(ap_question) = ApQuestion::try_from(remote_question.clone()) {
-                        MaybeReference::Actual(ApObject::Question(ap_question))
-                    } else {
-                        MaybeReference::Reference(remote_question.ap_id)
-                    }
-                }
+            let object = match note {
+                Some(note) => MaybeReference::Actual(ApObject::Note(ApNote::from(note))),
                 _ => return Err(anyhow::Error::msg("INVALID ACTIVITY TYPE")),
             };
             Ok(ApAnnounce {

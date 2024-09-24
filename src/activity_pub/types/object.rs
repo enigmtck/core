@@ -1,6 +1,7 @@
 use crate::activity_pub::{ApActor, ApCollection, ApInstrument, ApNote, Outbox};
 use crate::db::Db;
 use crate::fairings::events::EventChannels;
+use crate::models::cache::{cache_content, Cache};
 use crate::models::objects::Object;
 use crate::models::pg::objects::ObjectType;
 use crate::models::profiles::Profile;
@@ -155,6 +156,22 @@ impl ApObject {
             ApObject::Question(question) => question.ephemeral_updated_at.unwrap_or(Utc::now()),
             _ => Utc::now(),
         }
+    }
+}
+
+impl Cache for ApObject {
+    async fn cache(&self, conn: &Db) -> &Self {
+        match self {
+            ApObject::Note(note) => {
+                note.cache(conn).await;
+            }
+            ApObject::Question(question) => {
+                question.cache(conn).await;
+            }
+            _ => (),
+        }
+
+        self
     }
 }
 

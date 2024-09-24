@@ -144,7 +144,7 @@ impl TryFrom<ExtendedActivity> for ApFollow {
     type Error = anyhow::Error;
 
     fn try_from(
-        (activity, _note, _remote_note, profile, remote_actor, _remote_question, _hashtags): ExtendedActivity,
+        (activity, _note, profile, remote_actor): ExtendedActivity,
     ) -> Result<Self, Self::Error> {
         if activity.kind.to_string().to_lowercase().as_str() == "follow" {
             let object = match (profile, remote_actor) {

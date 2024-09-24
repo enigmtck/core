@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use crate::{
-    activity_pub::{ActivityPub, ApCollection, ApCollectionPage, ApObject, ApSession},
+    activity_pub::{ActivityPub, ApCollectionPage, ApObject, ApSession},
     db::Db,
     fairings::signatures::Signed,
     models::{

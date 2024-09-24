@@ -1,6 +1,5 @@
 use crate::db::Db;
 use crate::schema::objects;
-use crate::POOL;
 use anyhow::Result;
 use chrono::{DateTime, Utc};
 use diesel::prelude::*;
@@ -38,10 +37,15 @@ impl fmt::Display for ObjectType {
 
 impl ObjectType {
     pub fn is_note(&self) -> bool {
-        match self {
-            ObjectType::Note => true,
-            _ => false,
-        }
+        matches!(self, ObjectType::Note)
+    }
+
+    pub fn is_question(&self) -> bool {
+        matches!(self, ObjectType::Question)
+    }
+
+    pub fn is_article(&self) -> bool {
+        matches!(self, ObjectType::Article)
     }
 }
 

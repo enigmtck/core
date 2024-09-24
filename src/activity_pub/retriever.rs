@@ -11,26 +11,19 @@ use crate::activity_pub::ApActor;
 use crate::db::Db;
 use crate::models::cache::Cache;
 use crate::models::leaders::get_leader_by_actor_ap_id_and_profile;
+use crate::models::objects::{create_or_update_object, get_object_by_as_id, NewObject};
 use crate::models::profiles::get_profile_by_ap_id;
 use crate::models::profiles::guaranteed_profile;
 use crate::models::profiles::Profile;
 use crate::models::remote_actors::create_or_update_remote_actor;
 use crate::models::remote_actors::get_remote_actor_by_ap_id;
 use crate::models::remote_actors::NewRemoteActor;
-use crate::models::remote_notes::create_or_update_remote_note;
-use crate::models::remote_notes::get_remote_note_by_ap_id;
-use crate::models::remote_notes::NewRemoteNote;
-use crate::models::remote_questions::{
-    create_or_update_remote_question, get_remote_question_by_ap_id, NewRemoteQuestion,
-};
 use crate::runner::actor::update_actor_tags;
 use crate::signing::{sign, Method, SignParams};
 use crate::webfinger::WebFinger;
 use crate::WEBFINGER_RE;
 
-use super::ApNote;
-use super::{ApCollection, ApQuestion};
-use super::{ApCollectionPage, ApObject};
+use super::{ApCollection, ApCollectionPage, ApObject};
 
 pub async fn get_remote_collection_page(
     conn: &Db,
@@ -120,72 +113,29 @@ async fn get_remote_webfinger(handle: String) -> Result<WebFinger> {
 }
 
 pub async fn get_object(conn: &Db, profile: Option<Profile>, id: String) -> Option<ApObject> {
-    if let Some(note) = get_note(conn, profile.clone(), id.clone()).await {
-        Some(ApObject::from(note))
-    } else {
-        get_question(conn, profile, id).await.map(ApObject::from)
-    }
-}
-
-pub async fn get_question(conn: &Db, profile: Option<Profile>, id: String) -> Option<ApQuestion> {
-    match get_remote_question_by_ap_id(Some(conn), id.clone()).await {
-        Some(remote_question) => Some(
-            ApQuestion::try_from(remote_question)
-                .ok()?
-                .cache(conn)
-                .await
-                .clone(),
-        ),
+    match get_object_by_as_id(Some(conn), id.clone()).await.ok() {
+        Some(object) => Some(ApObject::try_from(object).ok()?.cache(conn).await.clone()),
         None => match signed_get(guaranteed_profile(conn.into(), profile).await, id, false).await {
             Ok(resp) => match resp.status() {
                 StatusCode::ACCEPTED | StatusCode::OK => {
                     let text = resp.text().await.ok()?;
-                    let question = serde_json::from_str::<ApQuestion>(&text).ok()?;
+                    let object = serde_json::from_str::<ApObject>(&text).ok()?;
 
-                    create_or_update_remote_question(
+                    create_or_update_object(
                         conn,
-                        NewRemoteQuestion::from(question.cache(conn).await.clone()),
+                        NewObject::try_from(object.cache(conn).await.clone()).ok()?,
                     )
                     .await
                     .ok()
-                    .map(|x| ApQuestion::try_from(x).ok())?
+                    .map(|x| ApObject::try_from(x).ok())?
                 }
                 _ => {
-                    log::debug!("REMOTE QUESTION FAILURE STATUS: {:#?}", resp.status());
+                    log::debug!("OBJECT FAILURE STATUS: {:#?}", resp.status());
                     None
                 }
             },
             Err(e) => {
-                log::error!("FAILED TO RETRIEVE REMOTE QUESTION: {e:#?}");
-                None
-            }
-        },
-    }
-}
-
-pub async fn get_note(conn: &Db, profile: Option<Profile>, id: String) -> Option<ApNote> {
-    match get_remote_note_by_ap_id(Some(conn), id.clone()).await {
-        Some(remote_note) => Some(ApNote::from(remote_note).cache(conn).await.clone()),
-        None => match signed_get(guaranteed_profile(conn.into(), profile).await, id, false).await {
-            Ok(resp) => match resp.status() {
-                StatusCode::ACCEPTED | StatusCode::OK => {
-                    let text = resp.text().await.ok()?;
-                    let note = serde_json::from_str::<ApNote>(&text).ok()?;
-
-                    create_or_update_remote_note(
-                        Some(conn),
-                        NewRemoteNote::from(note.cache(conn).await.clone()),
-                    )
-                    .await
-                    .map(ApNote::from)
-                }
-                _ => {
-                    log::debug!("REMOTE NOTE FAILURE STATUS: {:#?}", resp.status());
-                    None
-                }
-            },
-            Err(e) => {
-                log::error!("FAILED TO RETRIEVE REMOTE NOTE: {e:#?}");
+                log::error!("FAILED TO RETRIEVE OBJECT: {e:#?}");
                 None
             }
         },

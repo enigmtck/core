@@ -1,5 +1,5 @@
 use crate::activity_pub::retriever::{
-    get_actor, get_ap_id_from_webfinger, get_note, get_object, get_remote_collection,
+    get_actor, get_ap_id_from_webfinger, get_object, get_remote_collection,
     get_remote_collection_page,
 };
 use crate::activity_pub::{ApActor, ApNote, ApObject};
@@ -374,6 +374,7 @@ pub async fn remote_outbox_authenticated(
 #[get("/api/remote/object?<id>")]
 pub async fn remote_object(
     blocks: BlockList,
+    signed: Signed,
     conn: Db,
     id: &str,
 ) -> Result<Json<ApObject>, Status> {
@@ -382,51 +383,12 @@ pub async fn remote_object(
 
         if blocks.is_blocked(get_domain_from_url(id.to_string())) {
             Err(Status::Forbidden)
-        } else if let Some(object) = get_object(&conn, None, url.to_string()).await {
+        } else if let Some(object) = get_object(&conn, signed.profile(), url.to_string()).await {
             Ok(Json(object))
         } else {
             Err(Status::NotFound)
         }
     } else {
         Err(Status::UnprocessableEntity)
-    }
-}
-
-#[get("/api/remote/note?<id>")]
-pub async fn remote_note(blocks: BlockList, conn: Db, id: &str) -> Result<Json<ApNote>, Status> {
-    if let Ok(url) = urlencoding::decode(id) {
-        let url = &(*url).to_string();
-
-        if blocks.is_blocked(get_domain_from_url(id.to_string())) {
-            Err(Status::Forbidden)
-        } else if let Some(note) = get_note(&conn, None, url.to_string()).await {
-            Ok(Json(note))
-        } else {
-            Err(Status::new(520))
-        }
-    } else {
-        Err(Status::UnprocessableEntity)
-    }
-}
-
-#[get("/api/user/<_username>/remote/note?<id>")]
-pub async fn remote_note_authenticated(
-    blocks: BlockList,
-    signed: Signed,
-    conn: Db,
-    _username: &str,
-    id: &str,
-) -> Result<Json<ApNote>, Status> {
-    // it feels like id should be encoded, but it doesn't look like I wrote this to be
-    // will need to revisit
-    if blocks.is_blocked(get_domain_from_url(id.to_string())) {
-        Err(Status::Forbidden)
-    } else if let Some(profile) = signed.profile() {
-        let note = get_note(&conn, Some(profile), id.to_string())
-            .await
-            .ok_or(Status::new(524))?;
-        Ok(Json(note))
-    } else {
-        Err(Status::Unauthorized)
     }
 }

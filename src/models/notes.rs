@@ -8,7 +8,7 @@ use crate::POOL;
 use anyhow::Result;
 use diesel::prelude::*;
 
-use super::remote_notes::{get_remote_note_by_ap_id, RemoteNote};
+use super::objects::{get_object_by_as_id, Object};
 use super::to_serde;
 
 cfg_if::cfg_if! {
@@ -118,7 +118,7 @@ pub async fn delete_note_by_uuid(conn: Option<&Db>, uuid: String) -> Result<usiz
 #[derive(Clone)]
 pub enum NoteLike {
     Note(Note),
-    RemoteNote(RemoteNote),
+    Object(Object),
 }
 
 pub async fn get_notey(conn: &Db, id: String) -> Option<NoteLike> {
@@ -131,7 +131,7 @@ pub async fn get_notey(conn: &Db, id: String) -> Option<NoteLike> {
             None
         }
     } else {
-        let remote_note = get_remote_note_by_ap_id(Some(conn), id).await?;
-        Some(NoteLike::RemoteNote(remote_note))
+        let object = get_object_by_as_id(Some(conn), id).await.ok()?;
+        Some(NoteLike::Object(object))
     }
 }

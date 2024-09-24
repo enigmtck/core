@@ -14,8 +14,6 @@ use crate::{
         objects::{create_or_update_object, NewObject},
         pg::coalesced_activity::CoalescedActivity,
         profiles::Profile,
-        remote_notes::{create_or_update_remote_note, NewRemoteNote},
-        remote_questions::create_or_update_remote_question,
     },
     runner, MaybeMultiple, MaybeReference,
 };
@@ -132,13 +130,6 @@ impl Inbox for ApCreate {
                     .await
                     .map_err(|_| Status::InternalServerError)?;
 
-                // let created_question = create_or_update_remote_question(&conn, question.into())
-                //     .await
-                //     .map_err(|e| {
-                //         log::error!("{e:#?}");
-                //         Status::new(520)
-                //     })?;
-
                 let mut activity = NewActivity::try_from((
                     ApActivity::Create(self.clone()),
                     Some(ActivityTarget::from(object.clone())),
@@ -231,15 +222,11 @@ impl TryFrom<CoalescedActivity> for ApCreate {
 impl TryFrom<ExtendedActivity> for ApCreate {
     type Error = anyhow::Error;
     fn try_from(
-        (activity, note, remote_note, _profile, _remote_actor, remote_question, _hashtags): ExtendedActivity,
+        (activity, note, _profile, _remote_actor): ExtendedActivity,
     ) -> Result<Self, Self::Error> {
         let note = {
             if let Some(note) = note {
                 ApObject::Note(ApNote::from(note))
-            } else if let Some(remote_note) = remote_note {
-                ApObject::Note(ApNote::from(remote_note))
-            } else if let Some(remote_question) = remote_question {
-                ApObject::Question(ApQuestion::try_from(remote_question)?)
             } else {
                 return Err(anyhow!("ACTIVITY MUST INCLUDE A NOTE OR REMOTE_NOTE"));
             }
