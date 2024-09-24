@@ -21,6 +21,7 @@ use std::collections::HashMap;
 use std::fmt::{self, Debug};
 
 use super::notes::{Note, NoteLike};
+use super::objects::Object;
 use super::profiles::{get_profile_by_ap_id, Profile};
 use super::remote_actors::RemoteActor;
 use super::remote_note_hashtags::RemoteNoteHashtag;
@@ -134,12 +135,19 @@ impl From<ApLikeType> for ActivityType {
 }
 
 pub enum ActivityTarget {
+    Object(Object),
     Note(Box<Note>),
     RemoteNote(RemoteNote),
     Profile(Box<Profile>),
     Activity(Activity),
     RemoteActor(RemoteActor),
     RemoteQuestion(RemoteQuestion),
+}
+
+impl From<Object> for ActivityTarget {
+    fn from(object: Object) -> Self {
+        ActivityTarget::Object(object)
+    }
 }
 
 impl From<RemoteQuestion> for ActivityTarget {
@@ -222,6 +230,11 @@ impl NewActivity {
     pub fn link_target(&mut self, target: Option<ActivityTarget>) -> &Self {
         if let Some(target) = target {
             match target {
+                ActivityTarget::Object(object) => {
+                    self.target_object_id = Some(object.id);
+                    self.target_ap_id = Some(object.as_id);
+                    self.reply = object.as_in_reply_to.is_some();
+                }
                 ActivityTarget::Note(note) => {
                     self.target_note_id = Some(note.id);
                     self.target_ap_id = Some(get_note_ap_id_from_uuid(note.uuid));
@@ -878,6 +891,31 @@ pub async fn update_target_remote_note(
             let mut pool = POOL.get().ok()?;
             diesel::update(activities::table.find(activity.id))
                 .set(activities::target_remote_note_id.eq(remote_note.id))
+                .execute(&mut pool)
+                .ok()
+        }
+    }
+}
+
+pub async fn update_target_object(
+    conn: Option<&Db>,
+    activity: Activity,
+    object: Object,
+) -> Option<usize> {
+    match conn {
+        Some(conn) => {
+            conn.run(move |c| {
+                diesel::update(activities::table.find(activity.id))
+                    .set(activities::target_object_id.eq(object.id))
+                    .execute(c)
+                    .ok()
+            })
+            .await
+        }
+        None => {
+            let mut pool = POOL.get().ok()?;
+            diesel::update(activities::table.find(activity.id))
+                .set(activities::target_object_id.eq(object.id))
                 .execute(&mut pool)
                 .ok()
         }

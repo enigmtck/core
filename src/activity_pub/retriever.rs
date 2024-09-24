@@ -20,14 +20,17 @@ use crate::models::remote_actors::NewRemoteActor;
 use crate::models::remote_notes::create_or_update_remote_note;
 use crate::models::remote_notes::get_remote_note_by_ap_id;
 use crate::models::remote_notes::NewRemoteNote;
+use crate::models::remote_questions::{
+    create_or_update_remote_question, get_remote_question_by_ap_id, NewRemoteQuestion,
+};
 use crate::runner::actor::update_actor_tags;
 use crate::signing::{sign, Method, SignParams};
 use crate::webfinger::WebFinger;
 use crate::WEBFINGER_RE;
 
-use super::ApCollection;
-use super::ApCollectionPage;
 use super::ApNote;
+use super::{ApCollection, ApQuestion};
+use super::{ApCollectionPage, ApObject};
 
 pub async fn get_remote_collection_page(
     conn: &Db,
@@ -114,6 +117,50 @@ async fn get_remote_webfinger(handle: String) -> Result<WebFinger> {
         .map_err(anyhow::Error::msg)?;
 
     response.json().await.map_err(anyhow::Error::msg)
+}
+
+pub async fn get_object(conn: &Db, profile: Option<Profile>, id: String) -> Option<ApObject> {
+    if let Some(note) = get_note(conn, profile.clone(), id.clone()).await {
+        Some(ApObject::from(note))
+    } else {
+        get_question(conn, profile, id).await.map(ApObject::from)
+    }
+}
+
+pub async fn get_question(conn: &Db, profile: Option<Profile>, id: String) -> Option<ApQuestion> {
+    match get_remote_question_by_ap_id(Some(conn), id.clone()).await {
+        Some(remote_question) => Some(
+            ApQuestion::try_from(remote_question)
+                .ok()?
+                .cache(conn)
+                .await
+                .clone(),
+        ),
+        None => match signed_get(guaranteed_profile(conn.into(), profile).await, id, false).await {
+            Ok(resp) => match resp.status() {
+                StatusCode::ACCEPTED | StatusCode::OK => {
+                    let text = resp.text().await.ok()?;
+                    let question = serde_json::from_str::<ApQuestion>(&text).ok()?;
+
+                    create_or_update_remote_question(
+                        conn,
+                        NewRemoteQuestion::from(question.cache(conn).await.clone()),
+                    )
+                    .await
+                    .ok()
+                    .map(|x| ApQuestion::try_from(x).ok())?
+                }
+                _ => {
+                    log::debug!("REMOTE QUESTION FAILURE STATUS: {:#?}", resp.status());
+                    None
+                }
+            },
+            Err(e) => {
+                log::error!("FAILED TO RETRIEVE REMOTE QUESTION: {e:#?}");
+                None
+            }
+        },
+    }
 }
 
 pub async fn get_note(conn: &Db, profile: Option<Profile>, id: String) -> Option<ApNote> {

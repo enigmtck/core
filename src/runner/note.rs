@@ -1,17 +1,17 @@
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use reqwest::StatusCode;
 use webpage::{Webpage, WebpageOptions};
 
 use crate::activity_pub::retriever::signed_get;
-use crate::activity_pub::{ApAttachment, ApImage, Metadata};
+use crate::activity_pub::{ApAttachment, ApHashtag, ApImage, Metadata};
 use crate::fairings::events::EventChannels;
 use crate::models::cache::{Cache, Cacheable};
 use crate::models::note_hashtags::{create_note_hashtag, NewNoteHashtag};
 use crate::models::notes::delete_note_by_uuid;
-use crate::models::pg::remote_notes::update_metadata;
+use crate::models::objects::{create_or_update_object, get_object_by_as_id, Object};
+use crate::models::pg::objects;
 use crate::models::profiles::{get_profile, guaranteed_profile};
-use crate::models::remote_note_hashtags::{create_remote_note_hashtag, NewRemoteNoteHashtag};
-use crate::models::remote_notes::{create_or_update_remote_note, get_remote_note_by_ap_id};
+use crate::models::to_serde;
 use crate::runner::cache::cache_content;
 use crate::ANCHOR_RE;
 use crate::{
@@ -24,7 +24,6 @@ use crate::{
         send_to_inboxes,
     },
     signing::Method,
-    MaybeReference,
 };
 
 use super::actor::get_actor;
@@ -208,38 +207,38 @@ pub async fn outbound_note_task(
     Ok(())
 }
 
-pub async fn retrieve_context_task(
-    conn: Option<Db>,
-    _channels: Option<EventChannels>,
-    ap_ids: Vec<String>,
-) -> Result<(), TaskError> {
-    let conn = conn.as_ref();
+// pub async fn retrieve_context_task(
+//     conn: Option<Db>,
+//     _channels: Option<EventChannels>,
+//     ap_ids: Vec<String>,
+// ) -> Result<(), TaskError> {
+//     let conn = conn.as_ref();
 
-    let profile = guaranteed_profile(None, None).await;
+//     let profile = guaranteed_profile(None, None).await;
 
-    for ap_id in ap_ids {
-        let profile = profile.clone();
+//     for ap_id in ap_ids {
+//         let profile = profile.clone();
 
-        if let Some(note) = fetch_remote_note(
-            conn.ok_or(TaskError::TaskFailed)?,
-            ap_id.to_string(),
-            profile,
-        )
-        .await
-        {
-            log::debug!("REPLIES\n{:#?}", note.replies);
+//         if let Some(note) = fetch_remote_note(
+//             conn.ok_or(TaskError::TaskFailed)?,
+//             ap_id.to_string(),
+//             profile,
+//         )
+//         .await
+//         {
+//             log::debug!("REPLIES\n{:#?}", note.replies);
 
-            if let Some(replies) = ApNote::from(note).replies {
-                if let Some(MaybeReference::Actual(_first)) = replies.first {}
-            }
-        }
-    }
+//             if let Some(replies) = ApNote::from(note).replies {
+//                 if let Some(MaybeReference::Actual(_first)) = replies.first {}
+//             }
+//         }
+//     }
 
-    Ok(())
-}
+//     Ok(())
+// }
 
-pub async fn fetch_remote_note(conn: &Db, id: String, profile: Profile) -> Option<RemoteNote> {
-    log::debug!("PERFORMING REMOTE LOOKUP FOR NOTE: {id}");
+pub async fn fetch_remote_object(conn: &Db, id: String, profile: Profile) -> Option<Object> {
+    log::debug!("PERFORMING REMOTE LOOKUP FOR OBJECT: {id}");
 
     let _url = id.clone();
     let _method = Method::Get;
@@ -248,21 +247,27 @@ pub async fn fetch_remote_note(conn: &Db, id: String, profile: Profile) -> Optio
         match resp.status() {
             StatusCode::ACCEPTED | StatusCode::OK => match resp.json().await {
                 Ok(ApObject::Note(note)) => {
-                    create_or_update_remote_note(Some(conn), note.cache(conn).await.clone().into())
+                    create_or_update_object(conn, note.cache(conn).await.clone().into())
                         .await
+                        .ok()
+                }
+                Ok(ApObject::Question(question)) => {
+                    create_or_update_object(conn, question.cache(conn).await.clone().into())
+                        .await
+                        .ok()
                 }
                 Err(e) => {
-                    log::error!("FAILED TO DECODE REMOTE NOTE\n{e:#?}");
+                    log::error!("FAILED TO DECODE REMOTE OBJECT\n{e:#?}");
                     None
                 }
                 _ => None,
             },
             StatusCode::GONE => {
-                log::debug!("REMOTE NOTE NO LONGER EXISTS AT SOURCE");
+                log::debug!("REMOTE OBJECT NO LONGER EXISTS AT SOURCE");
                 None
             }
             _ => {
-                log::error!("REMOTE NOTE FETCH STATUS {:#?}", resp.status());
+                log::error!("REMOTE OBJECT FETCH STATUS {:#?}", resp.status());
                 log::error!("{:#?}", resp.text().await);
                 None
             }
@@ -272,14 +277,48 @@ pub async fn fetch_remote_note(conn: &Db, id: String, profile: Profile) -> Optio
     }
 }
 
-pub async fn create_remote_note_tags(conn: Option<&Db>, remote_note: RemoteNote) {
-    let new_tags: Vec<NewRemoteNoteHashtag> = remote_note.clone().into();
+// pub async fn fetch_remote_note(conn: &Db, id: String, profile: Profile) -> Option<RemoteNote> {
+//     log::debug!("PERFORMING REMOTE LOOKUP FOR NOTE: {id}");
 
-    for tag in new_tags.iter() {
-        log::debug!("ADDING HASHTAG: {}", tag.hashtag);
-        create_remote_note_hashtag(conn, tag.clone()).await;
-    }
-}
+//     let _url = id.clone();
+//     let _method = Method::Get;
+
+//     if let Ok(resp) = signed_get(profile, id, false).await {
+//         match resp.status() {
+//             StatusCode::ACCEPTED | StatusCode::OK => match resp.json().await {
+//                 Ok(ApObject::Note(note)) => {
+//                     create_or_update_remote_note(Some(conn), note.cache(conn).await.clone().into())
+//                         .await
+//                 }
+//                 Err(e) => {
+//                     log::error!("FAILED TO DECODE REMOTE NOTE\n{e:#?}");
+//                     None
+//                 }
+//                 _ => None,
+//             },
+//             StatusCode::GONE => {
+//                 log::debug!("REMOTE NOTE NO LONGER EXISTS AT SOURCE");
+//                 None
+//             }
+//             _ => {
+//                 log::error!("REMOTE NOTE FETCH STATUS {:#?}", resp.status());
+//                 log::error!("{:#?}", resp.text().await);
+//                 None
+//             }
+//         }
+//     } else {
+//         None
+//     }
+// }
+
+// pub async fn create_remote_note_tags(conn: Option<&Db>, remote_note: RemoteNote) {
+//     let new_tags: Vec<NewRemoteNoteHashtag> = remote_note.clone().into();
+
+//     for tag in new_tags.iter() {
+//         log::debug!("ADDING HASHTAG: {}", tag.hashtag);
+//         create_remote_note_hashtag(conn, tag.clone()).await;
+//     }
+// }
 
 // TODO: This is problematic for links that point to large files; the filter tries
 // to account for some of that, but that's not really a solution. Maybe a whitelist?
@@ -299,57 +338,126 @@ fn get_links(text: String) -> Vec<String> {
         .collect()
 }
 
-fn metadata(remote_note: &RemoteNote) -> Vec<Metadata> {
-    get_links(remote_note.content.clone())
-        .iter()
-        .map(|link| {
-            (
-                link.clone(),
-                Webpage::from_url(link, WebpageOptions::default()),
-            )
-        })
-        .filter(|(_, metadata)| metadata.is_ok())
-        .map(|(link, metadata)| (link, metadata.unwrap().html.meta).into())
-        .collect()
+// fn metadata(remote_note: &RemoteNote) -> Vec<Metadata> {
+//     get_links(remote_note.content.clone())
+//         .iter()
+//         .map(|link| {
+//             (
+//                 link.clone(),
+//                 Webpage::from_url(link, WebpageOptions::default()),
+//             )
+//         })
+//         .filter(|(_, metadata)| metadata.is_ok())
+//         .map(|(link, metadata)| (link, metadata.unwrap().html.meta).into())
+//         .collect()
+// }
+
+fn metadata_object(object: &Object) -> Vec<Metadata> {
+    if let Some(as_content) = object.as_content.clone() {
+        get_links(as_content)
+            .iter()
+            .map(|link| {
+                (
+                    link.clone(),
+                    Webpage::from_url(link, WebpageOptions::default()),
+                )
+            })
+            .filter(|(_, metadata)| metadata.is_ok())
+            .map(|(link, metadata)| (link, metadata.unwrap().html.meta).into())
+            .collect()
+    } else {
+        vec![]
+    }
 }
 
-pub async fn handle_remote_note(
-    conn: Option<&Db>,
+pub async fn handle_object(
+    conn: &Db,
     channels: Option<EventChannels>,
-    mut remote_note: RemoteNote,
+    mut object: Object,
     announcer: Option<String>,
-) -> anyhow::Result<RemoteNote> {
-    log::debug!("HANDLING REMOTE NOTE");
+) -> anyhow::Result<Object> {
+    log::debug!("HANDLING OBJECT");
 
-    let metadata = metadata(&remote_note);
+    let metadata = metadata_object(&object);
 
     if !metadata.is_empty() {
-        remote_note = update_metadata(
-            conn,
-            remote_note.id,
-            serde_json::to_value(metadata).unwrap(),
-        )
-        .await?;
+        object = objects::update_metadata(conn, object.id, serde_json::to_value(metadata).unwrap())
+            .await?;
     }
 
-    let mut note: ApNote = remote_note.clone().into();
+    let hashtags: Vec<ApHashtag> = object.clone().into();
+    let hashtags = to_serde::<Vec<String>>(
+        hashtags
+            .iter()
+            .map(|x| x.name.clone().to_lowercase())
+            .collect(),
+    );
+
+    if let Some(hashtags) = hashtags {
+        object = objects::update_hashtags(conn, object.id, hashtags)
+            .await
+            .unwrap_or(object);
+    }
+
+    let ap_object: ApObject = object.clone().try_into()?;
     let profile = guaranteed_profile(None, None);
 
-    let _ = get_actor(conn, profile.await, note.attributed_to.to_string()).await;
+    if let ApObject::Note(mut note) = ap_object {
+        let _ = get_actor(Some(conn), profile.await, note.attributed_to.to_string()).await;
 
-    if let Some(announcer) = announcer {
-        note.ephemeral_announces = Some(vec![announcer]);
+        if let Some(announcer) = announcer {
+            note.ephemeral_announces = Some(vec![announcer]);
+        }
+
+        note.cache(conn).await;
+
+        if let Some(mut channels) = channels {
+            channels.send(None, serde_json::to_string(&note.clone()).unwrap());
+        }
+
+        Ok(object)
+    } else {
+        Err(anyhow!("ApObject is not a Note"))
     }
-
-    create_remote_note_tags(conn, remote_note.clone()).await;
-    note.cache(conn.unwrap()).await;
-
-    if let Some(mut channels) = channels {
-        channels.send(None, serde_json::to_string(&note.clone()).unwrap());
-    }
-
-    Ok(remote_note)
 }
+
+// pub async fn handle_remote_note(
+//     conn: Option<&Db>,
+//     channels: Option<EventChannels>,
+//     mut remote_note: RemoteNote,
+//     announcer: Option<String>,
+// ) -> anyhow::Result<RemoteNote> {
+//     log::debug!("HANDLING REMOTE NOTE");
+
+//     let metadata = metadata(&remote_note);
+
+//     if !metadata.is_empty() {
+//         remote_note = update_metadata(
+//             conn,
+//             remote_note.id,
+//             serde_json::to_value(metadata).unwrap(),
+//         )
+//         .await?;
+//     }
+
+//     let mut note: ApNote = remote_note.clone().into();
+//     let profile = guaranteed_profile(None, None);
+
+//     let _ = get_actor(conn, profile.await, note.attributed_to.to_string()).await;
+
+//     if let Some(announcer) = announcer {
+//         note.ephemeral_announces = Some(vec![announcer]);
+//     }
+
+//     create_remote_note_tags(conn, remote_note.clone()).await;
+//     note.cache(conn.unwrap()).await;
+
+//     if let Some(mut channels) = channels {
+//         channels.send(None, serde_json::to_string(&note.clone()).unwrap());
+//     }
+
+//     Ok(remote_note)
+// }
 
 pub async fn handle_remote_encrypted_note_task(
     _conn: Option<&Db>,
@@ -378,7 +486,51 @@ pub async fn handle_remote_encrypted_note_task(
     Ok(())
 }
 
-pub async fn remote_note_task(
+// pub async fn remote_note_task(
+//     conn: Option<Db>,
+//     channels: Option<EventChannels>,
+//     ap_ids: Vec<String>,
+// ) -> Result<(), TaskError> {
+//     let conn = conn.as_ref();
+
+//     let ap_id = ap_ids.first().unwrap().clone();
+
+//     log::debug!("looking for ap_id: {}", ap_id);
+
+//     if let Some(remote_note) = get_remote_note_by_ap_id(conn, ap_id).await {
+//         cfg_if::cfg_if! {
+//             if #[cfg(feature = "pg")] {
+//                 use crate::models::notes::NoteType;
+
+//                 match remote_note.kind {
+//                     NoteType::Note => {
+//                         let _ = handle_remote_note(conn, channels.clone(), remote_note.clone(), None).await;
+//                     }
+//                     NoteType::EncryptedNote => {
+//                         let _ = handle_remote_encrypted_note_task(conn, remote_note).await;
+//                     }
+//                     _ => (),
+//                 }
+//             } else if #[cfg(feature = "sqlite")] {
+//                 match remote_note.kind.as_str() {
+//                     "note" => {
+//                         let _ = handle_remote_note(conn, channels.clone(), remote_note.clone(), None).await;
+//                     }
+//                     "encrypted_note" => {
+//                         let _ = handle_remote_encrypted_note_task(conn, remote_note).await;
+//                     }
+//                     _ => (),
+//                 }
+//             }
+//         }
+//     }
+
+//     //let _ = object_task(conn, channels, ap_ids).await;
+
+//     Ok(())
+// }
+
+pub async fn object_task(
     conn: Option<Db>,
     channels: Option<EventChannels>,
     ap_ids: Vec<String>,
@@ -389,31 +541,26 @@ pub async fn remote_note_task(
 
     log::debug!("looking for ap_id: {}", ap_id);
 
-    if let Some(remote_note) = get_remote_note_by_ap_id(conn, ap_id).await {
+    if let Ok(object) = get_object_by_as_id(conn, ap_id).await {
         cfg_if::cfg_if! {
             if #[cfg(feature = "pg")] {
-                use crate::models::notes::NoteType;
+                use crate::models::pg::objects::ObjectType;
 
-                match remote_note.kind {
-                    NoteType::Note => {
-                        let _ = handle_remote_note(conn, channels, remote_note.clone(), None).await;
-                    }
-                    NoteType::EncryptedNote => {
-                        let _ = handle_remote_encrypted_note_task(conn, remote_note).await;
-                    }
-                    _ => (),
-                }
-            } else if #[cfg(feature = "sqlite")] {
-                match remote_note.kind.as_str() {
-                    "note" => {
-                        let _ = handle_remote_note(conn, channels.clone(), remote_note.clone(), None).await;
-                    }
-                    "encrypted_note" => {
-                        let _ = handle_remote_encrypted_note_task(conn, remote_note).await;
-                    }
-                    _ => (),
+                if object.as_type == ObjectType::Note {
+                    let _ = handle_object(conn.unwrap(), channels, object.clone(), None).await;
                 }
             }
+            // else if #[cfg(feature = "sqlite")] {
+            //     match remote_note.kind.as_str() {
+            //         "note" => {
+            //             let _ = handle_remote_note(conn, channels.clone(), remote_note.clone(), None).await;
+            //         }
+            //         "encrypted_note" => {
+            //             let _ = handle_remote_encrypted_note_task(conn, remote_note).await;
+            //         }
+            //         _ => (),
+            //     }
+            // }
         }
     }
 

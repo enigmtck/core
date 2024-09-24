@@ -66,12 +66,15 @@ impl Inbox for Box<ApLike> {
             log::debug!("NOTE AP_ID\n{note_apid:#?}");
             if let Some(target) = get_note_by_apid(&conn, note_apid).await {
                 log::debug!("TARGET\n{target:#?}");
-                if let Ok(activity) = NewActivity::try_from((
+                if let Ok(mut activity) = NewActivity::try_from((
                     ApActivity::Like(self.clone()),
                     Some(ActivityTarget::from(target)),
-                ) as ApActivityTarget)
+                )
+                    as ApActivityTarget)
                 {
                     log::debug!("ACTIVITY\n{activity:#?}");
+                    activity.raw = Some(raw.clone());
+
                     if create_activity((&conn).into(), activity.clone())
                         .await
                         .is_ok()

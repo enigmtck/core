@@ -14,6 +14,8 @@ use dotenvy::dotenv;
 use lazy_static::lazy_static;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
+use std::cmp::Ordering;
 use std::env;
 use std::fmt;
 
@@ -320,5 +322,22 @@ impl From<ApActivity> for MaybeReference<ApActivity> {
 impl From<String> for MaybeReference<String> {
     fn from(reference: String) -> Self {
         MaybeReference::Reference(reference)
+    }
+}
+
+#[derive(Clone, Eq, PartialEq, Serialize, Deserialize, Debug)]
+pub struct OrdValue(Value);
+
+impl PartialOrd for OrdValue {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for OrdValue {
+    fn cmp(&self, other: &Self) -> Ordering {
+        let a_str = serde_json::to_string(&self.0).unwrap();
+        let b_str = serde_json::to_string(&other.0).unwrap();
+        a_str.cmp(&b_str)
     }
 }

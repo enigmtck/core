@@ -1,5 +1,5 @@
 use crate::activity_pub::retriever::{
-    get_actor, get_ap_id_from_webfinger, get_note, get_remote_collection,
+    get_actor, get_ap_id_from_webfinger, get_note, get_object, get_remote_collection,
     get_remote_collection_page,
 };
 use crate::activity_pub::{ApActor, ApNote, ApObject};
@@ -368,6 +368,27 @@ pub async fn remote_outbox_authenticated(
         }
     } else {
         Err(Status::new(520))
+    }
+}
+
+#[get("/api/remote/object?<id>")]
+pub async fn remote_object(
+    blocks: BlockList,
+    conn: Db,
+    id: &str,
+) -> Result<Json<ApObject>, Status> {
+    if let Ok(url) = urlencoding::decode(id) {
+        let url = &(*url).to_string();
+
+        if blocks.is_blocked(get_domain_from_url(id.to_string())) {
+            Err(Status::Forbidden)
+        } else if let Some(object) = get_object(&conn, None, url.to_string()).await {
+            Ok(Json(object))
+        } else {
+            Err(Status::NotFound)
+        }
+    } else {
+        Err(Status::UnprocessableEntity)
     }
 }
 

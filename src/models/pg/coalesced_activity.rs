@@ -67,6 +67,12 @@ pub struct CoalescedActivity {
     #[diesel(sql_type = Bool)]
     pub reply: bool,
 
+    #[diesel(sql_type = Nullable<Jsonb>)]
+    pub raw: Option<Value>,
+
+    #[diesel(sql_type = Nullable<Integer>)]
+    pub target_object_id: Option<i32>,
+
     // Object Fields
     #[diesel(sql_type = Nullable<Text>)]
     pub object_uuid: Option<String>,
@@ -92,11 +98,11 @@ pub struct CoalescedActivity {
     #[diesel(sql_type = Nullable<Jsonb>)]
     pub object_tag: Option<Value>,
 
-    #[diesel(sql_type = Nullable<Text>)]
-    pub object_attributed_to: Option<String>,
+    #[diesel(sql_type = Nullable<Jsonb>)]
+    pub object_attributed_to: Option<Value>,
 
-    #[diesel(sql_type = Nullable<Text>)]
-    pub object_in_reply_to: Option<String>,
+    #[diesel(sql_type = Nullable<Jsonb>)]
+    pub object_in_reply_to: Option<Value>,
 
     #[diesel(sql_type = Nullable<Text>)]
     pub object_content: Option<String>,
@@ -133,4 +139,10 @@ pub struct CoalescedActivity {
 
     #[diesel(sql_type = Jsonb)]
     pub object_likers: Value,
+
+    #[diesel(sql_type = Nullable<Text>)]
+    pub object_announced: Option<String>,
+
+    #[diesel(sql_type = Nullable<Text>)]
+    pub object_liked: Option<String>,
 }

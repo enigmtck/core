@@ -1,10 +1,12 @@
 use crate::activity_pub::{ApActor, ApCollection, ApInstrument, ApNote, Outbox};
 use crate::db::Db;
 use crate::fairings::events::EventChannels;
+use crate::models::objects::Object;
+use crate::models::pg::objects::ObjectType;
 use crate::models::profiles::Profile;
-use crate::{Identifier, MaybeMultiple, IMAGE_MEDIA_RE};
+use crate::{Identifier, MaybeMultiple, OrdValue, IMAGE_MEDIA_RE};
 
-use anyhow::Error;
+use anyhow::{anyhow, Error, Result};
 use chrono::{DateTime, Utc};
 use enum_dispatch::enum_dispatch;
 use rocket::http::{ContentType, Status};
@@ -18,40 +20,11 @@ use super::delete::ApTombstone;
 use super::question::ApQuestion;
 use super::session::ApSession;
 
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 #[serde(untagged)]
 pub enum ApContext {
     Plain(String),
-    Complex(Vec<Value>),
-}
-
-impl PartialOrd for ApContext {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-// This freaking sucks. Super annoying that we can't automatically derive ord and partialord
-// for serde_json::Value
-impl Ord for ApContext {
-    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        match self {
-            ApContext::Plain(string) => match other {
-                ApContext::Plain(other_string) => string.cmp(other_string),
-                ApContext::Complex(other_complex) => {
-                    string.cmp(&serde_json::to_string(&other_complex).unwrap())
-                }
-            },
-            ApContext::Complex(complex) => match other {
-                ApContext::Plain(other_string) => {
-                    serde_json::to_string(&complex).unwrap().cmp(other_string)
-                }
-                ApContext::Complex(other_complex) => serde_json::to_string(&complex)
-                    .unwrap()
-                    .cmp(&serde_json::to_string(&other_complex).unwrap()),
-            },
-        }
-    }
+    Complex(Vec<OrdValue>),
 }
 
 impl Default for ApContext {
@@ -98,6 +71,17 @@ pub enum ApObject {
     Identifier(Identifier),
     Basic(ApBasicContent),
     Complex(MaybeMultiple<Value>),
+}
+
+impl TryFrom<Object> for ApObject {
+    type Error = anyhow::Error;
+
+    fn try_from(object: Object) -> Result<Self> {
+        match object.as_type {
+            ObjectType::Note => Ok(ApObject::Note(object.try_into()?)),
+            _ => Err(anyhow!("unimplemented Object -> ApObject conversion")),
+        }
+    }
 }
 
 impl Outbox for String {
@@ -204,6 +188,26 @@ pub struct ApHashtag {
     pub kind: ApHashtagType,
     pub name: String,
     pub href: String,
+}
+
+impl From<Object> for Vec<ApHashtag> {
+    fn from(object: Object) -> Self {
+        match ApObject::try_from(object) {
+            Ok(ApObject::Note(note)) => note
+                .tag
+                .unwrap_or_default()
+                .iter()
+                .filter_map(|tag| {
+                    if let ApTag::HashTag(tag) = tag {
+                        Some(tag.clone())
+                    } else {
+                        None
+                    }
+                })
+                .collect(),
+            _ => vec![],
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Ord, PartialOrd)]

@@ -5,13 +5,13 @@ use crate::{
     db::Db,
     fairings::events::EventChannels,
     models::{
-        activities::{get_activity_by_uuid, revoke_activity_by_apid, update_target_remote_note},
+        activities::{get_activity_by_uuid, revoke_activity_by_apid, update_target_object},
+        objects::get_object_by_as_id,
         profiles::{get_profile, guaranteed_profile},
-        remote_notes::get_remote_note_by_ap_id,
     },
     runner::{
         get_inboxes,
-        note::{fetch_remote_note, handle_remote_note},
+        note::{fetch_remote_object, handle_object},
         send_to_inboxes,
     },
 };
@@ -107,11 +107,11 @@ pub async fn remote_announce_task(
 
     let target_ap_id = activity.clone().target_ap_id.ok_or(TaskError::TaskFailed)?;
 
-    if get_remote_note_by_ap_id(conn, target_ap_id.clone())
+    if get_object_by_as_id(conn, target_ap_id.clone())
         .await
-        .is_none()
+        .is_err()
     {
-        let remote_note = fetch_remote_note(
+        let remote_object = fetch_remote_object(
             conn.ok_or(TaskError::TaskFailed)?,
             target_ap_id.clone(),
             profile.clone(),
@@ -119,15 +119,42 @@ pub async fn remote_announce_task(
         .await
         .ok_or(TaskError::TaskFailed)?;
 
-        update_target_remote_note(
+        update_target_object(
             conn,
             activity.clone(),
-            handle_remote_note(conn, channels, remote_note, Some(activity.actor))
-                .await
-                .map_err(|_| TaskError::TaskFailed)?,
+            handle_object(
+                conn.unwrap(),
+                channels.clone(),
+                remote_object,
+                Some(activity.actor.clone()),
+            )
+            .await
+            .map_err(|_| TaskError::TaskFailed)?,
         )
         .await;
-    };
+    }
+
+    // if get_remote_note_by_ap_id(conn, target_ap_id.clone())
+    //     .await
+    //     .is_none()
+    // {
+    //     let remote_note = fetch_remote_note(
+    //         conn.ok_or(TaskError::TaskFailed)?,
+    //         target_ap_id.clone(),
+    //         profile.clone(),
+    //     )
+    //     .await
+    //     .ok_or(TaskError::TaskFailed)?;
+
+    //     update_target_remote_note(
+    //         conn,
+    //         activity.clone(),
+    //         handle_remote_note(conn, channels, remote_note, Some(activity.actor))
+    //             .await
+    //             .map_err(|_| TaskError::TaskFailed)?,
+    //     )
+    //     .await;
+    // };
 
     Ok(())
 }

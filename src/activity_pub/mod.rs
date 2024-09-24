@@ -28,8 +28,8 @@ pub use types::join::{ApJoin, ApJoinType};
 pub use types::like::{ApLike, ApLikeType};
 pub use types::note::{ApNote, ApNoteType, Metadata};
 pub use types::object::{
-    ApBasicContent, ApBasicContentType, ApContext, ApEndpoint, ApImage, ApImageType, ApObject,
-    ApTag, ApTimelineObject,
+    ApBasicContent, ApBasicContentType, ApContext, ApEndpoint, ApHashtag, ApImage, ApImageType,
+    ApObject, ApTag, ApTimelineObject,
 };
 
 pub use types::question::{ApQuestion, ApQuestionType};

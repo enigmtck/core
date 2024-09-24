@@ -44,7 +44,7 @@ async_once = "0.2"
 webpage = { version = "2.0", features = ["serde"] }
 
 rocket = { version = "0.5.1", features = ["json"] }
-diesel = { version = "2.1.4", features = ["postgres", "sqlite", "chrono", "r2d2", "serde_json"] }
+diesel = { version = "2.1.4", features = ["postgres", "sqlite", "chrono", "r2d2", "serde_json", "64-column-tables"] }
 diesel-derive-enum = { version = "2.1.0", features = ["postgres"] }
 image = "0.24.9"
 blurhash = "0.2.1"

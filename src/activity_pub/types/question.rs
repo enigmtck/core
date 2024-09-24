@@ -6,8 +6,10 @@ use crate::{
     db::Db,
     fairings::events::EventChannels,
     models::{
+        cache::{cache_content, Cache},
         from_serde,
         from_time,
+        objects::Object,
         pg::coalesced_activity::CoalescedActivity,
         profiles::Profile,
         remote_questions::RemoteQuestion, //timeline::ContextualizedTimelineItem,
@@ -23,6 +25,7 @@ use super::{
     actor::{ApActor, ApAddress},
     collection::ApCollectionType,
     note::{ApNoteType, Metadata},
+    object::ApImage,
 };
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default, Eq, PartialEq)]
@@ -166,6 +169,36 @@ impl ApQuestion {
     }
 }
 
+impl Cache for ApQuestion {
+    async fn cache(&self, conn: &Db) -> &Self {
+        if let Some(attachments) = self.attachment.clone() {
+            for attachment in attachments {
+                cache_content(conn, attachment.clone().try_into()).await;
+            }
+        }
+
+        if let Some(tags) = self.tag.clone() {
+            for tag in tags {
+                cache_content(conn, tag.clone().try_into()).await;
+            }
+        }
+
+        if let Some(metadata_vec) = self.ephemeral_metadata.clone() {
+            for metadata in metadata_vec {
+                if let Some(og_image) = metadata.og_image.clone() {
+                    cache_content(conn, Ok(ApImage::from(og_image).into())).await;
+                }
+
+                if let Some(twitter_image) = metadata.twitter_image.clone() {
+                    cache_content(conn, Ok(ApImage::from(twitter_image).into())).await;
+                }
+            }
+        }
+
+        self
+    }
+}
+
 impl Outbox for ApQuestion {
     async fn outbox(
         &self,
@@ -197,12 +230,11 @@ impl TryFrom<CoalescedActivity> for ApQuestion {
             .ok_or_else(|| anyhow::anyhow!("object_to is None"))?;
         let cc = coalesced.object_cc.and_then(from_serde);
         let tag = coalesced.object_tag.and_then(from_serde);
-        let attributed_to = ApAddress::from(
-            coalesced
-                .object_attributed_to
-                .ok_or_else(|| anyhow::anyhow!("object_attributed_to is None"))?,
-        );
-        let in_reply_to = coalesced.object_in_reply_to;
+        let attributed_to = coalesced
+            .object_attributed_to
+            .and_then(from_serde)
+            .ok_or_else(|| anyhow::anyhow!("object_attributed_to is None"))?;
+        let in_reply_to = coalesced.object_in_reply_to.and_then(from_serde);
         let content = coalesced.object_content;
         let conversation = coalesced.object_conversation;
         let attachment = coalesced.object_attachment.and_then(from_serde);
@@ -266,6 +298,38 @@ impl TryFrom<RemoteQuestion> for ApQuestion {
             in_reply_to: question.in_reply_to,
             ephemeral_created_at: from_time(question.created_at),
             ephemeral_updated_at: from_time(question.updated_at),
+            ..Default::default()
+        })
+    }
+}
+
+impl TryFrom<Object> for ApQuestion {
+    type Error = anyhow::Error;
+
+    fn try_from(object: Object) -> Result<Self, Self::Error> {
+        Ok(ApQuestion {
+            id: object.as_id,
+            attributed_to: from_serde(object.as_attributed_to.ok_or(anyhow!("no attributed_to"))?)
+                .ok_or(anyhow!("failed to convert from Value"))?,
+            to: from_serde(object.as_to.ok_or(anyhow!("as_to is None"))?)
+                .ok_or(anyhow!("failed to deserialize as_to"))?,
+            cc: object.as_cc.clone().and_then(from_serde),
+            end_time: object.as_end_time.and_then(from_time),
+            published: object.as_published.and_then(from_time),
+            one_of: object.as_one_of.and_then(from_serde),
+            any_of: object.as_any_of.and_then(from_serde),
+            content: object.as_content,
+            content_map: object.as_content_map.and_then(from_serde),
+            summary: object.as_summary,
+            voters_count: object.ap_voters_count,
+            url: object.as_url.and_then(from_serde),
+            conversation: object.ap_conversation,
+            tag: object.as_tag.and_then(from_serde),
+            attachment: object.as_attachment.and_then(from_serde),
+            sensitive: object.ap_sensitive,
+            in_reply_to: object.as_in_reply_to.and_then(from_serde),
+            ephemeral_created_at: from_time(object.created_at),
+            ephemeral_updated_at: from_time(object.updated_at),
             ..Default::default()
         })
     }

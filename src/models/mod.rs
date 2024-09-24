@@ -10,6 +10,7 @@ pub mod leaders;
 pub mod note_hashtags;
 pub mod notes;
 pub mod notifications;
+pub mod objects;
 pub mod olm_one_time_keys;
 pub mod olm_sessions;
 pub mod processing_queue;

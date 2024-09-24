@@ -25,7 +25,7 @@ pub async fn outbox_get(
     let limit = limit.unwrap_or(10);
     let page = page.unwrap_or_default();
 
-    let base_url = format!("{server_url}/user/{username}/outbox");
+    let base_url = format!("{server_url}/user/{username}/outbox?page=true&limit={limit}");
 
     if page {
         let filters = {

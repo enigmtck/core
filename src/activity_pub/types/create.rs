@@ -11,6 +11,7 @@ use crate::{
             NewActivity,
         },
         from_serde, from_time,
+        objects::{create_or_update_object, NewObject},
         pg::coalesced_activity::CoalescedActivity,
         profiles::Profile,
         remote_notes::{create_or_update_remote_note, NewRemoteNote},
@@ -89,29 +90,37 @@ impl Inbox for ApCreate {
     async fn inbox(&self, conn: Db, channels: EventChannels, raw: Value) -> Result<Status, Status> {
         match self.clone().object {
             MaybeReference::Actual(ApObject::Note(x)) => {
-                let n = NewRemoteNote::from(x.clone());
+                //let n = NewRemoteNote::from(x.clone());
+                let object = create_or_update_object(&conn, NewObject::from(x.clone()))
+                    .await
+                    .map_err(|_| Status::InternalServerError)?;
+
+                log::debug!("OBJECT\n{object:#?}");
 
                 // creating Activity after RemoteNote is weird, but currently necessary
                 // see comment in models/activities.rs on TryFrom<ApActivity>
-                let created_note = create_or_update_remote_note(Some(&conn), n)
-                    .await
-                    .ok_or(Status::new(520))?;
-                let activity = NewActivity::try_from((
+                // let created_note = create_or_update_remote_note(Some(&conn), n)
+                //     .await
+                //     .ok_or(Status::new(520))?;
+                let mut activity = NewActivity::try_from((
                     ApActivity::Create(self.clone()),
-                    Some(ActivityTarget::from(created_note.clone())),
+                    Some(ActivityTarget::from(object.clone())),
                 ) as ApActivityTarget)
                 .map_err(|_| Status::new(521))?;
+
+                activity.raw = Some(raw);
 
                 log::debug!("ACTIVITY\n{activity:#?}");
 
                 if create_activity((&conn).into(), activity).await.is_ok() {
                     runner::run(
-                        runner::note::remote_note_task,
+                        runner::note::object_task,
                         Some(conn),
                         Some(channels),
-                        vec![created_note.ap_id],
+                        vec![object.as_id],
                     )
                     .await;
+
                     Ok(Status::Accepted)
                 } else {
                     log::error!("FAILED TO INSERT ACTIVITY");
@@ -119,27 +128,33 @@ impl Inbox for ApCreate {
                 }
             }
             MaybeReference::Actual(ApObject::Question(question)) => {
-                let created_question = create_or_update_remote_question(&conn, question.into())
+                let object = create_or_update_object(&conn, NewObject::from(question.clone()))
                     .await
-                    .map_err(|e| {
-                        log::error!("{e:#?}");
-                        Status::new(520)
-                    })?;
+                    .map_err(|_| Status::InternalServerError)?;
 
-                let activity = NewActivity::try_from((
+                // let created_question = create_or_update_remote_question(&conn, question.into())
+                //     .await
+                //     .map_err(|e| {
+                //         log::error!("{e:#?}");
+                //         Status::new(520)
+                //     })?;
+
+                let mut activity = NewActivity::try_from((
                     ApActivity::Create(self.clone()),
-                    Some(ActivityTarget::from(created_question.clone())),
+                    Some(ActivityTarget::from(object.clone())),
                 ) as ApActivityTarget)
                 .map_err(|_| Status::new(521))?;
+
+                activity.raw = Some(raw);
 
                 log::debug!("ACTIVITY\n{activity:#?}");
 
                 if create_activity((&conn).into(), activity).await.is_ok() {
                     runner::run(
-                        runner::question::remote_question_task,
+                        runner::note::object_task,
                         Some(conn),
                         Some(channels),
-                        vec![created_question.ap_id],
+                        vec![object.as_id],
                     )
                     .await;
                     Ok(Status::Accepted)

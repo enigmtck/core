@@ -27,7 +27,10 @@ pub struct Instance {
     pub last_message_at: NaiveDateTime,
 }
 
-pub async fn create_instance(conn: Option<&Db>, instance: NewInstance) -> Option<Instance> {
+pub async fn create_or_update_instance(
+    conn: Option<&Db>,
+    instance: NewInstance,
+) -> Result<Instance, anyhow::Error> {
     match conn {
         Some(conn) => conn
             .run(move |c| {
@@ -43,21 +46,20 @@ pub async fn create_instance(conn: Option<&Db>, instance: NewInstance) -> Option
                     .first::<Instance>(c)
             })
             .await
-            .ok(),
+            .map_err(anyhow::Error::msg),
         None => {
-            let mut pool = POOL.get().ok()?;
+            let mut pool = POOL.get().map_err(anyhow::Error::msg)?;
             diesel::insert_into(instances::table)
                 .values(&instance)
                 .on_conflict(instances::domain_name)
                 .do_update()
                 .set(instances::last_message_at.eq(Utc::now().naive_utc()))
-                .execute(&mut pool)
-                .ok()?;
+                .execute(&mut pool)?;
 
             instances::table
                 .filter(instances::domain_name.eq(&instance.domain_name))
                 .first::<Instance>(&mut pool)
-                .ok()
+                .map_err(anyhow::Error::msg)
         }
     }
 }

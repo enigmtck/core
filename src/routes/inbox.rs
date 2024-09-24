@@ -1,11 +1,11 @@
+use std::fmt::Display;
+
 use rocket::http::Status;
 use rocket::serde::json::Json;
 use rocket::{get, post};
 use serde_json::Value;
 
-use crate::activity_pub::{
-    ActivityPub, ApActivity, ApActor, ApCollection, ApCollectionPage, ApObject, Inbox,
-};
+use crate::activity_pub::{ActivityPub, ApActivity, ApActor, ApCollectionPage, ApObject, Inbox};
 use crate::db::Db;
 use crate::fairings::access_control::Permitted;
 use crate::fairings::events::EventChannels;
@@ -14,18 +14,26 @@ use crate::models::activities::{TimelineFilters, TimelineView};
 use crate::models::leaders::get_leaders_by_profile_id;
 use crate::models::pg::activities::get_announcers;
 use crate::SERVER_URL;
+use std::fmt;
 //use crate::models::remote_activities::create_remote_activity;
 
 use super::{retrieve, ActivityJson};
 
-#[derive(FromFormField, Eq, PartialEq)]
+#[derive(FromFormField, Eq, PartialEq, Debug, Clone)]
 pub enum InboxView {
     Home,
     Local,
     Global,
 }
 
-#[get("/user/<_username>/inbox?<min>&<max>&<limit>&<view>")]
+impl Display for InboxView {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{:#?}", self)
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+#[get("/user/<_username>/inbox?<min>&<max>&<limit>&<view>&<hashtags>")]
 pub async fn inbox_get(
     signed: Signed,
     conn: Db,
@@ -34,8 +42,9 @@ pub async fn inbox_get(
     max: Option<i64>,
     limit: u8,
     view: InboxView,
+    hashtags: Option<Vec<String>>,
 ) -> Result<ActivityJson<ApObject>, Status> {
-    shared_inbox_get(signed, conn, min, max, limit, Some(view), None).await
+    shared_inbox_get(signed, conn, min, max, limit, Some(view), hashtags).await
 }
 
 #[post("/user/<_>/inbox", data = "<activity>")]
@@ -44,7 +53,7 @@ pub async fn inbox_post(
     signed: Signed,
     conn: Db,
     channels: EventChannels,
-    activity: String,
+    activity: Json<Value>,
 ) -> Result<Status, Status> {
     shared_inbox_post(permitted, signed, conn, channels, activity).await
 }
@@ -60,6 +69,30 @@ pub async fn shared_inbox_get(
     hashtags: Option<Vec<String>>,
 ) -> Result<ActivityJson<ApObject>, Status> {
     let profile = signed.profile();
+    let server_url = &*SERVER_URL;
+
+    let view_query = {
+        if let Some(view) = view.clone() {
+            format!("&view={}", view)
+        } else {
+            String::new()
+        }
+    };
+
+    let hashtags_query = {
+        if let Some(hashtags) = hashtags.clone() {
+            hashtags
+                .iter()
+                .map(|h| format!("hashtag[]={}", h))
+                .collect::<Vec<String>>()
+                .join("&")
+        } else {
+            String::new()
+        }
+    };
+
+    let base_url =
+        format!("{server_url}/inbox?page=true&limit={limit}{view_query}{hashtags_query}");
 
     let filters = {
         if let Some(view) = view {
@@ -104,24 +137,34 @@ pub async fn shared_inbox_get(
     };
 
     Ok(ActivityJson(Json(
-        retrieve::activities(&conn, limit.into(), min, max, profile, filters, None).await,
+        retrieve::activities(
+            &conn,
+            limit.into(),
+            min,
+            max,
+            profile,
+            filters,
+            Some(base_url),
+        )
+        .await,
     )))
 }
 
-#[post("/inbox", data = "<activity>")]
+#[post("/inbox", data = "<raw>")]
 pub async fn shared_inbox_post(
     permitted: Permitted,
     signed: Signed,
     conn: Db,
     channels: EventChannels,
-    activity: String,
+    raw: Json<Value>,
 ) -> Result<Status, Status> {
     if permitted.is_permitted() {
-        let raw =
-            serde_json::from_str::<Value>(&activity).map_err(|_| Status::UnprocessableEntity)?;
+        // let raw =
+        //     serde_json::from_str::<Value>(&activity).map_err(|_| Status::UnprocessableEntity)?;
         log::debug!("POSTING TO INBOX\n{raw:#?}");
+        let raw = raw.into_inner();
 
-        let activity = serde_json::from_str::<ApActivity>(&activity)
+        let activity = serde_json::from_value::<ApActivity>(raw.clone())
             .map_err(|_| Status::UnprocessableEntity)?;
 
         //log::debug!("POSTING TO INBOX\n{activity:#?}");
@@ -176,6 +219,7 @@ pub async fn announcers_get(
 
 #[get("/api/conversation?<id>&<min>&<max>&<limit>")]
 pub async fn conversation_get(
+    signed: Signed,
     conn: Db,
     id: String,
     limit: Option<u8>,
@@ -184,6 +228,8 @@ pub async fn conversation_get(
 ) -> Result<ActivityJson<ApObject>, Status> {
     let decoded = urlencoding::decode(&id).map_err(|_| Status::UnprocessableEntity)?;
     let limit = limit.unwrap_or(20);
+    let server_url = &*SERVER_URL;
+    let base_url = format!("{server_url}/api/conversation?id={id}&limit={limit}");
 
     log::debug!("RETRIEVING CONVERSATION: {decoded}");
 
@@ -195,56 +241,15 @@ pub async fn conversation_get(
     };
 
     Ok(ActivityJson(Json(
-        retrieve::activities(&conn, limit.into(), min, max, None, filters, None).await,
+        retrieve::activities(
+            &conn,
+            limit.into(),
+            min,
+            max,
+            signed.profile(),
+            filters,
+            Some(base_url),
+        )
+        .await,
     )))
 }
-
-// #[get("/api/user/<username>/conversation?<conversation>&<offset>&<limit>")]
-// pub async fn conversation_get(
-//     signed: Signed,
-//     conn: Db,
-//     channels: EventChannels,
-//     username: String,
-//     offset: u16,
-//     limit: u8,
-//     conversation: String,
-// ) -> Result<ActivityJson<ApObject>, Status> {
-//     if signed.local() {
-//         if get_profile_by_username((&conn).into(), username)
-//             .await
-//             .is_some()
-//         {
-//             let decoded =
-//                 urlencoding::decode(&conversation).map_err(|_| Status::UnprocessableEntity)?;
-
-//             retrieve::conversation(
-//                 conn,
-//                 channels,
-//                 decoded.to_string(),
-//                 limit.into(),
-//                 offset.into(),
-//             )
-//             .await
-//             .map(|inbox| ActivityJson(Json(inbox)))
-//             .map_err(|_| Status::InternalServerError)
-//         } else {
-//             Err(Status::NotFound)
-//         }
-//     } else {
-//         Err(Status::Unauthorized)
-//     }
-// }
-
-// #[get("/conversation/<uuid>")]
-// pub async fn conversation_get_local(
-//     conn: Db,
-//     channels: EventChannels,
-//     uuid: String,
-// ) -> Result<ActivityJson<ApObject>, Status> {
-//     let conversation = format!("{}/conversation/{}", *crate::SERVER_URL, uuid);
-
-//     retrieve::conversation(conn, channels, conversation.to_string(), 40, 0)
-//         .await
-//         .map(|conversation| ActivityJson(Json(conversation)))
-//         .map_err(|_| Status::new(525))
-// }

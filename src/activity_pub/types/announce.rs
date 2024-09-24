@@ -73,8 +73,11 @@ pub struct ApAnnounce {
 
 impl Inbox for ApAnnounce {
     async fn inbox(&self, conn: Db, channels: EventChannels, raw: Value) -> Result<Status, Status> {
-        let activity = NewActivity::try_from((ApActivity::Announce(self.clone()), None))
+        let mut activity = NewActivity::try_from((ApActivity::Announce(self.clone()), None))
             .map_err(|_| Status::new(520))?;
+
+        activity.raw = Some(raw.clone());
+
         log::debug!("ACTIVITY\n{activity:#?}");
         if create_activity((&conn).into(), activity.clone())
             .await

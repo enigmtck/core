@@ -249,6 +249,7 @@ fn rocket() -> Rocket<Build> {
                 remote_id,
                 remote_id_authenticated,
                 remote_note,
+                remote_object,
                 update_summary,
                 upload_avatar,
                 upload_banner,

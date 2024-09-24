@@ -14,6 +14,10 @@ pub mod sql_types {
     pub struct NotificationType;
 
     #[derive(diesel::sql_types::SqlType, diesel::query_builder::QueryId)]
+    #[diesel(postgres_type(name = "object_type"))]
+    pub struct ObjectType;
+
+    #[derive(diesel::sql_types::SqlType, diesel::query_builder::QueryId)]
     #[diesel(postgres_type(name = "question_type"))]
     pub struct QuestionType;
 }
@@ -42,6 +46,8 @@ diesel::table! {
         ap_id -> Nullable<Varchar>,
         target_remote_question_id -> Nullable<Int4>,
         reply -> Bool,
+        raw -> Nullable<Jsonb>,
+        target_object_id -> Nullable<Int4>,
     }
 }
 
@@ -229,6 +235,63 @@ diesel::table! {
         kind -> NotificationType,
         profile_id -> Int4,
         activity_id -> Int4,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
+    use super::sql_types::ObjectType;
+
+    objects (id) {
+        id -> Int4,
+        created_at -> Timestamptz,
+        updated_at -> Timestamptz,
+        ap_conversation -> Nullable<Text>,
+        ap_sensitive -> Nullable<Bool>,
+        ap_signature -> Nullable<Jsonb>,
+        ap_voters_count -> Nullable<Int4>,
+        as_any_of -> Nullable<Jsonb>,
+        as_attachment -> Nullable<Jsonb>,
+        as_attributed_to -> Nullable<Jsonb>,
+        as_audience -> Nullable<Jsonb>,
+        as_bcc -> Nullable<Jsonb>,
+        as_bto -> Nullable<Jsonb>,
+        as_cc -> Nullable<Jsonb>,
+        as_closed -> Nullable<Jsonb>,
+        as_content -> Nullable<Text>,
+        as_content_map -> Nullable<Jsonb>,
+        as_context -> Nullable<Jsonb>,
+        as_deleted -> Nullable<Timestamptz>,
+        as_describes -> Nullable<Jsonb>,
+        as_duration -> Nullable<Text>,
+        as_end_time -> Nullable<Timestamptz>,
+        as_former_type -> Nullable<Text>,
+        as_generator -> Nullable<Jsonb>,
+        as_icon -> Nullable<Jsonb>,
+        as_id -> Text,
+        as_image -> Nullable<Jsonb>,
+        as_in_reply_to -> Nullable<Jsonb>,
+        as_location -> Nullable<Jsonb>,
+        as_media_type -> Nullable<Text>,
+        as_name -> Nullable<Text>,
+        as_name_map -> Nullable<Jsonb>,
+        as_one_of -> Nullable<Jsonb>,
+        as_preview -> Nullable<Jsonb>,
+        as_published -> Nullable<Timestamptz>,
+        as_replies -> Nullable<Jsonb>,
+        as_start_time -> Nullable<Timestamptz>,
+        as_summary -> Nullable<Text>,
+        as_summary_map -> Nullable<Jsonb>,
+        as_tag -> Nullable<Jsonb>,
+        as_to -> Nullable<Jsonb>,
+        as_type -> ObjectType,
+        as_updated -> Nullable<Timestamptz>,
+        as_url -> Nullable<Jsonb>,
+        ek_hashtags -> Jsonb,
+        ek_instrument -> Nullable<Jsonb>,
+        ek_metadata -> Nullable<Jsonb>,
+        ek_profile_id -> Nullable<Int4>,
+        ek_uuid -> Nullable<Text>,
     }
 }
 
@@ -483,6 +546,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     note_hashtags,
     notes,
     notifications,
+    objects,
     olm_one_time_keys,
     olm_sessions,
     processing_queue,

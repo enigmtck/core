@@ -5,15 +5,19 @@ use image::io::Reader;
 use image::ImageFormat;
 use serde::{Deserialize, Serialize};
 
+use crate::OrdValue;
+
+use super::object::ApImage;
+
 #[derive(Serialize, Deserialize, Clone, Debug, Eq, PartialEq, Ord, PartialOrd)]
 #[serde(rename_all = "camelCase")]
 #[serde(untagged)]
 pub enum ApAttachment {
     Document(ApDocument),
+    Image(ApImage),
     PropertyValue(ApPropertyValue),
     Link(ApLink),
-    Proof(ApProof),
-    VerifiableIdentityStatement(ApVerifiableIdentityStatement),
+    Uncategorized(OrdValue),
 }
 
 impl TryFrom<String> for ApAttachment {

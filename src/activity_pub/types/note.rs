@@ -9,20 +9,19 @@ use crate::{
     fairings::events::EventChannels,
     helper::{get_ap_id_from_username, get_note_ap_id_from_uuid, get_note_url_from_uuid},
     models::{
-        activities::{
-            create_activity, get_activity_by_kind_profile_id_and_target_ap_id, ActivityType,
-            NewActivity, NoteActivity,
-        },
+        activities::{create_activity, ActivityType, NewActivity, NoteActivity},
         cache::{cache_content, Cache},
         from_serde, from_time,
         notes::{create_note, NewNote, Note, NoteLike, NoteType},
-        pg::coalesced_activity::CoalescedActivity,
+        objects::Object,
+        pg::{coalesced_activity::CoalescedActivity, objects::ObjectType},
         profiles::Profile,
         remote_notes::RemoteNote,
         vault::VaultItem,
     },
     runner, MaybeMultiple,
 };
+use anyhow::{anyhow, Result};
 use chrono::{DateTime, Utc};
 use rocket::http::Status;
 use serde::{Deserialize, Serialize};
@@ -67,6 +66,18 @@ impl TryFrom<String> for ApNoteType {
             "encrypted_note" => Ok(ApNoteType::EncryptedNote),
             "vault_note" => Ok(ApNoteType::VaultNote),
             _ => Err("no match for {kind}"),
+        }
+    }
+}
+
+impl TryFrom<ObjectType> for ApNoteType {
+    type Error = anyhow::Error;
+
+    fn try_from(kind: ObjectType) -> Result<Self, Self::Error> {
+        if kind.is_note() {
+            Ok(ApNoteType::Note)
+        } else {
+            Err(anyhow!("invalid Object type for ApNote"))
         }
     }
 }
@@ -219,36 +230,6 @@ impl ApNote {
 
     pub fn tag(mut self, tag: ApTag) -> Self {
         self.tag.as_mut().expect("unwrap failed").push(tag);
-        self
-    }
-
-    pub async fn contextualize(&mut self, conn: &Db, profile: Profile) -> &Self {
-        if let Some(id) = self.id.clone() {
-            let liked = get_activity_by_kind_profile_id_and_target_ap_id(
-                conn,
-                ActivityType::Like,
-                profile.id,
-                id.clone(),
-            )
-            .await;
-
-            if let Some(liked) = liked {
-                self.ephemeral_liked = Some(liked.uuid);
-            }
-
-            let announced = get_activity_by_kind_profile_id_and_target_ap_id(
-                conn,
-                ActivityType::Announce,
-                profile.id,
-                id,
-            )
-            .await;
-
-            if let Some(announced) = announced {
-                self.ephemeral_announced = Some(announced.uuid);
-            }
-        }
-
         self
     }
 }
@@ -424,12 +405,11 @@ impl TryFrom<CoalescedActivity> for ApNote {
             .ok_or_else(|| anyhow::anyhow!("object_to is None"))?;
         let cc = coalesced.object_cc.and_then(from_serde);
         let tag = coalesced.object_tag.and_then(from_serde);
-        let attributed_to = ApAddress::from(
-            coalesced
-                .object_attributed_to
-                .ok_or_else(|| anyhow::anyhow!("object_attributed_to is None"))?,
-        );
-        let in_reply_to = coalesced.object_in_reply_to;
+        let attributed_to = coalesced
+            .object_attributed_to
+            .and_then(from_serde)
+            .ok_or_else(|| anyhow::anyhow!("object_attributed_to is None"))?;
+        let in_reply_to = coalesced.object_in_reply_to.and_then(from_serde);
         let content = coalesced
             .object_content
             .ok_or_else(|| anyhow::anyhow!("object_content is None"))?;
@@ -443,6 +423,8 @@ impl TryFrom<CoalescedActivity> for ApNote {
         let ephemeral_metadata = coalesced.object_metadata.and_then(from_serde);
         let ephemeral_announces = from_serde(coalesced.object_announcers);
         let ephemeral_likes = from_serde(coalesced.object_likers);
+        let ephemeral_announced = coalesced.object_announced;
+        let ephemeral_liked = coalesced.object_liked;
 
         Ok(ApNote {
             kind,
@@ -462,6 +444,8 @@ impl TryFrom<CoalescedActivity> for ApNote {
             ephemeral_metadata,
             ephemeral_announces,
             ephemeral_likes,
+            ephemeral_announced,
+            ephemeral_liked,
             ..Default::default()
         })
     }
@@ -523,6 +507,47 @@ impl From<Note> for ApNote {
                     ..Default::default()
                 }
             }
+        }
+    }
+}
+
+impl TryFrom<Object> for ApNote {
+    type Error = anyhow::Error;
+
+    fn try_from(object: Object) -> Result<ApNote> {
+        if object.as_type.is_note() {
+            Ok(ApNote {
+                id: Some(object.as_id.clone()),
+                kind: ApNoteType::Note,
+                published: object.as_published.unwrap_or(Utc::now()).to_rfc2822(),
+                url: object.as_url.clone().and_then(from_serde),
+                to: object
+                    .as_to
+                    .clone()
+                    .and_then(from_serde)
+                    .unwrap_or(vec![].into()),
+                cc: object.as_cc.clone().and_then(from_serde),
+                tag: object.as_tag.clone().and_then(from_serde),
+                attributed_to: from_serde(
+                    object.as_attributed_to.ok_or(anyhow!("no attributed_to"))?,
+                )
+                .ok_or(anyhow!("failed to convert from Value"))?,
+                content: object.as_content.clone().ok_or(anyhow!("no content"))?,
+                replies: object.as_replies.clone().and_then(from_serde),
+                in_reply_to: object.as_in_reply_to.clone().and_then(from_serde),
+                attachment: match serde_json::from_value(
+                    object.as_attachment.clone().unwrap_or_default(),
+                ) {
+                    Ok(x) => x,
+                    Err(_) => None,
+                },
+                conversation: object.ap_conversation.clone(),
+                ephemeral_timestamp: Some(object.created_at),
+                ephemeral_metadata: object.ek_metadata.and_then(from_serde),
+                ..Default::default()
+            })
+        } else {
+            Err(anyhow!("ObjectType is not Note"))
         }
     }
 }

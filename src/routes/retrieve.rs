@@ -1,11 +1,11 @@
 use crate::models::activities::{get_outbox_count_by_profile_id, TimelineFilters};
 use crate::models::pg::activities::get_activities_coalesced;
+use crate::SERVER_URL;
 use crate::{
     activity_pub::{ActivityPub, ApActivity, ApCollection, ApCollectionPage, ApObject},
     db::Db,
     models::profiles::Profile,
 };
-use crate::{MaybeReference, SERVER_URL};
 
 pub async fn outbox_collection(conn: &Db, profile: Profile, base_url: Option<String>) -> ApObject {
     let server_url = &*SERVER_URL;
@@ -28,7 +28,7 @@ pub async fn activities(
     base_url: Option<String>,
 ) -> ApObject {
     let server_url = &*SERVER_URL;
-    let base_url = base_url.unwrap_or(format!("{server_url}/inbox?limit={limit}"));
+    let base_url = base_url.unwrap_or(format!("{server_url}/inbox?page=true&limit={limit}"));
 
     let activities = get_activities_coalesced(
         conn,
@@ -40,36 +40,11 @@ pub async fn activities(
     )
     .await;
 
-    let mut activities: Vec<ApActivity> = activities
+    let activities = activities
         .into_iter()
         .filter_map(|activity| ApActivity::try_from(activity.clone()).ok())
+        .map(ActivityPub::from)
         .collect();
-
-    let mut updated: Vec<ApActivity> = vec![];
-    if let Some(profile) = requester.clone() {
-        for activity in &mut activities {
-            let mut activity = activity.clone();
-            match activity {
-                ApActivity::Create(ref mut create) => {
-                    if let MaybeReference::Actual(ApObject::Note(ref mut note)) = create.object {
-                        note.contextualize(conn, profile.clone()).await;
-                    }
-                }
-                ApActivity::Announce(ref mut announce) => {
-                    if let MaybeReference::Actual(ApObject::Note(ref mut note)) = announce.object {
-                        note.contextualize(conn, profile.clone()).await;
-                    }
-                }
-                _ => {}
-            }
-
-            updated.push(activity.clone());
-        }
-    } else {
-        updated.extend(activities.clone());
-    }
-
-    let activities = updated.iter().map(ActivityPub::from).collect();
 
     ApObject::CollectionPage(ApCollectionPage::from((activities, Some(base_url))))
 }
@@ -84,7 +59,7 @@ pub async fn inbox(
 ) -> ApObject {
     let server_url = &*SERVER_URL;
     let username = requester.username.clone();
-    let base_url = format!("{server_url}/user/{username}/inbox?limit={limit}");
+    let base_url = format!("{server_url}/user/{username}/inbox?page=true&limit={limit}");
 
     activities(
         conn,

@@ -50,12 +50,7 @@ pub struct ApFollow {
 }
 
 impl Inbox for ApFollow {
-    async fn inbox(
-        &self,
-        conn: Db,
-        channels: EventChannels,
-        _raw: Value,
-    ) -> Result<Status, Status> {
+    async fn inbox(&self, conn: Db, channels: EventChannels, raw: Value) -> Result<Status, Status> {
         let profile_ap_id = self.object.clone().reference().ok_or(Status::new(520))?;
 
         if self.id.is_none() {
@@ -65,11 +60,14 @@ impl Inbox for ApFollow {
         let profile = get_profile_by_ap_id(Some(&conn), profile_ap_id.clone())
             .await
             .ok_or(Status::new(521))?;
-        let activity = NewActivity::try_from((
+        let mut activity = NewActivity::try_from((
             ApActivity::Follow(self.clone()),
             Some(ActivityTarget::from(profile)),
         ) as ApActivityTarget)
         .map_err(|_| Status::new(522))?;
+
+        activity.raw = Some(raw);
+
         log::debug!("ACTIVITY\n{activity:#?}");
         let activity = create_activity((&conn).into(), activity)
             .await
