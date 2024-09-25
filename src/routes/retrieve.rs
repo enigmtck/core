@@ -37,6 +37,7 @@ pub async fn activities(
         max,
         requester.clone(),
         Some(filters.clone()),
+        None,
     )
     .await;
 
