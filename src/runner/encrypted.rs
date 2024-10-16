@@ -3,13 +3,14 @@ use std::collections::HashSet;
 
 use crate::{
     activity_pub::{
-        ApActivity, ApActor, ApInstrument, ApInstrumentType, ApInstruments, ApInvite, ApJoin,
-        ApNote, ApSession, JoinData,
+        retriever, ApActivity, ApActor, ApInstrument, ApInstrumentType, ApInstruments, ApInvite,
+        ApJoin, ApNote, ApSession, JoinData,
     },
     db::Db,
     fairings::events::EventChannels,
     helper::{get_local_identifier, is_local, LocalIdentifierType},
     models::{
+        actors::{get_actor, get_actor_by_username, Actor},
         encrypted_sessions::{
             create_encrypted_session, get_encrypted_session_by_profile_id_and_ap_to,
             get_encrypted_session_by_uuid, NewEncryptedSession,
@@ -18,11 +19,10 @@ use crate::{
         olm_one_time_keys::get_olm_one_time_key_by_profile_id,
         olm_sessions::{create_olm_session, update_olm_session},
         processing_queue::create_processing_item,
-        profiles::{get_profile, get_profile_by_username, Profile},
         remote_actors::get_remote_actor_by_ap_id,
         remote_encrypted_sessions::get_remote_encrypted_session_by_ap_id,
     },
-    runner::{actor::get_actor, send_to_inboxes},
+    runner::{self, send_to_inboxes},
 };
 
 use super::TaskError;
@@ -31,7 +31,7 @@ pub async fn handle_encrypted_note(
     conn: Option<&Db>,
     note: &mut Note,
     inboxes: &mut HashSet<String>,
-    sender: Profile,
+    sender: Actor,
 ) -> Option<ApNote> {
     log::debug!("ENCRYPTED NOTE\n{note:#?}");
 
@@ -40,7 +40,7 @@ pub async fn handle_encrypted_note(
         instrument: ApInstrument,
         inboxes: &mut HashSet<String>,
         note: &mut Note,
-        sender: Profile,
+        sender: Actor,
     ) -> Result<()> {
         if let ApInstrumentType::OlmSession = instrument.kind {
             cfg_if::cfg_if! {
@@ -61,7 +61,8 @@ pub async fn handle_encrypted_note(
                 ) {
                     log::debug!("FOUND UUID - UPDATING EXISTING SESSION");
                     if let Some(_session) = update_olm_session(None, uuid, content, hash).await {
-                        if let Some(receiver) = get_actor(conn, sender.clone(), to[0].clone()).await
+                        if let Some(receiver) =
+                            runner::actor::get_actor(conn, sender.clone(), to[0].clone()).await
                         {
                             inboxes.insert(receiver.0.inbox);
                         }
@@ -71,7 +72,8 @@ pub async fn handle_encrypted_note(
                     if let Some(_session) =
                         create_olm_session(None, (instrument, encrypted_session.id).into()).await
                     {
-                        if let Some(receiver) = get_actor(conn, sender.clone(), to[0].clone()).await
+                        if let Some(receiver) =
+                            runner::actor::get_actor(conn, sender.clone(), to[0].clone()).await
                         {
                             inboxes.insert(receiver.0.inbox);
                         }
@@ -129,7 +131,7 @@ pub async fn process_join_task(
             get_local_identifier(session.clone().ap_to.clone()).ok_or(TaskError::TaskFailed)?;
         if identifier.kind == LocalIdentifierType::User {
             let username = identifier.identifier;
-            let _profile = get_profile_by_username(conn, username.clone())
+            let _profile = get_actor_by_username(conn.unwrap(), username.clone())
                 .await
                 .ok_or(TaskError::TaskFailed)?;
             let session_clone = session.clone();
@@ -161,7 +163,7 @@ pub async fn send_kexinit_task(
         let (encrypted_session, _olm_session) = get_encrypted_session_by_uuid(conn, uuid)
             .await
             .ok_or(TaskError::TaskFailed)?;
-        let sender = get_profile(conn, encrypted_session.profile_id)
+        let sender = get_actor(conn.unwrap(), encrypted_session.profile_id)
             .await
             .ok_or(TaskError::TaskFailed)?;
 
@@ -177,7 +179,8 @@ pub async fn send_kexinit_task(
         if is_local(session.to.clone().to_string()) {
             if let Some(x) = get_local_identifier(session.to.clone().to_string()) {
                 if x.kind == LocalIdentifierType::User {
-                    if let Some(profile) = get_profile_by_username(conn, x.identifier).await {
+                    if let Some(profile) = get_actor_by_username(conn.unwrap(), x.identifier).await
+                    {
                         inbox = Some(ApActor::from(profile).inbox);
                     }
                 }
@@ -225,12 +228,12 @@ pub async fn provide_one_time_key_task(
 
         if identifier.kind == LocalIdentifierType::User {
             let username = identifier.identifier;
-            let profile = get_profile_by_username(conn, username.clone())
+            let profile = get_actor_by_username(conn.unwrap(), username.clone())
                 .await
                 .ok_or(TaskError::TaskFailed)?;
 
             let identity_key = profile
-                .olm_identity_key
+                .ek_olm_identity_key
                 .clone()
                 .ok_or(TaskError::TaskFailed)?;
             let otk = get_olm_one_time_key_by_profile_id(conn, profile.id)

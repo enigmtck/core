@@ -5,7 +5,8 @@ use serde::Deserialize;
 use crate::admin::{self, verify_and_generate_password};
 use crate::db::Db;
 use crate::fairings::signatures::Signed;
-use crate::models::profiles::{update_password_by_username, Profile};
+use crate::models::actors::Actor;
+use crate::models::pg::actors::update_password_by_username;
 
 #[derive(Deserialize, Debug, Clone)]
 pub struct AuthenticationData {
@@ -17,7 +18,7 @@ pub struct AuthenticationData {
 pub async fn authenticate_user(
     conn: Db,
     user: Result<Json<AuthenticationData>, Error<'_>>,
-) -> Result<Json<Profile>, Status> {
+) -> Result<Json<Actor>, Status> {
     log::debug!("AUTHENTICATING\n{user:#?}");
 
     if let Ok(user) = user {
@@ -50,7 +51,7 @@ pub async fn change_password(
     conn: Db,
     username: String,
     password: Result<Json<UpdatePassword>, Error<'_>>,
-) -> Result<Json<Profile>, Status> {
+) -> Result<Json<Actor>, Status> {
     if signed.local() {
         if let Ok(password) = password {
             let client_private_key = password.encrypted_client_private_key.clone();

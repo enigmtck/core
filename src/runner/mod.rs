@@ -11,7 +11,7 @@ use crate::{
     activity_pub::{ApActivity, ApActor, ApAddress},
     db::Db,
     fairings::events::EventChannels,
-    models::profiles::Profile,
+    models::actors::Actor,
     signing::{Method, SignParams},
     MaybeMultiple, MaybeReference,
 };
@@ -40,7 +40,7 @@ pub fn clean_text(text: String) -> String {
 
 pub async fn send_to_inboxes(
     inboxes: Vec<ApAddress>,
-    profile: Profile,
+    profile: Actor,
     message: ApActivity,
 ) -> Result<()> {
     log::debug!("INBOXES\n{inboxes:#?}");
@@ -92,20 +92,20 @@ pub async fn send_to_inboxes(
 async fn handle_recipients(
     conn: Option<&Db>,
     inboxes: &mut HashSet<ApAddress>,
-    sender: &Profile,
+    sender: &Actor,
     address: &ApAddress,
 ) {
     let actor = ApActor::from(sender.clone());
 
     if address.is_public() {
-        inboxes.extend(get_follower_inboxes(sender.clone()).await);
+        inboxes.extend(get_follower_inboxes(conn.unwrap(), sender.clone()).await);
         // instead of the above, consider sending to shared inboxes of known instances
         // the duplicate code is temporary because some operations (e.g., Delete) do not have
         // the followers in cc, so until there's logic to send more broadly to all instances,
         // this will need to suffice
     } else if let Some(followers) = actor.followers {
         if address.to_string() == followers {
-            inboxes.extend(get_follower_inboxes(sender.clone()).await);
+            inboxes.extend(get_follower_inboxes(conn.unwrap(), sender.clone()).await);
         } else if let Some((actor, _)) =
             get_actor(conn, sender.clone(), address.clone().to_string()).await
         {
@@ -114,11 +114,7 @@ async fn handle_recipients(
     }
 }
 
-pub async fn get_inboxes(
-    conn: Option<&Db>,
-    activity: ApActivity,
-    sender: Profile,
-) -> Vec<ApAddress> {
+pub async fn get_inboxes(conn: Option<&Db>, activity: ApActivity, sender: Actor) -> Vec<ApAddress> {
     let mut inboxes = HashSet::<ApAddress>::new();
 
     let (to, cc) = match activity {

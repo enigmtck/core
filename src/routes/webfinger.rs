@@ -1,4 +1,4 @@
-use crate::{db::Db, models::profiles::get_profile_by_username, webfinger::WebFinger};
+use crate::{db::Db, models::actors::get_actor_by_username, webfinger::WebFinger};
 use rocket::{get, http::Status, serde::json::Json};
 
 use super::{ActivityJson, JrdJson, XrdXml};
@@ -16,7 +16,7 @@ pub async fn webfinger_xml(conn: Db, resource: String) -> Result<XrdXml, Status>
 
         let server_url = (*crate::SERVER_URL).clone();
 
-        if get_profile_by_username((&conn).into(), username.to_string())
+        if get_actor_by_username(&conn, username.to_string())
             .await
             .is_some()
         {
@@ -65,7 +65,7 @@ async fn webfinger(conn: Db, resource: String) -> Result<WebFinger, Status> {
         let handle = parts[1].split('@').collect::<Vec<&str>>();
         let username = handle[0];
 
-        match get_profile_by_username((&conn).into(), username.to_string()).await {
+        match get_actor_by_username(&conn, username.to_string()).await {
             Some(profile) => Ok(WebFinger::from(profile)),
             None => Err(Status::NoContent),
         }

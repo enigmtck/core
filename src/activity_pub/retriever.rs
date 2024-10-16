@@ -1,7 +1,5 @@
 use anyhow::anyhow;
 use anyhow::{Context, Result};
-use chrono::Duration;
-use chrono::Utc;
 use reqwest::Client;
 use reqwest::Response;
 use reqwest::StatusCode;
@@ -9,14 +7,11 @@ use url::Url;
 
 use crate::activity_pub::ApActor;
 use crate::db::Db;
+use crate::models::actors::{get_actor_by_as_id, guaranteed_actor, Actor};
 use crate::models::cache::Cache;
 use crate::models::leaders::get_leader_by_actor_ap_id_and_profile;
 use crate::models::objects::{create_or_update_object, get_object_by_as_id, NewObject};
-use crate::models::profiles::get_profile_by_ap_id;
-use crate::models::profiles::guaranteed_profile;
-use crate::models::profiles::Profile;
 use crate::models::remote_actors::create_or_update_remote_actor;
-use crate::models::remote_actors::get_remote_actor_by_ap_id;
 use crate::models::remote_actors::NewRemoteActor;
 use crate::runner::actor::update_actor_tags;
 use crate::signing::{sign, Method, SignParams};
@@ -27,10 +22,10 @@ use super::{ApCollection, ApCollectionPage, ApObject};
 
 pub async fn get_remote_collection_page(
     conn: &Db,
-    profile: Option<Profile>,
+    profile: Option<Actor>,
     url: String,
 ) -> Result<ApCollectionPage> {
-    let response = signed_get(guaranteed_profile(conn.into(), profile).await, url, false).await?;
+    let response = signed_get(guaranteed_actor(conn.into(), profile).await, url, false).await?;
 
     let raw = response.text().await?;
     log::debug!("REMOTE COLLECTION PAGE RESPONSE\n{raw}");
@@ -42,10 +37,10 @@ pub async fn get_remote_collection_page(
 
 pub async fn get_remote_collection(
     conn: &Db,
-    profile: Option<Profile>,
+    profile: Option<Actor>,
     url: String,
 ) -> Result<ApCollection> {
-    let response = signed_get(guaranteed_profile(conn.into(), profile).await, url, false).await?;
+    let response = signed_get(guaranteed_actor(conn.into(), profile).await, url, false).await?;
 
     let raw = response.text().await?;
     log::debug!("REMOTE COLLECTION RESPONSE\n{raw}");
@@ -112,10 +107,10 @@ async fn get_remote_webfinger(handle: String) -> Result<WebFinger> {
     response.json().await.map_err(anyhow::Error::msg)
 }
 
-pub async fn get_object(conn: &Db, profile: Option<Profile>, id: String) -> Option<ApObject> {
+pub async fn get_object(conn: &Db, profile: Option<Actor>, id: String) -> Option<ApObject> {
     match get_object_by_as_id(Some(conn), id.clone()).await.ok() {
         Some(object) => Some(ApObject::try_from(object).ok()?.cache(conn).await.clone()),
-        None => match signed_get(guaranteed_profile(conn.into(), profile).await, id, false).await {
+        None => match signed_get(guaranteed_actor(conn.into(), profile).await, id, false).await {
             Ok(resp) => match resp.status() {
                 StatusCode::ACCEPTED | StatusCode::OK => {
                     let text = resp.text().await.ok()?;
@@ -145,38 +140,17 @@ pub async fn get_object(conn: &Db, profile: Option<Profile>, id: String) -> Opti
 pub async fn get_local_or_cached_actor(
     conn: &Db,
     id: String,
-    profile: Option<Profile>,
+    requester: Option<Actor>,
     update: bool,
 ) -> Option<ApActor> {
-    if let Some(actor_profile) = get_profile_by_ap_id(Some(conn), id.clone()).await {
-        if let Some(profile) = profile.clone() {
+    if let Some(actor) = get_actor_by_as_id(conn, id.clone()).await {
+        if let Some(requester) = requester.clone() {
             Some(ApActor::from((
-                actor_profile,
-                get_leader_by_actor_ap_id_and_profile(conn, id.clone(), profile.id).await,
+                actor,
+                get_leader_by_actor_ap_id_and_profile(conn, id.clone(), requester.id).await,
             )))
         } else {
-            Some(actor_profile.into())
-        }
-    } else if let Ok(remote_actor) = get_remote_actor_by_ap_id(conn.into(), id.clone()).await {
-        cfg_if::cfg_if! {
-            if #[cfg(feature = "pg")] {
-                let now = Utc::now();
-            } else if #[cfg(feature = "sqlite")] {
-                let now = Utc::now().naive_utc();
-            }
-        }
-
-        let updated = remote_actor.checked_at;
-
-        if update && now - updated > Duration::days(1) {
-            None
-        } else if let Some(profile) = profile.clone() {
-            Some(ApActor::from((
-                remote_actor,
-                get_leader_by_actor_ap_id_and_profile(conn, id.clone(), profile.id).await,
-            )))
-        } else {
-            Some(remote_actor.into())
+            Some(actor.into())
         }
     } else {
         None
@@ -185,10 +159,10 @@ pub async fn get_local_or_cached_actor(
 
 pub async fn process_remote_actor_retrieval(
     conn: &Db,
-    profile: Option<Profile>,
+    profile: Option<Actor>,
     id: String,
 ) -> Result<ApActor> {
-    let response = signed_get(guaranteed_profile(conn.into(), profile).await, id, false).await?;
+    let response = signed_get(guaranteed_actor(conn.into(), profile).await, id, false).await?;
 
     match response.status() {
         StatusCode::ACCEPTED | StatusCode::OK => {
@@ -213,21 +187,23 @@ pub async fn process_remote_actor_retrieval(
 pub async fn get_actor(
     conn: &Db,
     id: String,
-    profile: Option<Profile>,
+    requester: Option<Actor>,
     update: bool,
 ) -> Option<ApActor> {
-    let actor = get_local_or_cached_actor(conn, id.clone(), profile.clone(), update).await;
+    let actor = get_local_or_cached_actor(conn, id.clone(), requester.clone(), update).await;
 
     if let Some(actor) = actor {
         Some(actor.cache(conn).await.clone())
     } else if update {
-        process_remote_actor_retrieval(conn, profile, id).await.ok()
+        process_remote_actor_retrieval(conn, requester, id)
+            .await
+            .ok()
     } else {
         None
     }
 }
 
-pub async fn signed_get(profile: Profile, url: String, accept_any: bool) -> Result<Response> {
+pub async fn signed_get(profile: Actor, url: String, accept_any: bool) -> Result<Response> {
     log::debug!("RETRIEVING: {url}");
     let client = Client::builder()
         .user_agent("Enigmatick/0.1")

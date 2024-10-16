@@ -5,13 +5,13 @@ use crate::{
     activity_pub::{ApActivity, ApAddress, ApContext, ApFollow, Inbox, Outbox},
     db::Db,
     fairings::events::EventChannels,
-    helper::{get_activity_ap_id_from_uuid, get_ap_id_from_username, get_uuid},
+    helper::{get_activity_ap_id_from_uuid, get_uuid},
     models::{
         activities::{
-            create_activity, get_activity_by_apid, get_activity_by_uuid, ActivityTarget,
-            ActivityType, ApActivityTarget, NewActivity,
+            create_activity, get_activity_by_ap_id, ActivityTarget, ActivityType, ApActivityTarget,
+            NewActivity,
         },
-        profiles::Profile,
+        actors::Actor,
     },
     runner, MaybeReference,
 };
@@ -63,10 +63,10 @@ async fn process_undo_activity(
     ap_target: &ApActivity,
     undo: &ApUndo,
 ) -> Result<Status, Status> {
-    let apid = undo_target_apid(ap_target).ok_or(Status::NotImplemented)?;
-    log::debug!("APID: {apid}");
+    let ap_id = undo_target_apid(ap_target).ok_or(Status::NotImplemented)?;
+    log::debug!("UNDO AP_ID: {ap_id}");
     // retrieve the activity to undo from the database (models/activities)
-    let target = get_activity_by_apid(&conn, apid.clone())
+    let target = get_activity_by_ap_id(&conn, ap_id.clone())
         .await
         .ok_or(Status::NotFound)?;
     log::debug!("TARGET: {target:#?}");
@@ -75,7 +75,7 @@ async fn process_undo_activity(
     // in the parameterized enum
     let activity_and_target = (
         ApActivity::Undo(Box::new(undo.clone())),
-        Some(ActivityTarget::from(target.0)),
+        Some(ActivityTarget::from(target.2.ok_or(Status::NotFound)?)),
     ) as ApActivityTarget;
 
     let activity = NewActivity::try_from(activity_and_target).map_err(|_| Status::new(522))?;
@@ -87,7 +87,7 @@ async fn process_undo_activity(
                     runner::like::process_remote_undo_like_task,
                     Some(conn),
                     Some(channels),
-                    vec![apid.clone()],
+                    vec![ap_id.clone()],
                 )
                 .await;
                 Ok(Status::Accepted)
@@ -97,7 +97,7 @@ async fn process_undo_activity(
                     runner::follow::process_remote_undo_follow_task,
                     Some(conn),
                     Some(channels),
-                    vec![apid.clone()],
+                    vec![ap_id.clone()],
                 )
                 .await;
                 Ok(Status::Accepted)
@@ -107,7 +107,7 @@ async fn process_undo_activity(
                     runner::announce::remote_undo_announce_task,
                     Some(conn),
                     Some(channels),
-                    vec![apid.clone()],
+                    vec![ap_id.clone()],
                 )
                 .await;
                 Ok(Status::Accepted)
@@ -148,7 +148,7 @@ impl Outbox for Box<ApUndo> {
         &self,
         conn: Db,
         events: EventChannels,
-        profile: Profile,
+        profile: Actor,
     ) -> Result<String, Status> {
         handle_undo(conn, events, *self.clone(), profile).await
     }
@@ -158,7 +158,7 @@ async fn handle_undo(
     conn: Db,
     channels: EventChannels,
     undo: ApUndo,
-    profile: Profile,
+    profile: Actor,
 ) -> Result<String, Status> {
     let target_ap_id = match undo.object {
         MaybeReference::Actual(object) => match object {
@@ -172,15 +172,15 @@ async fn handle_undo(
 
     log::debug!("TARGET_AP_ID: {target_ap_id:#?}");
     if let Some(target_ap_id) = target_ap_id {
-        if let Some((target_activity, _, _, _)) =
-            get_activity_by_uuid(Some(&conn), target_ap_id).await
+        if let Some((activity, _target_activity, _target_object)) =
+            get_activity_by_ap_id(&conn, target_ap_id).await
         {
             if let Ok(activity) = create_activity(
                 Some(&conn),
                 NewActivity::from((
-                    target_activity,
+                    activity,
                     ActivityType::Undo,
-                    ApAddress::Address(get_ap_id_from_username(profile.username.clone())),
+                    ApAddress::Address(profile.as_id),
                 ))
                 .link_profile(&conn)
                 .await,
@@ -213,7 +213,7 @@ impl TryFrom<RecursiveActivity> for ApUndo {
     type Error = anyhow::Error;
 
     fn try_from(
-        ((activity, _note, _profile, _remote_actor), recursive): RecursiveActivity,
+        ((activity, _target_activity, _target_object), recursive): RecursiveActivity,
     ) -> Result<Self, Self::Error> {
         if let Some(recursive) = recursive {
             if let Ok(recursive_activity) = ApActivity::try_from((recursive.clone(), None)) {

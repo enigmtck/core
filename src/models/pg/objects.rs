@@ -1,12 +1,15 @@
 use crate::db::Db;
+use crate::models::to_serde;
 use crate::schema::objects;
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use chrono::{DateTime, Utc};
 use diesel::prelude::*;
 use diesel::{AsChangeset, Identifiable, Insertable, Queryable};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::fmt;
+
+use super::coalesced_activity::CoalescedActivity;
 
 #[derive(
     diesel_derive_enum::DbEnum, Debug, Serialize, Deserialize, Default, Clone, Eq, PartialEq,
@@ -46,6 +49,29 @@ impl ObjectType {
 
     pub fn is_article(&self) -> bool {
         matches!(self, ObjectType::Article)
+    }
+}
+
+impl TryFrom<String> for ObjectType {
+    type Error = anyhow::Error;
+
+    fn try_from(object: String) -> Result<Self, Self::Error> {
+        match object.to_lowercase().as_str() {
+            "article" => Ok(ObjectType::Article),
+            "audio" => Ok(ObjectType::Audio),
+            "document" => Ok(ObjectType::Document),
+            "event" => Ok(ObjectType::Event),
+            "image" => Ok(ObjectType::Image),
+            "note" => Ok(ObjectType::Note),
+            "page" => Ok(ObjectType::Page),
+            "place" => Ok(ObjectType::Place),
+            "profile" => Ok(ObjectType::Profile),
+            "question" => Ok(ObjectType::Question),
+            "relationship" => Ok(ObjectType::Relationship),
+            "tombstone" => Ok(ObjectType::Tombstone),
+            "video" => Ok(ObjectType::Video),
+            _ => Err(anyhow!("unimplemented ObjectType")),
+        }
     }
 }
 
@@ -152,6 +178,44 @@ pub struct Object {
     pub ek_metadata: Option<Value>,
     pub ek_profile_id: Option<i32>,
     pub ek_uuid: Option<String>,
+}
+
+impl TryFrom<CoalescedActivity> for Object {
+    type Error = anyhow::Error;
+
+    fn try_from(activity: CoalescedActivity) -> Result<Self, Self::Error> {
+        Ok(Object {
+            id: activity.target_object_id.ok_or(anyhow!("no object id"))?,
+            created_at: activity
+                .object_created_at
+                .ok_or(anyhow!("no object created_at"))?,
+            updated_at: activity
+                .object_updated_at
+                .ok_or(anyhow!("no object updated_at"))?,
+            ek_uuid: activity.object_uuid,
+            as_type: activity.object_type.ok_or(anyhow!("no object type"))?,
+            as_published: activity.object_published,
+            as_id: activity.object_as_id.ok_or(anyhow!("no object as_id"))?,
+            as_url: activity.object_url.and_then(to_serde),
+            as_to: activity.object_to,
+            as_cc: activity.object_cc,
+            as_tag: activity.object_tag,
+            as_attributed_to: activity.object_attributed_to,
+            as_in_reply_to: activity.object_in_reply_to,
+            as_content: activity.object_content,
+            ap_conversation: activity.object_conversation,
+            as_attachment: activity.object_attachment,
+            as_summary: activity.object_summary,
+            as_end_time: activity.object_end_time,
+            as_one_of: activity.object_one_of,
+            as_any_of: activity.object_any_of,
+            ap_voters_count: activity.object_voters_count,
+            ap_sensitive: activity.object_sensitive,
+            ek_metadata: activity.object_metadata,
+            ek_profile_id: activity.object_profile_id,
+            ..Default::default()
+        })
+    }
 }
 
 pub async fn create_or_update_object(conn: &Db, object: NewObject) -> Result<Object> {

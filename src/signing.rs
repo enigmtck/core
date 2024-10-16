@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use crate::activity_pub::{retriever, ApActor};
 use crate::db::Db;
-use crate::models::profiles::{get_profile_by_username, Profile};
+use crate::models::actors::{get_actor_by_username, Actor};
 use crate::{ASSIGNMENT_RE, LOCAL_USER_KEY_ID_RE};
 use base64::{engine::general_purpose, engine::Engine as _};
 use rsa::pkcs1v15::{Signature, SigningKey};
@@ -97,7 +97,7 @@ fn build_verify_string(
 #[derive(Clone)]
 pub enum VerificationType {
     Remote,
-    Local(Box<Profile>),
+    Local(Box<Actor>),
     None,
 }
 
@@ -147,8 +147,8 @@ pub async fn verify(
 
     if local && key_selector == Some("client-key".to_string()) {
         if let Some(username) = username {
-            if let Some(profile) = get_profile_by_username((conn).into(), username).await {
-                if let Some(public_key) = profile.client_public_key.clone() {
+            if let Some(profile) = get_actor_by_username(conn, username).await {
+                if let Some(public_key) = profile.ek_client_public_key.clone() {
                     RsaPublicKey::from_public_key_pem(public_key.trim_end())
                         .map_err(|_| VerificationError::PublicKeyError)
                         .and_then(|pk| verify(&pk, &signature_str, &verify_string))?;
@@ -175,6 +175,7 @@ pub async fn verify(
 #[derive(Debug)]
 pub enum SigningError {
     InvalidUrl,
+    NoPrivateKey,
 }
 
 impl fmt::Display for SigningError {
@@ -187,6 +188,7 @@ impl Error for SigningError {
     fn description(&self) -> &str {
         match self {
             SigningError::InvalidUrl => "URL is invalid",
+            SigningError::NoPrivateKey => "Private key is missing or invalid",
         }
     }
 }
@@ -205,7 +207,7 @@ impl fmt::Display for Method {
 
 #[derive(Clone, Debug)]
 pub struct SignParams {
-    pub profile: Profile,
+    pub profile: Actor,
     pub url: Url,
     pub body: Option<String>,
     pub method: Method,
@@ -226,7 +228,13 @@ pub fn sign(params: SignParams) -> Result<SignResponse, SigningError> {
         //log::debug!("SIGN {}, {host}, {request_target}, {date}", params.url);
 
         let actor = ApActor::from(params.profile.clone());
-        let private_key = RsaPrivateKey::from_pkcs8_pem(&params.profile.private_key).unwrap();
+        let private_key = RsaPrivateKey::from_pkcs8_pem(
+            &params
+                .profile
+                .ek_private_key
+                .ok_or(SigningError::NoPrivateKey)?,
+        )
+        .unwrap();
         let signing_key = SigningKey::<Sha256>::new(private_key);
         let structured_data =
             construct_structured_data(&request_target, &host.to_string(), &date, &digest);

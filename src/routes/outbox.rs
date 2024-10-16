@@ -3,7 +3,7 @@ use crate::db::Db;
 use crate::fairings::events::EventChannels;
 use crate::fairings::signatures::Signed;
 use crate::models::activities::{TimelineFilters, TimelineView};
-use crate::models::profiles::get_profile_by_username;
+use crate::models::actors::get_actor_by_username;
 //use crate::models::timeline::{TimelineFilters, TimelineView};
 use crate::SERVER_URL;
 use rocket::{get, http::Status, post, serde::json::Error, serde::json::Json};
@@ -30,7 +30,7 @@ pub async fn outbox_get(
     if page {
         let filters = {
             TimelineFilters {
-                view: TimelineView::Global,
+                view: Some(TimelineView::Global),
                 hashtags: vec![],
                 username: Some(username.clone()),
                 conversation: None,
@@ -49,7 +49,7 @@ pub async fn outbox_get(
             )
             .await,
         )))
-    } else if let Some(profile) = get_profile_by_username(Some(&conn), username.clone()).await {
+    } else if let Some(profile) = get_actor_by_username(&conn, username.clone()).await {
         Ok(ActivityJson(Json(
             retrieve::outbox_collection(&conn, profile, Some(base_url)).await,
         )))
@@ -69,7 +69,7 @@ pub async fn outbox_post(
     log::debug!("POSTING TO OUTBOX\n{object:#?}");
 
     if signed.local() {
-        let profile = get_profile_by_username((&conn).into(), username)
+        let profile = get_actor_by_username(&conn, username)
             .await
             .ok_or(Status::new(521))?;
 

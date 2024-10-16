@@ -2,17 +2,17 @@ use core::fmt;
 use std::fmt::Debug;
 
 use crate::{
-    activity_pub::{ApActivity, ApActor, ApAddress, ApContext, ApObject, Inbox, Outbox},
+    activity_pub::{ApActivity, ApAddress, ApContext, ApObject, Inbox, Outbox},
     db::Db,
     fairings::events::EventChannels,
-    helper::{get_activity_ap_id_from_uuid, get_ap_id_from_username},
+    helper::get_activity_ap_id_from_uuid,
     models::{
         activities::{
             create_activity, ActivityTarget, ActivityType, ApActivityTarget, ExtendedActivity,
             NewActivity,
         },
+        actors::{get_actor_by_as_id, Actor},
         from_serde,
-        profiles::{get_actory, get_profile_by_ap_id, ActorLike, Profile},
     },
     runner, MaybeMultiple, MaybeReference,
 };
@@ -57,7 +57,7 @@ impl Inbox for ApFollow {
             return Err(Status::new(524));
         };
         //if let (Some(_), Some(profile_ap_id)) = (self.id.clone(), self.object.clone().reference()) {
-        let profile = get_profile_by_ap_id(Some(&conn), profile_ap_id.clone())
+        let profile = get_actor_by_as_id(&conn, profile_ap_id.clone())
             .await
             .ok_or(Status::new(521))?;
         let mut activity = NewActivity::try_from((
@@ -89,7 +89,7 @@ impl Outbox for ApFollow {
         &self,
         conn: Db,
         events: EventChannels,
-        profile: Profile,
+        profile: Actor,
     ) -> Result<String, Status> {
         outbox(conn, events, self.clone(), profile).await
     }
@@ -99,23 +99,18 @@ async fn outbox(
     conn: Db,
     channels: EventChannels,
     follow: ApFollow,
-    profile: Profile,
+    profile: Actor,
 ) -> Result<String, Status> {
     if let MaybeReference::Reference(id) = follow.object {
-        let actor_like = get_actory(&conn, id).await;
-
-        let (actor, remote_actor) = match actor_like.ok_or(Status::NotFound)? {
-            ActorLike::Profile(profile) => (Some(profile), None),
-            ActorLike::RemoteActor(remote_actor) => (None, Some(remote_actor)),
-        };
+        let actor = get_actor_by_as_id(&conn, id).await;
 
         if let Ok(activity) = create_activity(
             Some(&conn),
             NewActivity::from((
                 actor.clone(),
-                remote_actor.clone(),
+                None,
                 ActivityType::Follow,
-                ApAddress::Address(get_ap_id_from_username(profile.username.clone())),
+                ApAddress::Address(profile.as_id),
             ))
             .link_profile(&conn)
             .await,
@@ -144,20 +139,11 @@ impl TryFrom<ExtendedActivity> for ApFollow {
     type Error = anyhow::Error;
 
     fn try_from(
-        (activity, _note, profile, remote_actor): ExtendedActivity,
+        (activity, _target_activity, target_object): ExtendedActivity,
     ) -> Result<Self, Self::Error> {
         if activity.kind.to_string().to_lowercase().as_str() == "follow" {
-            let object = match (profile, remote_actor) {
-                (Some(profile), None) => {
-                    MaybeReference::Reference(ApActor::from(profile).id.unwrap().to_string())
-                }
-                (None, Some(remote_actor)) => MaybeReference::Reference(remote_actor.ap_id),
-                _ => {
-                    log::error!("INVALID ACTIVITY TYPE");
-                    return Err(anyhow!("INVALID ACTIVITY TYPE"));
-                }
-            };
-
+            let object = target_object.ok_or(anyhow!("no follow object found"))?;
+            let object = object.as_id;
             Ok(ApFollow {
                 context: Some(ApContext::default()),
                 kind: ApFollowType::default(),
@@ -172,7 +158,7 @@ impl TryFrom<ExtendedActivity> for ApFollow {
                 ),
                 to: activity.ap_to.and_then(from_serde),
                 cc: activity.cc.and_then(from_serde),
-                object,
+                object: object.into(),
             })
         } else {
             log::error!("NOT A FOLLOW ACTIVITY");

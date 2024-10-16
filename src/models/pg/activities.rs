@@ -2,7 +2,7 @@ use crate::activity_pub::PUBLIC_COLLECTION;
 use crate::db::Db;
 use crate::helper::{get_activity_ap_id_from_uuid, get_ap_id_from_username};
 use crate::models::pg::parameter_generator;
-use crate::schema::{activities, activities_cc, activities_to, notes, profiles, remote_actors};
+use crate::schema::{activities, activities_cc, activities_to, remote_actors};
 use crate::{MaybeMultiple, POOL};
 use anyhow::{anyhow, Result};
 use chrono::{DateTime, NaiveDateTime, Utc};
@@ -13,13 +13,10 @@ use diesel::{AsChangeset, Identifiable, Insertable, Queryable};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+use super::actors::Actor;
 use super::coalesced_activity::CoalescedActivity;
-use super::profiles::Profile;
 use super::remote_actors::RemoteActor;
-use crate::models::activities::{
-    transform_records_to_extended_activities, ExtendedActivity, ExtendedActivityRecord,
-    NewActivityCc, NewActivityTo, TimelineFilters, TimelineView,
-};
+use crate::models::activities::{NewActivityCc, NewActivityTo, TimelineFilters, TimelineView};
 
 #[derive(
     diesel_derive_enum::DbEnum, Debug, Serialize, Deserialize, Default, Clone, Eq, PartialEq,
@@ -38,6 +35,40 @@ pub enum ActivityType {
     Block,
     Add,
     Remove,
+}
+
+impl ActivityType {
+    pub fn is_create(&self) -> bool {
+        self == &ActivityType::Create
+    }
+
+    pub fn is_delete(&self) -> bool {
+        self == &ActivityType::Delete
+    }
+
+    pub fn is_update(&self) -> bool {
+        self == &ActivityType::Update
+    }
+
+    pub fn is_announce(&self) -> bool {
+        self == &ActivityType::Announce
+    }
+
+    pub fn is_like(&self) -> bool {
+        self == &ActivityType::Like
+    }
+
+    pub fn is_undo(&self) -> bool {
+        self == &ActivityType::Undo
+    }
+
+    pub fn is_follow(&self) -> bool {
+        self == &ActivityType::Follow
+    }
+
+    pub fn is_accept(&self) -> bool {
+        self == &ActivityType::Accept
+    }
 }
 
 #[derive(Serialize, Deserialize, Insertable, Debug, Clone, AsChangeset)]
@@ -61,6 +92,8 @@ pub struct NewActivity {
     pub reply: bool,
     pub raw: Option<Value>,
     pub target_object_id: Option<i32>,
+    pub actor_id: Option<i32>,
+    pub target_actor_id: Option<i32>,
 }
 
 impl Default for NewActivity {
@@ -86,6 +119,8 @@ impl Default for NewActivity {
             reply: false,
             raw: None,
             target_object_id: None,
+            actor_id: None,
+            target_actor_id: None,
         }
     }
 }
@@ -127,6 +162,8 @@ pub struct Activity {
     pub reply: bool,
     pub raw: Option<Value>,
     pub target_object_id: Option<i32>,
+    pub actor_id: Option<i32>,
+    pub target_actor_id: Option<i32>,
 }
 
 #[derive(
@@ -152,7 +189,7 @@ pub struct ActivityCc {
     pub ap_id: String,
 }
 
-#[derive(Default)]
+#[derive(Default, Debug)]
 struct QueryParams {
     min: Option<i64>,
     max: Option<i64>,
@@ -164,31 +201,57 @@ struct QueryParams {
     limit: i32,
     query: Option<String>,
     activity_as_id: Option<String>,
+    activity_uuid: Option<String>,
+    activity_id: Option<i32>,
 }
 
 fn query_initial_block() -> String {
     "WITH main AS (\
      SELECT DISTINCT ON (a.created_at) a.*,\
-     COALESCE(o.ek_uuid, NULL) AS object_uuid,\
-     COALESCE(o.as_type::text, NULL) AS object_type,\
-     COALESCE(o.as_published::text, NULL) AS object_published,\
-     COALESCE(o.as_id, NULL) AS object_id,\
-     COALESCE(trim('\"' FROM o.as_url::text), NULL) AS object_url,\
-     COALESCE(o.as_to, NULL) AS object_to,\
-     COALESCE(o.as_cc, NULL) AS object_cc,\
-     COALESCE(o.as_tag, NULL) AS object_tag,\
-     COALESCE(o.as_attributed_to, NULL) AS object_attributed_to,\
-     COALESCE(o.as_in_reply_to, NULL) AS object_in_reply_to,\
-     COALESCE(o.as_content, NULL) AS object_content,\
-     COALESCE(o.ap_conversation, NULL) AS object_conversation,\
-     COALESCE(o.as_attachment, NULL) AS object_attachment,\
-     COALESCE(o.as_summary, NULL) AS object_summary,\
-     COALESCE(o.as_end_time, NULL) AS object_end_time,\
-     COALESCE(o.as_one_of, NULL) AS object_one_of,\
-     COALESCE(o.as_any_of, NULL) AS object_any_of,\
-     COALESCE(o.ap_voters_count, NULL) AS object_voters_count,\
-     COALESCE(o.ap_sensitive, false) AS object_sensitive,\
-     COALESCE(o.ek_metadata, NULL) AS object_metadata "
+     a2.created_at AS recursive_created_at,\
+     a2.updated_at AS recursive_updated_at,\
+     a2.profile_id AS recursive_profile_id,\
+     a2.kind AS recursive_kind,\
+     a2.uuid AS recursive_uuid,\
+     a2.actor AS recursive_actor,\
+     a2.ap_to AS recursive_ap_to,\
+     a2.cc AS recursive_cc,\
+     a2.target_note_id AS recursive_target_note_id,\
+     a2.target_remote_note_id AS recursive_target_remote_note_id,\
+     a2.target_profile_id AS recursive_target_profile_id,\
+     a2.target_activity_id AS recursive_target_activity_id,\
+     a2.target_ap_id AS recursive_target_ap_id,\
+     a2.target_remote_actor_id AS recursive_target_remote_actor_id,\
+     a2.revoked AS recursive_revoked,\
+     a2.ap_id AS recursive_ap_id,\
+     a2.target_remote_question_id AS recursive_target_remote_question_id,\
+     a2.reply AS recursive_reply,\
+     a2.target_object_id AS recursive_target_object_id,\
+     a2.actor_id AS recursive_actor_id,\
+     a2.target_actor_id AS recursive_target_actor_id,\
+     COALESCE(o.created_at, o2.created_at) AS object_created_at,\
+     COALESCE(o.updated_at, o2.updated_at) AS object_updated_at,\
+     COALESCE(o.ek_uuid, o2.ek_uuid) AS object_uuid,\
+     COALESCE(o.as_type, o2.as_type) AS object_type,\
+     COALESCE(o.as_published, o2.as_published) AS object_published,\
+     COALESCE(o.as_id, o2.as_id) AS object_as_id,\
+     COALESCE(o.as_url, o2.as_url) AS object_url,\
+     COALESCE(o.as_to, o2.as_to) AS object_to,\
+     COALESCE(o.as_cc, o2.as_cc) AS object_cc,\
+     COALESCE(o.as_tag, o2.as_tag) AS object_tag,\
+     COALESCE(o.as_attributed_to, o2.as_attributed_to) AS object_attributed_to,\
+     COALESCE(o.as_in_reply_to, o2.as_in_reply_to) AS object_in_reply_to,\
+     COALESCE(o.as_content, o2.as_content) AS object_content,\
+     COALESCE(o.ap_conversation, o2.ap_conversation) AS object_conversation,\
+     COALESCE(o.as_attachment, o2.as_attachment) AS object_attachment,\
+     COALESCE(o.as_summary, o2.as_summary) AS object_summary,\
+     COALESCE(o.as_end_time, o2.as_end_time) AS object_end_time,\
+     COALESCE(o.as_one_of, o2.as_one_of) AS object_one_of,\
+     COALESCE(o.as_any_of, o2.as_any_of) AS object_any_of,\
+     COALESCE(o.ap_voters_count, o2.ap_voters_count) AS object_voters_count,\
+     COALESCE(o.ap_sensitive, o2.ap_sensitive) AS object_sensitive,\
+     COALESCE(o.ek_metadata, o2.ek_metadata) AS object_metadata,\
+     COALESCE(o.ek_profile_id, o2.ek_profile_id) AS object_profile_id "
         .to_string()
 }
 
@@ -205,21 +268,24 @@ fn query_end_block(mut query: String) -> String {
          liked.object_liked \
          FROM main m \
          LEFT JOIN activities a \
-         ON (a.target_ap_id = m.object_id AND NOT a.revoked AND (a.kind = 'announce' OR a.kind = 'like')) \
+         ON (a.target_ap_id = m.object_as_id AND NOT a.revoked AND (a.kind = 'announce' OR a.kind = 'like')) \
          LEFT JOIN announced ON m.id = announced.id \
          LEFT JOIN liked ON m.id = liked.id \
-         GROUP BY m.id, m.created_at, m.updated_at, m.profile_id, \
-         m.kind, m.uuid, m.actor, m.ap_to, m.cc, m.target_note_id, m.target_remote_note_id, \
-         m.target_profile_id, m.target_activity_id, m.target_ap_id, m.target_remote_actor_id, \
-         m.revoked, m.ap_id, m.target_remote_question_id, m.reply, m.raw, m.target_object_id, \
-         m.object_uuid, m.object_type, \
-         m.object_published, m.object_id, m.object_url, m.object_to, m.object_cc, m.object_tag, \
-         m.object_attributed_to, m.object_in_reply_to, m.object_content, m.object_conversation, \
-         m.object_attachment, m.object_summary, m.object_end_time, m.object_one_of, \
-         m.object_any_of, m.object_voters_count, m.object_sensitive, m.raw, m.object_metadata, \
-         announced.object_announced, liked.object_liked \
+         GROUP BY m.id, m.created_at, m.updated_at, m.profile_id, m.kind, m.uuid, m.actor, m.ap_to, m.cc,\
+         m.target_note_id, m.target_remote_note_id, m.target_profile_id, m.target_activity_id, m.target_ap_id,\
+         m.target_remote_actor_id, m.revoked, m.ap_id, m.target_remote_question_id, m.reply, m.recursive_created_at,\
+         m.recursive_updated_at, m.recursive_profile_id, m.recursive_kind, m.recursive_uuid, m.recursive_actor,\
+         m.recursive_ap_to, m.recursive_cc, m.recursive_target_note_id, m.recursive_target_remote_note_id,\
+         m.recursive_target_profile_id, m.recursive_target_activity_id, m.recursive_target_ap_id,\
+         m.recursive_target_remote_actor_id, m.recursive_revoked, m.recursive_ap_id,\
+         m.recursive_target_remote_question_id, m.recursive_reply, m.recursive_target_object_id, m.recursive_actor_id,\
+         m.recursive_target_actor_id, m.object_created_at,m.object_updated_at, m.object_uuid,\
+         m.object_type, m.object_published, m.object_as_id, m.object_url, m.object_to, m.object_cc, m.object_tag,\
+         m.object_attributed_to, m.object_in_reply_to, m.object_content, m.object_conversation, m.object_attachment,\
+         m.object_summary, m.object_end_time, m.object_one_of, m.object_any_of, m.object_voters_count,\
+         m.object_sensitive, m.object_metadata, m.object_profile_id, m.raw, m.target_object_id,\
+         announced.object_announced, liked.object_liked 
          ORDER BY m.created_at DESC");
-
     query
 }
 
@@ -228,12 +294,16 @@ fn build_main_query(
     limit: i32,
     min: Option<i64>,
     max: Option<i64>,
-    profile: &Option<Profile>,
+    profile: &Option<Actor>,
     activity_as_id: Option<String>,
+    activity_uuid: Option<String>,
+    activity_id: Option<i32>,
 ) -> QueryParams {
     let mut params = QueryParams {
         limit,
         activity_as_id,
+        activity_uuid,
+        activity_id,
         min,
         max,
         ..Default::default()
@@ -247,13 +317,25 @@ fn build_main_query(
     query.push_str(
         "FROM activities a \
          LEFT JOIN objects o ON (o.id = a.target_object_id) \
-         LEFT JOIN profiles p ON (a.profile_id = p.id) ",
+         LEFT JOIN activities a2 ON (a.target_activity_id = a2.id) \
+         LEFT JOIN objects o2 ON (a2.target_object_id = o2.id) \
+         LEFT JOIN actors ac ON (a.actor_id = ac.id) ",
     );
 
     if params.activity_as_id.is_some() {
         query.push_str(&format!("WHERE a.ap_id = {}), ", param_gen()));
+    } else if params.activity_uuid.is_some() {
+        query.push_str(&format!("WHERE a.uuid = {}), ", param_gen()));
+    } else if params.activity_id.is_some() {
+        query.push_str(&format!("WHERE a.id = {}), ", param_gen()));
     } else {
-        query.push_str("WHERE a.kind IN ('announce','create') ");
+        if filters.clone().and_then(|x| x.view).is_some() {
+            query.push_str("WHERE a.kind IN ('announce','create') ");
+        } else {
+            query.push_str(
+                "WHERE a.kind IN ('announce','create','undo','like','follow','accept','delete') ",
+            );
+        }
 
         if let Some(filters) = filters.clone() {
             if filters.conversation.is_some() {
@@ -266,13 +348,7 @@ fn build_main_query(
             }
         }
 
-        query.push_str(&format!(
-            "AND NOT a.revoked \
-             AND (a.target_object_id IS NOT NULL) \
-             AND (a.ap_to ?| {} OR a.cc ?| {}) ",
-            param_gen(),
-            param_gen()
-        ));
+        query.push_str("AND NOT a.revoked AND (a.target_object_id IS NOT NULL OR a.target_activity_id IS NOT NULL) ");
 
         // Add date filtering to the subquery
         if let Some(min) = min {
@@ -299,8 +375,8 @@ fn build_main_query(
                 params.to.extend((*PUBLIC_COLLECTION).clone());
                 query.push_str(&format!("AND p.username = {} ", param_gen()));
                 params.username = filters.username.clone();
-            } else {
-                match filters.view.clone() {
+            } else if let Some(view) = filters.view.clone() {
+                match view {
                     TimelineView::Global => {
                         params.to.extend((*PUBLIC_COLLECTION).clone());
                     }
@@ -311,12 +387,22 @@ fn build_main_query(
                     TimelineView::Home(leaders) => {
                         log::debug!("LEADERS\n{leaders:#?} ");
                         if let Some(profile) = profile.clone() {
-                            let ap_id = get_ap_id_from_username(profile.username.clone());
-                            params.to.extend(vec![ap_id]);
-                            params.to.extend(leaders);
+                            if let Some(username) = profile.ek_username.clone() {
+                                let ap_id = get_ap_id_from_username(username);
+                                params.to.extend(vec![ap_id]);
+                                params.to.extend(leaders);
+                            }
                         }
                     }
                 }
+            }
+
+            if !params.to.is_empty() {
+                query.push_str(&format!(
+                    "AND (a.ap_to ?| {} OR a.cc ?| {}) ",
+                    param_gen(),
+                    param_gen()
+                ));
             }
 
             params.hashtags.extend(filters.hashtags.clone());
@@ -340,18 +426,18 @@ fn build_main_query(
             "announced AS (\
              SELECT m.id, MAX(a.uuid) AS object_announced \
              FROM main m \
-             LEFT JOIN activities a ON (a.target_ap_id = m.object_id \
+             LEFT JOIN activities a ON (a.target_ap_id = m.object_as_id \
              AND NOT a.revoked \
              AND a.kind = 'announce' \
-             AND  a.profile_id = {}) \
+             AND  a.actor_id = {}) \
              GROUP BY m.id), \
              liked AS (\
              SELECT m.id, MAX(a.uuid) AS object_liked \
              FROM main m \
-             LEFT JOIN activities a ON (a.target_ap_id = m.object_id \
+             LEFT JOIN activities a ON (a.target_ap_id = m.object_as_id \
              AND NOT a.revoked \
              AND a.kind = 'like' \
-             AND  a.profile_id = {}) \
+             AND  a.actor_id = {}) \
              GROUP BY m.id) ",
             param_gen(),
             param_gen()
@@ -379,11 +465,16 @@ pub async fn get_activities_coalesced(
     limit: i32,
     min: Option<i64>,
     max: Option<i64>,
-    profile: Option<Profile>,
+    profile: Option<Actor>,
     filters: Option<TimelineFilters>,
-    activity_as_id: Option<String>,
+    as_id: Option<String>,
+    uuid: Option<String>,
+    id: Option<i32>,
 ) -> Vec<CoalescedActivity> {
-    let params = build_main_query(&filters, limit, min, max, &profile, activity_as_id);
+    let params = build_main_query(&filters, limit, min, max, &profile, as_id, uuid, id);
+
+    log::debug!("QUERY\n{params:#?}");
+
     let query = sql_query(params.query.clone().unwrap()).into_boxed::<diesel::pg::Pg>();
     let query = bind_params(query, params, &profile);
 
@@ -394,7 +485,7 @@ pub async fn get_activities_coalesced(
 fn bind_params<'a>(
     query: BoxedSqlQuery<'a, diesel::pg::Pg, SqlQuery>,
     params: QueryParams,
-    profile: &Option<Profile>,
+    profile: &Option<Actor>,
 ) -> BoxedSqlQuery<'a, diesel::pg::Pg, SqlQuery> {
     use diesel::sql_types::{Array, Integer, Text, Timestamptz};
     let mut query = query;
@@ -402,15 +493,17 @@ fn bind_params<'a>(
     if let Some(activity_as_id) = params.activity_as_id.clone() {
         log::debug!("SETTING ACTIVITY AS_ID: |{activity_as_id}|");
         query = query.bind::<Text, _>(activity_as_id);
+    } else if let Some(uuid) = params.activity_uuid.clone() {
+        log::debug!("SETTING ACTIVITY AS_ID: |{uuid}|");
+        query = query.bind::<Text, _>(uuid);
+    } else if let Some(id) = params.activity_id.clone() {
+        log::debug!("SETTING ACTIVITY AS_ID: |{id}|");
+        query = query.bind::<Integer, _>(id);
     } else {
         if let Some(conversation) = params.conversation.clone() {
             log::debug!("SETTING CONVERSATION: |{conversation}|");
             query = query.bind::<Text, _>(conversation);
         }
-
-        log::debug!("SETTING TO: |{:#?}|", &params.to);
-        query = query.bind::<Array<Text>, _>(params.to.clone());
-        query = query.bind::<Array<Text>, _>(params.to.clone());
 
         if (params.min.is_some() && params.min.unwrap() != 0) || params.max.is_some() {
             log::debug!("SETTING DATE: |{}|", &params.date);
@@ -420,6 +513,12 @@ fn bind_params<'a>(
         if let Some(username) = params.username.clone() {
             log::debug!("SETTING USERNAME: |{username}|");
             query = query.bind::<Text, _>(username);
+        }
+
+        if !params.to.is_empty() {
+            log::debug!("SETTING TO: |{:#?}|", &params.to);
+            query = query.bind::<Array<Text>, _>(params.to.clone());
+            query = query.bind::<Array<Text>, _>(params.to.clone());
         }
 
         let mut lowercase_hashtags: Vec<String> = vec![];
@@ -636,71 +735,6 @@ pub async fn get_likers(
 
         query = query.order(activities::created_at.desc());
         query.get_results(c).unwrap_or(vec![])
-    })
-    .await
-}
-
-pub async fn get_outbox_activities_by_profile_id(
-    conn: &Db,
-    profile_id: i32,
-    min: Option<i64>,
-    max: Option<i64>,
-    limit: Option<u8>,
-) -> Vec<ExtendedActivity> {
-    conn.run(move |c| {
-        let mut query = activities::table
-            .filter(activities::revoked.eq(false))
-            .filter(activities::profile_id.eq(profile_id))
-            .filter(
-                activities::kind
-                    .eq(ActivityType::Create)
-                    .or(activities::kind.eq(ActivityType::Announce)),
-            )
-            .left_join(notes::table.on(activities::target_note_id.eq(notes::id.nullable())))
-            .left_join(
-                profiles::table.on(activities::target_profile_id.eq(profiles::id.nullable())),
-            )
-            .left_join(
-                remote_actors::table
-                    .on(activities::target_remote_actor_id.eq(remote_actors::id.nullable())),
-            )
-            .into_boxed();
-
-        if let Some(limit) = limit {
-            query = query.limit(limit.into());
-        }
-
-        if let Some(min) = min {
-            let date: DateTime<Utc> = DateTime::from_naive_utc_and_offset(
-                NaiveDateTime::from_timestamp_micros(min).unwrap(),
-                Utc,
-            );
-
-            log::debug!("MINIMUM {date:#?}");
-
-            query = query
-                .filter(activities::created_at.gt(date))
-                .order(activities::created_at.asc());
-        } else if let Some(max) = max {
-            let date: DateTime<Utc> = DateTime::from_naive_utc_and_offset(
-                NaiveDateTime::from_timestamp_micros(max).unwrap(),
-                Utc,
-            );
-
-            log::debug!("MAXIMUM {date:#?}");
-
-            query = query
-                .filter(activities::created_at.lt(date))
-                .order(activities::created_at.desc());
-        } else {
-            query = query.order(activities::created_at.desc());
-        }
-
-        let records = query
-            .get_results::<ExtendedActivityRecord>(c)
-            .unwrap_or(vec![]);
-
-        transform_records_to_extended_activities(records)
     })
     .await
 }

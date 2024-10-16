@@ -6,7 +6,7 @@ use crate::{
     db::Db,
     fairings::events::EventChannels,
     models::{
-        profiles::{get_profile_by_ap_id, Profile},
+        actors::{get_actor_by_as_id, Actor},
         remote_encrypted_sessions::create_remote_encrypted_session,
     },
     runner, MaybeMultiple, MaybeReference,
@@ -47,7 +47,7 @@ impl Inbox for ApJoin {
         log::debug!("PROCESSING JOIN ACTIVITY\n{self:#?}");
 
         if let Ok(ApAddress::Address(to)) = self.to.clone().single() {
-            if let Some(profile) = get_profile_by_ap_id(Some(&conn), to.clone()).await {
+            if let Some(profile) = get_actor_by_as_id(&conn, to.clone()).await {
                 if create_remote_encrypted_session(&conn, (self.clone(), profile.id).into())
                     .await
                     .is_some()
@@ -93,7 +93,7 @@ impl Outbox for ApJoin {
         &self,
         _conn: Db,
         _events: EventChannels,
-        _profile: Profile,
+        _profile: Actor,
     ) -> Result<String, Status> {
         Err(Status::ServiceUnavailable)
     }

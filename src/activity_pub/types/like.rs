@@ -11,8 +11,9 @@ use crate::{
             create_activity, ActivityTarget, ActivityType, ApActivityTarget, ExtendedActivity,
             NewActivity, NoteActivity,
         },
-        notes::{get_note_by_apid, get_notey},
-        profiles::Profile,
+        actors::Actor,
+        notes::get_notey,
+        objects::get_object_by_as_id,
     },
     runner, MaybeMultiple, MaybeReference,
 };
@@ -64,7 +65,7 @@ impl Inbox for Box<ApLike> {
 
         if let Some(note_apid) = note_apid {
             log::debug!("NOTE AP_ID\n{note_apid:#?}");
-            if let Some(target) = get_note_by_apid(&conn, note_apid).await {
+            if let Ok(target) = get_object_by_as_id(Some(&conn), note_apid).await {
                 log::debug!("TARGET\n{target:#?}");
                 if let Ok(mut activity) = NewActivity::try_from((
                     ApActivity::Like(self.clone()),
@@ -104,7 +105,7 @@ impl Outbox for Box<ApLike> {
         &self,
         conn: Db,
         events: EventChannels,
-        profile: Profile,
+        profile: Actor,
     ) -> Result<String, Status> {
         handle_like_outbox(conn, events, *self.clone(), profile).await
     }
@@ -114,7 +115,7 @@ async fn handle_like_outbox(
     conn: Db,
     channels: EventChannels,
     like: ApLike,
-    profile: Profile,
+    profile: Actor,
 ) -> Result<String, Status> {
     if let MaybeReference::Reference(id) = like.object {
         let note_like = get_notey(&conn, id).await;
@@ -158,35 +159,31 @@ impl TryFrom<ExtendedActivity> for ApLike {
     type Error = anyhow::Error;
 
     fn try_from(
-        (activity, note, _profile, _remote_actor): ExtendedActivity,
+        (activity, _target_activity, target_object): ExtendedActivity,
     ) -> Result<Self, Self::Error> {
-        if activity.kind.to_string().to_lowercase().as_str() == "like" {
-            let (id, object): (String, MaybeReference<ApObject>) = match note {
-                Some(note) => (
-                    note.attributed_to.clone(),
-                    MaybeReference::Reference(ApNote::from(note).id.unwrap()),
-                ),
-                _ => {
-                    log::error!("INVALID ACTIVITY TYPE");
-                    return Err(anyhow!("INVALID ACTIVITY TYPE"));
-                }
-            };
-
-            Ok(ApLike {
-                context: Some(ApContext::default()),
-                kind: ApLikeType::default(),
-                actor: activity.actor.into(),
-                id: Some(format!(
-                    "{}/activities/{}",
-                    *crate::SERVER_URL,
-                    activity.uuid
-                )),
-                to: Some(MaybeMultiple::Single(ApAddress::Address(id))),
-                object,
-            })
-        } else {
-            log::error!("NOT A LIKE ACTIVITY");
-            Err(anyhow!("NOT A LIKE ACTIVITY"))
+        if !activity.kind.is_like() {
+            return Err(anyhow!("NOT A LIKE ACTIVITY"));
         }
+
+        let object = target_object.ok_or(anyhow!("no target object"))?;
+        let note = ApNote::try_from(object)?;
+
+        let (id, object): (String, MaybeReference<ApObject>) = (
+            note.attributed_to.clone().to_string(),
+            MaybeReference::Reference(note.id.ok_or(anyhow!("no note id"))?),
+        );
+
+        Ok(ApLike {
+            context: Some(ApContext::default()),
+            kind: ApLikeType::default(),
+            actor: activity.actor.into(),
+            id: Some(format!(
+                "{}/activities/{}",
+                *crate::SERVER_URL,
+                activity.uuid
+            )),
+            to: Some(MaybeMultiple::Single(ApAddress::Address(id))),
+            object,
+        })
     }
 }

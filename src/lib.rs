@@ -295,6 +295,12 @@ impl From<ApObject> for MaybeReference<ApObject> {
     }
 }
 
+impl From<String> for MaybeReference<ApObject> {
+    fn from(reference: String) -> Self {
+        MaybeReference::Reference(reference)
+    }
+}
+
 impl From<String> for MaybeReference<ApCollection> {
     fn from(reference: String) -> Self {
         MaybeReference::Reference(reference)

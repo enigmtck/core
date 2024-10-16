@@ -2,9 +2,10 @@ use crate::{
     activity_pub::{ApActivity, ApAddress},
     db::Db,
     fairings::events::EventChannels,
+    helper::get_activity_ap_id_from_uuid,
     models::{
-        activities::{get_activity_by_uuid, revoke_activity_by_apid},
-        profiles::get_profile,
+        activities::{get_activity_by_ap_id, revoke_activity_by_apid},
+        actors::get_actor,
     },
     runner::{get_inboxes, send_to_inboxes, TaskError},
 };
@@ -37,23 +38,22 @@ pub async fn send_like_task(
     for uuid in uuids {
         log::debug!("LOOKING FOR UUID {uuid}");
 
-        let (activity, target_note, target_profile, target_remote_actor) =
-            get_activity_by_uuid(conn, uuid.clone())
-                .await
-                .ok_or(TaskError::TaskFailed)?;
+        let (activity, target_activity, target_object) = get_activity_by_ap_id(
+            conn.ok_or(TaskError::TaskFailed)?,
+            get_activity_ap_id_from_uuid(uuid.clone()),
+        )
+        .await
+        .ok_or(TaskError::TaskFailed)?;
 
         log::debug!("FOUND ACTIVITY\n{activity:#?}");
-        let profile_id = activity.profile_id.ok_or(TaskError::TaskFailed)?;
+        let profile_id = activity.actor_id.ok_or(TaskError::TaskFailed)?;
 
-        let sender = get_profile(conn, profile_id)
+        let sender = get_actor(conn.unwrap(), profile_id)
             .await
             .ok_or(TaskError::TaskFailed)?;
 
-        let activity = ApActivity::try_from((
-            (activity, target_note, target_profile, target_remote_actor),
-            None,
-        ))
-        .map_err(|_| TaskError::TaskFailed)?;
+        let activity = ApActivity::try_from(((activity, target_activity, target_object), None))
+            .map_err(|_| TaskError::TaskFailed)?;
 
         let inboxes: Vec<ApAddress> = get_inboxes(conn, activity.clone(), sender.clone()).await;
 

@@ -21,6 +21,7 @@ pub struct Leader {
     pub accept_ap_id: Option<String>,
     pub accepted: Option<bool>,
     pub follow_ap_id: Option<String>,
+    pub actor_id: i32,
 }
 
 pub async fn create_leader(conn: Option<&Db>, leader: NewLeader) -> Option<Leader> {

@@ -10,9 +10,9 @@ use crate::{
     helper::get_activity_ap_id_from_uuid,
     models::{
         activities::{create_activity, ActivityType, NewActivity, NoteActivity},
+        actors::Actor,
         notes::get_notey,
         objects::{delete_object_by_as_id, get_object_by_as_id},
-        profiles::Profile,
         remote_actors::delete_remote_actor_by_ap_id,
     },
     runner, MaybeMultiple, MaybeReference,
@@ -134,7 +134,7 @@ impl Outbox for Box<ApDelete> {
         &self,
         conn: Db,
         events: EventChannels,
-        profile: Profile,
+        profile: Actor,
     ) -> Result<String, Status> {
         outbox(conn, events, *self.clone(), profile).await
     }
@@ -144,7 +144,7 @@ async fn outbox(
     conn: Db,
     channels: EventChannels,
     delete: ApDelete,
-    profile: Profile,
+    profile: Actor,
 ) -> Result<String, Status> {
     if let MaybeReference::Reference(id) = delete.object {
         if let Some(note) = get_notey(&conn, id).await {
@@ -204,7 +204,7 @@ impl Outbox for ApTombstone {
         &self,
         _conn: Db,
         _events: EventChannels,
-        _profile: Profile,
+        _profile: Actor,
     ) -> Result<String, Status> {
         Err(Status::ServiceUnavailable)
     }
@@ -257,7 +257,7 @@ impl ApDelete {
     // I'll review some other options (like the Proof stuff that silverpill and Mitra have) to see if that's
     // more reasonable. For now, we just aren't signing these, so this will limit the ability for relayed
     // messages to be acted on.
-    pub async fn sign(mut self, _profile: Profile) -> Result<ApDelete, ()> {
+    pub async fn sign(mut self, _profile: Actor) -> Result<ApDelete, ()> {
         let document = serde_json::to_string(&self).unwrap();
         log::debug!("DOCUMENT TO BE SIGNED\n{document:#?}");
 

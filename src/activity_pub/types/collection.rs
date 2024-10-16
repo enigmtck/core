@@ -7,7 +7,7 @@ use crate::db::Db;
 use crate::fairings::events::EventChannels;
 use crate::models::cache::Cache;
 use crate::models::vault::VaultItem;
-use crate::models::{followers::Follower, leaders::Leader, profiles::Profile};
+use crate::models::{actors::Actor, followers::Follower, leaders::Leader};
 use crate::MaybeReference;
 use rocket::http::Status;
 use serde::{Deserialize, Serialize};
@@ -110,7 +110,7 @@ impl Outbox for ApCollectionPage {
         &self,
         _conn: Db,
         _events: EventChannels,
-        _profile: Profile,
+        _profile: Actor,
     ) -> Result<String, Status> {
         Err(Status::ServiceUnavailable)
     }
@@ -178,7 +178,7 @@ impl Outbox for ApCollection {
         &self,
         _conn: Db,
         _events: EventChannels,
-        _profile: Profile,
+        _profile: Actor,
     ) -> Result<String, Status> {
         Err(Status::ServiceUnavailable)
     }
@@ -275,7 +275,7 @@ impl From<ApCollectionPageParams> for ApCollectionPage {
 #[derive(Clone)]
 pub struct ActorsPage {
     pub page: u32,
-    pub profile: Profile,
+    pub profile: Actor,
     pub actors: Vec<ApActor>,
 }
 
@@ -287,7 +287,7 @@ impl From<ActorsPage> for ApCollection {
                 id: Some(format!(
                     "{}/users/{}/actors",
                     *crate::SERVER_URL,
-                    request.profile.username
+                    request.profile.ek_username.unwrap()
                 )),
                 total_items: Some(request.actors.len() as i64),
                 first: None,
@@ -314,7 +314,7 @@ impl From<ActorsPage> for ApCollection {
 #[derive(Clone)]
 pub struct FollowersPage {
     pub page: u32,
-    pub profile: Profile,
+    pub profile: Actor,
     pub followers: Vec<Follower>,
 }
 
@@ -326,7 +326,7 @@ impl From<FollowersPage> for ApCollection {
                 id: Some(format!(
                     "{}/users/{}/followers",
                     *crate::SERVER_URL,
-                    request.profile.username
+                    request.profile.ek_username.unwrap()
                 )),
                 total_items: Some(request.followers.len() as i64),
                 first: None,
@@ -390,7 +390,7 @@ impl From<FollowersPage> for ApCollection {
 #[derive(Clone)]
 pub struct LeadersPage {
     pub page: u32,
-    pub profile: Profile,
+    pub profile: Actor,
     pub leaders: Vec<Leader>,
 }
 
@@ -402,7 +402,7 @@ impl From<LeadersPage> for ApCollection {
                 id: Some(format!(
                     "{}/users/{}/following",
                     *crate::SERVER_URL,
-                    request.profile.username
+                    request.profile.ek_username.unwrap()
                 )),
                 total_items: Some(request.leaders.len() as i64),
                 first: None,
@@ -426,7 +426,7 @@ impl From<LeadersPage> for ApCollection {
     }
 }
 
-pub type IdentifiedVaultItems = (Vec<VaultItem>, Profile);
+pub type IdentifiedVaultItems = (Vec<VaultItem>, Actor);
 
 impl From<IdentifiedVaultItems> for ApCollection {
     fn from((items, profile): IdentifiedVaultItems) -> Self {

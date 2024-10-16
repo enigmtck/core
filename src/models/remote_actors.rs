@@ -2,13 +2,14 @@ use crate::activity_pub::ApActor;
 use crate::activity_pub::ApContext;
 use crate::db::Db;
 use crate::models::to_serde;
-use crate::schema::{leaders, profiles, remote_actors};
+use crate::schema::actors;
+use crate::schema::{leaders, remote_actors};
 use crate::POOL;
 use anyhow::Result;
 use diesel::prelude::*;
 
+use super::actors::Actor;
 use super::leaders::Leader;
-use super::profiles::Profile;
 
 cfg_if::cfg_if! {
     if #[cfg(feature = "pg")] {
@@ -151,24 +152,24 @@ pub async fn get_leader_by_endpoint(
 pub async fn get_follower_profiles_by_endpoint(
     conn: Option<&Db>,
     endpoint: String,
-) -> Vec<(RemoteActor, Leader, Option<Profile>)> {
+) -> Vec<(RemoteActor, Leader, Option<Actor>)> {
     match conn {
         Some(conn) => conn
             .run(move |c| {
                 remote_actors::table
                     .inner_join(leaders::table.on(leaders::leader_ap_id.eq(remote_actors::ap_id)))
-                    .left_join(profiles::table.on(leaders::profile_id.eq(profiles::id)))
+                    .left_join(actors::table.on(leaders::actor_id.eq(actors::id)))
                     .filter(remote_actors::followers.eq(endpoint))
-                    .get_results::<(RemoteActor, Leader, Option<Profile>)>(c)
+                    .get_results::<(RemoteActor, Leader, Option<Actor>)>(c)
             })
             .await
             .unwrap_or(vec![]),
         None => POOL.get().map_or(vec![], |mut pool| {
             remote_actors::table
                 .inner_join(leaders::table.on(leaders::leader_ap_id.eq(remote_actors::ap_id)))
-                .left_join(profiles::table.on(leaders::profile_id.eq(profiles::id)))
+                .left_join(actors::table.on(leaders::actor_id.eq(actors::id)))
                 .filter(remote_actors::followers.eq(endpoint))
-                .get_results::<(RemoteActor, Leader, Option<Profile>)>(&mut pool)
+                .get_results::<(RemoteActor, Leader, Option<Actor>)>(&mut pool)
                 .unwrap_or(vec![])
         }),
     }

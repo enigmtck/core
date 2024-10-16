@@ -1,5 +1,6 @@
-use crate::models::profiles::Profile;
 use serde::{Deserialize, Serialize};
+
+use crate::models::actors::Actor;
 
 #[derive(Serialize, Deserialize, Clone, Default, Debug)]
 pub struct WebFingerLink {
@@ -20,28 +21,44 @@ pub struct WebFinger {
     pub links: Vec<WebFingerLink>,
 }
 
-impl From<Profile> for WebFinger {
-    fn from(profile: Profile) -> Self {
+impl From<Actor> for WebFinger {
+    fn from(profile: Actor) -> Self {
         let server_url = &*crate::SERVER_URL;
         let server_name = &*crate::SERVER_NAME;
 
         WebFinger {
-            subject: format!("acct:{}@{}", profile.username, server_name),
+            subject: format!(
+                "acct:{}@{}",
+                profile.ek_username.as_ref().unwrap(),
+                server_name
+            ),
             aliases: Some(vec![
-                format!("{}/@{}", server_url, profile.username),
-                format!("{}/user/{}", server_url, profile.username),
+                format!("{}/@{}", server_url, profile.ek_username.as_ref().unwrap()),
+                format!(
+                    "{}/user/{}",
+                    server_url,
+                    profile.ek_username.as_ref().unwrap()
+                ),
             ]),
             links: vec![
                 WebFingerLink {
                     rel: "http://webfinger.net/rel/profile-page".to_string(),
                     kind: Some("text/html".to_string()),
-                    href: Some(format!("{}/@{}", server_url, profile.username)),
+                    href: Some(format!(
+                        "{}/@{}",
+                        server_url,
+                        profile.ek_username.as_ref().unwrap()
+                    )),
                     ..Default::default()
                 },
                 WebFingerLink {
                     rel: "self".to_string(),
                     kind: Some("application/activity+json".to_string()),
-                    href: Some(format!("{}/user/{}", server_url, profile.username)),
+                    href: Some(format!(
+                        "{}/user/{}",
+                        server_url,
+                        profile.ek_username.unwrap()
+                    )),
                     ..Default::default()
                 },
                 // WebFingerLink {

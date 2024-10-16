@@ -3,7 +3,7 @@ mod types;
 
 use crate::db::Db;
 use crate::fairings::events::EventChannels;
-use crate::models::profiles::Profile;
+use crate::models::actors::Actor;
 use crate::{Identifier, MaybeMultiple};
 use chrono::{DateTime, Utc};
 use enum_dispatch::enum_dispatch;
@@ -12,7 +12,9 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 pub use types::accept::{ApAccept, ApAcceptType};
 pub use types::activity::ApActivity;
-pub use types::actor::{ApActor, ApActorType, ApAddress, ApPublicKey, PUBLIC_COLLECTION};
+pub use types::actor::{
+    ApActor, ApActorType, ApAddress, ApCapabilities, ApPublicKey, PUBLIC_COLLECTION,
+};
 pub use types::add::{ApAdd, ApAddType};
 pub use types::announce::{ApAnnounce, ApAnnounceType};
 pub use types::block::{ApBlock, ApBlockType};
@@ -119,6 +121,6 @@ pub trait Outbox {
         &self,
         conn: Db,
         events: EventChannels,
-        profile: Profile,
+        profile: Actor,
     ) -> Result<String, Status>;
 }

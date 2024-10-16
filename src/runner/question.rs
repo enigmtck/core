@@ -3,8 +3,8 @@ use anyhow::Result;
 use crate::activity_pub::ApQuestion;
 use crate::db::Db;
 use crate::fairings::events::EventChannels;
+use crate::models::actors::guaranteed_actor;
 use crate::models::objects::{get_object_by_as_id, Object};
-use crate::models::profiles::guaranteed_profile;
 
 use super::actor::get_actor;
 use super::TaskError;
@@ -35,7 +35,7 @@ pub async fn handle_remote_question(
     log::debug!("HANDLING REMOTE QUESTION");
 
     let question: ApQuestion = object.clone().try_into()?;
-    let profile = guaranteed_profile(None, None).await;
+    let profile = guaranteed_actor(conn.unwrap(), None).await;
 
     let _ = get_actor(conn, profile, question.attributed_to.to_string()).await;
 

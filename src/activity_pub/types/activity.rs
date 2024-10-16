@@ -60,31 +60,36 @@ impl TryFrom<RecursiveActivity> for ApActivity {
     type Error = anyhow::Error;
 
     fn try_from(
-        ((activity, note, profile, remote_actor), recursive): RecursiveActivity,
+        ((activity, target_activity, target_object), recursive): RecursiveActivity,
     ) -> Result<Self, Self::Error> {
         match activity.kind.to_string().to_lowercase().as_str() {
-            "create" if note.is_some() => {
-                ApCreate::try_from((activity, note, profile, remote_actor)).map(ApActivity::Create)
+            "create" if target_object.is_some() => {
+                ApCreate::try_from((activity, target_activity, target_object))
+                    .map(ApActivity::Create)
             }
-            "announce" if note.is_some() => {
-                ApAnnounce::try_from((activity, note, profile, remote_actor))
+            "announce" if target_object.is_some() => {
+                ApAnnounce::try_from((activity, target_activity, target_object))
                     .map(ApActivity::Announce)
             }
-            "like" if note.is_some() => ApLike::try_from((activity, note, profile, remote_actor))
-                .map(|activity| ApActivity::Like(Box::new(activity))),
-            "delete" if note.is_some() => ApDelete::try_from(ApNote::from(note.unwrap()))
-                .map(|delete| ApActivity::Delete(Box::new(delete))),
-            "follow" if profile.is_some() || remote_actor.is_some() => {
-                ApFollow::try_from((activity, note, profile, remote_actor)).map(ApActivity::Follow)
+            "like" if target_object.is_some() => {
+                ApLike::try_from((activity, target_activity, target_object))
+                    .map(|activity| ApActivity::Like(Box::new(activity)))
             }
-            "undo" if recursive.is_some() => {
-                ApUndo::try_from(((activity, note, profile, remote_actor), recursive))
-                    .map(|undo| ApActivity::Undo(Box::new(undo)))
+            "delete" if target_object.is_some() => {
+                ApDelete::try_from(ApNote::try_from(target_object.unwrap())?)
+                    .map(|delete| ApActivity::Delete(Box::new(delete)))
             }
-            "accept" if recursive.is_some() => {
-                ApAccept::try_from(((activity, note, profile, remote_actor), recursive))
-                    .map(|accept| ApActivity::Accept(Box::new(accept)))
-            }
+            // "follow" if profile.is_some() || remote_actor.is_some() => {
+            //     ApFollow::try_from((activity, note, profile, remote_actor)).map(ApActivity::Follow)
+            // }
+            // "undo" if recursive.is_some() => {
+            //     ApUndo::try_from(((activity, note, profile, remote_actor), recursive))
+            //         .map(|undo| ApActivity::Undo(Box::new(undo)))
+            // }
+            // "accept" if recursive.is_some() => {
+            //     ApAccept::try_from(((activity, note, profile, remote_actor), recursive))
+            //         .map(|accept| ApActivity::Accept(Box::new(accept)))
+            // }
             _ => {
                 log::error!("FAILED TO MATCH IMPLEMENTED ACTIVITY\n{activity:#?}");
                 Err(anyhow!("FAILED TO MATCH IMPLEMENTED ACTIVITY"))

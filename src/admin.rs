@@ -1,12 +1,22 @@
+use anyhow::{anyhow, Result};
+use chrono::Utc;
 use orion::pwhash;
 use rsa::{
     pkcs8::EncodePrivateKey, pkcs8::EncodePublicKey, pkcs8::LineEnding, RsaPrivateKey, RsaPublicKey,
 };
 use serde::Deserialize;
+use serde_json::json;
 use uuid::Uuid;
 
+use crate::activity_pub::{
+    ApCapabilities, ApContext, ApEndpoint, ApImage, ApImageType, ApPublicKey,
+};
 use crate::db::Db;
-use crate::models::profiles::{create_profile, get_profile_by_username, NewProfile, Profile};
+use crate::helper::get_ap_id_from_username;
+use crate::models::actors::{
+    create_or_update_actor, get_actor_by_username, Actor, ActorType, NewActor,
+};
+use crate::models::to_serde;
 
 struct KeyPair {
     private_key: RsaPrivateKey,
@@ -25,11 +35,11 @@ fn get_key_pair() -> KeyPair {
     }
 }
 
-pub async fn authenticate(conn: &Db, username: String, password_str: String) -> Option<Profile> {
+pub async fn authenticate(conn: &Db, username: String, password_str: String) -> Option<Actor> {
     log::debug!("AUTHENTICATING {username} {password_str}");
     let password = pwhash::Password::from_slice(password_str.clone().as_bytes()).ok()?;
-    let profile = get_profile_by_username(conn.into(), username.clone()).await?;
-    let encoded_password_hash = profile.clone().password?;
+    let profile = get_actor_by_username(conn.into(), username.clone()).await?;
+    let encoded_password_hash = profile.clone().ek_password?;
     let password_hash = pwhash::PasswordHash::from_encoded(&encoded_password_hash).ok()?;
 
     if pwhash::hash_password_verify(&password_hash, &password).is_ok() {
@@ -76,42 +86,85 @@ pub struct NewUser {
     pub salt: Option<String>,
 }
 
-pub async fn create_user(conn: Option<&Db>, user: NewUser) -> Option<Profile> {
+pub async fn create_user(conn: &Db, user: NewUser) -> Result<Actor> {
     let key_pair = get_key_pair();
+    let owner = get_ap_id_from_username(user.username.clone());
+    let server = crate::SERVER_URL.clone();
+    let password = pwhash::Password::from_slice(user.password.as_bytes())?;
+    let username = user.username.clone();
 
-    if let Ok(password) = pwhash::Password::from_slice(user.password.as_bytes()) {
-        // the example memory cost is 1<<16 (64MB); that taxes my system quite a bit,
-        // so I'm using 8MB - this should be increased as available power permits
-        if let Ok(hash) = pwhash::hash_password(&password, 3, 1 << 4) {
-            let new_profile = NewProfile {
-                uuid: Uuid::new_v4().to_string(),
-                username: user.username,
-                display_name: user.display_name,
-                summary: None,
-                summary_markdown: None,
-                private_key: key_pair
-                    .private_key
-                    .to_pkcs8_pem(LineEnding::default())
-                    .unwrap()
-                    .to_string(),
-                public_key: key_pair
-                    .public_key
-                    .to_public_key_pem(LineEnding::default())
-                    .unwrap(),
-                password: Some(hash.unprotected_as_encoded().to_string()),
-                client_public_key: user.client_public_key,
-                client_private_key: user.client_private_key,
-                olm_pickled_account: user.olm_pickled_account,
-                olm_pickled_account_hash: user.olm_pickled_account_hash,
-                olm_identity_key: user.olm_identity_key,
-                salt: user.salt,
-            };
+    // the example memory cost is 1<<16 (64MB); that taxes my system quite a bit,
+    // so I'm using 8MB - this should be increased as available power permits
+    let hash = pwhash::hash_password(&password, 3, 1 << 4)?;
+    let new_profile = NewActor {
+        ek_uuid: Some(Uuid::new_v4().to_string()),
+        ek_username: Some(username.clone()),
+        as_name: Some(user.display_name),
+        as_summary: None,
+        ek_summary_markdown: None,
+        ek_private_key: Some(
+            key_pair
+                .private_key
+                .to_pkcs8_pem(LineEnding::default())
+                .unwrap()
+                .to_string(),
+        ),
+        as_public_key: to_serde(ApPublicKey {
+            id: format!("{owner}#main-key"),
+            owner: owner.clone(),
+            public_key_pem: key_pair
+                .public_key
+                .to_public_key_pem(LineEnding::default())
+                .unwrap(),
+        })
+        .ok_or(anyhow!("failed to initialize public key"))?,
+        ek_password: Some(hash.unprotected_as_encoded().to_string()),
+        ek_client_public_key: user.client_public_key,
+        ek_client_private_key: user.client_private_key,
+        ek_olm_pickled_account: user.olm_pickled_account,
+        ek_olm_pickled_account_hash: user.olm_pickled_account_hash,
+        ek_olm_identity_key: user.olm_identity_key,
+        ek_salt: user.salt,
+        as_preferred_username: Some(owner.clone()),
+        as_inbox: format!("{owner}/inbox"),
+        as_outbox: format!("{owner}/outbox"),
+        as_followers: Some(format!("{owner}/followers")),
+        as_following: Some(format!("{owner}/following")),
+        as_liked: Some(format!("{owner}/liked")),
+        as_published: Some(Utc::now()),
+        as_url: Some(format!("{server}/@{username}")),
+        as_endpoints: to_serde(ApEndpoint {
+            shared_inbox: format!("{server}/inbox"),
+        })
+        .ok_or(anyhow!("failed to initialize endpoints"))?,
+        as_discoverable: true,
+        ap_manually_approves_followers: false,
+        ap_capabilities: to_serde(ApCapabilities {
+            accepts_chat_messages: Some(false),
+            enigmatick_encryption: Some(true),
+        })
+        .ok_or(anyhow!("failed to initialize capabilities"))?,
+        as_also_known_as: json!([]),
+        as_tag: json!([]),
+        as_id: owner,
+        as_icon: to_serde(ApImage {
+            url: format!("{server}/media/avatars/default.png"),
+            kind: ApImageType::Image,
+            media_type: Some("png".to_string()),
+        })
+        .ok_or(anyhow!("failed to initialize image"))?,
+        as_image: json!("{}"),
+        ek_webfinger: Some(format!("@{username}@{server}")),
+        ek_avatar_filename: None,
+        ek_banner_filename: None,
+        ek_checked_at: Utc::now(),
+        ek_hashtags: json!([]),
+        as_type: ActorType::Person,
+        as_attachment: json!([]),
+        as_context: to_serde(ApContext::default()),
+        as_featured: None,
+        as_featured_tags: None,
+    };
 
-            create_profile(conn, new_profile).await
-        } else {
-            None
-        }
-    } else {
-        None
-    }
+    create_or_update_actor(conn, new_profile).await
 }

@@ -5,7 +5,7 @@ use crate::{
     activity_pub::{ApAddress, ApContext, ApObject, Inbox, Outbox},
     db::Db,
     fairings::events::EventChannels,
-    models::profiles::Profile,
+    models::actors::Actor,
     MaybeReference,
 };
 use rocket::http::Status;
@@ -56,7 +56,7 @@ impl Outbox for ApRemove {
         &self,
         _conn: Db,
         _events: EventChannels,
-        _profile: Profile,
+        _profile: Actor,
     ) -> Result<String, Status> {
         Err(Status::ServiceUnavailable)
     }

@@ -6,6 +6,10 @@ pub mod sql_types {
     pub struct ActivityType;
 
     #[derive(diesel::sql_types::SqlType, diesel::query_builder::QueryId)]
+    #[diesel(postgres_type(name = "actor_type"))]
+    pub struct ActorType;
+
+    #[derive(diesel::sql_types::SqlType, diesel::query_builder::QueryId)]
     #[diesel(postgres_type(name = "note_type"))]
     pub struct NoteType;
 
@@ -48,6 +52,8 @@ diesel::table! {
         reply -> Bool,
         raw -> Nullable<Jsonb>,
         target_object_id -> Nullable<Int4>,
+        actor_id -> Nullable<Int4>,
+        target_actor_id -> Nullable<Int4>,
     }
 }
 
@@ -68,6 +74,58 @@ diesel::table! {
         updated_at -> Timestamptz,
         activity_id -> Int4,
         ap_id -> Varchar,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
+    use super::sql_types::ActorType;
+
+    actors (id) {
+        id -> Int4,
+        created_at -> Timestamptz,
+        updated_at -> Timestamptz,
+        ek_uuid -> Nullable<Varchar>,
+        ek_username -> Nullable<Varchar>,
+        ek_summary_markdown -> Nullable<Varchar>,
+        ek_avatar_filename -> Nullable<Varchar>,
+        ek_banner_filename -> Nullable<Varchar>,
+        ek_private_key -> Nullable<Varchar>,
+        ek_password -> Nullable<Varchar>,
+        ek_client_public_key -> Nullable<Varchar>,
+        ek_client_private_key -> Nullable<Varchar>,
+        ek_salt -> Nullable<Varchar>,
+        ek_olm_pickled_account -> Nullable<Varchar>,
+        ek_olm_pickled_account_hash -> Nullable<Varchar>,
+        ek_olm_identity_key -> Nullable<Varchar>,
+        ek_webfinger -> Nullable<Varchar>,
+        ek_checked_at -> Timestamptz,
+        ek_hashtags -> Jsonb,
+        as_type -> ActorType,
+        as_context -> Nullable<Jsonb>,
+        as_id -> Varchar,
+        as_name -> Nullable<Varchar>,
+        as_preferred_username -> Nullable<Varchar>,
+        as_summary -> Nullable<Varchar>,
+        as_inbox -> Varchar,
+        as_outbox -> Varchar,
+        as_followers -> Nullable<Varchar>,
+        as_following -> Nullable<Varchar>,
+        as_liked -> Nullable<Varchar>,
+        as_public_key -> Jsonb,
+        as_featured -> Nullable<Varchar>,
+        as_featured_tags -> Nullable<Varchar>,
+        as_url -> Nullable<Varchar>,
+        as_published -> Nullable<Timestamptz>,
+        as_tag -> Jsonb,
+        as_attachment -> Jsonb,
+        as_endpoints -> Jsonb,
+        as_icon -> Jsonb,
+        as_image -> Jsonb,
+        as_also_known_as -> Jsonb,
+        as_discoverable -> Bool,
+        ap_capabilities -> Jsonb,
+        ap_manually_approves_followers -> Bool,
     }
 }
 
@@ -123,6 +181,7 @@ diesel::table! {
         actor -> Varchar,
         followed_ap_id -> Varchar,
         uuid -> Varchar,
+        actor_id -> Int4,
     }
 }
 
@@ -173,6 +232,7 @@ diesel::table! {
         accept_ap_id -> Nullable<Varchar>,
         accepted -> Nullable<Bool>,
         follow_ap_id -> Nullable<Varchar>,
+        actor_id -> Int4,
     }
 }
 
@@ -534,6 +594,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     activities,
     activities_cc,
     activities_to,
+    actors,
     announces,
     cache,
     encrypted_sessions,

@@ -1,7 +1,7 @@
 use crate::activity_pub::ApFollow;
 use crate::db::Db;
 use crate::helper::{get_local_identifier, LocalIdentifierType};
-use crate::schema::{followers, remote_actors};
+use crate::schema::{actors, followers};
 use crate::{MaybeReference, POOL};
 use diesel::prelude::*;
 
@@ -9,8 +9,7 @@ use diesel::Insertable;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use super::profiles::Profile;
-use super::remote_actors::RemoteActor;
+use super::actors::Actor;
 
 cfg_if::cfg_if! {
     if #[cfg(feature = "pg")] {
@@ -30,6 +29,7 @@ pub struct NewFollower {
     pub actor: String,
     pub followed_ap_id: String,
     pub uuid: String,
+    pub actor_id: i32,
 }
 
 impl TryFrom<ApFollow> for NewFollower {
@@ -58,13 +58,18 @@ impl TryFrom<ApFollow> for NewFollower {
 }
 
 impl NewFollower {
-    pub fn link(&mut self, profile: Profile) -> &mut Self {
+    pub fn link(&mut self, actor: Actor) -> &mut Self {
         if let Some(id) = get_local_identifier(self.followed_ap_id.clone()) {
-            if id.kind == LocalIdentifierType::User
-                && id.identifier.to_lowercase() == profile.username.to_lowercase()
-            {
-                self.profile_id = profile.id;
-                self
+            if let Some(username) = actor.ek_username {
+                if id.kind == LocalIdentifierType::User
+                    && id.identifier.to_lowercase() == username.to_lowercase()
+                {
+                    //self.profile_id = profile.id;
+                    self.actor_id = actor.id;
+                    self
+                } else {
+                    self
+                }
             } else {
                 self
             }
@@ -103,28 +108,14 @@ pub async fn delete_follower_by_ap_id(conn: Option<&Db>, ap_id: String) -> bool 
     }
 }
 
-pub async fn get_followers_by_profile_id(
-    conn: Option<&Db>,
-    profile_id: i32,
-) -> Vec<(Follower, Option<RemoteActor>)> {
-    match conn {
-        Some(conn) => conn
-            .run(move |c| {
-                followers::table
-                    .filter(followers::profile_id.eq(profile_id))
-                    .left_join(remote_actors::table.on(followers::actor.eq(remote_actors::ap_id)))
-                    .order_by(followers::created_at.desc())
-                    .get_results::<(Follower, Option<RemoteActor>)>(c)
-            })
-            .await
-            .unwrap_or(vec![]),
-        None => POOL.get().map_or(vec![], |mut pool| {
-            followers::table
-                .filter(followers::profile_id.eq(profile_id))
-                .left_join(remote_actors::table.on(followers::actor.eq(remote_actors::ap_id)))
-                .order_by(followers::created_at.desc())
-                .get_results::<(Follower, Option<RemoteActor>)>(&mut pool)
-                .unwrap_or(vec![])
-        }),
-    }
+pub async fn get_followers_by_actor_id(conn: &Db, actor_id: i32) -> Vec<(Follower, Option<Actor>)> {
+    conn.run(move |c| {
+        followers::table
+            .filter(followers::actor_id.eq(actor_id))
+            .left_join(actors::table.on(followers::actor.eq(actors::as_id)))
+            .order_by(followers::created_at.desc())
+            .get_results::<(Follower, Option<Actor>)>(c)
+    })
+    .await
+    .unwrap_or(vec![])
 }

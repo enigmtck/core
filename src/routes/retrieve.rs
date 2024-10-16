@@ -1,15 +1,15 @@
 use crate::models::activities::{get_outbox_count_by_profile_id, TimelineFilters};
+use crate::models::actors::Actor;
 use crate::models::pg::activities::get_activities_coalesced;
 use crate::SERVER_URL;
 use crate::{
     activity_pub::{ActivityPub, ApActivity, ApCollection, ApCollectionPage, ApObject},
     db::Db,
-    models::profiles::Profile,
 };
 
-pub async fn outbox_collection(conn: &Db, profile: Profile, base_url: Option<String>) -> ApObject {
+pub async fn outbox_collection(conn: &Db, profile: Actor, base_url: Option<String>) -> ApObject {
     let server_url = &*SERVER_URL;
-    let username = profile.username;
+    let username = profile.ek_username.unwrap();
     let base_url = base_url.unwrap_or(format!("{server_url}/{username}/outbox"));
     let count = get_outbox_count_by_profile_id(conn, profile.id)
         .await
@@ -23,7 +23,7 @@ pub async fn activities(
     limit: i32,
     min: Option<i64>,
     max: Option<i64>,
-    requester: Option<Profile>,
+    requester: Option<Actor>,
     filters: TimelineFilters,
     base_url: Option<String>,
 ) -> ApObject {
@@ -37,6 +37,8 @@ pub async fn activities(
         max,
         requester.clone(),
         Some(filters.clone()),
+        None,
+        None,
         None,
     )
     .await;
@@ -55,11 +57,11 @@ pub async fn inbox(
     limit: i32,
     min: Option<i64>,
     max: Option<i64>,
-    requester: Profile,
+    requester: Actor,
     filters: TimelineFilters,
 ) -> ApObject {
     let server_url = &*SERVER_URL;
-    let username = requester.username.clone();
+    let username = requester.ek_username.clone().unwrap();
     let base_url = format!("{server_url}/user/{username}/inbox?page=true&limit={limit}");
 
     activities(

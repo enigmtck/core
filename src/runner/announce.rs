@@ -4,10 +4,11 @@ use crate::{
     activity_pub::{ApActivity, ApAddress},
     db::Db,
     fairings::events::EventChannels,
+    helper::get_activity_ap_id_from_uuid,
     models::{
-        activities::{get_activity_by_uuid, revoke_activity_by_apid, update_target_object},
+        activities::{get_activity_by_ap_id, revoke_activity_by_apid, update_target_object},
+        actors::{get_actor, guaranteed_actor},
         objects::get_object_by_as_id,
-        profiles::{get_profile, guaranteed_profile},
     },
     runner::{
         get_inboxes,
@@ -29,21 +30,20 @@ pub async fn send_announce_task(
     for uuid in uuids {
         log::debug!("LOOKING FOR UUID {uuid}");
 
-        let (activity, target_note, target_profile, target_remote_actor) =
-            get_activity_by_uuid(conn, uuid.clone())
-                .await
-                .ok_or(TaskError::TaskFailed)?;
+        let (activity, target_activity, target_object) = get_activity_by_ap_id(
+            conn.ok_or(TaskError::TaskFailed)?,
+            get_activity_ap_id_from_uuid(uuid.clone()),
+        )
+        .await
+        .ok_or(TaskError::TaskFailed)?;
 
         log::debug!("FOUND ACTIVITY\n{activity:#?}");
-        let profile_id = activity.profile_id.ok_or(TaskError::TaskFailed)?;
-        let sender = get_profile(conn, profile_id)
+        let profile_id = activity.actor_id.ok_or(TaskError::TaskFailed)?;
+        let sender = get_actor(conn.unwrap(), profile_id)
             .await
             .ok_or(TaskError::TaskFailed)?;
-        let activity = ApActivity::try_from((
-            (activity, target_note, target_profile, target_remote_actor),
-            None,
-        ))
-        .map_err(|_| TaskError::TaskFailed)?;
+        let activity = ApActivity::try_from(((activity, target_activity, target_object), None))
+            .map_err(|_| TaskError::TaskFailed)?;
         let inboxes: Vec<ApAddress> = get_inboxes(conn, activity.clone(), sender.clone()).await;
 
         send_to_inboxes(inboxes, sender, activity.clone())
@@ -79,16 +79,19 @@ pub async fn remote_announce_task(
 ) -> Result<(), TaskError> {
     let conn = conn.as_ref();
 
-    let profile = guaranteed_profile(None, None).await;
+    let profile = guaranteed_actor(conn.unwrap(), None).await;
 
     let uuid = uuids.first().unwrap();
     log::debug!("RETRIEVING ANNOUNCE: {uuid}");
 
     let profile = profile.clone();
 
-    let (activity, _, _, _) = get_activity_by_uuid(conn, uuid.to_string())
-        .await
-        .ok_or(TaskError::TaskFailed)?;
+    let (activity, _target_activity, _target_object) = get_activity_by_ap_id(
+        conn.ok_or(TaskError::TaskFailed)?,
+        get_activity_ap_id_from_uuid(uuid.clone()),
+    )
+    .await
+    .ok_or(TaskError::TaskFailed)?;
 
     let target_ap_id = activity.clone().target_ap_id.ok_or(TaskError::TaskFailed)?;
 

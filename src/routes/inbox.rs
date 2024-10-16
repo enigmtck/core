@@ -11,7 +11,7 @@ use crate::fairings::access_control::Permitted;
 use crate::fairings::events::EventChannels;
 use crate::fairings::signatures::Signed;
 use crate::models::activities::{TimelineFilters, TimelineView};
-use crate::models::leaders::get_leaders_by_profile_id;
+use crate::models::leaders::get_leaders_by_actor_id;
 use crate::models::pg::activities::get_announcers;
 use crate::SERVER_URL;
 use std::fmt;
@@ -98,29 +98,29 @@ pub async fn shared_inbox_get(
         if let Some(view) = view {
             match view {
                 InboxView::Global => TimelineFilters {
-                    view: view.into(),
+                    view: Some(view.into()),
                     hashtags: hashtags.unwrap_or_default(),
                     username: None,
                     conversation: None,
                 },
                 InboxView::Home => TimelineFilters {
                     view: if let Some(profile) = profile.clone() {
-                        TimelineView::Home(
-                            get_leaders_by_profile_id(&conn, profile.id)
+                        Some(TimelineView::Home(
+                            get_leaders_by_actor_id(&conn, profile.id)
                                 .await
                                 .iter()
-                                .filter_map(|leader| leader.1.clone()?.followers.clone())
+                                .filter_map(|leader| leader.1.clone()?.as_followers.clone())
                                 .collect(),
-                        )
+                        ))
                     } else {
-                        TimelineView::Global
+                        Some(TimelineView::Global)
                     },
                     hashtags: hashtags.unwrap_or_default(),
                     username: None,
                     conversation: None,
                 },
                 InboxView::Local => TimelineFilters {
-                    view: view.into(),
+                    view: Some(view.into()),
                     hashtags: hashtags.unwrap_or_default(),
                     username: None,
                     conversation: None,
@@ -128,7 +128,7 @@ pub async fn shared_inbox_get(
             }
         } else {
             TimelineFilters {
-                view: TimelineView::Global,
+                view: Some(TimelineView::Global),
                 hashtags: hashtags.unwrap_or_default(),
                 username: None,
                 conversation: None,
@@ -234,7 +234,7 @@ pub async fn conversation_get(
     log::debug!("RETRIEVING CONVERSATION: {decoded}");
 
     let filters = TimelineFilters {
-        view: TimelineView::Global,
+        view: Some(TimelineView::Global),
         hashtags: vec![],
         username: None,
         conversation: Some(decoded.to_string()),

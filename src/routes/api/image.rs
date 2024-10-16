@@ -8,8 +8,8 @@ use rocket::{data::ToByteUnit, get, post};
 use crate::activity_pub::ApAttachment;
 use crate::db::Db;
 use crate::fairings::signatures::Signed;
+use crate::models::actors::get_actor_by_username;
 use crate::models::cache::get_cache_item_by_url;
-use crate::models::profiles::get_profile_by_username;
 
 #[post("/api/user/<username>/image", data = "<media>")]
 pub async fn upload_image(
@@ -19,29 +19,29 @@ pub async fn upload_image(
     media: Data<'_>,
 ) -> Result<Json<ApAttachment>, Status> {
     if signed.local() {
-        if let Some(_profile) = get_profile_by_username((&conn).into(), username).await {
-            let filename = uuid::Uuid::new_v4();
-            let path = &format!("{}/uploads/{}", *crate::MEDIA_DIR, filename);
+        let _profile = get_actor_by_username(&conn, username)
+            .await
+            .ok_or(Status::NotFound)?;
 
-            if let Ok(file) = media.open(10.mebibytes()).into_file(path).await {
-                if file.is_complete() {
-                    if let Ok(attachment) = ApAttachment::try_from(filename.to_string()) {
-                        Ok(Json(attachment))
-                    } else {
-                        log::error!("FAILED TO CREATE ATTACHMENT");
-                        Err(Status::NotAcceptable)
-                    }
-                } else {
-                    log::error!("FILE INCOMPLETE");
-                    Err(Status::PayloadTooLarge)
-                }
+        let filename = uuid::Uuid::new_v4();
+        let path = &format!("{}/uploads/{}", *crate::MEDIA_DIR, filename);
+
+        let file = media
+            .open(10.mebibytes())
+            .into_file(path)
+            .await
+            .map_err(|_| Status::InternalServerError)?;
+
+        if file.is_complete() {
+            if let Ok(attachment) = ApAttachment::try_from(filename.to_string()) {
+                Ok(Json(attachment))
             } else {
-                log::error!("FAILED TO OPEN MEDIA");
-                Err(Status::InternalServerError)
+                log::error!("FAILED TO CREATE ATTACHMENT");
+                Err(Status::NotAcceptable)
             }
         } else {
-            log::error!("FAILED TO RETRIEVE PROFILE");
-            Err(Status::NotFound)
+            log::error!("FILE INCOMPLETE");
+            Err(Status::PayloadTooLarge)
         }
     } else {
         log::error!("BAD SIGNATURE");
@@ -54,29 +54,27 @@ pub async fn cached_image(conn: Db, url: String) -> Result<(ContentType, NamedFi
     log::debug!("CACHE URL BEFORE DECODING: {url}");
 
     //if let Ok(url) = urlencoding::decode(&url) {
-    if let Ok(url) = general_purpose::URL_SAFE_NO_PAD.decode(url) {
-        if let Ok(url) = String::from_utf8(url) {
-            log::debug!("DECODED CACHE URL: {url}");
-            if let Some(cache) = get_cache_item_by_url((&conn).into(), url).await {
-                let path = format!("{}/cache/{}", &*crate::MEDIA_DIR, cache.uuid);
-                let media_type = &cache.clone().media_type.map_or("any".to_string(), |x| x);
+    let url = general_purpose::URL_SAFE_NO_PAD
+        .decode(url)
+        .map_err(|_| Status::BadRequest)?;
 
-                if let Some(content_type) = ContentType::parse_flexible(media_type) {
-                    NamedFile::open(path)
-                        .await
-                        .map_or(Err(Status::InternalServerError), |x| Ok((content_type, x)))
-                } else {
-                    Err(Status::InternalServerError)
-                }
-            } else {
-                Err(Status::NotFound)
-            }
-        } else {
-            Err(Status::BadRequest)
-        }
-    } else {
-        Err(Status::BadRequest)
-    }
+    let url = String::from_utf8(url).map_err(|_| Status::BadRequest)?;
+
+    log::debug!("DECODED CACHE URL: {url}");
+    let cache = get_cache_item_by_url((&conn).into(), url)
+        .await
+        .ok_or(Status::NotFound)?;
+
+    let path = format!("{}/cache/{}", &*crate::MEDIA_DIR, cache.uuid);
+    let media_type = &cache.clone().media_type.map_or("any".to_string(), |x| x);
+
+    let content_type =
+        ContentType::parse_flexible(media_type).ok_or(Status::InternalServerError)?;
+
+    NamedFile::open(path)
+        .await
+        .map_or(Err(Status::InternalServerError), |x| Ok((content_type, x)))
+
     // } else {
     //     Err(Status::BadRequest)
     // }

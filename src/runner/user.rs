@@ -5,8 +5,8 @@ use crate::{
     db::Db,
     fairings::events::EventChannels,
     models::{
-        followers::get_followers_by_profile_id,
-        profiles::{get_profile_by_uuid, Profile},
+        actors::{get_actor_by_uuid, Actor},
+        followers::get_followers_by_actor_id,
         remote_actors::get_remote_actor_by_ap_id,
     },
     runner::send_to_inboxes,
@@ -14,10 +14,10 @@ use crate::{
 
 use super::TaskError;
 
-pub async fn get_follower_inboxes(profile: Profile) -> Vec<ApAddress> {
+pub async fn get_follower_inboxes(conn: &Db, profile: Actor) -> Vec<ApAddress> {
     let mut inboxes: HashSet<ApAddress> = HashSet::new();
 
-    for (follower, _) in get_followers_by_profile_id(None, profile.id).await {
+    for (follower, _) in get_followers_by_actor_id(conn, profile.id).await {
         if let Ok(actor) = get_remote_actor_by_ap_id(None, follower.actor).await {
             let actor = ApActor::from(actor);
             if let Some(endpoints) = actor.endpoints {
@@ -40,7 +40,7 @@ pub async fn send_profile_update_task(
 
     for uuid in uuids {
         log::debug!("LOOKING UP {uuid}");
-        let profile = get_profile_by_uuid(conn, uuid)
+        let profile = get_actor_by_uuid(conn.unwrap(), uuid)
             .await
             .ok_or(TaskError::TaskFailed)?;
         log::debug!("FOUND PROFILE");
@@ -49,7 +49,7 @@ pub async fn send_profile_update_task(
         log::debug!("UPDATE\n{update:#?}");
 
         send_to_inboxes(
-            get_follower_inboxes(profile.clone()).await,
+            get_follower_inboxes(conn.unwrap(), profile.clone()).await,
             profile,
             ApActivity::Update(update),
         )

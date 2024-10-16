@@ -7,9 +7,9 @@ use crate::{
     fairings::events::EventChannels,
     models::{
         activities::{
-            create_activity, get_activity_by_apid, ActivityTarget, ApActivityTarget, NewActivity,
+            create_activity, get_activity_by_ap_id, ActivityTarget, ApActivityTarget, NewActivity,
         },
-        profiles::Profile,
+        actors::Actor,
     },
     runner, MaybeReference,
 };
@@ -57,13 +57,15 @@ impl Inbox for Box<ApAccept> {
         };
 
         let follow_apid = follow_apid.ok_or(Status::new(520))?;
-        let target = get_activity_by_apid(&conn, follow_apid)
+        let (activity, target_activity, target_object) = get_activity_by_ap_id(&conn, follow_apid)
             .await
             .ok_or(Status::new(521))?;
 
         let activity = NewActivity::try_from((
             ApActivity::Accept(self.clone()),
-            Some(ActivityTarget::from(target.0)),
+            Some(ActivityTarget::from(
+                target_object.ok_or(Status::InternalServerError)?,
+            )),
         ) as ApActivityTarget)
         .map_err(|_| Status::new(522))?;
         log::debug!("ACTIVITY\n{activity:#?}");
@@ -91,7 +93,7 @@ impl Outbox for Box<ApAccept> {
         &self,
         _conn: Db,
         _events: EventChannels,
-        _profile: Profile,
+        _profile: Actor,
     ) -> Result<String, Status> {
         Err(Status::ServiceUnavailable)
     }
@@ -101,7 +103,7 @@ impl TryFrom<RecursiveActivity> for ApAccept {
     type Error = anyhow::Error;
 
     fn try_from(
-        ((activity, _note, _profile, _remote_actor), recursive): RecursiveActivity,
+        ((activity, _target_activity, _target_object), recursive): RecursiveActivity,
     ) -> Result<Self, Self::Error> {
         let recursive = recursive.ok_or(anyhow!("RECURSIVE CANNOT BE NONE"))?;
         let recursive_activity = ApActivity::try_from((recursive.clone(), None))?;

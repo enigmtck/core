@@ -7,15 +7,15 @@ use crate::{
     },
     db::Db,
     fairings::events::EventChannels,
-    helper::{get_ap_id_from_username, get_note_ap_id_from_uuid, get_note_url_from_uuid},
+    helper::{get_note_ap_id_from_uuid, get_note_url_from_uuid},
     models::{
         activities::{create_activity, ActivityType, NewActivity, NoteActivity},
+        actors::Actor,
         cache::{cache_content, Cache},
         from_serde, from_time,
         notes::{create_note, NewNote, Note, NoteLike, NoteType},
         objects::Object,
         pg::{coalesced_activity::CoalescedActivity, objects::ObjectType},
-        profiles::Profile,
         vault::VaultItem,
     },
     runner, MaybeMultiple,
@@ -268,7 +268,7 @@ impl Outbox for ApNote {
         &self,
         conn: Db,
         events: EventChannels,
-        profile: Profile,
+        profile: Actor,
     ) -> Result<String, Status> {
         match self.kind {
             ApNoteType::Note => handle_note(conn, events, self.clone(), profile).await,
@@ -315,7 +315,7 @@ impl Default for ApNote {
     }
 }
 
-type IdentifiedVaultItem = (VaultItem, Profile);
+type IdentifiedVaultItem = (VaultItem, Actor);
 
 impl From<IdentifiedVaultItem> for ApNote {
     fn from((vault, profile): IdentifiedVaultItem) -> Self {
@@ -323,7 +323,7 @@ impl From<IdentifiedVaultItem> for ApNote {
             kind: ApNoteType::VaultNote,
             attributed_to: {
                 if vault.outbound {
-                    ApAddress::Address(get_ap_id_from_username(profile.clone().username))
+                    ApAddress::Address(profile.clone().as_id)
                 } else {
                     ApAddress::Address(vault.clone().remote_actor)
                 }
@@ -332,9 +332,7 @@ impl From<IdentifiedVaultItem> for ApNote {
                 if vault.outbound {
                     MaybeMultiple::Multiple(vec![ApAddress::Address(vault.remote_actor)])
                 } else {
-                    MaybeMultiple::Multiple(vec![ApAddress::Address(get_ap_id_from_username(
-                        profile.username,
-                    ))])
+                    MaybeMultiple::Multiple(vec![ApAddress::Address(profile.as_id)])
                 }
             },
             id: Some(format!(
@@ -396,8 +394,11 @@ impl TryFrom<CoalescedActivity> for ApNote {
             .try_into()
             .map_err(|e| anyhow::anyhow!("Failed to convert object_type: {}", e))?;
 
-        let id = coalesced.object_id;
-        let url = coalesced.object_url;
+        let id = coalesced.object_as_id;
+        let url = coalesced
+            .object_url
+            .and_then(from_serde::<MaybeMultiple<String>>)
+            .and_then(|x| x.single().ok());
         let to = coalesced
             .object_to
             .and_then(from_serde)
@@ -439,7 +440,7 @@ impl TryFrom<CoalescedActivity> for ApNote {
             attachment,
             summary,
             sensitive,
-            published,
+            published: published.to_rfc2822(),
             ephemeral_metadata,
             ephemeral_announces,
             ephemeral_likes,
@@ -555,7 +556,7 @@ async fn handle_note(
     conn: Db,
     channels: EventChannels,
     mut note: ApNote,
-    profile: Profile,
+    profile: Actor,
 ) -> Result<String, Status> {
     // ApNote -> NewNote -> ApNote -> ApActivity
     // UUID is set in NewNote
@@ -624,7 +625,7 @@ async fn handle_encrypted_note(
     conn: Db,
     channels: EventChannels,
     note: ApNote,
-    profile: Profile,
+    profile: Actor,
 ) -> Result<String, Status> {
     // ApNote -> NewNote -> ApNote -> ApActivity
     // UUID is set in NewNote

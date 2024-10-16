@@ -1,9 +1,9 @@
 use crate::activity_pub::{ApCollection, ApObject, IdentifiedVaultItems};
 use crate::db::Db;
+use crate::models::actors::get_actor_by_username;
 use crate::models::olm_sessions::{
     get_olm_session_by_uuid, update_olm_session_by_encrypted_session_id,
 };
-use crate::models::profiles::get_profile_by_username;
 use crate::models::vault::{create_vault_item, get_vault_items_by_profile_id_and_remote_actor};
 use base64::{engine::general_purpose, engine::Engine as _};
 use rocket::http::Status;
@@ -48,40 +48,40 @@ pub async fn store_vault_item(
     username: String,
     data: Json<VaultStorageRequest>,
 ) -> Result<Json<VaultStorageResponse>, Status> {
-    if signed.local() {
-        log::debug!("STORE VAULT REQUEST\n{data:#?}");
+    if !signed.local() {
+        return Err(Status::Unauthorized);
+    }
 
-        if let Some(profile) = get_profile_by_username((&conn).into(), username).await {
-            let data = data.0;
-            let session_update = data.clone().session;
+    log::debug!("STORE VAULT REQUEST\n{data:#?}");
 
-            if let Some((olm_session, Some(encrypted_session))) =
-                get_olm_session_by_uuid(&conn, session_update.session_uuid).await
+    let profile = get_actor_by_username(&conn, username)
+        .await
+        .ok_or(Status::Unauthorized)?;
+
+    let data = data.0;
+    let session_update = data.clone().session;
+
+    if let Some((olm_session, Some(encrypted_session))) =
+        get_olm_session_by_uuid(&conn, session_update.session_uuid).await
+    {
+        if encrypted_session.profile_id == profile.id {
+            if update_olm_session_by_encrypted_session_id(
+                &conn,
+                olm_session.encrypted_session_id,
+                session_update.encrypted_session,
+                session_update.session_hash,
+            )
+            .await
+            .is_some()
             {
-                if encrypted_session.profile_id == profile.id {
-                    if update_olm_session_by_encrypted_session_id(
+                Ok(Json(
+                    create_vault_item(
                         &conn,
-                        olm_session.encrypted_session_id,
-                        session_update.encrypted_session,
-                        session_update.session_hash,
+                        (data.clone().data, profile.id, data.clone().remote_actor).into(),
                     )
                     .await
-                    .is_some()
-                    {
-                        Ok(Json(
-                            create_vault_item(
-                                &conn,
-                                (data.clone().data, profile.id, data.clone().remote_actor).into(),
-                            )
-                            .await
-                            .into(),
-                        ))
-                    } else {
-                        Err(Status::Unauthorized)
-                    }
-                } else {
-                    Err(Status::Unauthorized)
-                }
+                    .into(),
+                ))
             } else {
                 Err(Status::Unauthorized)
             }
@@ -141,28 +141,28 @@ pub async fn vault_get(
     limit: u8,
     actor: String,
 ) -> Result<Json<ApObject>, Status> {
-    if signed.local() {
-        if let Some(profile) = get_profile_by_username((&conn).into(), username).await {
-            if let Ok(actor) = general_purpose::STANDARD.decode(actor) {
-                let items: Vec<VaultItem> = get_vault_items_by_profile_id_and_remote_actor(
-                    &conn,
-                    profile.id,
-                    limit.into(),
-                    offset.into(),
-                    String::from_utf8(actor).unwrap(),
-                )
-                .await;
-
-                Ok(Json(ApObject::Collection(ApCollection::from(
-                    (items, profile) as IdentifiedVaultItems,
-                ))))
-            } else {
-                Err(Status::Forbidden)
-            }
-        } else {
-            Err(Status::NoContent)
-        }
-    } else {
-        Err(Status::NoContent)
+    if !signed.local() {
+        return Err(Status::Unauthorized);
     }
+
+    let profile = get_actor_by_username(&conn, username)
+        .await
+        .ok_or(Status::Unauthorized)?;
+
+    let actor = general_purpose::STANDARD
+        .decode(actor)
+        .map_err(|_| Status::UnprocessableEntity)?;
+
+    let items: Vec<VaultItem> = get_vault_items_by_profile_id_and_remote_actor(
+        &conn,
+        profile.id,
+        limit.into(),
+        offset.into(),
+        String::from_utf8(actor).unwrap(),
+    )
+    .await;
+
+    Ok(Json(ApObject::Collection(ApCollection::from(
+        (items, profile) as IdentifiedVaultItems,
+    ))))
 }

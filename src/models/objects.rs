@@ -110,16 +110,16 @@ impl From<ApNote> for NewObject {
             as_id: note.clone().id.unwrap(),
             as_attributed_to: to_serde(note.attributed_to.to_string()),
             as_to: to_serde(note.to),
-            as_cc: to_serde(note.cc),
-            as_replies: to_serde(note.replies),
-            as_tag: to_serde(note.tag),
+            as_cc: note.cc.and_then(to_serde),
+            as_replies: note.replies.and_then(to_serde),
+            as_tag: note.tag.and_then(to_serde),
             as_content: Some(ammonia.clean(&note.content).to_string()),
             as_summary: note.summary.map(|x| ammonia.clean(&x).to_string()),
             ap_sensitive: note.sensitive,
-            as_in_reply_to: to_serde(note.in_reply_to),
+            as_in_reply_to: note.in_reply_to.and_then(to_serde),
             ap_conversation: note.conversation,
             as_content_map: to_serde(clean_content_map),
-            as_attachment: to_serde(note.attachment),
+            as_attachment: note.attachment.and_then(to_serde),
             ..Default::default()
         }
     }
@@ -140,12 +140,12 @@ impl From<ApQuestion> for NewObject {
             as_content_map: question.content_map.and_then(to_serde),
             as_summary: question.summary,
             ap_voters_count: question.voters_count,
-            as_url: to_serde(question.url),
+            as_url: question.url.and_then(to_serde),
             ap_conversation: question.conversation,
             as_tag: question.tag.and_then(to_serde),
             as_attachment: question.attachment.and_then(to_serde),
             ap_sensitive: question.sensitive,
-            as_in_reply_to: to_serde(question.in_reply_to),
+            as_in_reply_to: question.in_reply_to.and_then(to_serde),
             as_attributed_to: to_serde(question.attributed_to.to_string()),
             ..Default::default()
         }

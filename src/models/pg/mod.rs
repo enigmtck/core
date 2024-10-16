@@ -1,4 +1,5 @@
 pub mod activities;
+pub mod actors;
 pub mod cache;
 pub mod coalesced_activity;
 pub mod encrypted_sessions;
@@ -12,7 +13,7 @@ pub mod objects;
 pub mod olm_one_time_keys;
 pub mod olm_sessions;
 pub mod processing_queue;
-pub mod profiles;
+//pub mod profiles;
 pub mod remote_actor_hashtags;
 pub mod remote_actors;
 pub mod remote_encrypted_sessions;

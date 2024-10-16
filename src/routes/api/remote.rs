@@ -2,16 +2,16 @@ use crate::activity_pub::retriever::{
     get_actor, get_ap_id_from_webfinger, get_object, get_remote_collection,
     get_remote_collection_page,
 };
-use crate::activity_pub::{ApActor, ApNote, ApObject};
+use crate::activity_pub::{ApActor, ApObject};
 use crate::db::Db;
 use crate::fairings::access_control::BlockList;
 use crate::helper::{get_domain_from_url, get_domain_from_webfinger};
+use crate::models::actors::get_actor_by_username;
 use crate::models::remote_actors::get_remote_actor_by_webfinger;
 use rocket::http::Status;
 use rocket::{get, serde::json::Json};
 
 use crate::fairings::signatures::Signed;
-use crate::models::profiles::get_profile_by_username;
 
 /// This accepts an actor in URL form (e.g., https://enigmatick.social/user/justin).
 #[get("/api/remote/webfinger?<id>")]
@@ -44,7 +44,7 @@ pub async fn remote_id_authenticated(
     if blocks.is_blocked(get_domain_from_url(id.clone())) {
         Err(Status::Forbidden)
     } else if signed.local() {
-        let profile = get_profile_by_username((&conn).into(), username.to_string())
+        let profile = get_actor_by_username(&conn, username.to_string())
             .await
             .ok_or(Status::NotFound)?;
 
@@ -345,7 +345,7 @@ pub async fn remote_outbox_authenticated(
     } else if !signed.local() {
         Err(Status::Unauthorized)
     } else if let Ok(Json(actor)) = remote_actor_response(&conn, webfinger.to_string()).await {
-        let profile = get_profile_by_username((&conn).into(), username.to_string())
+        let profile = get_actor_by_username(&conn, username.to_string())
             .await
             .ok_or(Status::new(521))?;
         if let Some(page) = page {

@@ -1,7 +1,7 @@
 use crate::activity_pub::retriever::signed_get;
 use crate::activity_pub::{ApAttachment, ApDocument, ApImage, ApTag};
 use crate::db::Db;
-use crate::models::profiles::{get_profile_by_username, guaranteed_profile};
+use crate::models::actors::guaranteed_actor;
 use crate::schema::cache;
 use crate::POOL;
 use anyhow::Result;
@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 use tokio::fs::File;
 use tokio::io::AsyncWriteExt;
 
-use super::profiles::Profile;
+use super::actors::{get_actor_by_username, Actor};
 
 cfg_if::cfg_if! {
     if #[cfg(feature = "pg")] {
@@ -25,8 +25,8 @@ cfg_if::cfg_if! {
 }
 
 pub async fn download_image(
-    conn: Option<&Db>,
-    profile: Option<Profile>,
+    conn: &Db,
+    profile: Option<Actor>,
     cache_item: NewCacheItem,
 ) -> Result<NewCacheItem> {
     log::debug!("DOWNLOADING IMAGE: {}", cache_item.url);
@@ -35,7 +35,7 @@ pub async fn download_image(
 
     // Send an HTTP GET request to the URL
     let response = signed_get(
-        guaranteed_profile(conn, profile).await,
+        guaranteed_actor(conn, profile).await,
         cache_item.url.clone(),
         true,
     )
@@ -134,7 +134,7 @@ pub async fn cache_content(conn: &Db, cacheable: Result<Cacheable>) {
                 if let Ok(cache_item) = cache_item
                     .download(
                         conn.into(),
-                        get_profile_by_username(conn.into(), (*crate::SYSTEM_USER).clone()).await,
+                        get_actor_by_username(conn.into(), (*crate::SYSTEM_USER).clone()).await,
                     )
                     .await
                 {
@@ -157,7 +157,7 @@ pub struct NewCacheItem {
 }
 
 impl NewCacheItem {
-    pub async fn download(&self, conn: Option<&Db>, profile: Option<Profile>) -> Result<Self> {
+    pub async fn download(&self, conn: &Db, profile: Option<Actor>) -> Result<Self> {
         download_image(conn, profile, self.clone()).await
     }
 }

@@ -6,11 +6,13 @@ use crate::activity_pub::{
 };
 use crate::db::Db;
 use crate::fairings::events::EventChannels;
+use crate::models::actors::ActorType;
+use crate::models::actors::{get_actor_by_as_id, Actor};
 use crate::models::cache::{cache_content, Cache};
-use crate::models::followers::get_followers_by_profile_id;
-use crate::models::leaders::{get_leaders_by_profile_id, Leader};
-use crate::models::profiles::{get_profile_by_ap_id, Profile};
+use crate::models::followers::get_followers_by_actor_id;
+use crate::models::leaders::{get_leaders_by_actor_id, Leader};
 use crate::models::remote_actors::RemoteActor;
+use crate::models::{from_serde, from_serde_option};
 use crate::{MaybeMultiple, DOMAIN_RE};
 use lazy_static::lazy_static;
 use rocket::http::Status;
@@ -108,6 +110,18 @@ pub enum ApActorType {
 impl fmt::Display for ApActorType {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         Debug::fmt(self, f)
+    }
+}
+
+impl From<ActorType> for ApActorType {
+    fn from(t: ActorType) -> Self {
+        match t {
+            ActorType::Application => ApActorType::Application,
+            ActorType::Group => ApActorType::Group,
+            ActorType::Organization => ApActorType::Organization,
+            ActorType::Person => ApActorType::Person,
+            ActorType::Service => ApActorType::Service,
+        }
     }
 }
 
@@ -235,7 +249,7 @@ impl Outbox for ApActor {
         &self,
         _conn: Db,
         _events: EventChannels,
-        _profile: Profile,
+        _profile: Actor,
     ) -> Result<String, Status> {
         Err(Status::ServiceUnavailable)
     }
@@ -285,9 +299,9 @@ impl Default for ApActor {
 impl ApActor {
     pub async fn load_ephemeral(&mut self, conn: &Db) -> Self {
         if let Some(ap_id) = self.id.clone() {
-            if let Some(profile) = get_profile_by_ap_id(Some(conn), ap_id.to_string()).await {
+            if let Some(profile) = get_actor_by_as_id(conn, ap_id.to_string()).await {
                 self.ephemeral_followers = Some(
-                    get_followers_by_profile_id(Some(conn), profile.id)
+                    get_followers_by_actor_id(conn, profile.id)
                         .await
                         .iter()
                         .filter_map(|(_, remote_actor)| {
@@ -299,7 +313,7 @@ impl ApActor {
                 );
 
                 self.ephemeral_leaders = Some(
-                    get_leaders_by_profile_id(conn, profile.id)
+                    get_leaders_by_actor_id(conn, profile.id)
                         .await
                         .iter()
                         .filter_map(|(_, remote_actor)| {
@@ -310,7 +324,7 @@ impl ApActor {
                         .collect(),
                 );
 
-                self.ephemeral_summary_markdown = profile.summary_markdown;
+                self.ephemeral_summary_markdown = profile.ek_summary_markdown;
             }
         }
 
@@ -324,7 +338,7 @@ impl ApActor {
     }
 }
 
-type ExtendedProfile = (Profile, Option<Leader>);
+type ExtendedProfile = (Actor, Option<Leader>);
 
 impl From<ExtendedProfile> for ApActor {
     fn from((profile, leader): ExtendedProfile) -> Self {
@@ -337,81 +351,61 @@ impl From<ExtendedProfile> for ApActor {
     }
 }
 
-impl From<Profile> for ApActor {
-    fn from(profile: Profile) -> Self {
-        let server_url = &*crate::SERVER_URL;
+impl From<Actor> for ApActor {
+    fn from(actor: Actor) -> Self {
+        let context = from_serde_option(actor.as_context);
+        let name = actor.as_name;
+        let summary = actor.as_summary;
+        let id = Some(actor.as_id.into());
+        let kind = actor.as_type.into();
+        let preferred_username = actor.as_preferred_username.unwrap_or_default();
+        let inbox = actor.as_inbox;
+        let outbox = actor.as_outbox;
+        let followers = actor.as_followers;
+        let following = actor.as_following;
+        let featured = actor.as_featured;
+        let featured_tags = actor.as_featured_tags;
+        let manually_approves_followers = Some(actor.ap_manually_approves_followers);
+        let published = actor.as_published.map(|x| x.to_rfc3339());
+        let liked = actor.as_liked;
+        let public_key = from_serde(actor.as_public_key).unwrap();
+        let url = actor.as_url;
+        let icon = from_serde(actor.as_icon);
+        let image = from_serde(actor.as_image);
+        let discoverable = Some(actor.as_discoverable);
+        let capabilities = from_serde(actor.ap_capabilities);
+        let attachment = from_serde(actor.as_attachment);
+        let also_known_as = from_serde(actor.as_also_known_as);
+        let tag = from_serde(actor.as_tag);
+        let endpoints = from_serde(actor.as_endpoints);
 
         ApActor {
-            context: Some(ApContext::default()),
-            name: Some(profile.display_name),
-            summary: profile.summary,
-            id: Some(ApAddress::Address(format!(
-                "{}/user/{}",
-                server_url, profile.username
-            ))),
-            kind: ApActorType::Person,
-            preferred_username: profile.username.clone(),
-            inbox: format!("{}/user/{}/inbox", server_url, profile.username),
-            outbox: format!("{}/user/{}/outbox", server_url, profile.username),
-            followers: Some(format!(
-                "{}/user/{}/followers",
-                server_url, profile.username
-            )),
-            following: Some(format!(
-                "{}/user/{}/following",
-                server_url, profile.username
-            )),
+            context,
+            name,
+            summary,
+            id,
+            kind,
+            preferred_username,
+            inbox,
+            outbox,
+            followers,
+            following,
             subscribers: None,
-            featured: None,
-            featured_tags: None,
-            manually_approves_followers: Some(false),
-            published: {
-                cfg_if::cfg_if! {
-                    if #[cfg(feature = "pg")] {
-                        Some(profile.created_at.to_rfc3339())
-                    } else if #[cfg(feature = "sqlite")] {
-                        use chrono::{DateTime, Utc};
-
-                        Some(DateTime::<Utc>::from_naive_utc_and_offset(
-                            profile.created_at,
-                            Utc,
-                        ).to_rfc3339())
-                    }
-                }
-            },
-            liked: Some(format!("{}/user/{}/liked", server_url, profile.username)),
-            public_key: ApPublicKey {
-                id: format!("{}/user/{}#main-key", server_url, profile.username),
-                owner: format!("{}/user/{}", server_url, profile.username),
-                public_key_pem: profile.public_key,
-            },
-            url: Some(format!("{}/@{}", server_url, profile.username)),
-            icon: Some(ApImage {
-                kind: ApImageType::Image,
-                media_type: Some("image/png".to_string()),
-                url: format!(
-                    "{server_url}/{}",
-                    profile
-                        .avatar_filename
-                        .unwrap_or((*crate::DEFAULT_AVATAR).clone())
-                ),
-            }),
-            image: profile.banner_filename.map(|banner| ApImage {
-                kind: ApImageType::Image,
-                media_type: Some("image/png".to_string()),
-                url: format!("{server_url}/media/banners/{banner}"),
-            }),
-            discoverable: Some(true),
-            capabilities: Some(ApCapabilities {
-                accepts_chat_messages: Some(false),
-                enigmatick_encryption: Some(true),
-            }),
-            attachment: Some(vec![]),
-            also_known_as: Some(vec![].into()),
-            tag: Some(vec![]),
-            endpoints: Some(ApEndpoint {
-                shared_inbox: format!("{server_url}/inbox"),
-            }),
+            featured,
+            featured_tags,
+            manually_approves_followers,
+            published,
+            liked,
+            public_key,
+            url,
+            icon,
+            image,
+            discoverable,
+            capabilities,
+            attachment,
+            also_known_as,
+            tag,
+            endpoints,
             ephemeral_summary_markdown: None,
             ephemeral_following: None,
             ephemeral_leader_ap_id: None,

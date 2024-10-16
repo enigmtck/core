@@ -2,6 +2,7 @@ use chrono::{DateTime, Utc};
 use serde::Serialize;
 
 pub mod activities;
+pub mod actors;
 pub mod cache;
 pub mod encrypted_sessions;
 pub mod followers;
@@ -14,7 +15,7 @@ pub mod objects;
 pub mod olm_one_time_keys;
 pub mod olm_sessions;
 pub mod processing_queue;
-pub mod profiles;
+//pub mod profiles;
 pub mod remote_actor_hashtags;
 pub mod remote_actors;
 pub mod remote_encrypted_sessions;
@@ -34,6 +35,10 @@ cfg_if::cfg_if! {
 
         pub fn from_serde<T: serde::de::DeserializeOwned>(object: Value) -> Option<T> {
             serde_json::from_value(object).ok()
+        }
+
+        pub fn from_serde_option<T: serde::de::DeserializeOwned>(object: Option<Value>) -> Option<T> {
+            object.map(|o| serde_json::from_value(o).ok()).flatten()
         }
 
         fn to_time(time: DateTime<Utc>) -> DateTime<Utc> {

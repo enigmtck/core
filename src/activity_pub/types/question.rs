@@ -6,11 +6,11 @@ use crate::{
     db::Db,
     fairings::events::EventChannels,
     models::{
+        actors::Actor,
         cache::{cache_content, Cache},
         from_serde, from_time,
         objects::Object,
         pg::coalesced_activity::CoalescedActivity,
-        profiles::Profile,
     },
     MaybeMultiple,
 };
@@ -202,7 +202,7 @@ impl Outbox for ApQuestion {
         &self,
         _conn: Db,
         _events: EventChannels,
-        _profile: Profile,
+        _profile: Actor,
     ) -> Result<String, Status> {
         Err(Status::NotImplemented)
     }
@@ -215,13 +215,17 @@ impl TryFrom<CoalescedActivity> for ApQuestion {
         let kind = coalesced
             .object_type
             .ok_or_else(|| anyhow::anyhow!("object_type is None"))?
+            .to_string()
             .try_into()
             .map_err(|e| anyhow::anyhow!("Failed to convert object_type: {}", e))?;
 
         let id = coalesced
-            .object_id
+            .object_as_id
             .ok_or_else(|| anyhow::anyhow!("object_id is None"))?;
-        let url = coalesced.object_url;
+        let url = coalesced
+            .object_url
+            .and_then(from_serde::<MaybeMultiple<String>>)
+            .and_then(|x| x.single().ok());
         let to = coalesced
             .object_to
             .and_then(from_serde)
@@ -238,9 +242,7 @@ impl TryFrom<CoalescedActivity> for ApQuestion {
         let attachment = coalesced.object_attachment.and_then(from_serde);
         let summary = coalesced.object_summary;
         let sensitive = coalesced.object_sensitive;
-        let published = coalesced
-            .object_published
-            .and_then(|x| Some(DateTime::parse_from_rfc3339(&x).ok()?.with_timezone(&Utc)));
+        let published = coalesced.object_published;
         let end_time = coalesced.object_end_time;
         let one_of = coalesced.object_one_of.and_then(from_serde);
         let any_of = coalesced.object_any_of.and_then(from_serde);

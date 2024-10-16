@@ -1,12 +1,14 @@
-use crate::db::Db;
+use crate::{
+    db::Db,
+    models::{actors::Actor, leaders::get_leader_by_actor_id_and_ap_id},
+};
 use anyhow::Result;
 use reqwest::StatusCode;
 
 use crate::{
     activity_pub::{retriever::signed_get, ApActor},
     models::{
-        leaders::{get_leader_by_profile_id_and_ap_id, Leader},
-        profiles::Profile,
+        leaders::Leader,
         remote_actor_hashtags::{
             create_remote_actor_hashtag, delete_remote_actor_hashtags_by_remote_actor_id,
             NewRemoteActorHashtag,
@@ -18,10 +20,10 @@ use crate::{
     runner::cache::cache_content,
 };
 
-async fn cache_actor(actor: &ApActor) -> &ApActor {
+async fn cache_actor(conn: &Db, actor: &ApActor) -> ApActor {
     if let Some(tags) = actor.tag.clone() {
         for tag in tags {
-            let _ = cache_content(tag.try_into()).await;
+            let _ = cache_content(conn, tag.try_into()).await;
         }
     };
 
@@ -29,10 +31,10 @@ async fn cache_actor(actor: &ApActor) -> &ApActor {
         .into_iter()
         .flatten()
     {
-        let _ = cache_content(Ok(image.clone().into())).await;
+        let _ = cache_content(conn, Ok(image.clone().into())).await;
     }
 
-    actor
+    actor.clone()
 }
 
 pub async fn update_actor_tags(conn: Option<&Db>, actor: RemoteActor) -> Result<()> {
@@ -52,7 +54,7 @@ pub async fn update_actor_tags(conn: Option<&Db>, actor: RemoteActor) -> Result<
 
 pub async fn get_actor(
     conn: Option<&Db>,
-    profile: Profile,
+    profile: Actor,
     id: String,
 ) -> Option<(RemoteActor, Option<Leader>)> {
     // In the Rocket version of this, there's an option to force it not to make the external
@@ -65,7 +67,7 @@ pub async fn get_actor(
     if !remote_actor.is_stale() {
         Some((
             remote_actor,
-            get_leader_by_profile_id_and_ap_id(None, profile.id, id).await,
+            get_leader_by_actor_id_and_ap_id(conn.unwrap(), profile.id, id).await,
         ))
     } else {
         log::debug!("PERFORMING REMOTE LOOKUP FOR ACTOR: {id}");
@@ -75,7 +77,8 @@ pub async fn get_actor(
             StatusCode::ACCEPTED | StatusCode::OK => {
                 let actor = resp.json::<ApActor>().await.ok()?;
                 let new_remote_actor =
-                    NewRemoteActor::try_from(cache_actor(&actor).await.clone()).ok()?;
+                    NewRemoteActor::try_from(cache_actor(conn.unwrap(), &actor).await.clone())
+                        .ok()?;
 
                 let remote_actor = create_or_update_remote_actor(conn, new_remote_actor)
                     .await

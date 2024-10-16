@@ -3,9 +3,9 @@ use crate::{
     db::Db,
     fairings::events::EventChannels,
     models::{
+        actors::Actor,
         encrypted_sessions::{create_encrypted_session, EncryptedSession, NewEncryptedSession},
         olm_sessions::OlmSession,
-        profiles::Profile,
         remote_encrypted_sessions::RemoteEncryptedSession,
     },
     runner,
@@ -37,7 +37,7 @@ impl Outbox for ApSession {
         &self,
         conn: Db,
         events: EventChannels,
-        profile: Profile,
+        profile: Actor,
     ) -> Result<String, Status> {
         handle_session(conn, events, self.clone(), profile).await
     }
@@ -100,7 +100,7 @@ impl Outbox for ApInstrument {
         &self,
         _conn: Db,
         _events: EventChannels,
-        _profile: Profile,
+        _profile: Actor,
     ) -> Result<String, Status> {
         Err(Status::ServiceUnavailable)
     }
@@ -236,7 +236,7 @@ async fn handle_session(
     conn: Db,
     channels: EventChannels,
     session: ApSession,
-    profile: Profile,
+    profile: Actor,
 ) -> Result<String, Status> {
     let encrypted_session: NewEncryptedSession = (session.clone(), profile.id).into();
 

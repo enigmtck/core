@@ -4,8 +4,7 @@ use std::fmt::Debug;
 use crate::{
     activity_pub::{ApAddress, ApContext, Inbox, Outbox},
     db::Db,
-    fairings::events::EventChannels,
-    models::profiles::Profile,
+    fairings::events::EventChannels, models::actors::Actor,
 };
 use rocket::http::Status;
 use serde::{Deserialize, Serialize};
@@ -55,7 +54,7 @@ impl Outbox for ApBlock {
         &self,
         _conn: Db,
         _events: EventChannels,
-        _profile: Profile,
+        _profile: Actor,
     ) -> Result<String, Status> {
         Err(Status::ServiceUnavailable)
     }

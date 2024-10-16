@@ -3,8 +3,8 @@ use crate::{
     db::Db,
     fairings::signatures::Signed,
     models::{
-        followers::get_followers_by_profile_id, leaders::get_leaders_by_profile_id,
-        profiles::get_profile_by_username,
+        actors::get_actor_by_username, followers::get_followers_by_actor_id,
+        leaders::get_leaders_by_actor_id,
     },
 };
 use rocket::{get, http::Status, response::Redirect, serde::json::Json};
@@ -23,7 +23,7 @@ pub async fn person_activity_json(
     conn: Db,
     username: String,
 ) -> Result<ActivityJson<ApActor>, Status> {
-    match get_profile_by_username((&conn).into(), username).await {
+    match get_actor_by_username(&conn, username).await {
         Some(profile) => {
             let actor = if signed.local() {
                 ApActor::from(profile).load_ephemeral(&conn).await
@@ -43,7 +43,7 @@ pub async fn person_ld_json(
     conn: Db,
     username: String,
 ) -> Result<LdJson<ApActor>, Status> {
-    match get_profile_by_username((&conn).into(), username).await {
+    match get_actor_by_username(&conn, username).await {
         Some(profile) => {
             let actor = if signed.local() {
                 ApActor::from(profile).load_ephemeral(&conn).await
@@ -59,7 +59,7 @@ pub async fn person_ld_json(
 
 #[get("/user/<username>/liked")]
 pub async fn liked_get(conn: Db, username: String) -> Result<ActivityJson<ApCollection>, Status> {
-    if let Some(_profile) = get_profile_by_username((&conn).into(), username).await {
+    if let Some(_profile) = get_actor_by_username(&conn, username).await {
         Ok(ActivityJson(Json(ApCollection::default())))
     } else {
         Err(Status::NotFound)
@@ -73,8 +73,8 @@ pub async fn get_followers(
     username: String,
 ) -> Result<ActivityJson<ApCollection>, Status> {
     if signed.local() {
-        if let Some(profile) = get_profile_by_username((&conn).into(), username.clone()).await {
-            let followers = get_followers_by_profile_id(Some(&conn), profile.id).await;
+        if let Some(profile) = get_actor_by_username(&conn, username.clone()).await {
+            let followers = get_followers_by_actor_id(&conn, profile.id).await;
 
             Ok(ActivityJson(Json(ApCollection::from(ActorsPage {
                 page: 0,
@@ -88,8 +88,8 @@ pub async fn get_followers(
                     })
                     .collect(),
             }))))
-        } else if let Some(profile) = get_profile_by_username((&conn).into(), username).await {
-            let followers = get_followers_by_profile_id(Some(&conn), profile.id).await;
+        } else if let Some(profile) = get_actor_by_username(&conn, username).await {
+            let followers = get_followers_by_actor_id(&conn, profile.id).await;
 
             Ok(ActivityJson(Json(ApCollection::from(FollowersPage {
                 page: 0,
@@ -114,8 +114,8 @@ pub async fn get_leaders(
     username: String,
 ) -> Result<ActivityJson<ApCollection>, Status> {
     if signed.local() {
-        if let Some(profile) = get_profile_by_username((&conn).into(), username.clone()).await {
-            let leaders = get_leaders_by_profile_id(&conn, profile.id).await;
+        if let Some(profile) = get_actor_by_username(&conn, username.clone()).await {
+            let leaders = get_leaders_by_actor_id(&conn, profile.id).await;
 
             Ok(ActivityJson(Json(ApCollection::from(ActorsPage {
                 page: 0,
@@ -129,8 +129,8 @@ pub async fn get_leaders(
                     })
                     .collect(),
             }))))
-        } else if let Some(profile) = get_profile_by_username((&conn).into(), username).await {
-            let leaders = get_leaders_by_profile_id(&conn, profile.id).await;
+        } else if let Some(profile) = get_actor_by_username(&conn, username).await {
+            let leaders = get_leaders_by_actor_id(&conn, profile.id).await;
 
             Ok(ActivityJson(Json(ApCollection::from(LeadersPage {
                 page: 0,

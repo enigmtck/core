@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use crate::{
     db::Db,
-    models::{instances::create_or_update_instance, profiles::Profile},
+    models::{actors::Actor, instances::create_or_update_instance},
     signing::{verify, VerificationType, VerifyParams},
     ASSIGNMENT_RE, DOMAIN_RE,
 };
@@ -28,7 +28,7 @@ impl Signed {
         matches!(self, Signed(true, _))
     }
 
-    pub fn profile(&self) -> Option<Profile> {
+    pub fn profile(&self) -> Option<Actor> {
         match self {
             Signed(true, VerificationType::Local(profile)) => Some(*profile.clone()),
             _ => None,

@@ -1,10 +1,10 @@
 use crate::activity_pub::{ApActor, ApCollection, ApInstrument, ApNote, Outbox};
 use crate::db::Db;
 use crate::fairings::events::EventChannels;
-use crate::models::cache::{cache_content, Cache};
+use crate::models::actors::Actor;
+use crate::models::cache::Cache;
 use crate::models::objects::Object;
 use crate::models::pg::objects::ObjectType;
-use crate::models::profiles::Profile;
 use crate::{Identifier, MaybeMultiple, OrdValue, IMAGE_MEDIA_RE};
 
 use anyhow::{anyhow, Error, Result};
@@ -68,10 +68,13 @@ pub enum ApObject {
     CollectionPage(ApCollectionPage),
 
     // These members exist to catch unknown object types
-    Plain(String),
     Identifier(Identifier),
     Basic(ApBasicContent),
+
+    // In review, I suspect these two may overlap; however,
+    // Plain is used as in an assignment in Collection
     Complex(MaybeMultiple<Value>),
+    Plain(String),
 }
 
 impl TryFrom<Object> for ApObject {
@@ -90,7 +93,7 @@ impl Outbox for String {
         &self,
         _conn: Db,
         _events: EventChannels,
-        _profile: Profile,
+        _profile: Actor,
     ) -> Result<String, Status> {
         Err(Status::ServiceUnavailable)
     }
@@ -101,7 +104,7 @@ impl Outbox for Identifier {
         &self,
         _conn: Db,
         _events: EventChannels,
-        _profile: Profile,
+        _profile: Actor,
     ) -> Result<String, Status> {
         Err(Status::ServiceUnavailable)
     }
@@ -112,7 +115,7 @@ impl Outbox for MaybeMultiple<Value> {
         &self,
         _conn: Db,
         _events: EventChannels,
-        _profile: Profile,
+        _profile: Actor,
     ) -> Result<String, Status> {
         Err(Status::ServiceUnavailable)
     }
@@ -123,7 +126,7 @@ impl Outbox for ApBasicContent {
         &self,
         _conn: Db,
         _events: EventChannels,
-        _profile: Profile,
+        _profile: Actor,
     ) -> Result<String, Status> {
         Err(Status::ServiceUnavailable)
     }
@@ -146,10 +149,6 @@ impl Outbox for ApBasicContent {
 // }
 
 impl ApObject {
-    pub fn is_plain(&self) -> bool {
-        matches!(*self, ApObject::Plain(_))
-    }
-
     pub fn timestamp(&self) -> DateTime<Utc> {
         match self {
             ApObject::Note(note) => note.ephemeral_timestamp.unwrap_or(Utc::now()),

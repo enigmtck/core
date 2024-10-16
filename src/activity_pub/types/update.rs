@@ -6,8 +6,8 @@ use crate::{
     db::Db,
     fairings::events::EventChannels,
     models::{
+        actors::Actor,
         objects::create_or_update_object,
-        profiles::Profile,
         remote_actors::{create_or_update_remote_actor, NewRemoteActor},
     },
     MaybeMultiple, MaybeReference,
@@ -123,7 +123,7 @@ impl Outbox for ApUpdate {
         &self,
         _conn: Db,
         _events: EventChannels,
-        _profile: Profile,
+        _profile: Actor,
     ) -> Result<String, Status> {
         Err(Status::ServiceUnavailable)
     }

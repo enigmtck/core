@@ -3,21 +3,20 @@ use reqwest::StatusCode;
 use webpage::{Webpage, WebpageOptions};
 
 use crate::activity_pub::retriever::signed_get;
-use crate::activity_pub::{ApAttachment, ApHashtag, ApImage, Metadata};
+use crate::activity_pub::{ApAttachment, ApHashtag, ApImage, ApNoteType, Metadata};
 use crate::fairings::events::EventChannels;
+use crate::helper::get_activity_ap_id_from_uuid;
+use crate::models::actors::{get_actor, guaranteed_actor, Actor};
 use crate::models::cache::{Cache, Cacheable};
-use crate::models::note_hashtags::{create_note_hashtag, NewNoteHashtag};
 use crate::models::notes::delete_note_by_uuid;
 use crate::models::objects::{create_or_update_object, get_object_by_as_id, Object};
 use crate::models::pg::objects;
-use crate::models::profiles::{get_profile, guaranteed_profile};
 use crate::models::to_serde;
 use crate::runner::cache::cache_content;
-use crate::ANCHOR_RE;
 use crate::{
     activity_pub::{ApActivity, ApAddress, ApNote, ApObject},
     db::Db,
-    models::{activities::get_activity_by_uuid, profiles::Profile},
+    models::activities::get_activity_by_ap_id,
     runner::{
         //encrypted::handle_encrypted_note,
         get_inboxes,
@@ -25,8 +24,8 @@ use crate::{
     },
     signing::Method,
 };
+use crate::{runner, ANCHOR_RE};
 
-use super::actor::get_actor;
 use super::TaskError;
 
 pub async fn delete_note_task(
@@ -39,30 +38,30 @@ pub async fn delete_note_task(
     for uuid in uuids {
         log::debug!("LOOKING FOR UUID {uuid}");
 
-        let (activity, target_note, target_profile, target_remote_actor) =
-            get_activity_by_uuid(conn, uuid.clone())
-                .await
-                .ok_or(TaskError::TaskFailed)?;
+        let (activity, target_activity, target_object) = get_activity_by_ap_id(
+            conn.ok_or(TaskError::TaskFailed)?,
+            get_activity_ap_id_from_uuid(uuid.clone()),
+        )
+        .await
+        .ok_or(TaskError::TaskFailed)?;
 
         log::debug!("FOUND ACTIVITY\n{activity:#?}");
-        let profile_id = activity.profile_id.ok_or(TaskError::TaskFailed)?;
-        let sender = get_profile(conn, profile_id)
+        let profile_id = activity.actor_id.ok_or(TaskError::TaskFailed)?;
+        let sender = get_actor(conn.unwrap(), profile_id)
             .await
             .ok_or(TaskError::TaskFailed)?;
-        let note = target_note.clone().ok_or(TaskError::TaskFailed)?;
 
-        let activity = ApActivity::try_from((
-            (activity, target_note, target_profile, target_remote_actor),
-            None,
-        ))
-        .map_err(|_| TaskError::TaskFailed)?;
+        let object = target_object.clone().ok_or(TaskError::TaskFailed)?;
+
+        let activity = ApActivity::try_from(((activity, target_activity, target_object), None))
+            .map_err(|_| TaskError::TaskFailed)?;
         let inboxes: Vec<ApAddress> = get_inboxes(conn, activity.clone(), sender.clone()).await;
 
         send_to_inboxes(inboxes, sender, activity.clone())
             .await
             .map_err(|_| TaskError::TaskFailed)?;
 
-        let records = delete_note_by_uuid(conn, note.uuid)
+        let records = delete_note_by_uuid(conn, object.ek_uuid.ok_or(TaskError::TaskFailed)?)
             .await
             .map_err(|_| TaskError::TaskFailed)?;
         log::debug!("NOTE RECORDS DELETED: {records}");
@@ -79,48 +78,53 @@ pub async fn outbound_note_task(
     let conn = conn.as_ref();
 
     for uuid in uuids {
-        let (activity, target_note, target_profile, target_remote_actor) =
-            get_activity_by_uuid(conn, uuid)
-                .await
-                .ok_or(TaskError::TaskFailed)?;
+        let (activity, target_activity, target_object) = get_activity_by_ap_id(
+            conn.ok_or(TaskError::TaskFailed)?,
+            get_activity_ap_id_from_uuid(uuid.clone()),
+        )
+        .await
+        .ok_or(TaskError::TaskFailed)?;
 
-        let profile_id = activity.profile_id.ok_or(TaskError::TaskFailed)?;
+        let profile_id = activity.actor_id.ok_or(TaskError::TaskFailed)?;
 
-        let sender = get_profile(None, profile_id)
+        let sender = get_actor(conn.unwrap(), profile_id)
             .await
             .ok_or(TaskError::TaskFailed)?;
-        let note = target_note.clone().ok_or(TaskError::TaskFailed)?;
 
-        let new_tags: Vec<NewNoteHashtag> = note.clone().into();
+        let note = ApNote::try_from(target_object.clone().ok_or(TaskError::TaskFailed)?)
+            .map_err(|_| TaskError::TaskFailed)?;
 
-        let _ = new_tags
-            .iter()
-            .map(|tag| async { create_note_hashtag(None, tag.clone()).await });
+        // let new_tags: Vec<NewNoteHashtag> = note.clone().into();
+
+        // let _ = new_tags
+        //     .iter()
+        //     .map(|tag| async { create_note_hashtag(None, tag.clone()).await });
 
         // For the Svelte client, all images are passed through the server cache. To cache an image
         // that's already on the server seems weird, but I think it's a better choice than trying
         // to handle the URLs for local images differently.
-        let ap_note: ApNote = note.clone().into();
-        if let Some(attachments) = ap_note.attachment {
+        //let ap_note: ApNote = note.clone().into();
+        if let Some(attachments) = note.clone().attachment {
             for attachment in attachments {
                 if let ApAttachment::Document(document) = attachment {
-                    let _ = cache_content(Cacheable::try_from(ApImage::try_from(document))).await;
+                    let _ = cache_content(
+                        conn.unwrap(),
+                        Cacheable::try_from(ApImage::try_from(document)),
+                    )
+                    .await;
                 }
             }
         }
 
         cfg_if::cfg_if! {
             if #[cfg(feature = "pg")] {
-                use crate::models::notes::NoteType;
-
                 let activity = match note.kind {
-                    NoteType::Note => {
+                    ApNoteType::Note => {
                         if let Ok(activity) = ApActivity::try_from((
                             (
                                 activity,
-                                target_note,
-                                target_profile,
-                                target_remote_actor,
+                                target_activity,
+                                target_object
                             ),
                             None,
                         )) {
@@ -141,9 +145,8 @@ pub async fn outbound_note_task(
                         if let Ok(activity) = ApActivity::try_from((
                             (
                                 activity,
-                                target_note,
-                                target_profile,
-                                target_remote_actor,
+                                target_activity,
+                                target_object
                             ),
                             None,
                         )) {
@@ -162,7 +165,9 @@ pub async fn outbound_note_task(
             }
         }
 
-        let _ = get_actor(conn, sender.clone(), note.clone().attributed_to).await;
+        let _ =
+            runner::actor::get_actor(conn, sender.clone(), note.clone().attributed_to.to_string())
+                .await;
 
         let activity = activity.ok_or(TaskError::TaskFailed)?;
 
@@ -209,7 +214,7 @@ pub async fn outbound_note_task(
 //     Ok(())
 // }
 
-pub async fn fetch_remote_object(conn: &Db, id: String, profile: Profile) -> Option<Object> {
+pub async fn fetch_remote_object(conn: &Db, id: String, profile: Actor) -> Option<Object> {
     log::debug!("PERFORMING REMOTE LOOKUP FOR OBJECT: {id}");
 
     let _url = id.clone();
@@ -315,10 +320,11 @@ pub async fn handle_object(
     }
 
     let ap_object: ApObject = object.clone().try_into()?;
-    let profile = guaranteed_profile(None, None);
+    let profile = guaranteed_actor(conn, None);
 
     if let ApObject::Note(mut note) = ap_object {
-        let _ = get_actor(Some(conn), profile.await, note.attributed_to.to_string()).await;
+        let _ = runner::actor::get_actor(Some(conn), profile.await, note.attributed_to.to_string())
+            .await;
 
         if let Some(announcer) = announcer {
             note.ephemeral_announces = Some(vec![announcer]);

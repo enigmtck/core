@@ -20,6 +20,7 @@ pub struct Follower {
     pub actor: String,
     pub followed_ap_id: String,
     pub uuid: String,
+    pub actor_id: i32,
 }
 
 pub async fn create_follower(conn: Option<&Db>, follower: NewFollower) -> Option<Follower> {

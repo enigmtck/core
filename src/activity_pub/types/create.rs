@@ -10,10 +10,10 @@ use crate::{
             create_activity, ActivityTarget, ActivityType, ApActivityTarget, ExtendedActivity,
             NewActivity,
         },
+        actors::Actor,
         from_serde, from_time,
         objects::{create_or_update_object, NewObject},
         pg::coalesced_activity::CoalescedActivity,
-        profiles::Profile,
     },
     runner, MaybeMultiple, MaybeReference,
 };
@@ -167,7 +167,7 @@ impl Outbox for ApCreate {
         &self,
         _conn: Db,
         _events: EventChannels,
-        _profile: Profile,
+        _profile: Actor,
     ) -> Result<String, Status> {
         Err(Status::ServiceUnavailable)
     }
@@ -181,6 +181,7 @@ impl TryFrom<CoalescedActivity> for ApCreate {
             .clone()
             .object_type
             .ok_or_else(|| anyhow::anyhow!("object_type is None"))?
+            .to_string()
             .to_lowercase()
             .as_str()
         {
@@ -222,11 +223,11 @@ impl TryFrom<CoalescedActivity> for ApCreate {
 impl TryFrom<ExtendedActivity> for ApCreate {
     type Error = anyhow::Error;
     fn try_from(
-        (activity, note, _profile, _remote_actor): ExtendedActivity,
+        (activity, _target_activity, target_object): ExtendedActivity,
     ) -> Result<Self, Self::Error> {
         let note = {
-            if let Some(note) = note {
-                ApObject::Note(ApNote::from(note))
+            if let Some(object) = target_object {
+                ApObject::Note(ApNote::try_from(object)?)
             } else {
                 return Err(anyhow!("ACTIVITY MUST INCLUDE A NOTE OR REMOTE_NOTE"));
             }

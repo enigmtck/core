@@ -1,5 +1,6 @@
 use crate::models::pg::activities::ActivityType;
-use crate::schema::sql_types::ActivityType as SqlActivityType;
+use crate::models::pg::objects::ObjectType;
+use crate::schema::sql_types::{ActivityType as SqlActivityType, ObjectType as SqlObjectType};
 use chrono::{DateTime, Utc};
 use diesel::prelude::*;
 use diesel::sql_types::{Bool, Integer, Jsonb, Nullable, Text, Timestamptz};
@@ -73,21 +74,96 @@ pub struct CoalescedActivity {
     #[diesel(sql_type = Nullable<Integer>)]
     pub target_object_id: Option<i32>,
 
+    #[diesel(sql_type = Nullable<Integer>)]
+    pub actor_id: Option<i32>,
+
+    #[diesel(sql_type = Nullable<Integer>)]
+    pub target_actor_id: Option<i32>,
+
+    #[diesel(sql_type = Nullable<Timestamptz>)]
+    pub recursive_created_at: Option<DateTime<Utc>>,
+
+    #[diesel(sql_type = Nullable<Timestamptz>)]
+    pub recursive_updated_at: Option<DateTime<Utc>>,
+
+    #[diesel(sql_type = Nullable<Integer>)]
+    pub recursive_profile_id: Option<i32>,
+
+    #[diesel(sql_type = Nullable<SqlActivityType>)]
+    pub recursive_kind: Option<ActivityType>,
+
+    #[diesel(sql_type = Nullable<Text>)]
+    pub recursive_uuid: Option<String>,
+
+    #[diesel(sql_type = Nullable<Text>)]
+    pub recursive_actor: Option<String>,
+
+    #[diesel(sql_type = Nullable<Jsonb>)]
+    pub recursive_ap_to: Option<Value>,
+
+    #[diesel(sql_type = Nullable<Jsonb>)]
+    pub recursive_cc: Option<Value>,
+
+    #[diesel(sql_type = Nullable<Integer>)]
+    pub recursive_target_note_id: Option<i32>,
+
+    #[diesel(sql_type = Nullable<Integer>)]
+    pub recursive_target_remote_note_id: Option<i32>,
+
+    #[diesel(sql_type = Nullable<Integer>)]
+    pub recursive_target_profile_id: Option<i32>,
+
+    #[diesel(sql_type = Nullable<Integer>)]
+    pub recursive_target_activity_id: Option<i32>,
+
+    #[diesel(sql_type = Nullable<Text>)]
+    pub recursive_target_ap_id: Option<String>,
+
+    #[diesel(sql_type = Nullable<Integer>)]
+    pub recursive_target_remote_actor_id: Option<i32>,
+
+    #[diesel(sql_type = Nullable<Bool>)]
+    pub recursive_revoked: Option<bool>,
+
+    #[diesel(sql_type = Nullable<Text>)]
+    pub recursive_ap_id: Option<String>,
+
+    #[diesel(sql_type = Nullable<Integer>)]
+    pub recursive_target_remote_question_id: Option<i32>,
+
+    #[diesel(sql_type = Nullable<Bool>)]
+    pub recursive_reply: Option<bool>,
+
+    #[diesel(sql_type = Nullable<Integer>)]
+    pub recursive_target_object_id: Option<i32>,
+
+    #[diesel(sql_type = Nullable<Integer>)]
+    pub recursive_actor_id: Option<i32>,
+
+    #[diesel(sql_type = Nullable<Integer>)]
+    pub recursive_target_actor_id: Option<i32>,
+
     // Object Fields
+    #[diesel(sql_type = Nullable<Timestamptz>)]
+    pub object_created_at: Option<DateTime<Utc>>,
+
+    #[diesel(sql_type = Nullable<Timestamptz>)]
+    pub object_updated_at: Option<DateTime<Utc>>,
+
     #[diesel(sql_type = Nullable<Text>)]
     pub object_uuid: Option<String>,
 
-    #[diesel(sql_type = Nullable<Text>)]
-    pub object_type: Option<String>,
+    #[diesel(sql_type = Nullable<SqlObjectType>)]
+    pub object_type: Option<ObjectType>,
+
+    #[diesel(sql_type = Nullable<Timestamptz>)]
+    pub object_published: Option<DateTime<Utc>>,
 
     #[diesel(sql_type = Nullable<Text>)]
-    pub object_published: Option<String>,
+    pub object_as_id: Option<String>,
 
-    #[diesel(sql_type = Nullable<Text>)]
-    pub object_id: Option<String>,
-
-    #[diesel(sql_type = Nullable<Text>)]
-    pub object_url: Option<String>,
+    #[diesel(sql_type = Nullable<Jsonb>)]
+    pub object_url: Option<Value>,
 
     #[diesel(sql_type = Nullable<Jsonb>)]
     pub object_to: Option<Value>,
@@ -133,6 +209,9 @@ pub struct CoalescedActivity {
 
     #[diesel(sql_type = Nullable<Jsonb>)]
     pub object_metadata: Option<Value>,
+
+    #[diesel(sql_type = Nullable<Integer>)]
+    pub object_profile_id: Option<i32>,
 
     #[diesel(sql_type = Jsonb)]
     pub object_announcers: Value,

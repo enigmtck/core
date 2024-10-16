@@ -3,7 +3,7 @@ use crate::db::Db;
 use crate::schema::processing_queue;
 use diesel::prelude::*;
 
-use super::profiles::Profile;
+use super::actors::Actor;
 use super::remote_encrypted_sessions::RemoteEncryptedSession;
 use crate::models::encrypted_sessions::get_encrypted_session_by_profile_id_and_ap_to;
 use crate::models::{from_serde, to_serde};
@@ -62,7 +62,7 @@ pub async fn get_unprocessed_items_by_profile_id(conn: &Db, id: i32) -> Vec<Proc
     .unwrap_or(vec![])
 }
 
-pub async fn retrieve(conn: &Db, profile: Profile) -> Vec<ApObject> {
+pub async fn retrieve(conn: &Db, profile: Actor) -> Vec<ApObject> {
     let queue = get_unprocessed_items_by_profile_id(conn, profile.id).await;
 
     let objects: Vec<ApObject> = queue

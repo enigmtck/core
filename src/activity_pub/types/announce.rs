@@ -8,10 +8,10 @@ use crate::{
     helper::get_activity_ap_id_from_uuid,
     models::{
         activities::{create_activity, ActivityType, ExtendedActivity, NewActivity, NoteActivity},
+        actors::Actor,
         from_serde, from_time,
         notes::get_notey,
         pg::coalesced_activity::CoalescedActivity,
-        profiles::Profile,
     },
     runner, MaybeMultiple, MaybeReference,
 };
@@ -103,7 +103,7 @@ impl Outbox for ApAnnounce {
         &self,
         conn: Db,
         events: EventChannels,
-        profile: Profile,
+        profile: Actor,
     ) -> Result<String, Status> {
         outbox(conn, events, self.clone(), profile).await
     }
@@ -113,7 +113,7 @@ async fn outbox(
     conn: Db,
     channels: EventChannels,
     announce: ApAnnounce,
-    profile: Profile,
+    profile: Actor,
 ) -> Result<String, Status> {
     if let MaybeReference::Reference(id) = announce.object {
         let note_like = get_notey(&conn, id).await.ok_or(Status::new(520))?;
@@ -167,6 +167,7 @@ impl TryFrom<CoalescedActivity> for ApAnnounce {
             .clone()
             .object_type
             .ok_or_else(|| anyhow::anyhow!("object_type is None"))?
+            .to_string()
             .to_lowercase()
             .as_str()
         {
@@ -207,15 +208,14 @@ impl TryFrom<ExtendedActivity> for ApAnnounce {
     type Error = anyhow::Error;
 
     fn try_from(
-        (activity, note, _profile, _remote_actor): ExtendedActivity,
+        (activity, _target_activity, target_object): ExtendedActivity,
     ) -> Result<Self, Self::Error> {
         if activity.kind.to_string().to_lowercase().as_str() == "announce" {
             let ap_to = activity.ap_to.ok_or(anyhow::Error::msg("ap_to is None"))?;
 
-            let object = match note {
-                Some(note) => MaybeReference::Actual(ApObject::Note(ApNote::from(note))),
-                _ => return Err(anyhow::Error::msg("INVALID ACTIVITY TYPE")),
-            };
+            let object = target_object.ok_or(anyhow::Error::msg("INVALID ACTIVITY TYPE"))?;
+            let object = MaybeReference::Actual(ApObject::Note(ApNote::try_from(object)?));
+
             Ok(ApAnnounce {
                 context: Some(ApContext::default()),
                 kind: ApAnnounceType::default(),
