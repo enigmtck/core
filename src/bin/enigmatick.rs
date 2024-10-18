@@ -103,7 +103,7 @@ fn handle_system_user() -> Result<()> {
             },
         )
         .await
-        .is_some()
+        .is_ok()
         {
             println!("system user created.");
         } else {

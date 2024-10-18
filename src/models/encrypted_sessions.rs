@@ -27,7 +27,7 @@ impl From<IdentifiedEncryptedSession> for NewEncryptedSession {
             ap_to: session.to.to_string(),
             attributed_to: session.attributed_to.to_string(),
             reference: session.reference,
-            instrument: to_serde(session.instrument).unwrap(),
+            instrument: to_serde(&Some(session.instrument)).unwrap(),
             uuid: Uuid::new_v4().to_string(),
             profile_id,
         }

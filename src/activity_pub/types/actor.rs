@@ -1,9 +1,7 @@
 use core::fmt;
 use std::fmt::Debug;
 
-use crate::activity_pub::{
-    ApAttachment, ApContext, ApEndpoint, ApImage, ApImageType, ApTag, Outbox,
-};
+use crate::activity_pub::{ApAttachment, ApContext, ApEndpoint, ApImage, ApTag, Outbox};
 use crate::db::Db;
 use crate::fairings::events::EventChannels;
 use crate::models::actors::ActorType;
@@ -11,7 +9,6 @@ use crate::models::actors::{get_actor_by_as_id, Actor};
 use crate::models::cache::{cache_content, Cache};
 use crate::models::followers::get_followers_by_actor_id;
 use crate::models::leaders::{get_leaders_by_actor_id, Leader};
-use crate::models::remote_actors::RemoteActor;
 use crate::models::{from_serde, from_serde_option};
 use crate::{MaybeMultiple, DOMAIN_RE};
 use lazy_static::lazy_static;
@@ -336,16 +333,37 @@ impl ApActor {
         let server_name = DOMAIN_RE.captures(&id)?.get(1)?.as_str();
         Some(format!("@{}@{}", self.preferred_username, server_name))
     }
+
+    pub fn get_hashtags(&self) -> Vec<String> {
+        if let Some(tags) = self.tag.clone() {
+            tags.iter()
+                .filter_map(|tag| {
+                    if let ApTag::HashTag(hashtag) = tag {
+                        Some(hashtag.name.clone().to_lowercase())
+                    } else {
+                        None
+                    }
+                })
+                .collect()
+        } else {
+            vec![]
+        }
+    }
 }
 
-type ExtendedProfile = (Actor, Option<Leader>);
+type ExtendedActor = (Actor, Option<Leader>);
 
-impl From<ExtendedProfile> for ApActor {
-    fn from((profile, leader): ExtendedProfile) -> Self {
-        let mut actor = ApActor::from(profile);
-        if leader.is_some() {
-            actor.ephemeral_following = Some(true);
-        }
+impl From<ExtendedActor> for ApActor {
+    fn from((actor, leader): ExtendedActor) -> Self {
+        let mut actor = ApActor::from(actor);
+
+        actor.ephemeral_following = leader.clone().and_then(|x| x.accepted);
+
+        actor.ephemeral_leader_ap_id = leader
+            .clone()
+            .and_then(|x| format!("{}/leader/{}", *crate::SERVER_URL, x.uuid).into());
+
+        actor.ephemeral_follow_activity_ap_id = leader.and_then(|x| x.follow_ap_id);
 
         actor
     }
@@ -416,134 +434,9 @@ impl From<Actor> for ApActor {
     }
 }
 
-type ExtendedRemoteActor = (RemoteActor, Option<Leader>);
-
-impl From<ExtendedRemoteActor> for ApActor {
-    fn from((remote_actor, leader): ExtendedRemoteActor) -> Self {
-        let mut actor = ApActor::from(remote_actor);
-
-        actor.ephemeral_following = leader.clone().and_then(|x| x.accepted);
-
-        actor.ephemeral_leader_ap_id = leader
-            .clone()
-            .and_then(|x| format!("{}/leader/{}", *crate::SERVER_URL, x.uuid).into());
-
-        actor.ephemeral_follow_activity_ap_id = leader.and_then(|x| x.follow_ap_id);
-
-        actor
-    }
-}
-
-cfg_if::cfg_if! {
-    if #[cfg(feature = "pg")] {
-        impl From<RemoteActor> for ApActor {
-            fn from(actor: RemoteActor) -> Self {
-                ApActor {
-                    context: Some(ApContext::Plain(
-                        "https://www.w3.org/ns/activitystreams".to_string(),
-                    )),
-                    kind: ApActorType::Person,
-                    name: Some(actor.name),
-                    summary: actor.summary,
-                    id: Some(ApAddress::Address(actor.ap_id)),
-                    preferred_username: actor.preferred_username.unwrap_or_default(),
-                    inbox: actor.inbox,
-                    outbox: actor.outbox,
-                    followers: actor.followers,
-                    following: actor.following,
-                    subscribers: None,
-                    liked: actor.liked,
-                    public_key: serde_json::from_value(actor.public_key.into()).unwrap(),
-                    featured: actor.featured,
-                    featured_tags: actor.featured_tags,
-                    url: actor.url,
-                    manually_approves_followers: actor.manually_approves_followers,
-                    published: actor.published,
-                    tag: serde_json::from_value(actor.tag.into()).unwrap(),
-                    attachment: serde_json::from_value(actor.attachment.into()).unwrap(),
-                    endpoints: serde_json::from_value(actor.endpoints.into()).unwrap(),
-                    icon: serde_json::from_value(actor.icon.into()).unwrap(),
-                    image: serde_json::from_value(actor.image.into()).unwrap(),
-                    also_known_as: serde_json::from_value(actor.also_known_as.into()).unwrap(),
-                    discoverable: actor.discoverable,
-                    capabilities: serde_json::from_value(actor.capabilities.into()).unwrap(),
-                    ephemeral_following: None,
-                    ephemeral_leader_ap_id: None,
-                    ephemeral_summary_markdown: None,
-                    ephemeral_followers: None,
-                    ephemeral_leaders: None,
-                    ephemeral_follow_activity_ap_id: None,
-                }
-            }
-        }
-
-        impl From<&RemoteActor> for ApActor {
-            fn from(actor: &RemoteActor) -> Self {
-                actor.clone().into()
-            }
-        }
-    } else if #[cfg(feature = "sqlite")] {
-        impl From<RemoteActor> for ApActor {
-            fn from(actor: RemoteActor) -> Self {
-                ApActor {
-                    context: Some(ApContext::Plain(
-                        "https://www.w3.org/ns/activitystreams".to_string(),
-                    )),
-                    kind: ApActorType::Person,
-                    name: Some(actor.name),
-                    summary: actor.summary,
-                    id: Some(ApAddress::Address(actor.ap_id)),
-                    preferred_username: actor.preferred_username.unwrap_or_default(),
-                    inbox: actor.inbox,
-                    outbox: actor.outbox,
-                    followers: actor.followers,
-                    following: actor.following,
-                    subscribers: None,
-                    liked: actor.liked,
-                    public_key: serde_json::from_str(&actor.public_key).unwrap(),
-                    featured: actor.featured,
-                    featured_tags: actor.featured_tags,
-                    url: actor.url,
-                    manually_approves_followers: actor.manually_approves_followers,
-                    published: actor.published,
-                    tag: actor
-                        .tag
-                        .as_deref()
-                        .and_then(|x| serde_json::from_str(x).ok()),
-                    attachment: actor
-                        .attachment
-                        .as_deref()
-                        .and_then(|x| serde_json::from_str(x).ok()),
-                    endpoints: actor
-                        .endpoints
-                        .as_deref()
-                        .and_then(|x| serde_json::from_str(x).ok()),
-                    icon: actor
-                        .icon
-                        .as_deref()
-                        .and_then(|x| serde_json::from_str(x).ok()),
-                    image: actor
-                        .image
-                        .as_deref()
-                        .and_then(|x| serde_json::from_str(x).ok()),
-                    also_known_as: actor
-                        .also_known_as
-                        .as_deref()
-                        .and_then(|x| serde_json::from_str(x).ok()),
-                    discoverable: actor.discoverable,
-                    capabilities: actor
-                        .capabilities
-                        .as_deref()
-                        .and_then(|x| serde_json::from_str(x).ok()),
-                    ephemeral_following: None,
-                    ephemeral_leader_ap_id: None,
-                    ephemeral_summary_markdown: None,
-                    ephemeral_followers: None,
-                    ephemeral_leaders: None,
-                    ephemeral_follow_activity_ap_id: None,
-                }
-            }
-        }
+impl From<&Actor> for ApActor {
+    fn from(actor: &Actor) -> ApActor {
+        ApActor::from(actor.clone())
     }
 }
 

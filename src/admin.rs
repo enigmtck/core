@@ -38,7 +38,7 @@ fn get_key_pair() -> KeyPair {
 pub async fn authenticate(conn: &Db, username: String, password_str: String) -> Option<Actor> {
     log::debug!("AUTHENTICATING {username} {password_str}");
     let password = pwhash::Password::from_slice(password_str.clone().as_bytes()).ok()?;
-    let profile = get_actor_by_username(conn.into(), username.clone()).await?;
+    let profile = get_actor_by_username(conn, username.clone()).await?;
     let encoded_password_hash = profile.clone().ek_password?;
     let password_hash = pwhash::PasswordHash::from_encoded(&encoded_password_hash).ok()?;
 
@@ -86,7 +86,7 @@ pub struct NewUser {
     pub salt: Option<String>,
 }
 
-pub async fn create_user(conn: &Db, user: NewUser) -> Result<Actor> {
+pub async fn create_user(conn: Option<&Db>, user: NewUser) -> Result<Actor> {
     let key_pair = get_key_pair();
     let owner = get_ap_id_from_username(user.username.clone());
     let server = crate::SERVER_URL.clone();
@@ -109,14 +109,14 @@ pub async fn create_user(conn: &Db, user: NewUser) -> Result<Actor> {
                 .unwrap()
                 .to_string(),
         ),
-        as_public_key: to_serde(ApPublicKey {
+        as_public_key: to_serde(&Some(ApPublicKey {
             id: format!("{owner}#main-key"),
             owner: owner.clone(),
             public_key_pem: key_pair
                 .public_key
                 .to_public_key_pem(LineEnding::default())
                 .unwrap(),
-        })
+        }))
         .ok_or(anyhow!("failed to initialize public key"))?,
         ek_password: Some(hash.unprotected_as_encoded().to_string()),
         ek_client_public_key: user.client_public_key,
@@ -133,25 +133,25 @@ pub async fn create_user(conn: &Db, user: NewUser) -> Result<Actor> {
         as_liked: Some(format!("{owner}/liked")),
         as_published: Some(Utc::now()),
         as_url: Some(format!("{server}/@{username}")),
-        as_endpoints: to_serde(ApEndpoint {
+        as_endpoints: to_serde(&Some(ApEndpoint {
             shared_inbox: format!("{server}/inbox"),
-        })
+        }))
         .ok_or(anyhow!("failed to initialize endpoints"))?,
         as_discoverable: true,
         ap_manually_approves_followers: false,
-        ap_capabilities: to_serde(ApCapabilities {
+        ap_capabilities: to_serde(&Some(ApCapabilities {
             accepts_chat_messages: Some(false),
             enigmatick_encryption: Some(true),
-        })
+        }))
         .ok_or(anyhow!("failed to initialize capabilities"))?,
         as_also_known_as: json!([]),
         as_tag: json!([]),
         as_id: owner,
-        as_icon: to_serde(ApImage {
+        as_icon: to_serde(&Some(ApImage {
             url: format!("{server}/media/avatars/default.png"),
             kind: ApImageType::Image,
             media_type: Some("png".to_string()),
-        })
+        }))
         .ok_or(anyhow!("failed to initialize image"))?,
         as_image: json!("{}"),
         ek_webfinger: Some(format!("@{username}@{server}")),
@@ -161,7 +161,7 @@ pub async fn create_user(conn: &Db, user: NewUser) -> Result<Actor> {
         ek_hashtags: json!([]),
         as_type: ActorType::Person,
         as_attachment: json!([]),
-        as_context: to_serde(ApContext::default()),
+        as_context: to_serde(&Some(ApContext::default())),
         as_featured: None,
         as_featured_tags: None,
     };

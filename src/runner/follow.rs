@@ -6,13 +6,12 @@ use crate::{
     fairings::events::EventChannels,
     helper::get_activity_ap_id_from_uuid,
     models::{
-        activities::{get_activity, get_activity_by_ap_id},
+        activities::get_activity_by_ap_id,
         actors::{get_actor, get_actor_by_as_id},
         followers::{create_follower, delete_follower_by_ap_id, NewFollower},
         leaders::{create_leader, NewLeader},
     },
     runner::{get_inboxes, send_to_inboxes, TaskError},
-    MaybeReference,
 };
 
 pub async fn process_follow_task(
@@ -25,7 +24,7 @@ pub async fn process_follow_task(
     for uuid in uuids {
         log::debug!("LOOKING FOR UUID {uuid}");
 
-        let (activity, target_activity, target_object) = get_activity_by_ap_id(
+        let (activity, target_activity, target_object, target_actor) = get_activity_by_ap_id(
             conn.ok_or(TaskError::TaskFailed)?,
             get_activity_ap_id_from_uuid(uuid.clone()),
         )
@@ -39,8 +38,9 @@ pub async fn process_follow_task(
             .await
             .ok_or(TaskError::TaskFailed)?;
 
-        let activity = ApActivity::try_from(((activity, target_activity, target_object), None))
-            .map_err(|_| TaskError::TaskFailed)?;
+        let activity =
+            ApActivity::try_from((activity, target_activity, target_object, target_actor))
+                .map_err(|_| TaskError::TaskFailed)?;
         let inboxes: Vec<ApAddress> = get_inboxes(conn, activity.clone(), sender.clone()).await;
 
         send_to_inboxes(inboxes, sender, activity.clone())
@@ -60,38 +60,29 @@ pub async fn process_accept_task(
     for uuid in uuids {
         log::debug!("UUID: {uuid}");
 
-        let extended_accept = get_activity_by_ap_id(
+        let (accept, follow, target_object, target_actor) = get_activity_by_ap_id(
             conn.ok_or(TaskError::TaskFailed)?,
             get_activity_ap_id_from_uuid(uuid.clone()),
         )
         .await
         .ok_or(TaskError::TaskFailed)?;
 
-        let follow_id = extended_accept
-            .0
-            .target_activity_id
-            .ok_or(TaskError::TaskFailed)?;
+        let accept = ApAccept::try_from((accept, follow.clone(), target_object, target_actor))
+            .map_err(|_| TaskError::TaskFailed)?;
 
-        let extended_follow = get_activity(conn, follow_id)
+        let follow = follow.ok_or(TaskError::TaskFailed)?;
+
+        let profile = get_actor_by_as_id(conn.unwrap(), follow.actor.to_string())
             .await
             .ok_or(TaskError::TaskFailed)?;
 
-        if let Ok(ApActivity::Accept(accept)) = (extended_accept, Some(extended_follow)).try_into()
-        {
-            if let MaybeReference::Actual(ApActivity::Follow(follow)) = accept.object.clone() {
-                let profile = get_actor_by_as_id(conn.unwrap(), follow.actor.to_string())
-                    .await
-                    .ok_or(TaskError::TaskFailed)?;
-                let mut leader =
-                    NewLeader::try_from(*accept.clone()).map_err(|_| TaskError::TaskFailed)?;
-                leader.link(profile);
+        let mut leader = NewLeader::try_from(accept.clone()).map_err(|_| TaskError::TaskFailed)?;
+        leader.link(profile);
 
-                let leader = create_leader(conn, leader)
-                    .await
-                    .ok_or(TaskError::TaskFailed)?;
-                log::debug!("LEADER CREATED: {}", leader.uuid);
-            }
-        }
+        let leader = create_leader(conn, leader)
+            .await
+            .ok_or(TaskError::TaskFailed)?;
+        log::debug!("LEADER CREATED: {}", leader.uuid);
     }
 
     Ok(())

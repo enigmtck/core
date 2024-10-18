@@ -1,5 +1,6 @@
 use chrono::{DateTime, Utc};
 use serde::Serialize;
+use serde_json::json;
 
 pub mod activities;
 pub mod actors;
@@ -8,20 +9,12 @@ pub mod encrypted_sessions;
 pub mod followers;
 pub mod instances;
 pub mod leaders;
-pub mod note_hashtags;
-pub mod notes;
 pub mod notifications;
 pub mod objects;
 pub mod olm_one_time_keys;
 pub mod olm_sessions;
 pub mod processing_queue;
-//pub mod profiles;
-pub mod remote_actor_hashtags;
-pub mod remote_actors;
 pub mod remote_encrypted_sessions;
-//pub mod remote_note_hashtags;
-//pub mod remote_notes;
-//pub mod remote_questions;
 pub mod vault;
 
 cfg_if::cfg_if! {
@@ -29,8 +22,9 @@ cfg_if::cfg_if! {
         pub mod pg;
 
         use serde_json::Value;
-        pub fn to_serde<T: Serialize>(object: T) -> Option<Value> {
-            serde_json::to_value(object).ok()
+
+        pub fn to_serde<T: Serialize>(object: &Option<T>) -> Option<Value> {
+            object.as_ref().map(|x| json!(x))
         }
 
         pub fn from_serde<T: serde::de::DeserializeOwned>(object: Value) -> Option<T> {
@@ -38,7 +32,7 @@ cfg_if::cfg_if! {
         }
 
         pub fn from_serde_option<T: serde::de::DeserializeOwned>(object: Option<Value>) -> Option<T> {
-            object.map(|o| serde_json::from_value(o).ok()).flatten()
+            object.and_then(|o| serde_json::from_value(o).ok())
         }
 
         fn to_time(time: DateTime<Utc>) -> DateTime<Utc> {

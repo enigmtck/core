@@ -8,8 +8,9 @@ use crate::fairings::events::EventChannels;
 use crate::helper::get_activity_ap_id_from_uuid;
 use crate::models::actors::{get_actor, guaranteed_actor, Actor};
 use crate::models::cache::{Cache, Cacheable};
-use crate::models::notes::delete_note_by_uuid;
-use crate::models::objects::{create_or_update_object, get_object_by_as_id, Object};
+use crate::models::objects::{
+    create_or_update_object, delete_object_by_uuid, get_object_by_as_id, Object,
+};
 use crate::models::pg::objects;
 use crate::models::to_serde;
 use crate::runner::cache::cache_content;
@@ -38,7 +39,7 @@ pub async fn delete_note_task(
     for uuid in uuids {
         log::debug!("LOOKING FOR UUID {uuid}");
 
-        let (activity, target_activity, target_object) = get_activity_by_ap_id(
+        let (activity, target_activity, target_object, target_actor) = get_activity_by_ap_id(
             conn.ok_or(TaskError::TaskFailed)?,
             get_activity_ap_id_from_uuid(uuid.clone()),
         )
@@ -53,17 +54,19 @@ pub async fn delete_note_task(
 
         let object = target_object.clone().ok_or(TaskError::TaskFailed)?;
 
-        let activity = ApActivity::try_from(((activity, target_activity, target_object), None))
-            .map_err(|_| TaskError::TaskFailed)?;
+        let activity =
+            ApActivity::try_from((activity, target_activity, target_object, target_actor))
+                .map_err(|_| TaskError::TaskFailed)?;
         let inboxes: Vec<ApAddress> = get_inboxes(conn, activity.clone(), sender.clone()).await;
 
         send_to_inboxes(inboxes, sender, activity.clone())
             .await
             .map_err(|_| TaskError::TaskFailed)?;
 
-        let records = delete_note_by_uuid(conn, object.ek_uuid.ok_or(TaskError::TaskFailed)?)
-            .await
-            .map_err(|_| TaskError::TaskFailed)?;
+        let records =
+            delete_object_by_uuid(conn.unwrap(), object.ek_uuid.ok_or(TaskError::TaskFailed)?)
+                .await
+                .map_err(|_| TaskError::TaskFailed)?;
         log::debug!("NOTE RECORDS DELETED: {records}");
     }
 
@@ -78,7 +81,7 @@ pub async fn outbound_note_task(
     let conn = conn.as_ref();
 
     for uuid in uuids {
-        let (activity, target_activity, target_object) = get_activity_by_ap_id(
+        let (activity, target_activity, target_object, target_actor) = get_activity_by_ap_id(
             conn.ok_or(TaskError::TaskFailed)?,
             get_activity_ap_id_from_uuid(uuid.clone()),
         )
@@ -120,14 +123,13 @@ pub async fn outbound_note_task(
             if #[cfg(feature = "pg")] {
                 let activity = match note.kind {
                     ApNoteType::Note => {
-                        if let Ok(activity) = ApActivity::try_from((
-                            (
+                        if let Ok(activity) =
+                            ApActivity::try_from((
                                 activity,
                                 target_activity,
-                                target_object
-                            ),
-                            None,
-                        )) {
+                                target_object,
+                                target_actor
+                            )) {
                             Some(activity)
                         } else {
                             None
@@ -306,12 +308,12 @@ pub async fn handle_object(
     }
 
     let hashtags: Vec<ApHashtag> = object.clone().into();
-    let hashtags = to_serde::<Vec<String>>(
+    let hashtags = to_serde::<Vec<String>>(&Some(
         hashtags
             .iter()
             .map(|x| x.name.clone().to_lowercase())
             .collect(),
-    );
+    ));
 
     if let Some(hashtags) = hashtags {
         object = objects::update_hashtags(conn, object.id, hashtags)

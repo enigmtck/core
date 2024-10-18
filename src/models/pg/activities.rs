@@ -2,9 +2,9 @@ use crate::activity_pub::PUBLIC_COLLECTION;
 use crate::db::Db;
 use crate::helper::{get_activity_ap_id_from_uuid, get_ap_id_from_username};
 use crate::models::pg::parameter_generator;
-use crate::schema::{activities, activities_cc, activities_to, remote_actors};
-use crate::{MaybeMultiple, POOL};
-use anyhow::{anyhow, Result};
+use crate::schema::{activities, actors};
+use crate::POOL;
+use anyhow::Result;
 use chrono::{DateTime, NaiveDateTime, Utc};
 use diesel::query_builder::{BoxedSqlQuery, SqlQuery};
 use diesel::sql_types::Nullable;
@@ -15,8 +15,7 @@ use serde_json::Value;
 
 use super::actors::Actor;
 use super::coalesced_activity::CoalescedActivity;
-use super::remote_actors::RemoteActor;
-use crate::models::activities::{NewActivityCc, NewActivityTo, TimelineFilters, TimelineView};
+use crate::models::activities::{TimelineFilters, TimelineView};
 
 #[derive(
     diesel_derive_enum::DbEnum, Debug, Serialize, Deserialize, Default, Clone, Eq, PartialEq,
@@ -166,29 +165,6 @@ pub struct Activity {
     pub target_actor_id: Option<i32>,
 }
 
-#[derive(
-    Identifiable,
-    Queryable,
-    AsChangeset,
-    Associations,
-    Serialize,
-    Deserialize,
-    Clone,
-    Default,
-    Debug,
-    QueryableByName,
-)]
-#[diesel(belongs_to(Activity, foreign_key = activity_id))]
-#[diesel(table_name = activities_cc)]
-pub struct ActivityCc {
-    #[serde(skip_serializing)]
-    pub id: i32,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
-    pub activity_id: i32,
-    pub ap_id: String,
-}
-
 #[derive(Default, Debug)]
 struct QueryParams {
     min: Option<i64>,
@@ -251,8 +227,50 @@ fn query_initial_block() -> String {
      COALESCE(o.ap_voters_count, o2.ap_voters_count) AS object_voters_count,\
      COALESCE(o.ap_sensitive, o2.ap_sensitive) AS object_sensitive,\
      COALESCE(o.ek_metadata, o2.ek_metadata) AS object_metadata,\
-     COALESCE(o.ek_profile_id, o2.ek_profile_id) AS object_profile_id "
-        .to_string()
+     COALESCE(o.ek_profile_id, o2.ek_profile_id) AS object_profile_id,\
+     COALESCE(ta.created_at, ta2.created_at) AS actor_created_at,\
+     COALESCE(ta.updated_at, ta2.updated_at) AS actor_updated_at,\
+     COALESCE(ta.ek_uuid, ta2.ek_uuid) AS actor_uuid,\
+     COALESCE(ta.ek_username, ta2.ek_username) AS actor_username,\
+     COALESCE(ta.ek_summary_markdown, ta2.ek_summary_markdown) AS actor_summary_markdown,\
+     COALESCE(ta.ek_avatar_filename, ta2.ek_avatar_filename) AS actor_avatar_filename,\
+     COALESCE(ta.ek_banner_filename, ta2.ek_banner_filename) AS actor_banner_filename,\
+     COALESCE(ta.ek_private_key, ta2.ek_private_key) AS actor_private_key,\
+     COALESCE(ta.ek_password, ta2.ek_password) AS actor_password,\
+     COALESCE(ta.ek_client_public_key, ta2.ek_client_public_key) AS actor_client_public_key,\
+     COALESCE(ta.ek_client_private_key, ta2.ek_client_private_key) AS actor_client_private_key,\
+     COALESCE(ta.ek_salt, ta2.ek_salt) AS actor_salt,\
+     COALESCE(ta.ek_olm_pickled_account, ta2.ek_olm_pickled_account) AS actor_olm_pickled_account,\
+     COALESCE(ta.ek_olm_pickled_account_hash, ta2.ek_olm_pickled_account_hash) AS actor_olm_pickled_account_hash,\
+     COALESCE(ta.ek_olm_identity_key, ta2.ek_olm_identity_key) AS actor_olm_identity_key,\
+     COALESCE(ta.ek_webfinger, ta2.ek_webfinger) AS actor_webfinger,\
+     COALESCE(ta.ek_checked_at, ta2.ek_checked_at) AS actor_checked_at,\
+     COALESCE(ta.ek_hashtags, ta2.ek_hashtags) AS actor_hashtags,\
+     COALESCE(ta.as_type, ta2.as_type) AS actor_type,\
+     COALESCE(ta.as_context, ta2.as_context) AS actor_context,\
+     COALESCE(ta.as_id, ta2.as_id) AS actor_as_id,\
+     COALESCE(ta.as_name, ta2.as_name) AS actor_name,\
+     COALESCE(ta.as_preferred_username, ta2.as_preferred_username) AS actor_preferred_username,\
+     COALESCE(ta.as_summary, ta2.as_summary) AS actor_summary,\
+     COALESCE(ta.as_inbox, ta2.as_inbox) AS actor_inbox,\
+     COALESCE(ta.as_outbox, ta2.as_outbox) AS actor_outbox,\
+     COALESCE(ta.as_followers, ta2.as_followers) AS actor_followers,\
+     COALESCE(ta.as_following, ta2.as_following) AS actor_following,\
+     COALESCE(ta.as_liked, ta2.as_liked) AS actor_liked,\
+     COALESCE(ta.as_public_key, ta2.as_public_key) AS actor_public_key,\
+     COALESCE(ta.as_featured, ta2.as_featured) AS actor_featured,\
+     COALESCE(ta.as_featured_tags, ta2.as_featured_tags) AS actor_featured_tags,\
+     COALESCE(ta.as_url, ta2.as_url) AS actor_url,\
+     COALESCE(ta.as_published, ta2.as_published) AS actor_published,\
+     COALESCE(ta.as_tag, ta2.as_tag) AS actor_tag,\
+     COALESCE(ta.as_attachment, ta2.as_attachment) AS actor_attachment,\
+     COALESCE(ta.as_endpoints, ta2.as_endpoints) AS actor_endpoints,\
+     COALESCE(ta.as_icon, ta2.as_icon) AS actor_icon,\
+     COALESCE(ta.as_image, ta2.as_image) AS actor_image,\
+     COALESCE(ta.as_also_known_as, ta2.as_also_known_as) AS actor_also_known_as,\
+     COALESCE(ta.as_discoverable, ta2.as_discoverable) AS actor_discoverable,\
+     COALESCE(ta.ap_capabilities, ta2.ap_capabilities) AS actor_capabilities,\
+     COALESCE(ta.ap_manually_approves_followers, ta2.ap_manually_approves_followers) AS actor_manually_approves_followers ".to_string()
 }
 
 fn query_end_block(mut query: String) -> String {
@@ -283,12 +301,22 @@ fn query_end_block(mut query: String) -> String {
          m.object_type, m.object_published, m.object_as_id, m.object_url, m.object_to, m.object_cc, m.object_tag,\
          m.object_attributed_to, m.object_in_reply_to, m.object_content, m.object_conversation, m.object_attachment,\
          m.object_summary, m.object_end_time, m.object_one_of, m.object_any_of, m.object_voters_count,\
-         m.object_sensitive, m.object_metadata, m.object_profile_id, m.raw, m.target_object_id,\
-         announced.object_announced, liked.object_liked 
+         m.object_sensitive, m.object_metadata, m.object_profile_id, m.raw, m.actor_id, m.target_actor_id,\
+         m.target_object_id, m.actor_created_at, m.actor_updated_at, m.actor_uuid, m.actor_username,\
+         m.actor_summary_markdown, m.actor_avatar_filename, m.actor_banner_filename, m.actor_private_key,\
+         m.actor_password, m.actor_client_public_key, m.actor_client_private_key, m.actor_salt,\
+         m.actor_olm_pickled_account, m.actor_olm_pickled_account_hash, m.actor_olm_identity_key, m.actor_webfinger,\
+         m.actor_checked_at, m.actor_hashtags, m.actor_type, m.actor_context, m.actor_as_id, m.actor_name,\
+         m.actor_preferred_username, m.actor_summary, m.actor_inbox, m.actor_outbox, m.actor_followers,\
+         m.actor_following, m.actor_liked, m.actor_public_key, m.actor_featured, m.actor_featured_tags, m.actor_url,\
+         m.actor_published, m.actor_tag, m.actor_attachment, m.actor_endpoints, m.actor_icon, m.actor_image,\
+         m.actor_also_known_as, m.actor_discoverable, m.actor_capabilities, m.actor_manually_approves_followers,\
+         announced.object_announced, liked.object_liked \
          ORDER BY m.created_at DESC");
     query
 }
 
+#[allow(clippy::too_many_arguments)]
 fn build_main_query(
     filters: &Option<TimelineFilters>,
     limit: i32,
@@ -317,8 +345,10 @@ fn build_main_query(
     query.push_str(
         "FROM activities a \
          LEFT JOIN objects o ON (o.id = a.target_object_id) \
+         LEFT JOIN actors ta ON (ta.id = a.target_actor_id) \
          LEFT JOIN activities a2 ON (a.target_activity_id = a2.id) \
          LEFT JOIN objects o2 ON (a2.target_object_id = o2.id) \
+         LEFT JOIN actors ta2 ON (ta2.id = a2.target_actor_id) \
          LEFT JOIN actors ac ON (a.actor_id = ac.id) ",
     );
 
@@ -460,6 +490,7 @@ fn build_main_query(
     params
 }
 
+#[allow(clippy::too_many_arguments)]
 pub async fn get_activities_coalesced(
     conn: &Db,
     limit: i32,
@@ -496,7 +527,7 @@ fn bind_params<'a>(
     } else if let Some(uuid) = params.activity_uuid.clone() {
         log::debug!("SETTING ACTIVITY AS_ID: |{uuid}|");
         query = query.bind::<Text, _>(uuid);
-    } else if let Some(id) = params.activity_id.clone() {
+    } else if let Some(id) = params.activity_id {
         log::debug!("SETTING ACTIVITY AS_ID: |{id}|");
         query = query.bind::<Integer, _>(id);
     } else {
@@ -542,78 +573,6 @@ fn bind_params<'a>(
     query
 }
 
-pub async fn create_activity_cc(conn: Option<&Db>, activity_cc: NewActivityCc) -> bool {
-    log::debug!("INSERTING ACTIVITY_CC: {activity_cc:#?}");
-
-    match conn {
-        Some(conn) => conn
-            .run(move |c| {
-                diesel::insert_into(activities_cc::table)
-                    .values(&activity_cc)
-                    .get_result::<ActivityCc>(c)
-            })
-            .await
-            .is_ok(),
-        None => POOL.get().map_or(false, |mut pool| {
-            diesel::insert_into(activities_cc::table)
-                .values(&activity_cc)
-                .get_result::<ActivityCc>(&mut pool)
-                .is_ok()
-        }),
-    }
-}
-
-#[derive(
-    Identifiable,
-    Queryable,
-    AsChangeset,
-    Associations,
-    Serialize,
-    Deserialize,
-    Clone,
-    Default,
-    Debug,
-    QueryableByName,
-)]
-#[diesel(belongs_to(Activity, foreign_key = activity_id))]
-#[diesel(table_name = activities_to)]
-pub struct ActivityTo {
-    #[serde(skip_serializing)]
-    pub id: i32,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
-    pub activity_id: i32,
-    pub ap_id: String,
-}
-
-pub async fn create_activity_to(
-    conn: Option<&Db>,
-    activity_to: NewActivityTo,
-) -> Result<ActivityTo> {
-    log::debug!("INSERTING ACTIVITY_TO: {activity_to:#?}");
-
-    match conn {
-        Some(conn) => {
-            conn.run(move |c| {
-                diesel::insert_into(activities_to::table)
-                    .values(&activity_to)
-                    .get_result::<ActivityTo>(c)
-                    .map_err(anyhow::Error::msg)
-            })
-            .await
-        }
-        None => POOL.get().map_or(
-            Err(anyhow!("failed to retrieve database connection")),
-            |mut pool| {
-                diesel::insert_into(activities_to::table)
-                    .values(&activity_to)
-                    .get_result::<ActivityTo>(&mut pool)
-                    .map_err(anyhow::Error::msg)
-            },
-        ),
-    }
-}
-
 pub async fn create_activity(conn: Option<&Db>, activity: NewActivity) -> Result<Activity> {
     let activity = match conn {
         Some(conn) => {
@@ -638,22 +597,6 @@ pub async fn create_activity(conn: Option<&Db>, activity: NewActivity) -> Result
         }
     };
 
-    if let Some(ap_to) = activity.clone().ap_to {
-        let to: MaybeMultiple<String> = serde_json::from_value(ap_to).map_err(|e| anyhow!(e))?;
-
-        for to in to.multiple() {
-            let _ = create_activity_to(conn, (activity.clone(), to).into()).await;
-        }
-    }
-
-    if let Some(cc) = activity.clone().cc {
-        let cc: MaybeMultiple<String> = serde_json::from_value(cc).map_err(|e| anyhow!(e))?;
-
-        for cc in cc.multiple() {
-            let _ = create_activity_cc(conn, (activity.clone(), cc).into()).await;
-        }
-    }
-
     Ok(activity)
 }
 
@@ -663,11 +606,11 @@ pub async fn get_announcers(
     max: Option<i64>,
     limit: Option<u8>,
     target_ap_id: String,
-) -> Vec<RemoteActor> {
+) -> Vec<Actor> {
     conn.run(move |c| {
-        let mut query = remote_actors::table
-            .select(remote_actors::all_columns)
-            .left_join(activities::table.on(activities::actor.eq(remote_actors::ap_id)))
+        let mut query = actors::table
+            .select(actors::all_columns)
+            .left_join(activities::table.on(activities::actor.eq(actors::as_id)))
             .filter(activities::kind.eq(ActivityType::Announce))
             .filter(activities::target_ap_id.eq(target_ap_id))
             .into_boxed();
@@ -704,11 +647,11 @@ pub async fn get_likers(
     max: Option<i64>,
     limit: Option<u8>,
     target_ap_id: String,
-) -> Vec<RemoteActor> {
+) -> Vec<Actor> {
     conn.run(move |c| {
-        let mut query = remote_actors::table
-            .select(remote_actors::all_columns)
-            .left_join(activities::table.on(activities::actor.eq(remote_actors::ap_id)))
+        let mut query = actors::table
+            .select(actors::all_columns)
+            .left_join(activities::table.on(activities::actor.eq(actors::as_id)))
             .filter(activities::kind.eq(ActivityType::Like))
             .filter(activities::target_ap_id.eq(target_ap_id))
             .into_boxed();

@@ -1,6 +1,9 @@
 use crate::models::pg::activities::ActivityType;
+use crate::models::pg::actors::ActorType;
 use crate::models::pg::objects::ObjectType;
-use crate::schema::sql_types::{ActivityType as SqlActivityType, ObjectType as SqlObjectType};
+use crate::schema::sql_types::{
+    ActivityType as SqlActivityType, ActorType as SqlActorType, ObjectType as SqlObjectType,
+};
 use chrono::{DateTime, Utc};
 use diesel::prelude::*;
 use diesel::sql_types::{Bool, Integer, Jsonb, Nullable, Text, Timestamptz};
@@ -10,7 +13,7 @@ use serde_json::Value;
 
 #[derive(Queryable, Serialize, Deserialize, Clone, Default, Debug, QueryableByName)]
 pub struct CoalescedActivity {
-    // Activity Fields
+    // Primary Activity Fields
     #[diesel(sql_type = Integer)]
     pub id: i32,
 
@@ -80,6 +83,7 @@ pub struct CoalescedActivity {
     #[diesel(sql_type = Nullable<Integer>)]
     pub target_actor_id: Option<i32>,
 
+    // Secondary Activity Fields
     #[diesel(sql_type = Nullable<Timestamptz>)]
     pub recursive_created_at: Option<DateTime<Utc>>,
 
@@ -224,4 +228,134 @@ pub struct CoalescedActivity {
 
     #[diesel(sql_type = Nullable<Text>)]
     pub object_liked: Option<String>,
+
+    // Actor Fields
+    #[diesel(sql_type = Nullable<Timestamptz>)]
+    pub actor_created_at: Option<DateTime<Utc>>,
+
+    #[diesel(sql_type = Nullable<Timestamptz>)]
+    pub actor_updated_at: Option<DateTime<Utc>>,
+
+    #[diesel(sql_type = Nullable<Text>)]
+    pub actor_uuid: Option<String>,
+
+    #[diesel(sql_type = Nullable<Text>)]
+    pub actor_username: Option<String>,
+
+    #[diesel(sql_type = Nullable<Text>)]
+    pub actor_summary_markdown: Option<String>,
+
+    #[diesel(sql_type = Nullable<Text>)]
+    pub actor_avatar_filename: Option<String>,
+
+    #[diesel(sql_type = Nullable<Text>)]
+    pub actor_banner_filename: Option<String>,
+
+    #[diesel(sql_type = Nullable<Text>)]
+    pub actor_private_key: Option<String>,
+
+    #[diesel(sql_type = Nullable<Text>)]
+    pub actor_password: Option<String>,
+
+    #[diesel(sql_type = Nullable<Text>)]
+    pub actor_client_public_key: Option<String>,
+
+    #[diesel(sql_type = Nullable<Text>)]
+    pub actor_client_private_key: Option<String>,
+
+    #[diesel(sql_type = Nullable<Text>)]
+    pub actor_salt: Option<String>,
+
+    #[diesel(sql_type = Nullable<Text>)]
+    pub actor_olm_pickled_account: Option<String>,
+
+    #[diesel(sql_type = Nullable<Text>)]
+    pub actor_olm_pickled_account_hash: Option<String>,
+
+    #[diesel(sql_type = Nullable<Text>)]
+    pub actor_olm_identity_key: Option<String>,
+
+    #[diesel(sql_type = Nullable<Text>)]
+    pub actor_webfinger: Option<String>,
+
+    #[diesel(sql_type = Nullable<Timestamptz>)]
+    pub actor_checked_at: Option<DateTime<Utc>>,
+
+    #[diesel(sql_type = Nullable<Jsonb>)]
+    pub actor_hashtags: Option<Value>,
+
+    #[diesel(sql_type = Nullable<SqlActorType>)]
+    pub actor_type: Option<ActorType>,
+
+    #[diesel(sql_type = Nullable<Jsonb>)]
+    pub actor_context: Option<Value>,
+
+    #[diesel(sql_type = Nullable<Text>)]
+    pub actor_as_id: Option<String>,
+
+    #[diesel(sql_type = Nullable<Text>)]
+    pub actor_name: Option<String>,
+
+    #[diesel(sql_type = Nullable<Text>)]
+    pub actor_preferred_username: Option<String>,
+
+    #[diesel(sql_type = Nullable<Text>)]
+    pub actor_summary: Option<String>,
+
+    #[diesel(sql_type = Nullable<Text>)]
+    pub actor_inbox: Option<String>,
+
+    #[diesel(sql_type = Nullable<Text>)]
+    pub actor_outbox: Option<String>,
+
+    #[diesel(sql_type = Nullable<Text>)]
+    pub actor_followers: Option<String>,
+
+    #[diesel(sql_type = Nullable<Text>)]
+    pub actor_following: Option<String>,
+
+    #[diesel(sql_type = Nullable<Text>)]
+    pub actor_liked: Option<String>,
+
+    #[diesel(sql_type = Nullable<Jsonb>)]
+    pub actor_public_key: Option<Value>,
+
+    #[diesel(sql_type = Nullable<Text>)]
+    pub actor_featured: Option<String>,
+
+    #[diesel(sql_type = Nullable<Text>)]
+    pub actor_featured_tags: Option<String>,
+
+    #[diesel(sql_type = Nullable<Text>)]
+    pub actor_url: Option<String>,
+
+    #[diesel(sql_type = Nullable<Timestamptz>)]
+    pub actor_published: Option<DateTime<Utc>>,
+
+    #[diesel(sql_type = Nullable<Jsonb>)]
+    pub actor_tag: Option<Value>,
+
+    #[diesel(sql_type = Nullable<Jsonb>)]
+    pub actor_attachment: Option<Value>,
+
+    #[diesel(sql_type = Nullable<Jsonb>)]
+    pub actor_endpoints: Option<Value>,
+
+    #[diesel(sql_type = Nullable<Jsonb>)]
+    pub actor_icon: Option<Value>,
+
+    #[diesel(sql_type = Nullable<Jsonb>)]
+    pub actor_image: Option<Value>,
+
+    #[diesel(sql_type = Nullable<Jsonb>)]
+    pub actor_also_known_as: Option<Value>,
+
+    #[diesel(sql_type = Nullable<Bool>)]
+    pub actor_discoverable: Option<bool>,
+
+    #[diesel(sql_type = Nullable<Jsonb>)]
+    pub actor_capabilities: Option<Value>,
+
+    #[diesel(sql_type = Nullable<Bool>)]
+    pub actor_manually_approves_followers: Option<bool>,
 }

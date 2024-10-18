@@ -7,10 +7,10 @@ use crate::{
     fairings::events::EventChannels,
     helper::get_activity_ap_id_from_uuid,
     models::{
-        activities::{create_activity, ActivityType, ExtendedActivity, NewActivity, NoteActivity},
+        activities::{create_activity, ActivityType, ExtendedActivity, NewActivity},
         actors::Actor,
         from_serde, from_time,
-        notes::get_notey,
+        objects::get_object_by_as_id,
         pg::coalesced_activity::CoalescedActivity,
     },
     runner, MaybeMultiple, MaybeReference,
@@ -113,20 +113,19 @@ async fn outbox(
     conn: Db,
     channels: EventChannels,
     announce: ApAnnounce,
-    profile: Actor,
+    _profile: Actor,
 ) -> Result<String, Status> {
-    if let MaybeReference::Reference(id) = announce.object {
-        let note_like = get_notey(&conn, id).await.ok_or(Status::new(520))?;
+    if let MaybeReference::Reference(as_id) = announce.clone().object {
+        let object = get_object_by_as_id(Some(&conn), as_id)
+            .await
+            .map_err(|_| Status::NotFound)?;
 
         let activity = create_activity(
             Some(&conn),
-            NewActivity::from(NoteActivity {
-                note: note_like,
-                profile: profile.clone(),
-                kind: ActivityType::Announce,
-            })
-            .link_profile(&conn)
-            .await,
+            NewActivity::try_from((announce.into(), Some(object.into())))
+                .map_err(|_| Status::InternalServerError)?
+                .link_profile(&conn)
+                .await,
         )
         .await
         .map_err(|_| Status::new(521))?;
@@ -208,7 +207,7 @@ impl TryFrom<ExtendedActivity> for ApAnnounce {
     type Error = anyhow::Error;
 
     fn try_from(
-        (activity, _target_activity, target_object): ExtendedActivity,
+        (activity, _target_activity, target_object, _target_actor): ExtendedActivity,
     ) -> Result<Self, Self::Error> {
         if activity.kind.to_string().to_lowercase().as_str() == "announce" {
             let ap_to = activity.ap_to.ok_or(anyhow::Error::msg("ap_to is None"))?;

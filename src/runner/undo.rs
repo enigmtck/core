@@ -4,7 +4,7 @@ use crate::{
     fairings::events::EventChannels,
     helper::{get_activity_ap_id_from_uuid, get_local_identifier, LocalIdentifierType},
     models::{
-        activities::{get_activity, get_activity_by_ap_id, revoke_activity_by_uuid},
+        activities::{get_activity_by_ap_id, revoke_activity_by_uuid},
         actors::get_actor,
         leaders::delete_leader_by_ap_id_and_profile_id,
     },
@@ -24,7 +24,7 @@ pub async fn process_outbound_undo_task(
     for uuid in uuids {
         log::debug!("LOOKING FOR UUID {uuid}");
 
-        let (activity, target_activity, target_object) = get_activity_by_ap_id(
+        let (activity, target_activity, target_object, target_actor) = get_activity_by_ap_id(
             conn.ok_or(TaskError::TaskFailed)?,
             get_activity_ap_id_from_uuid(uuid.clone()),
         )
@@ -35,13 +35,12 @@ pub async fn process_outbound_undo_task(
         let sender = get_actor(conn.unwrap(), profile_id)
             .await
             .ok_or(TaskError::TaskFailed)?;
-        let id = activity.target_activity_id.ok_or(TaskError::TaskFailed)?;
-
-        let recursive_activity = get_activity(conn, id).await;
 
         let ap_activity = ApActivity::try_from((
-            (activity.clone(), target_activity, target_object),
-            recursive_activity.clone(),
+            activity.clone(),
+            target_activity.clone(),
+            target_object.clone(),
+            target_actor.clone(),
         ))
         .map_err(|_| TaskError::TaskFailed)?;
         let inboxes: Vec<ApAddress> = get_inboxes(conn, ap_activity.clone(), sender.clone()).await;
@@ -52,9 +51,13 @@ pub async fn process_outbound_undo_task(
             .await
             .map_err(|_| TaskError::TaskFailed)?;
 
-        let target_activity = recursive_activity.ok_or(TaskError::TaskFailed)?;
-        let target_activity =
-            ApActivity::try_from((target_activity, None)).map_err(|_| TaskError::TaskFailed)?;
+        let target_activity = ApActivity::try_from((
+            target_activity.ok_or(TaskError::TaskFailed)?,
+            None,
+            target_object,
+            target_actor,
+        ))
+        .map_err(|_| TaskError::TaskFailed)?;
         match target_activity {
             ApActivity::Follow(follow) => {
                 let id = follow.id.ok_or(TaskError::TaskFailed)?;

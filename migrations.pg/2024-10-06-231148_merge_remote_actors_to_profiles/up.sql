@@ -102,7 +102,7 @@ SELECT
   username,
   display_name,
   summary,
-  ('{"id": "https://enigmatick.jdt.dev/user/' || username || '#main-key", "owner": "https://enigmatick.jdt.dev/user/' || username || '", "publicKeyPem": "' || regexp_replace(public_key, E'\n', '\\n', 'g') || '"}')::jsonb,
+  ('{"id": "https://enigmatick.social/user/' || username || '#main-key", "owner": "https://enigmatick.social/user/' || username || '", "publicKeyPem": "' || regexp_replace(public_key, E'\n', '\\n', 'g') || '"}')::jsonb,
   private_key,
   password,
   client_public_key,
@@ -115,23 +115,23 @@ SELECT
   olm_identity_key,
   summary_markdown,
   username,
-  'https://enigmatick.jdt.dev/user/' || username || '/inbox',
-  'https://enigmatick.jdt.dev/user/' || username || '/outbox',
-  'https://enigmatick.jdt.dev/user/' || username || '/followers',
-  'https://enigmatick.jdt.dev/user/' || username || '/following',
-  'https://enigmatick.jdt.dev/user/' || username || '/liked',
+  'https://enigmatick.social/user/' || username || '/inbox',
+  'https://enigmatick.social/user/' || username || '/outbox',
+  'https://enigmatick.social/user/' || username || '/followers',
+  'https://enigmatick.social/user/' || username || '/following',
+  'https://enigmatick.social/user/' || username || '/liked',
   created_at,
-  'https://enigmatick.jdt.dev/@' || username,
-  '{"sharedInbox": "https://enigmatick.jdt.dev/inbox"}'::jsonb,
+  'https://enigmatick.social/@' || username,
+  '{"sharedInbox": "https://enigmatick.social/inbox"}'::jsonb,
   true,
   false,
   '{"acceptsChatMessages": false, "enigmatickEncryption": true}'::jsonb,
   '[]'::jsonb,
   '[]'::jsonb,
-  'https://enigmatick.jdt.dev/user/' || username,
-  coalesce(('{"url": "https://enigmatick.jdt.dev/' || avatar_filename || '", "type": "Image", "mediaType": "image/png"}')::jsonb, '{}'::jsonb),
-  coalesce(('{"url": "https://enigmatick.jdt.dev/media/banners/' || banner_filename || '", "type": "Image", "mediaType": "image/png"}')::jsonb, '{}'::jsonb),
-  '@' || username || '@enigmatick.jdt.dev'
+  'https://enigmatick.social/user/' || username,
+  coalesce(('{"url": "https://enigmatick.social/' || avatar_filename || '", "type": "Image", "mediaType": "image/png"}')::jsonb, '{}'::jsonb),
+  coalesce(('{"url": "https://enigmatick.social/media/banners/' || banner_filename || '", "type": "Image", "mediaType": "image/png"}')::jsonb, '{}'::jsonb),
+  '@' || username || '@enigmatick.social'
   FROM profiles;
 
 INSERT INTO actors (
@@ -210,7 +210,7 @@ UPDATE activities a
             LEFT JOIN profiles p
                 ON (a2.profile_id = p.id)
             INNER JOIN actors ac
-                ON (ac.as_id = 'https://enigmatick.jdt.dev/user/' || p.username)
+                ON (ac.as_id = 'https://enigmatick.social/user/' || p.username)
       WHERE a2.id = a.id)
  WHERE a.profile_id IS NOT NULL;
 CREATE INDEX idx_activities_actor_id ON activities (actor_id);
@@ -228,35 +228,35 @@ UPDATE activities a
  WHERE a.target_remote_actor_id IS NOT NULL;
 CREATE INDEX idx_activities_target_actor_id ON activities (target_actor_id);
 
-UPDATE activities a
-   SET target_object_id = (
-     SELECT o.id
-       FROM activities a2
-            INNER JOIN objects o
-                ON (a.target_ap_id = o.as_id)
-      WHERE a2.id = a.id
-   )
- WHERE a.target_object_id IS NULL;
+-- UPDATE activities a
+--    SET target_object_id = (
+--      SELECT o.id
+--        FROM activities a2
+--             INNER JOIN objects o
+--                 ON (a.target_ap_id = o.as_id)
+--       WHERE a2.id = a.id
+--    )
+--  WHERE a.target_object_id IS NULL;
 
-DELETE FROM activities
- WHERE target_note_id IS NULL
-   AND target_remote_note_id IS NULL
-   AND target_profile_id IS NULL
-   AND target_activity_id IS NULL
-   AND target_remote_actor_id IS NULL
-   AND target_remote_question_id IS NULL
-   AND target_object_id IS NULL;
+-- DELETE FROM activities
+--  WHERE target_note_id IS NULL
+--    AND target_remote_note_id IS NULL
+--    AND target_profile_id IS NULL
+--    AND target_activity_id IS NULL
+--    AND target_remote_actor_id IS NULL
+--    AND target_remote_question_id IS NULL
+--    AND target_object_id IS NULL;
 
-ALTER TABLE activities DROP CONSTRAINT target_not_null;
-ALTER TABLE activities
-  ADD CONSTRAINT target_not_null
-  CHECK (
-    NOT (
-      target_note_id IS NULL
-      AND target_remote_note_id IS NULL
-      AND target_profile_id IS NULL
-      AND target_remote_actor_id IS NULL
-      AND target_activity_id IS NULL
-      AND target_remote_question_id IS NULL
-      AND target_object_id IS NULL
-      AND target_actor_id IS NULL));
+--ALTER TABLE activities DROP CONSTRAINT target_not_null;
+-- ALTER TABLE activities
+--   ADD CONSTRAINT target_not_null
+--   CHECK (
+--     NOT (
+--       target_note_id IS NULL
+--       AND target_remote_note_id IS NULL
+--       AND target_profile_id IS NULL
+--       AND target_remote_actor_id IS NULL
+--       AND target_activity_id IS NULL
+--       AND target_remote_question_id IS NULL
+--       AND target_object_id IS NULL
+--       AND target_actor_id IS NULL));

@@ -3,23 +3,22 @@ use std::collections::HashSet;
 
 use crate::{
     activity_pub::{
-        retriever, ApActivity, ApActor, ApInstrument, ApInstrumentType, ApInstruments, ApInvite,
-        ApJoin, ApNote, ApSession, JoinData,
+        ApActivity, ApActor, ApInstrument, ApInstrumentType, ApInstruments, ApInvite, ApJoin,
+        ApNote, ApSession, JoinData,
     },
     db::Db,
     fairings::events::EventChannels,
     helper::{get_local_identifier, is_local, LocalIdentifierType},
     models::{
-        actors::{get_actor, get_actor_by_username, Actor},
+        actors::{get_actor, get_actor_by_as_id, get_actor_by_username, Actor},
         encrypted_sessions::{
             create_encrypted_session, get_encrypted_session_by_profile_id_and_ap_to,
             get_encrypted_session_by_uuid, NewEncryptedSession,
         },
-        notes::Note,
+        objects::Object,
         olm_one_time_keys::get_olm_one_time_key_by_profile_id,
         olm_sessions::{create_olm_session, update_olm_session},
         processing_queue::create_processing_item,
-        remote_actors::get_remote_actor_by_ap_id,
         remote_encrypted_sessions::get_remote_encrypted_session_by_ap_id,
     },
     runner::{self, send_to_inboxes},
@@ -29,7 +28,7 @@ use super::TaskError;
 
 pub async fn handle_encrypted_note(
     conn: Option<&Db>,
-    note: &mut Note,
+    note: &mut Object,
     inboxes: &mut HashSet<String>,
     sender: Actor,
 ) -> Option<ApNote> {
@@ -39,13 +38,13 @@ pub async fn handle_encrypted_note(
         conn: Option<&Db>,
         instrument: ApInstrument,
         inboxes: &mut HashSet<String>,
-        note: &mut Note,
+        note: &mut Object,
         sender: Actor,
     ) -> Result<()> {
         if let ApInstrumentType::OlmSession = instrument.kind {
             cfg_if::cfg_if! {
                 if #[cfg(feature = "pg")] {
-                    let to = serde_json::from_value::<Vec<String>>(note.ap_to.clone())?;
+                    let to = serde_json::from_value::<Vec<String>>(note.as_to.clone().unwrap())?;
                 } else if #[cfg(feature = "sqlite")] {
                     let to = serde_json::from_str::<Vec<String>>(&note.ap_to.clone())?;
                 }
@@ -64,7 +63,7 @@ pub async fn handle_encrypted_note(
                         if let Some(receiver) =
                             runner::actor::get_actor(conn, sender.clone(), to[0].clone()).await
                         {
-                            inboxes.insert(receiver.0.inbox);
+                            inboxes.insert(receiver.0.as_inbox);
                         }
                     }
                 } else {
@@ -75,7 +74,7 @@ pub async fn handle_encrypted_note(
                         if let Some(receiver) =
                             runner::actor::get_actor(conn, sender.clone(), to[0].clone()).await
                         {
-                            inboxes.insert(receiver.0.inbox);
+                            inboxes.insert(receiver.0.as_inbox);
                         }
                     }
                 }
@@ -85,7 +84,7 @@ pub async fn handle_encrypted_note(
         Ok(())
     }
 
-    if let Some(instrument) = &note.instrument {
+    if let Some(instrument) = &note.ek_instrument {
         cfg_if::cfg_if! {
             if #[cfg(feature = "pg")] {
                 let instruments = serde_json::from_value::<ApInstruments>(instrument.clone()).ok()?;
@@ -106,7 +105,7 @@ pub async fn handle_encrypted_note(
             _ => (),
         }
 
-        Some(note.clone().into())
+        Some(note.clone().try_into().ok()?)
     } else {
         log::error!("NO instrument");
         Option::None
@@ -135,9 +134,9 @@ pub async fn process_join_task(
                 .await
                 .ok_or(TaskError::TaskFailed)?;
             let session_clone = session.clone();
-            let actor = get_remote_actor_by_ap_id(conn, session_clone.attributed_to)
+            let actor = get_actor_by_as_id(conn.unwrap(), session_clone.attributed_to)
                 .await
-                .map_err(|_| TaskError::TaskFailed)?;
+                .ok_or(TaskError::TaskFailed)?;
             log::debug!("ACTOR\n{actor:#?}");
             //let session: ApSession = session.clone().into();
 
@@ -185,10 +184,10 @@ pub async fn send_kexinit_task(
                     }
                 }
             }
-        } else if let Ok(actor) =
-            get_remote_actor_by_ap_id(conn, session.to.clone().to_string()).await
+        } else if let Some(actor) =
+            get_actor_by_as_id(conn.unwrap(), session.to.clone().to_string()).await
         {
-            inbox = Some(actor.inbox);
+            inbox = Some(actor.as_inbox);
         }
 
         let inbox = inbox.ok_or(TaskError::TaskFailed)?;
@@ -222,9 +221,9 @@ pub async fn provide_one_time_key_task(
 
         let identifier =
             get_local_identifier(session.ap_to.clone()).ok_or(TaskError::TaskFailed)?;
-        let actor = get_remote_actor_by_ap_id(conn, session.attributed_to.clone())
+        let actor = get_actor_by_as_id(conn.unwrap(), session.attributed_to.clone())
             .await
-            .map_err(|_| TaskError::TaskFailed)?;
+            .ok_or(TaskError::TaskFailed)?;
 
         if identifier.kind == LocalIdentifierType::User {
             let username = identifier.identifier;
@@ -257,7 +256,7 @@ pub async fn provide_one_time_key_task(
                 .is_some()
             {
                 match send_to_inboxes(
-                    vec![actor.inbox.into()],
+                    vec![actor.as_inbox.into()],
                     profile,
                     ApActivity::Join(activity),
                 )

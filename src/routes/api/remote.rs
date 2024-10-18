@@ -6,8 +6,7 @@ use crate::activity_pub::{ApActor, ApObject};
 use crate::db::Db;
 use crate::fairings::access_control::BlockList;
 use crate::helper::{get_domain_from_url, get_domain_from_webfinger};
-use crate::models::actors::get_actor_by_username;
-use crate::models::remote_actors::get_remote_actor_by_webfinger;
+use crate::models::actors::{get_actor_by_username, get_actor_by_webfinger};
 use rocket::http::Status;
 use rocket::{get, serde::json::Json};
 
@@ -59,7 +58,7 @@ pub async fn remote_id_authenticated(
 }
 
 async fn remote_actor_response(conn: &Db, webfinger: String) -> Result<Json<ApActor>, Status> {
-    if let Some(actor) = get_remote_actor_by_webfinger(conn, webfinger.clone()).await {
+    if let Some(actor) = get_actor_by_webfinger(conn, webfinger.clone()).await {
         log::debug!("FOUND REMOTE ACTOR LOCALLY");
         Ok(Json(ApActor::from(actor)))
     } else if let Some(ap_id) = get_ap_id_from_webfinger(webfinger).await {

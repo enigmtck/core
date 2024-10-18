@@ -30,7 +30,7 @@ pub async fn send_announce_task(
     for uuid in uuids {
         log::debug!("LOOKING FOR UUID {uuid}");
 
-        let (activity, target_activity, target_object) = get_activity_by_ap_id(
+        let (activity, target_activity, target_object, target_actor) = get_activity_by_ap_id(
             conn.ok_or(TaskError::TaskFailed)?,
             get_activity_ap_id_from_uuid(uuid.clone()),
         )
@@ -42,8 +42,9 @@ pub async fn send_announce_task(
         let sender = get_actor(conn.unwrap(), profile_id)
             .await
             .ok_or(TaskError::TaskFailed)?;
-        let activity = ApActivity::try_from(((activity, target_activity, target_object), None))
-            .map_err(|_| TaskError::TaskFailed)?;
+        let activity =
+            ApActivity::try_from((activity, target_activity, target_object, target_actor))
+                .map_err(|_| TaskError::TaskFailed)?;
         let inboxes: Vec<ApAddress> = get_inboxes(conn, activity.clone(), sender.clone()).await;
 
         send_to_inboxes(inboxes, sender, activity.clone())
@@ -86,7 +87,7 @@ pub async fn remote_announce_task(
 
     let profile = profile.clone();
 
-    let (activity, _target_activity, _target_object) = get_activity_by_ap_id(
+    let (activity, _target_activity, _target_object, _target_actor) = get_activity_by_ap_id(
         conn.ok_or(TaskError::TaskFailed)?,
         get_activity_ap_id_from_uuid(uuid.clone()),
     )

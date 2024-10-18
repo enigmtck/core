@@ -38,7 +38,7 @@ pub async fn send_like_task(
     for uuid in uuids {
         log::debug!("LOOKING FOR UUID {uuid}");
 
-        let (activity, target_activity, target_object) = get_activity_by_ap_id(
+        let (activity, target_activity, target_object, target_actor) = get_activity_by_ap_id(
             conn.ok_or(TaskError::TaskFailed)?,
             get_activity_ap_id_from_uuid(uuid.clone()),
         )
@@ -52,8 +52,9 @@ pub async fn send_like_task(
             .await
             .ok_or(TaskError::TaskFailed)?;
 
-        let activity = ApActivity::try_from(((activity, target_activity, target_object), None))
-            .map_err(|_| TaskError::TaskFailed)?;
+        let activity =
+            ApActivity::try_from((activity, target_activity, target_object, target_actor))
+                .map_err(|_| TaskError::TaskFailed)?;
 
         let inboxes: Vec<ApAddress> = get_inboxes(conn, activity.clone(), sender.clone()).await;
 

@@ -1,4 +1,4 @@
-use crate::activity_pub::{ApInstruments, ApNoteType, ApObject, ApSession};
+use crate::activity_pub::{ApInstruments, ApObject, ApSession};
 use crate::db::Db;
 use crate::schema::processing_queue;
 use diesel::prelude::*;
@@ -10,11 +10,6 @@ use crate::models::{from_serde, to_serde};
 
 cfg_if::cfg_if! {
     if #[cfg(feature = "pg")] {
-        use crate::models::pg::notes::NoteType;
-        pub fn to_kind(kind: ApNoteType) -> NoteType {
-            kind.into()
-        }
-
         pub use crate::models::pg::processing_queue::NewProcessingItem;
         pub use crate::models::pg::processing_queue::ProcessingItem;
         pub use crate::models::pg::processing_queue::create_processing_item;
@@ -36,13 +31,12 @@ impl From<RemoteEncryptedSession> for NewProcessingItem {
         let ap_session: ApSession = session.clone().into();
 
         NewProcessingItem {
-            profile_id: session.profile_id,
             kind: session.clone().kind,
             ap_id: format!("{}#processing", session.ap_id),
-            ap_to: to_serde(session.ap_to).unwrap(),
+            ap_to: to_serde(&Some(session.ap_to)).unwrap(),
             attributed_to: session.attributed_to,
             cc: Option::None,
-            ap_object: to_serde(ap_session).unwrap(),
+            ap_object: to_serde(&Some(ap_session)).unwrap(),
             processed: false,
         }
     }

@@ -9,7 +9,7 @@ use crate::{
     models::{
         activities::{
             create_activity, get_activity_by_ap_id, ActivityTarget, ActivityType, ApActivityTarget,
-            NewActivity,
+            ExtendedActivity, NewActivity,
         },
         actors::Actor,
     },
@@ -19,8 +19,6 @@ use anyhow::anyhow;
 use rocket::http::Status;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-
-use super::activity::RecursiveActivity;
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub enum ApUndoType {
@@ -172,7 +170,7 @@ async fn handle_undo(
 
     log::debug!("TARGET_AP_ID: {target_ap_id:#?}");
     if let Some(target_ap_id) = target_ap_id {
-        if let Some((activity, _target_activity, _target_object)) =
+        if let Some((activity, _target_activity, _target_object, _target_actor)) =
             get_activity_by_ap_id(&conn, target_ap_id).await
         {
             if let Ok(activity) = create_activity(
@@ -209,14 +207,16 @@ async fn handle_undo(
     }
 }
 
-impl TryFrom<RecursiveActivity> for ApUndo {
+impl TryFrom<ExtendedActivity> for ApUndo {
     type Error = anyhow::Error;
 
     fn try_from(
-        ((activity, _target_activity, _target_object), recursive): RecursiveActivity,
+        (activity, target_activity, target_object, target_actor): ExtendedActivity,
     ) -> Result<Self, Self::Error> {
-        if let Some(recursive) = recursive {
-            if let Ok(recursive_activity) = ApActivity::try_from((recursive.clone(), None)) {
+        if let Some(target_activity) = target_activity {
+            if let Ok(recursive_activity) =
+                ApActivity::try_from((target_activity.clone(), None, target_object, target_actor))
+            {
                 match recursive_activity {
                     ApActivity::Follow(follow) => Ok(ApUndo {
                         context: Some(ApContext::default()),
@@ -257,7 +257,7 @@ impl TryFrom<RecursiveActivity> for ApUndo {
                     }
                 }
             } else {
-                log::error!("FAILED TO CONVERT ACTIVITY: {recursive:#?}");
+                log::error!("FAILED TO CONVERT ACTIVITY: {target_activity:#?}");
                 Err(anyhow!("FAILED TO CONVERT ACTIVITY"))
             }
         } else {

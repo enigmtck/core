@@ -28,7 +28,7 @@ impl From<IdentifiedApInvite> for NewRemoteEncryptedSession {
                 ap_to: session.to.to_string(),
                 attributed_to: session.attributed_to.to_string(),
                 reference: session.reference,
-                instrument: to_serde(session.instrument).unwrap(),
+                instrument: to_serde(&Some(session.instrument)).unwrap(),
             }
         } else {
             NewRemoteEncryptedSession::default()
@@ -48,7 +48,7 @@ impl From<IdentifiedApJoin> for NewRemoteEncryptedSession {
                 ap_to: session.to.to_string(),
                 attributed_to: session.attributed_to.to_string(),
                 reference: session.reference,
-                instrument: to_serde(session.instrument).unwrap(),
+                instrument: to_serde(&Some(session.instrument)).unwrap(),
             }
         } else {
             NewRemoteEncryptedSession::default()

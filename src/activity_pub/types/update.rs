@@ -6,9 +6,8 @@ use crate::{
     db::Db,
     fairings::events::EventChannels,
     models::{
-        actors::Actor,
+        actors::{create_or_update_actor, Actor, NewActor},
         objects::create_or_update_object,
-        remote_actors::{create_or_update_remote_actor, NewRemoteActor},
     },
     MaybeMultiple, MaybeReference,
 };
@@ -58,9 +57,9 @@ impl Inbox for ApUpdate {
                 ApObject::Actor(actor) => {
                     log::debug!("UPDATING ACTOR: {}", actor.clone().id.unwrap_or_default());
 
-                    if let Ok(new_remote_actor) = NewRemoteActor::try_from(actor.clone()) {
+                    if let Ok(new_remote_actor) = NewActor::try_from(actor.clone()) {
                         if actor.clone().id.unwrap_or_default() == self.actor.clone()
-                            && create_or_update_remote_actor((&conn).into(), new_remote_actor)
+                            && create_or_update_actor(Some(&conn), new_remote_actor)
                                 .await
                                 .is_ok()
                         {

@@ -133,8 +133,8 @@ pub async fn cache_content(conn: &Db, cacheable: Result<Cacheable>) {
             {
                 if let Ok(cache_item) = cache_item
                     .download(
-                        conn.into(),
-                        get_actor_by_username(conn.into(), (*crate::SYSTEM_USER).clone()).await,
+                        conn,
+                        get_actor_by_username(conn, (*crate::SYSTEM_USER).clone()).await,
                     )
                     .await
                 {

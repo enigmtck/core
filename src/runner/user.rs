@@ -5,9 +5,8 @@ use crate::{
     db::Db,
     fairings::events::EventChannels,
     models::{
-        actors::{get_actor_by_uuid, Actor},
+        actors::{get_actor_by_as_id, get_actor_by_uuid, Actor},
         followers::get_followers_by_actor_id,
-        remote_actors::get_remote_actor_by_ap_id,
     },
     runner::send_to_inboxes,
 };
@@ -18,7 +17,7 @@ pub async fn get_follower_inboxes(conn: &Db, profile: Actor) -> Vec<ApAddress> {
     let mut inboxes: HashSet<ApAddress> = HashSet::new();
 
     for (follower, _) in get_followers_by_actor_id(conn, profile.id).await {
-        if let Ok(actor) = get_remote_actor_by_ap_id(None, follower.actor).await {
+        if let Some(actor) = get_actor_by_as_id(conn, follower.actor).await {
             let actor = ApActor::from(actor);
             if let Some(endpoints) = actor.endpoints {
                 inboxes.insert(ApAddress::Address(endpoints.shared_inbox));

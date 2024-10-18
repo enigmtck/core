@@ -11,7 +11,6 @@ use serde_json::Value;
 #[derive(Serialize, Deserialize, Insertable, Default, Debug, Clone)]
 #[diesel(table_name = processing_queue)]
 pub struct NewProcessingItem {
-    pub profile_id: i32,
     pub kind: String,
     pub ap_id: String,
     pub ap_to: Value,
@@ -28,6 +27,7 @@ pub struct ProcessingItem {
     pub id: i32,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+    pub profile_id: i32,
     pub ap_id: String,
     pub ap_to: Value,
     pub cc: Option<Value>,
@@ -35,7 +35,6 @@ pub struct ProcessingItem {
     pub kind: String,
     pub ap_object: Value,
     pub processed: bool,
-    pub profile_id: i32,
 }
 
 pub async fn create_processing_item(

@@ -107,19 +107,20 @@ impl From<ApNote> for NewObject {
             as_url: serde_json::to_value(note.clone().url).ok(),
             as_published: published,
             as_type: note.clone().kind.into(),
-            as_id: note.clone().id.unwrap(),
-            as_attributed_to: to_serde(note.attributed_to.to_string()),
-            as_to: to_serde(note.to),
-            as_cc: note.cc.and_then(to_serde),
-            as_replies: note.replies.and_then(to_serde),
-            as_tag: note.tag.and_then(to_serde),
+            as_id: note.id.clone().unwrap(),
+            as_attributed_to: to_serde(&Some(note.attributed_to.to_string())),
+            as_to: to_serde(&Some(note.to)),
+            as_cc: to_serde(&note.cc),
+            as_replies: to_serde(&note.replies),
+            as_tag: to_serde(&note.tag),
             as_content: Some(ammonia.clean(&note.content).to_string()),
             as_summary: note.summary.map(|x| ammonia.clean(&x).to_string()),
             ap_sensitive: note.sensitive,
-            as_in_reply_to: note.in_reply_to.and_then(to_serde),
+            as_in_reply_to: to_serde(&note.in_reply_to),
             ap_conversation: note.conversation,
-            as_content_map: to_serde(clean_content_map),
-            as_attachment: note.attachment.and_then(to_serde),
+            as_content_map: to_serde(&Some(clean_content_map)),
+            as_attachment: to_serde(&note.attachment),
+            ek_uuid: note.internal_uuid,
             ..Default::default()
         }
     }
@@ -130,23 +131,23 @@ impl From<ApQuestion> for NewObject {
         NewObject {
             as_type: question.kind.into(),
             as_id: question.id,
-            as_to: to_serde(question.to),
-            as_cc: question.cc.and_then(to_serde),
+            as_to: to_serde(&Some(question.to)),
+            as_cc: to_serde(&question.cc),
             as_end_time: question.end_time.map(to_time),
             as_published: question.published.map(to_time),
-            as_one_of: question.one_of.and_then(to_serde),
-            as_any_of: question.any_of.and_then(to_serde),
+            as_one_of: to_serde(&question.one_of),
+            as_any_of: to_serde(&question.any_of),
             as_content: question.content,
-            as_content_map: question.content_map.and_then(to_serde),
+            as_content_map: to_serde(&question.content_map),
             as_summary: question.summary,
             ap_voters_count: question.voters_count,
-            as_url: question.url.and_then(to_serde),
+            as_url: to_serde(&question.url),
             ap_conversation: question.conversation,
-            as_tag: question.tag.and_then(to_serde),
-            as_attachment: question.attachment.and_then(to_serde),
+            as_tag: to_serde(&question.tag),
+            as_attachment: to_serde(&question.attachment),
             ap_sensitive: question.sensitive,
-            as_in_reply_to: question.in_reply_to.and_then(to_serde),
-            as_attributed_to: to_serde(question.attributed_to.to_string()),
+            as_in_reply_to: to_serde(&question.in_reply_to),
+            as_attributed_to: to_serde(&Some(question.attributed_to.to_string())),
             ..Default::default()
         }
     }
@@ -196,6 +197,12 @@ pub async fn get_object_by_as_id(conn: Option<&Db>, as_id: String) -> Result<Obj
 
 pub async fn delete_object_by_as_id(conn: &Db, as_id: String) -> Result<usize> {
     conn.run(move |c| diesel::delete(objects::table.filter(objects::as_id.eq(as_id))).execute(c))
+        .await
+        .map_err(anyhow::Error::msg)
+}
+
+pub async fn delete_object_by_uuid(conn: &Db, uuid: String) -> Result<usize> {
+    conn.run(move |c| diesel::delete(objects::table.filter(objects::ek_uuid.eq(uuid))).execute(c))
         .await
         .map_err(anyhow::Error::msg)
 }

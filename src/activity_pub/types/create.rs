@@ -5,6 +5,7 @@ use crate::{
     activity_pub::{ApActivity, ApAddress, ApContext, ApNote, ApObject, Inbox, Outbox, Temporal},
     db::Db,
     fairings::events::EventChannels,
+    helper::get_activity_ap_id_from_uuid,
     models::{
         activities::{
             create_activity, ActivityTarget, ActivityType, ApActivityTarget, ExtendedActivity,
@@ -17,11 +18,12 @@ use crate::{
     },
     runner, MaybeMultiple, MaybeReference,
 };
-use anyhow::anyhow;
+use anyhow::{anyhow, Result};
 use chrono::{DateTime, Utc};
 use rocket::http::Status;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use uuid::Uuid;
 
 use super::{question::ApQuestion, signature::ApSignature};
 
@@ -223,7 +225,7 @@ impl TryFrom<CoalescedActivity> for ApCreate {
 impl TryFrom<ExtendedActivity> for ApCreate {
     type Error = anyhow::Error;
     fn try_from(
-        (activity, _target_activity, target_object): ExtendedActivity,
+        (activity, _target_activity, target_object, _target_actor): ExtendedActivity,
     ) -> Result<Self, Self::Error> {
         let note = {
             if let Some(object) = target_object {
@@ -273,5 +275,43 @@ impl Temporal for ApCreate {
 
     fn updated_at(&self) -> Option<DateTime<Utc>> {
         self.ephemeral_updated_at
+    }
+}
+
+impl TryFrom<ApObject> for ApCreate {
+    type Error = anyhow::Error;
+
+    fn try_from(object: ApObject) -> Result<ApCreate> {
+        match object.clone() {
+            ApObject::Note(note) => {
+                let uuid = Uuid::new_v4().to_string();
+                let context = Some(ApContext::default());
+                let kind = ApCreateType::default();
+                let actor = note.attributed_to;
+                let id = Some(get_activity_ap_id_from_uuid(uuid));
+                let object = object.into();
+                let to = note.to;
+                let cc = note.cc;
+                let signature = None;
+                let published = Some(note.published);
+                let ephemeral_created_at = None;
+                let ephemeral_updated_at = None;
+
+                Ok(ApCreate {
+                    context,
+                    kind,
+                    actor,
+                    id,
+                    object,
+                    to,
+                    cc,
+                    signature,
+                    published,
+                    ephemeral_created_at,
+                    ephemeral_updated_at,
+                })
+            }
+            _ => Err(anyhow!("unimplemented object type")),
+        }
     }
 }

@@ -8,11 +8,9 @@ use crate::{
     helper::get_activity_ap_id_from_uuid,
     models::{
         activities::{
-            create_activity, ActivityTarget, ActivityType, ApActivityTarget, ExtendedActivity,
-            NewActivity, NoteActivity,
+            create_activity, ActivityTarget, ApActivityTarget, ExtendedActivity, NewActivity,
         },
         actors::Actor,
-        notes::get_notey,
         objects::get_object_by_as_id,
     },
     runner, MaybeMultiple, MaybeReference,
@@ -115,38 +113,32 @@ async fn handle_like_outbox(
     conn: Db,
     channels: EventChannels,
     like: ApLike,
-    profile: Actor,
+    _profile: Actor,
 ) -> Result<String, Status> {
-    if let MaybeReference::Reference(id) = like.object {
-        let note_like = get_notey(&conn, id).await;
+    if let MaybeReference::Reference(as_id) = like.clone().object {
+        let object = get_object_by_as_id(Some(&conn), as_id)
+            .await
+            .map_err(|_| Status::NotFound)?;
 
-        if let Some(note) = note_like {
-            if let Ok(activity) = create_activity(
-                Some(&conn),
-                NewActivity::from(NoteActivity {
-                    note,
-                    profile,
-                    kind: ActivityType::Like,
-                })
+        if let Ok(activity) = create_activity(
+            Some(&conn),
+            NewActivity::try_from((Box::new(like).into(), Some(object.into())))
+                .map_err(|_| Status::InternalServerError)?
                 .link_profile(&conn)
                 .await,
+        )
+        .await
+        {
+            runner::run(
+                runner::like::send_like_task,
+                Some(conn),
+                Some(channels),
+                vec![activity.uuid.clone()],
             )
-            .await
-            {
-                runner::run(
-                    runner::like::send_like_task,
-                    Some(conn),
-                    Some(channels),
-                    vec![activity.uuid.clone()],
-                )
-                .await;
-                Ok(get_activity_ap_id_from_uuid(activity.uuid))
-            } else {
-                log::error!("FAILED TO CREATE LIKE ACTIVITY");
-                Err(Status::NoContent)
-            }
+            .await;
+            Ok(get_activity_ap_id_from_uuid(activity.uuid))
         } else {
-            log::error!("NOTE AND REMOTE_NOTE CANNOT BOTH BE NONE");
+            log::error!("FAILED TO CREATE LIKE ACTIVITY");
             Err(Status::NoContent)
         }
     } else {
@@ -159,7 +151,7 @@ impl TryFrom<ExtendedActivity> for ApLike {
     type Error = anyhow::Error;
 
     fn try_from(
-        (activity, _target_activity, target_object): ExtendedActivity,
+        (activity, _target_activity, target_object, _target_actor): ExtendedActivity,
     ) -> Result<Self, Self::Error> {
         if !activity.kind.is_like() {
             return Err(anyhow!("NOT A LIKE ACTIVITY"));

@@ -9,22 +9,16 @@ use crate::{
     fairings::events::EventChannels,
     helper::get_activity_ap_id_from_uuid,
     models::{
-        activities::{create_activity, ActivityType, NewActivity, NoteActivity},
-        actors::Actor,
-        notes::get_notey,
+        activities::{create_activity, NewActivity},
+        actors::{delete_actor_by_as_id, Actor},
         objects::{delete_object_by_as_id, get_object_by_as_id},
-        remote_actors::delete_remote_actor_by_ap_id,
     },
     runner, MaybeMultiple, MaybeReference,
 };
 use anyhow::anyhow;
 use rocket::http::Status;
-// use rsa::pkcs8::DecodePrivateKey;
-// use rsa::signature::{RandomizedSigner, Signature};
-// use rsa::{pkcs1v15::SigningKey, RsaPrivateKey};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-//use sha2::Sha256;
 
 use super::signature::ApSignature;
 
@@ -65,7 +59,7 @@ impl Inbox for Box<ApDelete> {
         raw: Value,
     ) -> Result<Status, Status> {
         async fn delete_actor(conn: &Db, ap_id: String) -> Result<Status, Status> {
-            if delete_remote_actor_by_ap_id(conn, ap_id).await {
+            if delete_actor_by_as_id(conn, ap_id).await {
                 log::debug!("REMOTE ACTOR RECORD DELETED");
                 Ok(Status::Accepted)
             } else {
@@ -144,23 +138,22 @@ async fn outbox(
     conn: Db,
     channels: EventChannels,
     delete: ApDelete,
-    profile: Actor,
+    _profile: Actor,
 ) -> Result<String, Status> {
-    if let MaybeReference::Reference(id) = delete.object {
-        if let Some(note) = get_notey(&conn, id).await {
-            let activity = create_activity(
-                Some(&conn),
-                NewActivity::from(NoteActivity {
-                    note,
-                    profile,
-                    kind: ActivityType::Delete,
-                })
+    if let MaybeReference::Reference(as_id) = delete.clone().object {
+        let object = get_object_by_as_id(Some(&conn), as_id)
+            .await
+            .map_err(|_| Status::NotFound)?;
+
+        if let Ok(activity) = create_activity(
+            Some(&conn),
+            NewActivity::try_from((Box::new(delete).into(), Some(object.into())))
+                .map_err(|_| Status::InternalServerError)?
                 .link_profile(&conn)
                 .await,
-            )
-            .await
-            .map_err(|_| Status::new(520))?;
-
+        )
+        .await
+        {
             runner::run(
                 runner::note::delete_note_task,
                 Some(conn),
@@ -170,7 +163,7 @@ async fn outbox(
             .await;
             Ok(get_activity_ap_id_from_uuid(activity.uuid))
         } else {
-            Err(Status::new(520))
+            Err(Status::InternalServerError)
         }
     } else {
         log::error!("DELETE OBJECT IS NOT A REFERENCE");

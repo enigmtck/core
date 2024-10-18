@@ -58,26 +58,6 @@ diesel::table! {
 }
 
 diesel::table! {
-    activities_cc (id) {
-        id -> Int4,
-        created_at -> Timestamptz,
-        updated_at -> Timestamptz,
-        activity_id -> Int4,
-        ap_id -> Varchar,
-    }
-}
-
-diesel::table! {
-    activities_to (id) {
-        id -> Int4,
-        created_at -> Timestamptz,
-        updated_at -> Timestamptz,
-        activity_id -> Int4,
-        ap_id -> Varchar,
-    }
-}
-
-diesel::table! {
     use diesel::sql_types::*;
     use super::sql_types::ActorType;
 
@@ -126,20 +106,6 @@ diesel::table! {
         as_discoverable -> Bool,
         ap_capabilities -> Jsonb,
         ap_manually_approves_followers -> Bool,
-    }
-}
-
-diesel::table! {
-    announces (id) {
-        id -> Int4,
-        created_at -> Timestamptz,
-        updated_at -> Timestamptz,
-        profile_id -> Nullable<Int4>,
-        uuid -> Varchar,
-        actor -> Varchar,
-        ap_to -> Jsonb,
-        cc -> Nullable<Jsonb>,
-        object_ap_id -> Varchar,
     }
 }
 
@@ -233,53 +199,6 @@ diesel::table! {
         accepted -> Nullable<Bool>,
         follow_ap_id -> Nullable<Varchar>,
         actor_id -> Int4,
-    }
-}
-
-diesel::table! {
-    likes (id) {
-        id -> Int4,
-        created_at -> Timestamptz,
-        updated_at -> Timestamptz,
-        uuid -> Varchar,
-        profile_id -> Nullable<Int4>,
-        ap_to -> Varchar,
-        actor -> Varchar,
-        object_ap_id -> Varchar,
-    }
-}
-
-diesel::table! {
-    note_hashtags (id) {
-        id -> Int4,
-        created_at -> Timestamptz,
-        updated_at -> Timestamptz,
-        hashtag -> Varchar,
-        note_id -> Int4,
-    }
-}
-
-diesel::table! {
-    use diesel::sql_types::*;
-    use super::sql_types::NoteType;
-
-    notes (id) {
-        id -> Int4,
-        created_at -> Timestamptz,
-        updated_at -> Timestamptz,
-        uuid -> Varchar,
-        profile_id -> Int4,
-        kind -> NoteType,
-        ap_to -> Jsonb,
-        cc -> Nullable<Jsonb>,
-        tag -> Nullable<Jsonb>,
-        attributed_to -> Varchar,
-        in_reply_to -> Nullable<Varchar>,
-        content -> Varchar,
-        conversation -> Nullable<Varchar>,
-        attachment -> Nullable<Jsonb>,
-        instrument -> Nullable<Jsonb>,
-        ap_id -> Nullable<Varchar>,
     }
 }
 
@@ -385,6 +304,7 @@ diesel::table! {
         id -> Int4,
         created_at -> Timestamptz,
         updated_at -> Timestamptz,
+        profile_id -> Int4,
         ap_id -> Varchar,
         ap_to -> Jsonb,
         cc -> Nullable<Jsonb>,
@@ -392,86 +312,6 @@ diesel::table! {
         kind -> Varchar,
         ap_object -> Jsonb,
         processed -> Bool,
-        profile_id -> Int4,
-    }
-}
-
-diesel::table! {
-    profile_hashtags (id) {
-        id -> Int4,
-        created_at -> Timestamptz,
-        updated_at -> Timestamptz,
-        hashtag -> Varchar,
-        profile_id -> Int4,
-    }
-}
-
-diesel::table! {
-    profiles (id) {
-        id -> Int4,
-        created_at -> Timestamptz,
-        updated_at -> Timestamptz,
-        uuid -> Varchar,
-        username -> Varchar,
-        display_name -> Varchar,
-        summary -> Nullable<Varchar>,
-        public_key -> Varchar,
-        private_key -> Varchar,
-        password -> Nullable<Varchar>,
-        client_public_key -> Nullable<Varchar>,
-        avatar_filename -> Nullable<Varchar>,
-        banner_filename -> Nullable<Varchar>,
-        salt -> Nullable<Varchar>,
-        client_private_key -> Nullable<Varchar>,
-        olm_pickled_account -> Nullable<Varchar>,
-        olm_pickled_account_hash -> Nullable<Varchar>,
-        olm_identity_key -> Nullable<Varchar>,
-        summary_markdown -> Nullable<Varchar>,
-    }
-}
-
-diesel::table! {
-    remote_actor_hashtags (id) {
-        id -> Int4,
-        created_at -> Timestamptz,
-        updated_at -> Timestamptz,
-        hashtag -> Varchar,
-        remote_actor_id -> Int4,
-    }
-}
-
-diesel::table! {
-    remote_actors (id) {
-        id -> Int4,
-        created_at -> Timestamptz,
-        updated_at -> Timestamptz,
-        context -> Jsonb,
-        kind -> Varchar,
-        ap_id -> Varchar,
-        name -> Varchar,
-        preferred_username -> Nullable<Varchar>,
-        summary -> Nullable<Varchar>,
-        inbox -> Varchar,
-        outbox -> Varchar,
-        followers -> Nullable<Varchar>,
-        following -> Nullable<Varchar>,
-        liked -> Nullable<Varchar>,
-        public_key -> Nullable<Jsonb>,
-        featured -> Nullable<Varchar>,
-        featured_tags -> Nullable<Varchar>,
-        url -> Nullable<Varchar>,
-        manually_approves_followers -> Nullable<Bool>,
-        published -> Nullable<Varchar>,
-        tag -> Nullable<Jsonb>,
-        attachment -> Nullable<Jsonb>,
-        endpoints -> Nullable<Jsonb>,
-        icon -> Nullable<Jsonb>,
-        image -> Nullable<Jsonb>,
-        also_known_as -> Nullable<Jsonb>,
-        discoverable -> Nullable<Bool>,
-        capabilities -> Nullable<Jsonb>,
-        checked_at -> Timestamptz,
-        webfinger -> Nullable<Varchar>,
     }
 }
 
@@ -492,77 +332,6 @@ diesel::table! {
 }
 
 diesel::table! {
-    remote_note_hashtags (id) {
-        id -> Int4,
-        created_at -> Timestamptz,
-        updated_at -> Timestamptz,
-        hashtag -> Varchar,
-        remote_note_id -> Int4,
-    }
-}
-
-diesel::table! {
-    use diesel::sql_types::*;
-    use super::sql_types::NoteType;
-
-    remote_notes (id) {
-        id -> Int4,
-        created_at -> Timestamptz,
-        updated_at -> Timestamptz,
-        kind -> NoteType,
-        ap_id -> Varchar,
-        published -> Nullable<Varchar>,
-        url -> Nullable<Varchar>,
-        ap_to -> Nullable<Jsonb>,
-        cc -> Nullable<Jsonb>,
-        tag -> Nullable<Jsonb>,
-        attributed_to -> Varchar,
-        content -> Varchar,
-        attachment -> Nullable<Jsonb>,
-        replies -> Nullable<Jsonb>,
-        in_reply_to -> Nullable<Varchar>,
-        signature -> Nullable<Jsonb>,
-        summary -> Nullable<Varchar>,
-        ap_sensitive -> Nullable<Bool>,
-        atom_uri -> Nullable<Varchar>,
-        in_reply_to_atom_uri -> Nullable<Varchar>,
-        conversation -> Nullable<Varchar>,
-        content_map -> Nullable<Jsonb>,
-        metadata -> Nullable<Jsonb>,
-    }
-}
-
-diesel::table! {
-    use diesel::sql_types::*;
-    use super::sql_types::QuestionType;
-
-    remote_questions (id) {
-        id -> Int4,
-        created_at -> Timestamptz,
-        updated_at -> Timestamptz,
-        kind -> QuestionType,
-        ap_id -> Varchar,
-        ap_to -> Nullable<Jsonb>,
-        cc -> Nullable<Jsonb>,
-        end_time -> Nullable<Timestamptz>,
-        published -> Nullable<Timestamptz>,
-        one_of -> Nullable<Jsonb>,
-        any_of -> Nullable<Jsonb>,
-        content -> Nullable<Varchar>,
-        content_map -> Nullable<Jsonb>,
-        summary -> Nullable<Varchar>,
-        voters_count -> Nullable<Int4>,
-        url -> Nullable<Text>,
-        conversation -> Nullable<Text>,
-        tag -> Nullable<Jsonb>,
-        attachment -> Nullable<Jsonb>,
-        ap_sensitive -> Nullable<Bool>,
-        in_reply_to -> Nullable<Text>,
-        attributed_to -> Varchar,
-    }
-}
-
-diesel::table! {
     vault (id) {
         id -> Int4,
         created_at -> Timestamptz,
@@ -575,27 +344,11 @@ diesel::table! {
     }
 }
 
-diesel::joinable!(activities_cc -> activities (activity_id));
-diesel::joinable!(activities_to -> activities (activity_id));
-diesel::joinable!(encrypted_sessions -> profiles (profile_id));
-diesel::joinable!(followers -> profiles (profile_id));
-diesel::joinable!(leaders -> profiles (profile_id));
-diesel::joinable!(note_hashtags -> remote_notes (note_id));
-diesel::joinable!(notes -> profiles (profile_id));
-diesel::joinable!(olm_one_time_keys -> profiles (profile_id));
 diesel::joinable!(olm_sessions -> encrypted_sessions (encrypted_session_id));
-diesel::joinable!(profile_hashtags -> profiles (profile_id));
-diesel::joinable!(remote_actor_hashtags -> remote_actors (remote_actor_id));
-diesel::joinable!(remote_encrypted_sessions -> profiles (profile_id));
-diesel::joinable!(remote_note_hashtags -> remote_notes (remote_note_id));
-diesel::joinable!(vault -> profiles (profile_id));
 
 diesel::allow_tables_to_appear_in_same_query!(
     activities,
-    activities_cc,
-    activities_to,
     actors,
-    announces,
     cache,
     encrypted_sessions,
     followers,
@@ -603,21 +356,11 @@ diesel::allow_tables_to_appear_in_same_query!(
     hashtag_trend,
     instances,
     leaders,
-    likes,
-    note_hashtags,
-    notes,
     notifications,
     objects,
     olm_one_time_keys,
     olm_sessions,
     processing_queue,
-    profile_hashtags,
-    profiles,
-    remote_actor_hashtags,
-    remote_actors,
     remote_encrypted_sessions,
-    remote_note_hashtags,
-    remote_notes,
-    remote_questions,
     vault,
 );

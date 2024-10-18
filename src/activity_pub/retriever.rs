@@ -7,13 +7,12 @@ use url::Url;
 
 use crate::activity_pub::ApActor;
 use crate::db::Db;
-use crate::models::actors::{get_actor_by_as_id, guaranteed_actor, Actor};
+use crate::models::actors::{
+    create_or_update_actor, get_actor_by_as_id, guaranteed_actor, Actor, NewActor,
+};
 use crate::models::cache::Cache;
 use crate::models::leaders::get_leader_by_actor_ap_id_and_profile;
 use crate::models::objects::{create_or_update_object, get_object_by_as_id, NewObject};
-use crate::models::remote_actors::create_or_update_remote_actor;
-use crate::models::remote_actors::NewRemoteActor;
-use crate::runner::actor::update_actor_tags;
 use crate::signing::{sign, Method, SignParams};
 use crate::webfinger::WebFinger;
 use crate::WEBFINGER_RE;
@@ -25,7 +24,7 @@ pub async fn get_remote_collection_page(
     profile: Option<Actor>,
     url: String,
 ) -> Result<ApCollectionPage> {
-    let response = signed_get(guaranteed_actor(conn.into(), profile).await, url, false).await?;
+    let response = signed_get(guaranteed_actor(conn, profile).await, url, false).await?;
 
     let raw = response.text().await?;
     log::debug!("REMOTE COLLECTION PAGE RESPONSE\n{raw}");
@@ -40,7 +39,7 @@ pub async fn get_remote_collection(
     profile: Option<Actor>,
     url: String,
 ) -> Result<ApCollection> {
-    let response = signed_get(guaranteed_actor(conn.into(), profile).await, url, false).await?;
+    let response = signed_get(guaranteed_actor(conn, profile).await, url, false).await?;
 
     let raw = response.text().await?;
     log::debug!("REMOTE COLLECTION RESPONSE\n{raw}");
@@ -110,7 +109,7 @@ async fn get_remote_webfinger(handle: String) -> Result<WebFinger> {
 pub async fn get_object(conn: &Db, profile: Option<Actor>, id: String) -> Option<ApObject> {
     match get_object_by_as_id(Some(conn), id.clone()).await.ok() {
         Some(object) => Some(ApObject::try_from(object).ok()?.cache(conn).await.clone()),
-        None => match signed_get(guaranteed_actor(conn.into(), profile).await, id, false).await {
+        None => match signed_get(guaranteed_actor(conn, profile).await, id, false).await {
             Ok(resp) => match resp.status() {
                 StatusCode::ACCEPTED | StatusCode::OK => {
                     let text = resp.text().await.ok()?;
@@ -141,7 +140,7 @@ pub async fn get_local_or_cached_actor(
     conn: &Db,
     id: String,
     requester: Option<Actor>,
-    update: bool,
+    _update: bool,
 ) -> Option<ApActor> {
     if let Some(actor) = get_actor_by_as_id(conn, id.clone()).await {
         if let Some(requester) = requester.clone() {
@@ -162,26 +161,20 @@ pub async fn process_remote_actor_retrieval(
     profile: Option<Actor>,
     id: String,
 ) -> Result<ApActor> {
-    let response = signed_get(guaranteed_actor(conn.into(), profile).await, id, false).await?;
+    let response = signed_get(guaranteed_actor(conn, profile).await, id, false).await?;
 
-    match response.status() {
-        StatusCode::ACCEPTED | StatusCode::OK => {
-            let text = response.text().await?;
-            let actor = serde_json::from_str::<ApActor>(&text)?;
-            let actor = NewRemoteActor::try_from(actor.cache(conn).await.clone())
-                .map_err(anyhow::Error::msg)?;
-            let remote_actor = create_or_update_remote_actor(conn.into(), actor)
-                .await
-                .context("failed to create or update remote actor")?;
-
-            update_actor_tags(Some(conn), remote_actor.clone())
-                .await
-                .context("failed to create or update remote actor tags")?;
-
-            Ok(remote_actor.into())
-        }
-        _ => Err(anyhow::Error::msg("bad response")),
+    if !response.status().is_success() {
+        return Err(anyhow::Error::msg("bad response"));
     }
+
+    let text = response.text().await?;
+    let actor = serde_json::from_str::<ApActor>(&text)?;
+    let actor = NewActor::try_from(actor.cache(conn).await.clone()).map_err(anyhow::Error::msg)?;
+    let actor = create_or_update_actor(Some(conn), actor)
+        .await
+        .context("failed to create or update remote actor")?;
+
+    Ok(actor.into())
 }
 
 pub async fn get_actor(

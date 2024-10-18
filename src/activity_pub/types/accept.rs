@@ -7,7 +7,8 @@ use crate::{
     fairings::events::EventChannels,
     models::{
         activities::{
-            create_activity, get_activity_by_ap_id, ActivityTarget, ApActivityTarget, NewActivity,
+            create_activity, get_activity_by_ap_id, ActivityTarget, ApActivityTarget,
+            ExtendedActivity, NewActivity,
         },
         actors::Actor,
     },
@@ -17,8 +18,6 @@ use anyhow::anyhow;
 use rocket::http::Status;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-
-use super::activity::RecursiveActivity;
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub enum ApAcceptType {
@@ -57,9 +56,10 @@ impl Inbox for Box<ApAccept> {
         };
 
         let follow_apid = follow_apid.ok_or(Status::new(520))?;
-        let (activity, target_activity, target_object) = get_activity_by_ap_id(&conn, follow_apid)
-            .await
-            .ok_or(Status::new(521))?;
+        let (activity, target_activity, target_object, target_actor) =
+            get_activity_by_ap_id(&conn, follow_apid)
+                .await
+                .ok_or(Status::new(521))?;
 
         let activity = NewActivity::try_from((
             ApActivity::Accept(self.clone()),
@@ -99,14 +99,15 @@ impl Outbox for Box<ApAccept> {
     }
 }
 
-impl TryFrom<RecursiveActivity> for ApAccept {
+impl TryFrom<ExtendedActivity> for ApAccept {
     type Error = anyhow::Error;
 
     fn try_from(
-        ((activity, _target_activity, _target_object), recursive): RecursiveActivity,
+        (activity, target_activity, target_object, target_actor): ExtendedActivity,
     ) -> Result<Self, Self::Error> {
-        let recursive = recursive.ok_or(anyhow!("RECURSIVE CANNOT BE NONE"))?;
-        let recursive_activity = ApActivity::try_from((recursive.clone(), None))?;
+        let recursive = target_activity.ok_or(anyhow!("RECURSIVE CANNOT BE NONE"))?;
+        let recursive_activity =
+            ApActivity::try_from((recursive.clone(), None, target_object, target_actor))?;
         match recursive_activity {
             ApActivity::Follow(follow) => Ok(ApAccept {
                 context: Some(ApContext::default()),

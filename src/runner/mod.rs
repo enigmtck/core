@@ -109,7 +109,7 @@ async fn handle_recipients(
         } else if let Some((actor, _)) =
             get_actor(conn, sender.clone(), address.clone().to_string()).await
         {
-            inboxes.insert(ApAddress::Address(actor.inbox));
+            inboxes.insert(ApAddress::Address(actor.as_inbox));
         }
     }
 }

@@ -9,12 +9,11 @@ use crate::{
     fairings::events::EventChannels,
     helper::{get_note_ap_id_from_uuid, get_note_url_from_uuid},
     models::{
-        activities::{create_activity, ActivityType, NewActivity, NoteActivity},
+        activities::{create_activity, NewActivity},
         actors::Actor,
         cache::{cache_content, Cache},
         from_serde, from_time,
-        notes::{create_note, NewNote, Note, NoteLike, NoteType},
-        objects::Object,
+        objects::{create_or_update_object, Object},
         pg::{coalesced_activity::CoalescedActivity, objects::ObjectType},
         vault::VaultItem,
     },
@@ -24,8 +23,9 @@ use anyhow::{anyhow, Result};
 use chrono::{DateTime, Utc};
 use rocket::http::Status;
 use serde::{Deserialize, Serialize};
+use uuid::Uuid;
 
-use super::actor::ApAddress;
+use super::{actor::ApAddress, create::ApCreate, object::ApObject};
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default, Eq, PartialEq)]
 pub enum ApNoteType {
@@ -43,16 +43,6 @@ pub enum ApNoteType {
 impl fmt::Display for ApNoteType {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         Debug::fmt(self, f)
-    }
-}
-
-impl From<NoteType> for ApNoteType {
-    fn from(kind: NoteType) -> Self {
-        match kind {
-            NoteType::Note => ApNoteType::Note,
-            NoteType::EncryptedNote => ApNoteType::EncryptedNote,
-            NoteType::VaultNote => ApNoteType::VaultNote,
-        }
     }
 }
 
@@ -210,6 +200,9 @@ pub struct ApNote {
     pub ephemeral_metadata: Option<Vec<Metadata>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ephemeral_likes: Option<Vec<String>>,
+
+    #[serde(skip_serializing)]
+    pub internal_uuid: Option<String>,
 }
 
 impl ApNote {
@@ -311,6 +304,7 @@ impl Default for ApNote {
             ephemeral_timestamp: None,
             ephemeral_metadata: None,
             ephemeral_likes: None,
+            internal_uuid: None,
         }
     }
 }
@@ -356,29 +350,6 @@ impl From<ApActor> for ApNote {
             kind: ApNoteType::Note,
             to: MaybeMultiple::Multiple(vec![]),
             content: String::new(),
-            ..Default::default()
-        }
-    }
-}
-
-impl From<NewNote> for ApNote {
-    fn from(note: NewNote) -> Self {
-        ApNote {
-            tag: note.tag.and_then(from_serde),
-            attributed_to: ApAddress::Address(note.attributed_to),
-            published: Utc::now().format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string(),
-            id: Some(format!(
-                "https://{}/notes/{}",
-                *crate::SERVER_NAME,
-                note.uuid
-            )),
-            kind: note.kind.into(),
-            to: from_serde(note.ap_to).unwrap(),
-            content: note.content,
-            cc: note.cc.and_then(from_serde),
-            in_reply_to: note.in_reply_to,
-            conversation: note.conversation,
-            attachment: note.attachment.and_then(from_serde),
             ..Default::default()
         }
     }
@@ -451,66 +422,6 @@ impl TryFrom<CoalescedActivity> for ApNote {
     }
 }
 
-impl From<Note> for ApNote {
-    fn from(note: Note) -> Self {
-        cfg_if::cfg_if! {
-            if #[cfg(feature = "pg")] {
-                ApNote {
-                    tag: serde_json::from_value(note.tag.into()).ok(),
-                    attributed_to: ApAddress::Address(note.attributed_to),
-                    published: note.updated_at.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string(),
-                    id: note
-                        .ap_id
-                        .clone()
-                        .map_or(Some(get_note_ap_id_from_uuid(note.uuid.clone())), Some),
-                    url: Some(get_note_url_from_uuid(note.uuid)),
-                    kind: note.kind.into(),
-                    to: match serde_json::from_value(note.ap_to) {
-                        Ok(x) => x,
-                        Err(_) => MaybeMultiple::Multiple(vec![]),
-                    },
-                    content: note.content,
-                    cc: match serde_json::from_value(note.cc.into()) {
-                        Ok(x) => x,
-                        Err(_) => Option::None,
-                    },
-                    in_reply_to: note.in_reply_to,
-                    conversation: note.conversation,
-                    attachment: note.attachment.map(|x| serde_json::from_value(x).unwrap()),
-                    ephemeral_metadata: Some(vec![]),
-                    ..Default::default()
-                }
-            } else if #[cfg(feature = "sqlite")] {
-                ApNote {
-                    tag: note
-                        .tag
-                        .as_deref()
-                        .and_then(|x| serde_json::from_str(x).ok()),
-                    attributed_to: ApAddress::Address(note.attributed_to),
-                    published: note.updated_at.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string(),
-                    id: note
-                        .ap_id
-                        .clone()
-                        .map_or(Some(get_note_ap_id_from_uuid(note.uuid.clone())), Some),
-                    url: Some(get_note_url_from_uuid(note.uuid)),
-                    kind: note.kind.try_into().expect("failed to decode kind"),
-                    to: match serde_json::from_str(&note.ap_to) {
-                        Ok(x) => x,
-                        Err(_) => MaybeMultiple::Multiple(vec![]),
-                    },
-                    content: note.content,
-                    cc: note.cc.and_then(|x| serde_json::from_str(&x).ok()),
-                    in_reply_to: note.in_reply_to,
-                    conversation: note.conversation,
-                    attachment: note.attachment.and_then(|x| serde_json::from_str(&x).ok()),
-                    ephemeral_metadata: Some(vec![]),
-                    ..Default::default()
-                }
-            }
-        }
-    }
-}
-
 impl TryFrom<Object> for ApNote {
     type Error = anyhow::Error;
 
@@ -561,6 +472,10 @@ async fn handle_note(
     // ApNote -> NewNote -> ApNote -> ApActivity
     // UUID is set in NewNote
 
+    if note.id.is_some() {
+        return Err(Status::NotAcceptable);
+    }
+
     let mut is_public = false;
     let mut followers_included = false;
     let mut addresses_cc: Vec<ApAddress> = note.cc.clone().unwrap_or(vec![].into()).multiple();
@@ -594,22 +509,31 @@ async fn handle_note(
         }
     }
 
-    let created_note = create_note(&conn, NewNote::from((note.clone(), profile.id)))
+    let uuid = Uuid::new_v4().to_string();
+    note.internal_uuid = Some(uuid.clone());
+    note.id = Some(get_note_ap_id_from_uuid(uuid.clone()));
+    note.url = Some(get_note_url_from_uuid(uuid.clone()));
+    note.published = Utc::now().to_rfc3339();
+    note.attributed_to = profile.as_id.into();
+
+    let object = create_or_update_object(&conn, note.into())
         .await
-        .ok_or(Status::new(520))?;
+        .map_err(|_| Status::InternalServerError)?;
+
+    let create = ApCreate::try_from(ApObject::Note(
+        ApNote::try_from(object.clone()).map_err(|_| Status::InternalServerError)?,
+    ))
+    .map_err(|_| Status::InternalServerError)?;
 
     let activity = create_activity(
         Some(&conn),
-        NewActivity::from(NoteActivity {
-            note: NoteLike::Note(created_note.clone()),
-            profile,
-            kind: ActivityType::Create,
-        })
-        .link_profile(&conn)
-        .await,
+        NewActivity::try_from((create.into(), Some(object.into())))
+            .map_err(|_| Status::InternalServerError)?
+            .link_profile(&conn)
+            .await,
     )
     .await
-    .map_err(|_| Status::new(521))?;
+    .map_err(|_| Status::InternalServerError)?;
 
     runner::run(
         runner::note::outbound_note_task,
@@ -625,24 +549,25 @@ async fn handle_encrypted_note(
     conn: Db,
     channels: EventChannels,
     note: ApNote,
-    profile: Actor,
+    _profile: Actor,
 ) -> Result<String, Status> {
     // ApNote -> NewNote -> ApNote -> ApActivity
     // UUID is set in NewNote
-    let n = NewNote::from((note.clone(), profile.id));
 
-    if let Some(created_note) = create_note(&conn, n.clone()).await {
-        log::debug!("created_note\n{created_note:#?}");
+    let object = create_or_update_object(&conn, note.into())
+        .await
+        .map_err(|_| Status::InternalServerError)?;
 
-        runner::run(
-            runner::note::outbound_note_task,
-            Some(conn),
-            Some(channels),
-            vec![created_note.uuid.clone()],
-        )
-        .await;
-        Ok(created_note.uuid)
-    } else {
-        Err(Status::NoContent)
-    }
+    log::debug!("created_note\n{object:#?}");
+
+    let ek_uuid = object.ek_uuid.ok_or(Status::InternalServerError)?;
+
+    runner::run(
+        runner::note::outbound_note_task,
+        Some(conn),
+        Some(channels),
+        vec![ek_uuid.clone()],
+    )
+    .await;
+    Ok(ek_uuid)
 }

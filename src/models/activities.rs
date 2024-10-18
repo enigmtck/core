@@ -3,23 +3,19 @@ use crate::activity_pub::{
     ApUndoType,
 };
 use crate::db::Db;
-use crate::helper::{get_activity_ap_id_from_uuid, get_note_ap_id_from_uuid};
+use crate::helper::get_activity_ap_id_from_uuid;
 use crate::routes::inbox::InboxView;
-use crate::schema::{activities, activities_cc, activities_to};
+use crate::schema::activities;
 use crate::{MaybeReference, POOL};
 use anyhow::anyhow;
 use diesel::prelude::*;
-use diesel::{AsChangeset, Insertable};
-use serde::{Deserialize, Serialize};
 use std::fmt::{self, Debug};
 
 use super::actors::{get_actor_by_as_id, Actor};
-use super::notes::NoteLike;
 use super::objects::Object;
 use super::pg::activities::get_activities_coalesced;
 use super::pg::coalesced_activity::CoalescedActivity;
-use super::remote_actors::RemoteActor;
-use super::{from_serde, to_serde};
+use super::to_serde;
 
 cfg_if::cfg_if! {
     if #[cfg(feature = "pg")] {
@@ -32,11 +28,6 @@ cfg_if::cfg_if! {
         pub use super::pg::activities::NewActivity;
         pub use super::pg::activities::Activity;
 
-        pub use super::pg::activities::ActivityCc;
-        pub use super::pg::activities::create_activity_cc;
-
-        pub use super::pg::activities::ActivityTo;
-        pub use super::pg::activities::create_activity_to;
         pub use super::pg::activities::create_activity;
 
         pub use super::pg::activities::revoke_activity_by_uuid;
@@ -126,9 +117,8 @@ impl From<ApLikeType> for ActivityType {
 
 pub enum ActivityTarget {
     Object(Object),
-    Profile(Box<Actor>),
     Activity(Activity),
-    RemoteActor(RemoteActor),
+    Actor(Actor),
 }
 
 impl From<Object> for ActivityTarget {
@@ -138,8 +128,8 @@ impl From<Object> for ActivityTarget {
 }
 
 impl From<Actor> for ActivityTarget {
-    fn from(profile: Actor) -> Self {
-        ActivityTarget::Profile(Box::new(profile))
+    fn from(actor: Actor) -> Self {
+        ActivityTarget::Actor(actor)
     }
 }
 
@@ -204,11 +194,6 @@ impl NewActivity {
                     self.target_ap_id = Some(object.as_id);
                     self.reply = object.as_in_reply_to.is_some();
                 }
-                ActivityTarget::Profile(profile) => {
-                    self.target_profile_id = Some(profile.id);
-                    self.target_ap_id = Some(profile.as_id);
-                    self.reply = false;
-                }
                 ActivityTarget::Activity(activity) => {
                     self.target_activity_id = Some(activity.id);
                     self.target_ap_id = activity
@@ -216,9 +201,9 @@ impl NewActivity {
                         .map_or(Some(get_activity_ap_id_from_uuid(activity.uuid)), Some);
                     self.reply = false;
                 }
-                ActivityTarget::RemoteActor(remote_actor) => {
-                    self.target_remote_actor_id = Some(remote_actor.id);
-                    self.target_ap_id = Some(remote_actor.ap_id);
+                ActivityTarget::Actor(actor) => {
+                    self.target_actor_id = Some(actor.id);
+                    self.target_ap_id = Some(actor.as_id);
                     self.reply = false;
                 }
             }
@@ -231,7 +216,7 @@ impl NewActivity {
 pub type ApActivityTarget = (ApActivity, Option<ActivityTarget>);
 
 impl TryFrom<ApActivityTarget> for NewActivity {
-    type Error = &'static str;
+    type Error = anyhow::Error;
 
     // eventually I may be able to move decomposition logic here (e.g., create target_remote_note, etc.)
     // that will require the ability to `await` on database calls
@@ -245,8 +230,8 @@ impl TryFrom<ApActivityTarget> for NewActivity {
                 kind: to_kind(create.kind.into()),
                 uuid: uuid.clone(),
                 actor: create.actor.to_string(),
-                ap_to: to_serde(create.to),
-                cc: to_serde(create.cc),
+                ap_to: to_serde(&Some(create.to)),
+                cc: to_serde(&create.cc),
                 revoked: false,
                 ap_id: create
                     .id
@@ -259,8 +244,8 @@ impl TryFrom<ApActivityTarget> for NewActivity {
                 kind: to_kind(announce.kind.into()),
                 uuid: uuid.clone(),
                 actor: announce.actor.to_string(),
-                ap_to: to_serde(announce.to),
-                cc: to_serde(announce.cc),
+                ap_to: to_serde(&Some(announce.to)),
+                cc: to_serde(&announce.cc),
                 target_ap_id: announce.object.reference(),
                 revoked: false,
                 ap_id: announce
@@ -300,7 +285,7 @@ impl TryFrom<ApActivityTarget> for NewActivity {
                     .link_target(target)
                     .clone())
                 } else {
-                    Err("ACCEPT OBJECT NOT AN ACTUAL")
+                    Err(anyhow!("ACCEPT OBJECT NOT AN ACTUAL"))
                 }
             }
             ApActivity::Undo(undo) => match undo.object {
@@ -343,7 +328,7 @@ impl TryFrom<ApActivityTarget> for NewActivity {
                 }
                 .link_target(target)
                 .clone()),
-                _ => Err("UNDO OBJECT NOT IMPLEMENTED"),
+                _ => Err(anyhow!("UNDO OBJECT NOT IMPLEMENTED")),
             },
             ApActivity::Like(like) => Ok(NewActivity {
                 kind: to_kind(like.kind.into()),
@@ -354,31 +339,31 @@ impl TryFrom<ApActivityTarget> for NewActivity {
                 ap_id: like
                     .id
                     .map_or(Some(get_activity_ap_id_from_uuid(uuid)), Some),
-                ap_to: to_serde(&like.to),
+                ap_to: to_serde(&Some(&like.to)),
                 ..Default::default()
             }
             .link_target(target)
             .clone()),
 
-            _ => Err("UNIMPLEMENTED ACTIVITY TYPE"),
+            _ => Err(anyhow!("UNIMPLEMENTED ACTIVITY TYPE")),
         }
     }
 }
 
-pub type ActorActivity = (Option<Actor>, Option<RemoteActor>, ActivityType, ApAddress);
+pub type ActorActivity = (Option<Actor>, Option<Actor>, ActivityType, ApAddress);
 
 impl From<ActorActivity> for NewActivity {
     fn from((profile, remote_actor, kind, actor): ActorActivity) -> Self {
         let (ap_to, target_ap_id) = {
             if let Some(profile) = profile.clone() {
                 (
-                    Some(to_serde(vec![profile.as_id.clone()]).unwrap()),
+                    Some(to_serde(&Some(vec![profile.as_id.clone()])).unwrap()),
                     Some(profile.as_id),
                 )
             } else if let Some(remote_actor) = remote_actor.clone() {
                 (
-                    Some(to_serde(vec![remote_actor.ap_id.clone()]).unwrap()),
-                    Some(remote_actor.ap_id),
+                    Some(to_serde(&Some(vec![remote_actor.as_id.clone()])).unwrap()),
+                    Some(remote_actor.as_id),
                 )
             } else {
                 (None, None)
@@ -402,56 +387,56 @@ impl From<ActorActivity> for NewActivity {
     }
 }
 
-pub struct NoteActivity {
-    pub note: NoteLike,
-    pub profile: Actor,
-    pub kind: ActivityType,
-}
+// pub struct NoteActivity {
+//     pub note: NoteLike,
+//     pub profile: Actor,
+//     pub kind: ActivityType,
+// }
 
-impl From<NoteActivity> for NewActivity {
-    fn from(note_activity: NoteActivity) -> Self {
-        let mut activity = NewActivity {
-            kind: to_kind(note_activity.kind.clone()),
-            uuid: uuid::Uuid::new_v4().to_string(),
-            actor: note_activity.profile.as_id,
-            ap_to: to_serde(vec![ApAddress::get_public()]),
-            ..Default::default()
-        };
+// impl From<NoteActivity> for NewActivity {
+//     fn from(note_activity: NoteActivity) -> Self {
+//         let mut activity = NewActivity {
+//             kind: to_kind(note_activity.kind.clone()),
+//             uuid: uuid::Uuid::new_v4().to_string(),
+//             actor: note_activity.profile.as_id,
+//             ap_to: to_serde(&Some(vec![ApAddress::get_public()])),
+//             ..Default::default()
+//         };
 
-        match note_activity.note {
-            NoteLike::Note(note) => {
-                if note_activity.kind == ActivityType::Like
-                    || note_activity.kind == ActivityType::Announce
-                {
-                    activity.cc = to_serde(vec![
-                        note.attributed_to,
-                        note_activity.profile.as_followers.unwrap(),
-                    ]);
-                } else {
-                    activity.cc = to_serde(vec![note_activity.profile.as_followers]);
-                }
-                activity.target_note_id = Some(note.id);
-                activity.target_ap_id = Some(get_note_ap_id_from_uuid(note.uuid));
-            }
-            NoteLike::Object(object) => {
-                if note_activity.kind == ActivityType::Like
-                    || note_activity.kind == ActivityType::Announce
-                {
-                    activity.cc = to_serde(vec![
-                        from_serde(object.as_attributed_to.unwrap()).unwrap(),
-                        note_activity.profile.as_followers,
-                    ]);
-                } else {
-                    activity.cc = to_serde(vec![note_activity.profile.as_followers]);
-                }
-                activity.target_object_id = Some(object.id);
-                activity.target_ap_id = Some(object.as_id);
-            }
-        }
+//         match note_activity.note {
+//             NoteLike::Note(note) => {
+//                 if note_activity.kind == ActivityType::Like
+//                     || note_activity.kind == ActivityType::Announce
+//                 {
+//                     activity.cc = to_serde(&Some(vec![
+//                         note.attributed_to,
+//                         note_activity.profile.as_followers.unwrap(),
+//                     ]));
+//                 } else {
+//                     activity.cc = to_serde(&Some(vec![note_activity.profile.as_followers]));
+//                 }
+//                 activity.target_note_id = Some(note.id);
+//                 activity.target_ap_id = Some(get_note_ap_id_from_uuid(note.uuid));
+//             }
+//             NoteLike::Object(object) => {
+//                 if note_activity.kind == ActivityType::Like
+//                     || note_activity.kind == ActivityType::Announce
+//                 {
+//                     activity.cc = to_serde(&Some(vec![
+//                         from_serde(object.as_attributed_to.unwrap()).unwrap(),
+//                         note_activity.profile.as_followers,
+//                     ]));
+//                 } else {
+//                     activity.cc = to_serde(&Some(vec![note_activity.profile.as_followers]));
+//                 }
+//                 activity.target_object_id = Some(object.id);
+//                 activity.target_ap_id = Some(object.as_id);
+//             }
+//         }
 
-        activity
-    }
-}
+//         activity
+//     }
+// }
 
 pub type UndoActivity = (Activity, ActivityType, ApAddress);
 impl From<UndoActivity> for NewActivity {
@@ -468,41 +453,7 @@ impl From<UndoActivity> for NewActivity {
     }
 }
 
-type AssignedActivity = (Activity, String);
-
-impl From<AssignedActivity> for NewActivityCc {
-    fn from(assigned_activity: AssignedActivity) -> Self {
-        NewActivityCc {
-            activity_id: assigned_activity.0.id,
-            ap_id: assigned_activity.1,
-        }
-    }
-}
-
-impl From<AssignedActivity> for NewActivityTo {
-    fn from(assigned_activity: AssignedActivity) -> Self {
-        NewActivityTo {
-            activity_id: assigned_activity.0.id,
-            ap_id: assigned_activity.1,
-        }
-    }
-}
-
-#[derive(Serialize, Deserialize, Insertable, AsChangeset, Default, Debug, Clone)]
-#[diesel(table_name = activities_cc)]
-pub struct NewActivityCc {
-    pub activity_id: i32,
-    pub ap_id: String,
-}
-
-#[derive(Serialize, Deserialize, Insertable, AsChangeset, Default, Debug, Clone)]
-#[diesel(table_name = activities_to)]
-pub struct NewActivityTo {
-    pub activity_id: i32,
-    pub ap_id: String,
-}
-
-pub type ExtendedActivity = (Activity, Option<Activity>, Option<Object>);
+pub type ExtendedActivity = (Activity, Option<Activity>, Option<Object>, Option<Actor>);
 
 fn target_to_main(coalesced: CoalescedActivity) -> Option<Activity> {
     Some(Activity {
@@ -561,55 +512,12 @@ impl From<CoalescedActivity> for ExtendedActivity {
         };
 
         let target_activity = target_to_main(coalesced.clone());
-        let target_object: Option<Object> = coalesced.try_into().ok();
+        let target_object: Option<Object> = coalesced.clone().try_into().ok();
+        let target_actor: Option<Actor> = coalesced.try_into().ok();
 
-        (activity, target_activity, target_object)
+        (activity, target_activity, target_object, target_actor)
     }
 }
-
-//pub type ExtendedActivity = (Activity, Option<Note>, Option<Profile>, Option<RemoteActor>);
-
-//pub type ExtendedActivityRecord = (Activity, Option<Note>, Option<Profile>, Option<RemoteActor>);
-
-// pub async fn get_activity_by_uuid(conn: Option<&Db>, uuid: String) -> Option<ExtendedActivity> {
-//     let records = match conn {
-//         Some(conn) => conn
-//             .run(move |c| {
-//                 activities::table
-//                         .filter(activities::uuid.eq(uuid))
-//                         .left_join(
-//                             notes::table.on(activities::target_note_id.eq(notes::id.nullable())),
-//                         )
-//                         .left_join(
-//                             profiles::table
-//                                 .on(activities::target_profile_id.eq(profiles::id.nullable())),
-//                         )
-//                         .left_join(remote_actors::table.on(
-//                             activities::target_remote_actor_id.eq(remote_actors::id.nullable()),
-//                         ))
-//                         .load::<ExtendedActivityRecord>(c)
-//             })
-//             .await
-//             .ok()?,
-//         None => {
-//             let mut pool = POOL.get().ok()?;
-//             activities::table
-//                 .filter(activities::uuid.eq(uuid))
-//                 .left_join(notes::table.on(activities::target_note_id.eq(notes::id.nullable())))
-//                 .left_join(
-//                     profiles::table.on(activities::target_profile_id.eq(profiles::id.nullable())),
-//                 )
-//                 .left_join(
-//                     remote_actors::table
-//                         .on(activities::target_remote_actor_id.eq(remote_actors::id.nullable())),
-//                 )
-//                 .load::<ExtendedActivityRecord>(&mut pool)
-//                 .ok()?
-//         }
-//     };
-
-//     fold_extended_activity_records(records)
-// }
 
 pub async fn get_activity_by_ap_id(conn: &Db, ap_id: String) -> Option<ExtendedActivity> {
     get_activities_coalesced(conn, 1, None, None, None, None, Some(ap_id), None, None)
@@ -617,65 +525,7 @@ pub async fn get_activity_by_ap_id(conn: &Db, ap_id: String) -> Option<ExtendedA
         .first()
         .cloned()
         .map(ExtendedActivity::from)
-    // let records = conn
-    //     .run(move |c| {
-    //         activities::table
-    //             .filter(activities::ap_id.eq(ap_id))
-    //             .left_join(notes::table.on(activities::target_note_id.eq(notes::id.nullable())))
-    //             .left_join(
-    //                 profiles::table.on(activities::target_profile_id.eq(profiles::id.nullable())),
-    //             )
-    //             .left_join(
-    //                 remote_actors::table
-    //                     .on(activities::target_remote_actor_id.eq(remote_actors::id.nullable())),
-    //             )
-    //             .load::<ExtendedActivityRecord>(c)
-    //     })
-    //     .await
-    //     .ok()?;
-
-    // fold_extended_activity_records(records)
 }
-
-// pub fn transform_records_to_extended_activities(
-//     records: Vec<ExtendedActivityRecord>,
-// ) -> Vec<ExtendedActivity> {
-//     let mut grouped_activities = HashMap::new();
-
-//     for (activity_rec, note_rec, profile_rec, remote_actor_rec) in records {
-//         let activity_id = activity_rec.id;
-
-//         let entry = grouped_activities
-//             .entry(activity_id)
-//             .or_insert_with(|| (activity_rec, None, None, None));
-
-//         // Update the entry with Some values
-//         if note_rec.is_some() {
-//             entry.1 = note_rec;
-//         }
-//         if profile_rec.is_some() {
-//             entry.2 = profile_rec;
-//         }
-//         if remote_actor_rec.is_some() {
-//             entry.3 = remote_actor_rec;
-//         }
-//     }
-
-//     grouped_activities.into_values().collect()
-// }
-
-// pub fn fold_extended_activity_records(
-//     records: Vec<ExtendedActivityRecord>,
-// ) -> Option<ExtendedActivity> {
-//     let (activity, note, profile, remote_actor) = records.into_iter().fold(
-//         (None, None, None, None),
-//         |(_, _, _, _), (activity_rec, note_rec, profile_rec, remote_actor_rec)| {
-//             (Some(activity_rec), note_rec, profile_rec, remote_actor_rec)
-//         },
-//     );
-
-//     Some((activity?, note, profile, remote_actor))
-// }
 
 pub async fn get_activity_by_kind_profile_id_and_target_ap_id(
     conn: &Db,

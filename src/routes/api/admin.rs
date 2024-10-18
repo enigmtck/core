@@ -13,7 +13,7 @@ pub async fn create_user(
     if let Ok(Json(user)) = user {
         log::debug!("CREATING USER\n{user:#?}");
 
-        if let Ok(profile) = admin::create_user(&conn, user).await {
+        if let Ok(profile) = admin::create_user(Some(&conn), user).await {
             Ok(Json(profile))
         } else {
             Err(Status::NoContent)
