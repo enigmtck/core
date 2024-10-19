@@ -222,6 +222,15 @@ pub struct ApActor {
     pub ephemeral_summary_markdown: Option<String>,
 }
 
+#[derive(Serialize, Deserialize, Clone, Debug, Eq, PartialEq, Ord, PartialOrd)]
+pub struct ApActorTerse {
+    pub id: String,
+    pub url: String,
+    pub name: String,
+    pub tag: Vec<ApTag>,
+    pub icon: Option<ApImage>,
+}
+
 impl Cache for ApActor {
     async fn cache(&self, conn: &Db) -> &Self {
         if let Some(tags) = self.tag.clone() {

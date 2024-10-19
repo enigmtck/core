@@ -87,7 +87,7 @@ impl Inbox for ApAnnounce {
                 runner::announce::remote_announce_task,
                 Some(conn),
                 Some(channels),
-                vec![activity.uuid.clone()],
+                vec![activity.ap_id.clone().ok_or(Status::BadRequest)?],
             )
             .await;
             Ok(Status::Accepted)

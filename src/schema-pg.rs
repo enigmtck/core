@@ -10,20 +10,12 @@ pub mod sql_types {
     pub struct ActorType;
 
     #[derive(diesel::sql_types::SqlType, diesel::query_builder::QueryId)]
-    #[diesel(postgres_type(name = "note_type"))]
-    pub struct NoteType;
-
-    #[derive(diesel::sql_types::SqlType, diesel::query_builder::QueryId)]
     #[diesel(postgres_type(name = "notification_type"))]
     pub struct NotificationType;
 
     #[derive(diesel::sql_types::SqlType, diesel::query_builder::QueryId)]
     #[diesel(postgres_type(name = "object_type"))]
     pub struct ObjectType;
-
-    #[derive(diesel::sql_types::SqlType, diesel::query_builder::QueryId)]
-    #[diesel(postgres_type(name = "question_type"))]
-    pub struct QuestionType;
 }
 
 diesel::table! {
@@ -304,7 +296,6 @@ diesel::table! {
         id -> Int4,
         created_at -> Timestamptz,
         updated_at -> Timestamptz,
-        profile_id -> Int4,
         ap_id -> Varchar,
         ap_to -> Jsonb,
         cc -> Nullable<Jsonb>,
@@ -312,6 +303,7 @@ diesel::table! {
         kind -> Varchar,
         ap_object -> Jsonb,
         processed -> Bool,
+        profile_id -> Int4,
     }
 }
 
@@ -328,6 +320,15 @@ diesel::table! {
         attributed_to -> Varchar,
         instrument -> Jsonb,
         reference -> Nullable<Varchar>,
+    }
+}
+
+diesel::table! {
+    unprocessable (id) {
+        id -> Int4,
+        created_at -> Timestamptz,
+        updated_at -> Timestamptz,
+        raw -> Jsonb,
     }
 }
 
@@ -362,5 +363,6 @@ diesel::allow_tables_to_appear_in_same_query!(
     olm_sessions,
     processing_queue,
     remote_encrypted_sessions,
+    unprocessable,
     vault,
 );

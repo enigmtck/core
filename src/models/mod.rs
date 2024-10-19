@@ -14,7 +14,9 @@ pub mod objects;
 pub mod olm_one_time_keys;
 pub mod olm_sessions;
 pub mod processing_queue;
+pub mod profiles;
 pub mod remote_encrypted_sessions;
+pub mod unprocessable;
 pub mod vault;
 
 cfg_if::cfg_if! {

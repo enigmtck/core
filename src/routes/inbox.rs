@@ -13,6 +13,7 @@ use crate::fairings::signatures::Signed;
 use crate::models::activities::{TimelineFilters, TimelineView};
 use crate::models::leaders::get_leaders_by_actor_id;
 use crate::models::pg::activities::get_announcers;
+use crate::models::unprocessable::create_unprocessable;
 use crate::SERVER_URL;
 use std::fmt;
 //use crate::models::remote_activities::create_remote_activity;
@@ -164,16 +165,18 @@ pub async fn shared_inbox_post(
         log::debug!("POSTING TO INBOX\n{raw:#?}");
         let raw = raw.into_inner();
 
-        let activity = serde_json::from_value::<ApActivity>(raw.clone())
-            .map_err(|_| Status::UnprocessableEntity)?;
+        if let Ok(activity) = serde_json::from_value::<ApActivity>(raw.clone()) {
+            //log::debug!("POSTING TO INBOX\n{activity:#?}");
 
-        //log::debug!("POSTING TO INBOX\n{activity:#?}");
-
-        if signed.any() {
-            activity.inbox(conn, channels, raw).await
+            if signed.any() {
+                activity.inbox(conn, channels, raw).await
+            } else {
+                log::debug!("REQUEST WAS UNSIGNED OR MALFORMED");
+                Err(Status::Unauthorized)
+            }
         } else {
-            log::debug!("REQUEST WAS UNSIGNED OR MALFORMED");
-            Err(Status::Unauthorized)
+            create_unprocessable(&conn, raw.into()).await;
+            Err(Status::UnprocessableEntity)
         }
     } else {
         log::debug!("REQUEST WAS EXPLICITLY PROHIBITED");

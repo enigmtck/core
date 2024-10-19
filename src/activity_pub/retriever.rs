@@ -2,7 +2,6 @@ use anyhow::anyhow;
 use anyhow::{Context, Result};
 use reqwest::Client;
 use reqwest::Response;
-use reqwest::StatusCode;
 use url::Url;
 
 use crate::activity_pub::ApActor;
@@ -109,30 +108,26 @@ async fn get_remote_webfinger(handle: String) -> Result<WebFinger> {
 pub async fn get_object(conn: &Db, profile: Option<Actor>, id: String) -> Option<ApObject> {
     match get_object_by_as_id(Some(conn), id.clone()).await.ok() {
         Some(object) => Some(ApObject::try_from(object).ok()?.cache(conn).await.clone()),
-        None => match signed_get(guaranteed_actor(conn, profile).await, id, false).await {
-            Ok(resp) => match resp.status() {
-                StatusCode::ACCEPTED | StatusCode::OK => {
-                    let text = resp.text().await.ok()?;
-                    let object = serde_json::from_str::<ApObject>(&text).ok()?;
+        None => {
+            let resp = signed_get(guaranteed_actor(conn, profile).await, id, false)
+                .await
+                .ok()?;
 
-                    create_or_update_object(
-                        conn,
-                        NewObject::try_from(object.cache(conn).await.clone()).ok()?,
-                    )
-                    .await
-                    .ok()
-                    .map(|x| ApObject::try_from(x).ok())?
-                }
-                _ => {
-                    log::debug!("OBJECT FAILURE STATUS: {:#?}", resp.status());
-                    None
-                }
-            },
-            Err(e) => {
-                log::error!("FAILED TO RETRIEVE OBJECT: {e:#?}");
+            if resp.status().is_success() {
+                let text = resp.text().await.ok()?;
+                let object = serde_json::from_str::<ApObject>(&text).ok()?;
+
+                create_or_update_object(
+                    conn,
+                    NewObject::try_from(object.cache(conn).await.clone()).ok()?,
+                )
+                .await
+                .ok()
+                .map(|x| ApObject::try_from(x).ok())?
+            } else {
                 None
             }
-        },
+        }
     }
 }
 
@@ -142,17 +137,15 @@ pub async fn get_local_or_cached_actor(
     requester: Option<Actor>,
     _update: bool,
 ) -> Option<ApActor> {
-    if let Some(actor) = get_actor_by_as_id(conn, id.clone()).await {
-        if let Some(requester) = requester.clone() {
-            Some(ApActor::from((
-                actor,
-                get_leader_by_actor_ap_id_and_profile(conn, id.clone(), requester.id).await,
-            )))
-        } else {
-            Some(actor.into())
-        }
+    let actor = get_actor_by_as_id(conn, id.clone()).await?;
+
+    if let Some(requester) = requester.clone() {
+        Some(ApActor::from((
+            actor,
+            get_leader_by_actor_ap_id_and_profile(conn, id.clone(), requester.id).await,
+        )))
     } else {
-        None
+        Some(actor.into())
     }
 }
 

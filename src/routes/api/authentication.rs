@@ -7,6 +7,7 @@ use crate::db::Db;
 use crate::fairings::signatures::Signed;
 use crate::models::actors::Actor;
 use crate::models::pg::actors::update_password_by_username;
+use crate::models::profiles::Profile;
 
 #[derive(Deserialize, Debug, Clone)]
 pub struct AuthenticationData {
@@ -18,20 +19,15 @@ pub struct AuthenticationData {
 pub async fn authenticate_user(
     conn: Db,
     user: Result<Json<AuthenticationData>, Error<'_>>,
-) -> Result<Json<Actor>, Status> {
+) -> Result<Json<Profile>, Status> {
     log::debug!("AUTHENTICATING\n{user:#?}");
 
-    if let Ok(user) = user {
-        if let Some(profile) =
-            admin::authenticate(&conn, user.username.clone(), user.password.clone()).await
-        {
-            Ok(Json(profile.set_avatar()))
-        } else {
-            Err(Status::NoContent)
-        }
-    } else {
-        Err(Status::NoContent)
-    }
+    let user = user.map_err(|_| Status::Unauthorized)?;
+    let profile = admin::authenticate(&conn, user.username.clone(), user.password.clone())
+        .await
+        .ok_or(Status::Unauthorized)?;
+
+    Ok(Json(profile))
 }
 
 // We need to include the re-encrypted private data that is encrypted using a derivation of the
@@ -53,37 +49,32 @@ pub async fn change_password(
     password: Result<Json<UpdatePassword>, Error<'_>>,
 ) -> Result<Json<Actor>, Status> {
     if signed.local() {
-        if let Ok(password) = password {
-            let client_private_key = password.encrypted_client_private_key.clone();
-            let olm_pickled_account = password.encrypted_olm_pickled_account.clone();
+        let password = password.map_err(|_| Status::Unauthorized)?;
 
-            if let Some(password) = verify_and_generate_password(
+        let client_private_key = password.encrypted_client_private_key.clone();
+        let olm_pickled_account = password.encrypted_olm_pickled_account.clone();
+
+        let password = verify_and_generate_password(
+            &conn,
+            username.clone(),
+            password.current.clone(),
+            password.updated.clone(),
+        )
+        .await
+        .ok_or(Status::Unauthorized)?;
+
+        Ok(Json(
+            update_password_by_username(
                 &conn,
-                username.clone(),
-                password.current.clone(),
-                password.updated.clone(),
+                username,
+                password,
+                client_private_key,
+                olm_pickled_account,
             )
             .await
-            {
-                Ok(Json(
-                    update_password_by_username(
-                        &conn,
-                        username,
-                        password,
-                        client_private_key,
-                        olm_pickled_account,
-                    )
-                    .await
-                    .unwrap_or_default(),
-                ))
-            } else {
-                log::debug!("verify_and_generate_password failed");
-                Err(Status::Forbidden)
-            }
-        } else {
-            Err(Status::Forbidden)
-        }
+            .unwrap_or_default(),
+        ))
     } else {
-        Err(Status::Forbidden)
+        Err(Status::Unauthorized)
     }
 }

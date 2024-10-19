@@ -16,6 +16,7 @@ use crate::helper::get_ap_id_from_username;
 use crate::models::actors::{
     create_or_update_actor, get_actor_by_username, Actor, ActorType, NewActor,
 };
+use crate::models::profiles::Profile;
 use crate::models::to_serde;
 
 struct KeyPair {
@@ -35,19 +36,15 @@ fn get_key_pair() -> KeyPair {
     }
 }
 
-pub async fn authenticate(conn: &Db, username: String, password_str: String) -> Option<Actor> {
+pub async fn authenticate(conn: &Db, username: String, password_str: String) -> Option<Profile> {
     log::debug!("AUTHENTICATING {username} {password_str}");
     let password = pwhash::Password::from_slice(password_str.clone().as_bytes()).ok()?;
     let profile = get_actor_by_username(conn, username.clone()).await?;
     let encoded_password_hash = profile.clone().ek_password?;
     let password_hash = pwhash::PasswordHash::from_encoded(&encoded_password_hash).ok()?;
 
-    if pwhash::hash_password_verify(&password_hash, &password).is_ok() {
-        Some(profile)
-    } else {
-        log::debug!("hash_password_verify failed {username} {password_str}");
-        None
-    }
+    pwhash::hash_password_verify(&password_hash, &password).ok()?;
+    Some(profile.try_into().ok()?)
 }
 
 pub async fn verify_and_generate_password(
@@ -56,21 +53,15 @@ pub async fn verify_and_generate_password(
     current_password: String,
     new_password: String,
 ) -> Option<String> {
-    if let Some(_profile) = authenticate(conn, username, current_password).await {
-        if let Ok(password) = pwhash::Password::from_slice(new_password.as_bytes()) {
-            // the example memory cost is 1<<16 (64MB); that taxes my system quite a bit,
-            // so I'm using 8MB - this should be increased as available power permits
-            if let Ok(hash) = pwhash::hash_password(&password, 3, 1 << 4) {
-                Some(hash.unprotected_as_encoded().to_string())
-            } else {
-                None
-            }
-        } else {
-            None
-        }
-    } else {
-        None
-    }
+    authenticate(conn, username, current_password).await?;
+
+    let password = pwhash::Password::from_slice(new_password.as_bytes()).ok()?;
+    // the example memory cost is 1<<16 (64MB); that taxes my system quite a bit,
+    // so I'm using 8MB - this should be increased as available power permits
+
+    let hash = pwhash::hash_password(&password, 3, 1 << 4).ok()?;
+
+    Some(hash.unprotected_as_encoded().to_string())
 }
 
 #[derive(Deserialize, Debug, Clone)]

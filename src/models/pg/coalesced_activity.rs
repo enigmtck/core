@@ -223,6 +223,9 @@ pub struct CoalescedActivity {
     #[diesel(sql_type = Jsonb)]
     pub object_likers: Value,
 
+    #[diesel(sql_type = Jsonb)]
+    pub object_attributed_to_profiles: Value,
+
     #[diesel(sql_type = Nullable<Text>)]
     pub object_announced: Option<String>,
 

@@ -25,7 +25,7 @@ use rocket::http::Status;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use super::{actor::ApAddress, create::ApCreate, object::ApObject};
+use super::{actor::ApActorTerse, actor::ApAddress, create::ApCreate, object::ApObject};
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default, Eq, PartialEq)]
 pub enum ApNoteType {
@@ -185,7 +185,7 @@ pub struct ApNote {
 
     // These are ephemeral attributes to facilitate client operations
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub ephemeral_announces: Option<Vec<String>>,
+    pub ephemeral_announces: Option<Vec<ApActorTerse>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ephemeral_actors: Option<Vec<ApActor>>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -199,7 +199,9 @@ pub struct ApNote {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ephemeral_metadata: Option<Vec<Metadata>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub ephemeral_likes: Option<Vec<String>>,
+    pub ephemeral_likes: Option<Vec<ApActorTerse>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ephemeral_attributed_to: Option<Vec<ApActorTerse>>,
 
     #[serde(skip_serializing)]
     pub internal_uuid: Option<String>,
@@ -304,6 +306,7 @@ impl Default for ApNote {
             ephemeral_timestamp: None,
             ephemeral_metadata: None,
             ephemeral_likes: None,
+            ephemeral_attributed_to: None,
             internal_uuid: None,
         }
     }
@@ -396,6 +399,7 @@ impl TryFrom<CoalescedActivity> for ApNote {
         let ephemeral_likes = from_serde(coalesced.object_likers);
         let ephemeral_announced = coalesced.object_announced;
         let ephemeral_liked = coalesced.object_liked;
+        let ephemeral_attributed_to = from_serde(coalesced.object_attributed_to_profiles);
 
         Ok(ApNote {
             kind,
@@ -417,6 +421,7 @@ impl TryFrom<CoalescedActivity> for ApNote {
             ephemeral_likes,
             ephemeral_announced,
             ephemeral_liked,
+            ephemeral_attributed_to,
             ..Default::default()
         })
     }

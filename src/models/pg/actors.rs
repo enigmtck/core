@@ -300,15 +300,6 @@ pub async fn create_or_update_actor(conn: Option<&Db>, actor: NewActor) -> Resul
 }
 
 impl Actor {
-    pub fn set_avatar(mut self) -> Self {
-        self.ek_avatar_filename = Some(
-            self.ek_avatar_filename
-                .unwrap_or((*crate::DEFAULT_AVATAR).clone()),
-        );
-
-        self.clone()
-    }
-
     pub fn is_stale(&self) -> bool {
         Utc::now() - self.updated_at > Duration::days(7)
     }

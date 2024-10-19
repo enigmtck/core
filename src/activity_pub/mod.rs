@@ -13,7 +13,7 @@ use serde_json::Value;
 pub use types::accept::{ApAccept, ApAcceptType};
 pub use types::activity::ApActivity;
 pub use types::actor::{
-    ApActor, ApActorType, ApAddress, ApCapabilities, ApPublicKey, PUBLIC_COLLECTION,
+    ApActor, ApActorTerse, ApActorType, ApAddress, ApCapabilities, ApPublicKey, PUBLIC_COLLECTION,
 };
 pub use types::add::{ApAdd, ApAddType};
 pub use types::announce::{ApAnnounce, ApAnnounceType};

@@ -4,7 +4,8 @@ use std::fmt::Debug;
 use crate::{
     activity_pub::{ApAddress, ApContext, Inbox, Outbox},
     db::Db,
-    fairings::events::EventChannels, models::actors::Actor,
+    fairings::events::EventChannels,
+    models::actors::Actor,
 };
 use rocket::http::Status;
 use serde::{Deserialize, Serialize};

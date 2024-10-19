@@ -296,7 +296,7 @@ pub async fn handle_object(
     conn: &Db,
     channels: Option<EventChannels>,
     mut object: Object,
-    announcer: Option<String>,
+    _announcer: Option<String>,
 ) -> anyhow::Result<Object> {
     log::debug!("HANDLING OBJECT");
 
@@ -324,13 +324,13 @@ pub async fn handle_object(
     let ap_object: ApObject = object.clone().try_into()?;
     let profile = guaranteed_actor(conn, None);
 
-    if let ApObject::Note(mut note) = ap_object {
+    if let ApObject::Note(note) = ap_object {
         let _ = runner::actor::get_actor(Some(conn), profile.await, note.attributed_to.to_string())
             .await;
 
-        if let Some(announcer) = announcer {
-            note.ephemeral_announces = Some(vec![announcer]);
-        }
+        // if let Some(announcer) = announcer {
+        //     note.ephemeral_announces = Some(vec![announcer]);
+        // }
 
         note.cache(conn).await;
 

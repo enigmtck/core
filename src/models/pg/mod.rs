@@ -12,6 +12,7 @@ pub mod olm_one_time_keys;
 pub mod olm_sessions;
 pub mod processing_queue;
 pub mod remote_encrypted_sessions;
+pub mod unprocessable;
 pub mod vault;
 
 pub fn parameter_generator() -> impl FnMut() -> String {

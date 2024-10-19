@@ -276,17 +276,23 @@ fn query_initial_block() -> String {
 fn query_end_block(mut query: String) -> String {
     query.push_str(
         " SELECT DISTINCT m.*, \
-         COALESCE(JSONB_AGG(a.actor) \
+         COALESCE(JSONB_AGG(jsonb_build_object('id', ac.as_id, 'name', ac.as_name, 'tag', ac.as_tag, 'url', ac.as_url,\
+         'icon', ac.as_icon)) \
          FILTER (WHERE a.actor IS NOT NULL AND a.kind = 'announce'), '[]') \
          AS object_announcers, \
-         COALESCE(JSONB_AGG(a.actor) \
+         COALESCE(JSONB_AGG(jsonb_build_object('id', ac.as_id, 'name', ac.as_name, 'tag', ac.as_tag, 'url', ac.as_url,\
+         'icon', ac.as_icon)) \
          FILTER (WHERE a.actor IS NOT NULL AND a.kind = 'like'), '[]') \
          AS object_likers, \
+         JSONB_AGG(jsonb_build_object('id', ac2.as_id, 'name', ac2.as_name, 'tag', ac2.as_tag, 'url', ac2.as_url,\
+         'icon', ac2.as_icon)) AS object_attributed_to_profiles, \
          announced.object_announced, \
          liked.object_liked \
          FROM main m \
+         LEFT JOIN actors ac2 ON (m.object_attributed_to ?| ARRAY[ac2.as_id])
          LEFT JOIN activities a \
          ON (a.target_ap_id = m.object_as_id AND NOT a.revoked AND (a.kind = 'announce' OR a.kind = 'like')) \
+         LEFT JOIN actors ac ON (ac.as_id = a.actor) \
          LEFT JOIN announced ON m.id = announced.id \
          LEFT JOIN liked ON m.id = liked.id \
          GROUP BY m.id, m.created_at, m.updated_at, m.profile_id, m.kind, m.uuid, m.actor, m.ap_to, m.cc,\
@@ -403,7 +409,7 @@ fn build_main_query(
         if let Some(filters) = filters {
             if filters.username.is_some() {
                 params.to.extend((*PUBLIC_COLLECTION).clone());
-                query.push_str(&format!("AND p.username = {} ", param_gen()));
+                query.push_str(&format!("AND ac.ek_username = {} ", param_gen()));
                 params.username = filters.username.clone();
             } else if let Some(view) = filters.view.clone() {
                 match view {

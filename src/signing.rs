@@ -162,7 +162,7 @@ pub async fn verify(
         } else {
             Err(VerificationError::ProfileNotFound)
         }
-    } else if let Some(actor) = retriever::get_actor(conn, ap_id, Option::None, true).await {
+    } else if let Some(actor) = retriever::get_actor(conn, ap_id, None, true).await {
         RsaPublicKey::from_public_key_pem(actor.public_key.public_key_pem.trim_end())
             .map_err(|_| VerificationError::PublicKeyError)
             .and_then(|pk| verify(&pk, &signature_str, &verify_string))?;

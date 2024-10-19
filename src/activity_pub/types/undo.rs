@@ -60,6 +60,7 @@ async fn process_undo_activity(
     channels: EventChannels,
     ap_target: &ApActivity,
     undo: &ApUndo,
+    raw: Value,
 ) -> Result<Status, Status> {
     let ap_id = undo_target_apid(ap_target).ok_or(Status::NotImplemented)?;
     log::debug!("UNDO AP_ID: {ap_id}");
@@ -76,7 +77,9 @@ async fn process_undo_activity(
         Some(ActivityTarget::from(target.2.ok_or(Status::NotFound)?)),
     ) as ApActivityTarget;
 
-    let activity = NewActivity::try_from(activity_and_target).map_err(|_| Status::new(522))?;
+    let mut activity = NewActivity::try_from(activity_and_target).map_err(|_| Status::new(522))?;
+    activity.raw = Some(raw.clone());
+
     log::debug!("ACTIVITY\n{activity:#?}");
     if create_activity(Some(&conn), activity.clone()).await.is_ok() {
         match ap_target {
@@ -121,7 +124,7 @@ impl Inbox for Box<ApUndo> {
     async fn inbox(&self, conn: Db, channels: EventChannels, raw: Value) -> Result<Status, Status> {
         match self.object.clone() {
             MaybeReference::Actual(actual) => {
-                process_undo_activity(conn, channels, &actual, self).await
+                process_undo_activity(conn, channels, &actual, self, raw).await
             }
             MaybeReference::Reference(_) => {
                 log::warn!(
