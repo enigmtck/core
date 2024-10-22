@@ -23,9 +23,6 @@ pub struct CoalescedActivity {
     #[diesel(sql_type = Timestamptz)]
     pub updated_at: DateTime<Utc>,
 
-    #[diesel(sql_type = Nullable<Integer>)]
-    pub profile_id: Option<i32>,
-
     #[diesel(sql_type = SqlActivityType)]
     pub kind: ActivityType,
 
@@ -42,31 +39,16 @@ pub struct CoalescedActivity {
     pub cc: Option<Value>,
 
     #[diesel(sql_type = Nullable<Integer>)]
-    pub target_note_id: Option<i32>,
-
-    #[diesel(sql_type = Nullable<Integer>)]
-    pub target_remote_note_id: Option<i32>,
-
-    #[diesel(sql_type = Nullable<Integer>)]
-    pub target_profile_id: Option<i32>,
-
-    #[diesel(sql_type = Nullable<Integer>)]
     pub target_activity_id: Option<i32>,
 
     #[diesel(sql_type = Nullable<Text>)]
     pub target_ap_id: Option<String>,
-
-    #[diesel(sql_type = Nullable<Integer>)]
-    pub target_remote_actor_id: Option<i32>,
 
     #[diesel(sql_type = Bool)]
     pub revoked: bool,
 
     #[diesel(sql_type = Nullable<Text>)]
     pub ap_id: Option<String>,
-
-    #[diesel(sql_type = Nullable<Integer>)]
-    pub target_remote_question_id: Option<i32>,
 
     #[diesel(sql_type = Bool)]
     pub reply: bool,
@@ -90,9 +72,6 @@ pub struct CoalescedActivity {
     #[diesel(sql_type = Nullable<Timestamptz>)]
     pub recursive_updated_at: Option<DateTime<Utc>>,
 
-    #[diesel(sql_type = Nullable<Integer>)]
-    pub recursive_profile_id: Option<i32>,
-
     #[diesel(sql_type = Nullable<SqlActivityType>)]
     pub recursive_kind: Option<ActivityType>,
 
@@ -109,31 +88,16 @@ pub struct CoalescedActivity {
     pub recursive_cc: Option<Value>,
 
     #[diesel(sql_type = Nullable<Integer>)]
-    pub recursive_target_note_id: Option<i32>,
-
-    #[diesel(sql_type = Nullable<Integer>)]
-    pub recursive_target_remote_note_id: Option<i32>,
-
-    #[diesel(sql_type = Nullable<Integer>)]
-    pub recursive_target_profile_id: Option<i32>,
-
-    #[diesel(sql_type = Nullable<Integer>)]
     pub recursive_target_activity_id: Option<i32>,
 
     #[diesel(sql_type = Nullable<Text>)]
     pub recursive_target_ap_id: Option<String>,
-
-    #[diesel(sql_type = Nullable<Integer>)]
-    pub recursive_target_remote_actor_id: Option<i32>,
 
     #[diesel(sql_type = Nullable<Bool>)]
     pub recursive_revoked: Option<bool>,
 
     #[diesel(sql_type = Nullable<Text>)]
     pub recursive_ap_id: Option<String>,
-
-    #[diesel(sql_type = Nullable<Integer>)]
-    pub recursive_target_remote_question_id: Option<i32>,
 
     #[diesel(sql_type = Nullable<Bool>)]
     pub recursive_reply: Option<bool>,

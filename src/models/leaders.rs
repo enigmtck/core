@@ -25,7 +25,6 @@ cfg_if::cfg_if! {
 #[derive(Serialize, Deserialize, Insertable, Default, Debug)]
 #[diesel(table_name = leaders)]
 pub struct NewLeader {
-    pub profile_id: i32,
     pub actor: String,
     pub leader_ap_id: String,
     pub uuid: String,
@@ -46,7 +45,6 @@ impl TryFrom<ApAccept> for NewLeader {
                 uuid: Uuid::new_v4().to_string(),
                 accept_ap_id: accept.id,
                 accepted: Some(true),
-                profile_id: -1,
                 follow_ap_id: follow.id,
                 actor_id: -1,
             })
@@ -57,12 +55,12 @@ impl TryFrom<ApAccept> for NewLeader {
 }
 
 impl NewLeader {
-    pub fn link(&mut self, profile: Actor) -> &mut Self {
+    pub fn link(&mut self, actor: Actor) -> &mut Self {
         if let Some(id) = get_local_identifier(self.actor.clone()) {
             if id.kind == LocalIdentifierType::User
-                && id.identifier.to_lowercase() == profile.ek_username.unwrap().to_lowercase()
+                && id.identifier.to_lowercase() == actor.ek_username.unwrap().to_lowercase()
             {
-                self.profile_id = profile.id;
+                self.actor_id = actor.id;
                 self
             } else {
                 self
@@ -94,17 +92,17 @@ pub async fn delete_leader(conn: &Db, leader_id: i32) -> bool {
         .is_ok()
 }
 
-pub async fn delete_leader_by_ap_id_and_profile_id(
+pub async fn delete_leader_by_ap_id_and_actor_id(
     conn: Option<&Db>,
     leader_ap_id: String,
-    profile_id: i32,
+    actor_id: i32,
 ) -> bool {
     match conn {
         Some(conn) => conn
             .run(move |c| {
                 diesel::delete(
                     leaders::table
-                        .filter(leaders::profile_id.eq(profile_id))
+                        .filter(leaders::actor_id.eq(actor_id))
                         .filter(leaders::leader_ap_id.eq(leader_ap_id)),
                 )
                 .execute(c)
@@ -114,7 +112,7 @@ pub async fn delete_leader_by_ap_id_and_profile_id(
         None => POOL.get().map_or(false, |mut pool| {
             diesel::delete(
                 leaders::table
-                    .filter(leaders::profile_id.eq(profile_id))
+                    .filter(leaders::actor_id.eq(actor_id))
                     .filter(leaders::leader_ap_id.eq(leader_ap_id)),
             )
             .execute(&mut pool)

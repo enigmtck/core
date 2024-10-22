@@ -18,6 +18,7 @@ use anyhow::{anyhow, Result};
 use chrono::{DateTime, Utc};
 use rocket::http::Status;
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 use super::{
     actor::{ApActor, ApAddress},
@@ -203,6 +204,7 @@ impl Outbox for ApQuestion {
         _conn: Db,
         _events: EventChannels,
         _profile: Actor,
+        raw: Value,
     ) -> Result<String, Status> {
         Err(Status::NotImplemented)
     }

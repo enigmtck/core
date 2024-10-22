@@ -330,12 +330,12 @@ pub async fn remote_outbox(
     }
 }
 
-#[get("/api/user/<username>/remote/outbox?<webfinger>&<page>")]
+#[get("/api/user/<_username>/remote/outbox?<webfinger>&<page>")]
 pub async fn remote_outbox_authenticated(
     blocks: BlockList,
     signed: Signed,
     conn: Db,
-    username: &str,
+    _username: &str,
     webfinger: &str,
     page: Option<&str>,
 ) -> Result<Json<ApObject>, Status> {
@@ -344,29 +344,28 @@ pub async fn remote_outbox_authenticated(
     } else if !signed.local() {
         Err(Status::Unauthorized)
     } else if let Ok(Json(actor)) = remote_actor_response(&conn, webfinger.to_string()).await {
-        let profile = get_actor_by_username(&conn, username.to_string())
-            .await
-            .ok_or(Status::new(521))?;
+        let profile = signed.profile();
+
         if let Some(page) = page {
             let url = urlencoding::decode(page).map_err(|_| Status::UnprocessableEntity)?;
             let url = &(*url).to_string();
             if url.contains(&actor.outbox) {
-                let collection = get_remote_collection_page(&conn, Some(profile), page.to_string())
+                let collection = get_remote_collection_page(&conn, profile, page.to_string())
                     .await
-                    .map_err(|_| Status::new(523))?;
+                    .map_err(|_| Status::ServiceUnavailable)?;
 
                 Ok(Json(ApObject::CollectionPage(collection)))
             } else {
-                Err(Status::NoContent)
+                Err(Status::UnprocessableEntity)
             }
         } else {
-            let collection = get_remote_collection(&conn, Some(profile), actor.outbox)
+            let collection = get_remote_collection(&conn, profile, actor.outbox)
                 .await
-                .map_err(|_| Status::new(525))?;
+                .map_err(|_| Status::ServiceUnavailable)?;
             Ok(Json(ApObject::Collection(collection)))
         }
     } else {
-        Err(Status::new(520))
+        Err(Status::ServiceUnavailable)
     }
 }
 

@@ -14,6 +14,7 @@ use crate::{MaybeMultiple, DOMAIN_RE};
 use lazy_static::lazy_static;
 use rocket::http::Status;
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use serde_with::serde_as;
 
 lazy_static! {
@@ -223,10 +224,12 @@ pub struct ApActor {
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Eq, PartialEq, Ord, PartialOrd)]
+#[serde(rename_all = "camelCase")]
 pub struct ApActorTerse {
     pub id: String,
     pub url: String,
-    pub name: String,
+    pub name: Option<String>,
+    pub preferred_username: String,
     pub tag: Vec<ApTag>,
     pub icon: Option<ApImage>,
 }
@@ -256,6 +259,7 @@ impl Outbox for ApActor {
         _conn: Db,
         _events: EventChannels,
         _profile: Actor,
+        raw: Value,
     ) -> Result<String, Status> {
         Err(Status::ServiceUnavailable)
     }

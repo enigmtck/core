@@ -4,9 +4,9 @@ use crate::fairings::events::EventChannels;
 use crate::fairings::signatures::Signed;
 use crate::models::activities::{TimelineFilters, TimelineView};
 use crate::models::actors::get_actor_by_username;
-//use crate::models::timeline::{TimelineFilters, TimelineView};
+use crate::models::unprocessable::create_unprocessable;
 use crate::SERVER_URL;
-use rocket::{get, http::Status, post, serde::json::Error, serde::json::Json};
+use rocket::{get, http::Status, post, serde::json::Json, serde::json::Value};
 
 use super::{retrieve, ActivityJson};
 
@@ -58,29 +58,27 @@ pub async fn outbox_get(
     }
 }
 
-#[post("/user/<username>/outbox", data = "<object>")]
+#[post("/user/<_username>/outbox", data = "<raw>")]
 pub async fn outbox_post(
     signed: Signed,
     conn: Db,
     events: EventChannels,
-    username: String,
-    object: Result<Json<ActivityPub>, Error<'_>>,
+    _username: String,
+    raw: Json<Value>,
 ) -> Result<String, Status> {
-    log::debug!("POSTING TO OUTBOX\n{object:#?}");
+    let actor = signed.profile().ok_or(Status::Unauthorized)?;
 
-    if signed.local() {
-        let profile = get_actor_by_username(&conn, username)
-            .await
-            .ok_or(Status::new(521))?;
+    log::debug!("POSTING TO OUTBOX\n{raw:#?}");
+    let raw = raw.into_inner();
 
-        let object = object.map_err(|_| Status::new(522))?;
-
+    if let Ok(object) = serde_json::from_value::<ActivityPub>(raw.clone()) {
         match object {
-            Json(ActivityPub::Activity(activity)) => activity.outbox(conn, events, profile).await,
-            Json(ActivityPub::Object(object)) => object.outbox(conn, events, profile).await,
-            _ => Err(Status::new(523)),
+            ActivityPub::Activity(activity) => activity.outbox(conn, events, actor, raw).await,
+            ActivityPub::Object(object) => object.outbox(conn, events, actor, raw).await,
+            _ => Err(Status::NotImplemented),
         }
     } else {
-        Err(Status::Unauthorized)
+        create_unprocessable(&conn, raw.into()).await;
+        Err(Status::UnprocessableEntity)
     }
 }

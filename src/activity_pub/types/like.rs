@@ -104,6 +104,7 @@ impl Outbox for Box<ApLike> {
         conn: Db,
         events: EventChannels,
         profile: Actor,
+        raw: Value,
     ) -> Result<String, Status> {
         handle_like_outbox(conn, events, *self.clone(), profile).await
     }
@@ -124,7 +125,7 @@ async fn handle_like_outbox(
             Some(&conn),
             NewActivity::try_from((Box::new(like).into(), Some(object.into())))
                 .map_err(|_| Status::InternalServerError)?
-                .link_profile(&conn)
+                .link_actor(&conn)
                 .await,
         )
         .await

@@ -178,9 +178,9 @@ pub struct TimelineFilters {
 }
 
 impl NewActivity {
-    pub async fn link_profile(&mut self, conn: &Db) -> Self {
-        if let Some(profile) = get_actor_by_as_id(conn, self.clone().actor).await {
-            self.profile_id = Some(profile.id);
+    pub async fn link_actor(&mut self, conn: &Db) -> Self {
+        if let Some(actor) = get_actor_by_as_id(conn, self.clone().actor).await {
+            self.actor_id = Some(actor.id);
         };
 
         self.clone()
@@ -260,7 +260,7 @@ impl TryFrom<ApActivityTarget> for NewActivity {
                 uuid: uuid.clone(),
                 actor: follow.actor.to_string(),
                 target_ap_id: follow.object.reference(),
-                target_remote_actor_id: None,
+                target_actor_id: None,
                 revoked: false,
                 ap_id: follow
                     .id
@@ -377,9 +377,8 @@ impl From<ActorActivity> for NewActivity {
             uuid: uuid.clone(),
             actor: actor.to_string(),
             ap_to,
-            target_profile_id: profile.map(|x| x.id),
+            target_actor_id: remote_actor.map(|x| x.id),
             target_ap_id,
-            target_remote_actor_id: remote_actor.map(|x| x.id),
             revoked: false,
             ap_id: Some(get_activity_ap_id_from_uuid(uuid)),
             ..Default::default()
@@ -460,21 +459,15 @@ fn target_to_main(coalesced: CoalescedActivity) -> Option<Activity> {
         id: coalesced.target_activity_id?,
         created_at: coalesced.recursive_created_at?,
         updated_at: coalesced.recursive_updated_at?,
-        profile_id: coalesced.recursive_profile_id,
         kind: coalesced.recursive_kind?,
         uuid: coalesced.recursive_uuid?,
         actor: coalesced.recursive_actor?,
         ap_to: coalesced.recursive_ap_to,
         cc: coalesced.recursive_cc,
-        target_note_id: coalesced.recursive_target_note_id,
-        target_remote_note_id: coalesced.recursive_target_remote_note_id,
-        target_profile_id: coalesced.recursive_target_profile_id,
         target_activity_id: coalesced.recursive_target_activity_id,
         target_ap_id: coalesced.recursive_target_ap_id,
-        target_remote_actor_id: coalesced.recursive_target_remote_actor_id,
         revoked: coalesced.recursive_revoked?,
         ap_id: coalesced.recursive_ap_id,
-        target_remote_question_id: coalesced.recursive_target_remote_question_id,
         reply: coalesced.recursive_reply?,
         raw: None,
         target_object_id: coalesced.recursive_target_object_id,
@@ -489,21 +482,15 @@ impl From<CoalescedActivity> for ExtendedActivity {
             id: coalesced.id,
             created_at: coalesced.created_at,
             updated_at: coalesced.updated_at,
-            profile_id: coalesced.profile_id,
             kind: coalesced.kind.clone(),
             uuid: coalesced.uuid.clone(),
             actor: coalesced.actor.clone(),
             ap_to: coalesced.ap_to.clone(),
             cc: coalesced.cc.clone(),
-            target_note_id: coalesced.target_note_id,
-            target_remote_note_id: coalesced.target_remote_note_id,
-            target_profile_id: coalesced.target_profile_id,
             target_activity_id: coalesced.target_activity_id,
             target_ap_id: coalesced.target_ap_id.clone(),
-            target_remote_actor_id: coalesced.target_remote_actor_id,
             revoked: coalesced.revoked,
             ap_id: coalesced.ap_id.clone(),
-            target_remote_question_id: coalesced.target_remote_question_id,
             reply: coalesced.reply,
             raw: coalesced.raw.clone(),
             target_object_id: coalesced.target_object_id,
@@ -527,17 +514,17 @@ pub async fn get_activity_by_ap_id(conn: &Db, ap_id: String) -> Option<ExtendedA
         .map(ExtendedActivity::from)
 }
 
-pub async fn get_activity_by_kind_profile_id_and_target_ap_id(
+pub async fn get_activity_by_kind_actor_id_and_target_ap_id(
     conn: &Db,
     kind: ActivityType,
-    profile_id: i32,
+    actor_id: i32,
     target_ap_id: String,
 ) -> Option<Activity> {
     conn.run(move |c| {
         activities::table
             .filter(activities::revoked.eq(false))
             .filter(activities::kind.eq(to_kind(kind)))
-            .filter(activities::profile_id.eq(profile_id))
+            .filter(activities::actor_id.eq(actor_id))
             .filter(activities::target_ap_id.eq(target_ap_id))
             .load::<Activity>(c)
     })
@@ -565,11 +552,11 @@ pub async fn get_activity(conn: Option<&Db>, id: i32) -> Option<ExtendedActivity
     .map(ExtendedActivity::from)
 }
 
-pub async fn get_outbox_count_by_profile_id(conn: &Db, profile_id: i32) -> Option<i64> {
+pub async fn get_outbox_count_by_actor_id(conn: &Db, actor_id: i32) -> Option<i64> {
     conn.run(move |c| {
         activities::table
             .filter(activities::revoked.eq(false))
-            .filter(activities::profile_id.eq(profile_id))
+            .filter(activities::actor_id.eq(actor_id))
             .filter(
                 activities::kind
                     .eq(to_kind(ActivityType::Create))

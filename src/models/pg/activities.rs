@@ -78,16 +78,10 @@ pub struct NewActivity {
     pub actor: String,
     pub ap_to: Option<Value>,
     pub cc: Option<Value>,
-    pub profile_id: Option<i32>,
-    pub target_note_id: Option<i32>,
-    pub target_remote_note_id: Option<i32>,
-    pub target_profile_id: Option<i32>,
     pub target_activity_id: Option<i32>,
     pub target_ap_id: Option<String>,
-    pub target_remote_actor_id: Option<i32>,
     pub revoked: bool,
     pub ap_id: Option<String>,
-    pub target_remote_question_id: Option<i32>,
     pub reply: bool,
     pub raw: Option<Value>,
     pub target_object_id: Option<i32>,
@@ -105,16 +99,10 @@ impl Default for NewActivity {
             actor: String::new(),
             ap_to: None,
             cc: None,
-            profile_id: None,
-            target_note_id: None,
-            target_remote_note_id: None,
-            target_profile_id: None,
             target_activity_id: None,
             target_ap_id: None,
-            target_remote_actor_id: None,
             revoked: false,
             ap_id: Some(get_activity_ap_id_from_uuid(uuid)),
-            target_remote_question_id: None,
             reply: false,
             raw: None,
             target_object_id: None,
@@ -143,21 +131,15 @@ pub struct Activity {
     pub id: i32,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
-    pub profile_id: Option<i32>,
     pub kind: ActivityType,
     pub uuid: String,
     pub actor: String,
     pub ap_to: Option<Value>,
     pub cc: Option<Value>,
-    pub target_note_id: Option<i32>,
-    pub target_remote_note_id: Option<i32>,
-    pub target_profile_id: Option<i32>,
     pub target_activity_id: Option<i32>,
     pub target_ap_id: Option<String>,
-    pub target_remote_actor_id: Option<i32>,
     pub revoked: bool,
     pub ap_id: Option<String>,
-    pub target_remote_question_id: Option<i32>,
     pub reply: bool,
     pub raw: Option<Value>,
     pub target_object_id: Option<i32>,
@@ -186,21 +168,15 @@ fn query_initial_block() -> String {
      SELECT DISTINCT ON (a.created_at) a.*,\
      a2.created_at AS recursive_created_at,\
      a2.updated_at AS recursive_updated_at,\
-     a2.profile_id AS recursive_profile_id,\
      a2.kind AS recursive_kind,\
      a2.uuid AS recursive_uuid,\
      a2.actor AS recursive_actor,\
      a2.ap_to AS recursive_ap_to,\
      a2.cc AS recursive_cc,\
-     a2.target_note_id AS recursive_target_note_id,\
-     a2.target_remote_note_id AS recursive_target_remote_note_id,\
-     a2.target_profile_id AS recursive_target_profile_id,\
      a2.target_activity_id AS recursive_target_activity_id,\
      a2.target_ap_id AS recursive_target_ap_id,\
-     a2.target_remote_actor_id AS recursive_target_remote_actor_id,\
      a2.revoked AS recursive_revoked,\
      a2.ap_id AS recursive_ap_id,\
-     a2.target_remote_question_id AS recursive_target_remote_question_id,\
      a2.reply AS recursive_reply,\
      a2.target_object_id AS recursive_target_object_id,\
      a2.actor_id AS recursive_actor_id,\
@@ -277,32 +253,29 @@ fn query_end_block(mut query: String) -> String {
     query.push_str(
         " SELECT DISTINCT m.*, \
          COALESCE(JSONB_AGG(jsonb_build_object('id', ac.as_id, 'name', ac.as_name, 'tag', ac.as_tag, 'url', ac.as_url,\
-         'icon', ac.as_icon)) \
+         'icon', ac.as_icon, 'preferredUsername', ac.as_preferred_username)) \
          FILTER (WHERE a.actor IS NOT NULL AND a.kind = 'announce'), '[]') \
          AS object_announcers, \
          COALESCE(JSONB_AGG(jsonb_build_object('id', ac.as_id, 'name', ac.as_name, 'tag', ac.as_tag, 'url', ac.as_url,\
-         'icon', ac.as_icon)) \
+         'icon', ac.as_icon, 'preferredUsername', ac.as_preferred_username)) \
          FILTER (WHERE a.actor IS NOT NULL AND a.kind = 'like'), '[]') \
          AS object_likers, \
          JSONB_AGG(jsonb_build_object('id', ac2.as_id, 'name', ac2.as_name, 'tag', ac2.as_tag, 'url', ac2.as_url,\
-         'icon', ac2.as_icon)) AS object_attributed_to_profiles, \
+         'icon', ac2.as_icon, 'preferredUsername', ac2.as_preferred_username)) AS object_attributed_to_profiles, \
          announced.object_announced, \
          liked.object_liked \
          FROM main m \
-         LEFT JOIN actors ac2 ON (m.object_attributed_to ?| ARRAY[ac2.as_id])
+         LEFT JOIN actors ac2 ON (m.object_attributed_to ?| ARRAY[ac2.as_id]) \
          LEFT JOIN activities a \
          ON (a.target_ap_id = m.object_as_id AND NOT a.revoked AND (a.kind = 'announce' OR a.kind = 'like')) \
          LEFT JOIN actors ac ON (ac.as_id = a.actor) \
          LEFT JOIN announced ON m.id = announced.id \
          LEFT JOIN liked ON m.id = liked.id \
-         GROUP BY m.id, m.created_at, m.updated_at, m.profile_id, m.kind, m.uuid, m.actor, m.ap_to, m.cc,\
-         m.target_note_id, m.target_remote_note_id, m.target_profile_id, m.target_activity_id, m.target_ap_id,\
-         m.target_remote_actor_id, m.revoked, m.ap_id, m.target_remote_question_id, m.reply, m.recursive_created_at,\
-         m.recursive_updated_at, m.recursive_profile_id, m.recursive_kind, m.recursive_uuid, m.recursive_actor,\
-         m.recursive_ap_to, m.recursive_cc, m.recursive_target_note_id, m.recursive_target_remote_note_id,\
-         m.recursive_target_profile_id, m.recursive_target_activity_id, m.recursive_target_ap_id,\
-         m.recursive_target_remote_actor_id, m.recursive_revoked, m.recursive_ap_id,\
-         m.recursive_target_remote_question_id, m.recursive_reply, m.recursive_target_object_id, m.recursive_actor_id,\
+         GROUP BY m.id, m.created_at, m.updated_at, m.kind, m.uuid, m.actor, m.ap_to, m.cc,\
+         m.target_activity_id, m.target_ap_id, m.revoked, m.ap_id, m.reply, m.recursive_created_at,\
+         m.recursive_updated_at, m.recursive_kind, m.recursive_uuid, m.recursive_actor,\
+         m.recursive_ap_to, m.recursive_cc, m.recursive_target_activity_id, m.recursive_target_ap_id,\
+         m.recursive_revoked, m.recursive_ap_id, m.recursive_reply, m.recursive_target_object_id, m.recursive_actor_id,\
          m.recursive_target_actor_id, m.object_created_at,m.object_updated_at, m.object_uuid,\
          m.object_type, m.object_published, m.object_as_id, m.object_url, m.object_to, m.object_cc, m.object_tag,\
          m.object_attributed_to, m.object_in_reply_to, m.object_content, m.object_conversation, m.object_attachment,\

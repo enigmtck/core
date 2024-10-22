@@ -1,4 +1,4 @@
-use crate::models::activities::{get_outbox_count_by_profile_id, TimelineFilters};
+use crate::models::activities::{get_outbox_count_by_actor_id, TimelineFilters};
 use crate::models::actors::Actor;
 use crate::models::pg::activities::get_activities_coalesced;
 use crate::SERVER_URL;
@@ -11,7 +11,7 @@ pub async fn outbox_collection(conn: &Db, profile: Actor, base_url: Option<Strin
     let server_url = &*SERVER_URL;
     let username = profile.ek_username.unwrap();
     let base_url = base_url.unwrap_or(format!("{server_url}/{username}/outbox"));
-    let count = get_outbox_count_by_profile_id(conn, profile.id)
+    let count = get_outbox_count_by_actor_id(conn, profile.id)
         .await
         .unwrap_or(0);
 

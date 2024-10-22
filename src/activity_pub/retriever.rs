@@ -23,6 +23,7 @@ pub async fn get_remote_collection_page(
     profile: Option<Actor>,
     url: String,
 ) -> Result<ApCollectionPage> {
+    log::debug!("REMOTE COLLECTION PAGE REQUEST\n{url}");
     let response = signed_get(guaranteed_actor(conn, profile).await, url, false).await?;
 
     let raw = response.text().await?;

@@ -24,7 +24,6 @@ cfg_if::cfg_if! {
 #[derive(Serialize, Deserialize, Insertable, Default, Debug)]
 #[diesel(table_name = followers)]
 pub struct NewFollower {
-    pub profile_id: i32,
     pub ap_id: String,
     pub actor: String,
     pub followed_ap_id: String,

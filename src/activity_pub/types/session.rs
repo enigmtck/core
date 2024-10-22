@@ -12,6 +12,7 @@ use crate::{
 };
 use rocket::http::Status;
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use uuid::Uuid;
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -38,6 +39,7 @@ impl Outbox for ApSession {
         conn: Db,
         events: EventChannels,
         profile: Actor,
+        raw: Value,
     ) -> Result<String, Status> {
         handle_session(conn, events, self.clone(), profile).await
     }
@@ -101,6 +103,7 @@ impl Outbox for ApInstrument {
         _conn: Db,
         _events: EventChannels,
         _profile: Actor,
+        raw: Value,
     ) -> Result<String, Status> {
         Err(Status::ServiceUnavailable)
     }

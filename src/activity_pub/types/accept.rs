@@ -7,8 +7,7 @@ use crate::{
     fairings::events::EventChannels,
     models::{
         activities::{
-            create_activity, get_activity_by_ap_id, ActivityTarget, ApActivityTarget,
-            ExtendedActivity, NewActivity,
+            create_activity, get_activity_by_ap_id, ActivityTarget, ExtendedActivity, NewActivity,
         },
         actors::Actor,
     },
@@ -48,36 +47,37 @@ pub struct ApAccept {
 impl Inbox for Box<ApAccept> {
     #[allow(unused_variables)]
     async fn inbox(&self, conn: Db, channels: EventChannels, raw: Value) -> Result<Status, Status> {
-        //inbox::activity::accept(conn, faktory, *self.clone()).await
-        let follow_apid = match self.clone().object {
+        let follow_as_id = match self.clone().object {
             MaybeReference::Reference(reference) => Some(reference),
             MaybeReference::Actual(ApActivity::Follow(actual)) => actual.id,
             _ => None,
-        };
+        }
+        .ok_or(Status::UnprocessableEntity)?;
 
-        let follow_apid = follow_apid.ok_or(Status::new(520))?;
-        let (activity, target_activity, target_object, target_actor) =
-            get_activity_by_ap_id(&conn, follow_apid)
+        let (follow, _target_activity, _target_object, _target_actor) =
+            get_activity_by_ap_id(&conn, follow_as_id)
                 .await
-                .ok_or(Status::new(521))?;
+                .ok_or(Status::NotFound)?;
 
-        let activity = NewActivity::try_from((
+        let mut accept = NewActivity::try_from((
             ApActivity::Accept(self.clone()),
-            Some(ActivityTarget::from(
-                target_object.ok_or(Status::InternalServerError)?,
-            )),
-        ) as ApActivityTarget)
-        .map_err(|_| Status::new(522))?;
-        log::debug!("ACTIVITY\n{activity:#?}");
-        if create_activity((&conn).into(), activity.clone())
-            .await
-            .is_ok()
-        {
+            Some(follow.clone().into()),
+        ))
+        .map_err(|_| Status::InternalServerError)?
+        .link_actor(&conn)
+        .await;
+
+        accept.link_target(Some(ActivityTarget::Activity(follow)));
+        accept.raw = Some(raw);
+
+        log::debug!("ACTIVITY\n{accept:#?}");
+
+        if let Ok(activity) = create_activity((&conn).into(), accept.clone()).await {
             runner::run(
                 runner::follow::process_accept_task,
                 Some(conn),
                 Some(channels),
-                vec![activity.uuid.clone()],
+                vec![accept.ap_id.clone().ok_or(Status::InternalServerError)?],
             )
             .await;
             Ok(Status::Accepted)
@@ -94,6 +94,7 @@ impl Outbox for Box<ApAccept> {
         _conn: Db,
         _events: EventChannels,
         _profile: Actor,
+        _raw: Value,
     ) -> Result<String, Status> {
         Err(Status::ServiceUnavailable)
     }
@@ -103,30 +104,28 @@ impl TryFrom<ExtendedActivity> for ApAccept {
     type Error = anyhow::Error;
 
     fn try_from(
-        (activity, target_activity, target_object, target_actor): ExtendedActivity,
+        (activity, target_activity, _target_object, target_actor): ExtendedActivity,
     ) -> Result<Self, Self::Error> {
-        let recursive = target_activity.ok_or(anyhow!("RECURSIVE CANNOT BE NONE"))?;
-        let recursive_activity =
-            ApActivity::try_from((recursive.clone(), None, target_object, target_actor))?;
-        match recursive_activity {
-            ApActivity::Follow(follow) => Ok(ApAccept {
+        let follow = ApActivity::try_from((
+            target_activity.ok_or(anyhow!("TARGET_ACTIVITY CANNOT BE NONE"))?,
+            None,
+            None,
+            None,
+        ))?;
+
+        if let ApActivity::Follow(follow) = follow {
+            Ok(ApAccept {
                 context: Some(ApContext::default()),
                 kind: ApAcceptType::default(),
                 actor: activity.actor.clone().into(),
-                id: activity.ap_id.map_or(
-                    Some(format!(
-                        "{}/activities/{}",
-                        *crate::SERVER_URL,
-                        activity.uuid
-                    )),
-                    Some,
-                ),
+                id: Some(activity.ap_id.ok_or(anyhow!("ACCEPT MUST HAVE AN AP_ID"))?),
                 object: MaybeReference::Actual(ApActivity::Follow(follow)),
-            }),
-            _ => {
-                log::error!("FAILED TO MATCH IMPLEMENTED ACCEPT: {activity:#?}");
-                Err(anyhow!("FAILED TO MATCH IMPLEMENTED ACCEPT"))
-            }
+            })
+        } else {
+            log::error!(
+                "FAILED TO MATCH IMPLEMENTED ACCEPT IN TryFrom FOR ApAccept\n{activity:#?}"
+            );
+            Err(anyhow!("FAILED TO MATCH IMPLEMENTED ACCEPT"))
         }
     }
 }

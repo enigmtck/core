@@ -66,36 +66,36 @@ impl TryFrom<ExtendedActivity> for ApActivity {
         (activity, target_activity, target_object, target_actor): ExtendedActivity,
     ) -> Result<Self, Self::Error> {
         match activity.kind {
-            ActivityType::Create if target_object.is_some() => {
+            ActivityType::Create => {
                 ApCreate::try_from((activity, target_activity, target_object, target_actor))
                     .map(ApActivity::Create)
             }
-            ActivityType::Announce if target_object.is_some() => {
+            ActivityType::Announce => {
                 ApAnnounce::try_from((activity, target_activity, target_object, target_actor))
                     .map(ApActivity::Announce)
             }
-            ActivityType::Like if target_object.is_some() => {
+            ActivityType::Like => {
                 ApLike::try_from((activity, target_activity, target_object, target_actor))
                     .map(|activity| ApActivity::Like(Box::new(activity)))
             }
-            ActivityType::Delete if target_object.is_some() => {
-                ApDelete::try_from(ApNote::try_from(target_object.unwrap())?)
-                    .map(|delete| ApActivity::Delete(Box::new(delete)))
-            }
-            ActivityType::Follow if target_actor.is_some() => {
+            ActivityType::Delete => ApDelete::try_from(ApNote::try_from(target_object.unwrap())?)
+                .map(|delete| ApActivity::Delete(Box::new(delete))),
+            ActivityType::Follow => {
                 ApFollow::try_from((activity, target_activity, target_object, target_actor))
                     .map(ApActivity::Follow)
             }
-            ActivityType::Undo if target_activity.is_some() => {
+            ActivityType::Undo => {
                 ApUndo::try_from((activity, target_activity, target_object, target_actor))
                     .map(|undo| ApActivity::Undo(Box::new(undo)))
             }
-            ActivityType::Accept if target_activity.is_some() => {
+            ActivityType::Accept => {
                 ApAccept::try_from((activity, target_activity, target_object, target_actor))
                     .map(|accept| ApActivity::Accept(Box::new(accept)))
             }
             _ => {
-                log::error!("FAILED TO MATCH IMPLEMENTED ACTIVITY\n{activity:#?}");
+                log::error!(
+                    "FAILED TO MATCH IMPLEMENTED ACTIVITY IN TryFrom FOR ApActivity\nACTIVITY: {activity:#?}\nTARGET_ACTIVITY: {target_activity:#?}\nTARGET_OBJECT: {target_object:#?}\nTARGET_ACTOR {target_actor:#?}"
+                );
                 Err(anyhow!("FAILED TO MATCH IMPLEMENTED ACTIVITY"))
             }
         }

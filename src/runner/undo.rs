@@ -6,7 +6,7 @@ use crate::{
     models::{
         activities::{get_activity_by_ap_id, revoke_activity_by_uuid},
         actors::get_actor,
-        leaders::delete_leader_by_ap_id_and_profile_id,
+        leaders::delete_leader_by_ap_id_and_actor_id,
     },
     runner::{get_inboxes, send_to_inboxes},
     MaybeReference,
@@ -64,9 +64,9 @@ pub async fn process_outbound_undo_task(
                 log::debug!("FOLLOW ID: {id}");
                 let identifier = get_local_identifier(id).ok_or(TaskError::TaskFailed)?;
                 log::debug!("FOLLOW IDENTIFIER: {identifier:#?}");
-                let profile_id = activity.profile_id.ok_or(TaskError::TaskFailed)?;
+                let profile_id = activity.actor_id.ok_or(TaskError::TaskFailed)?;
                 if let MaybeReference::Reference(ap_id) = follow.object {
-                    if delete_leader_by_ap_id_and_profile_id(conn, ap_id, profile_id).await
+                    if delete_leader_by_ap_id_and_actor_id(conn, ap_id, profile_id).await
                         && revoke_activity_by_uuid(conn, identifier.identifier)
                             .await
                             .is_ok()

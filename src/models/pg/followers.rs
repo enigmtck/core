@@ -15,7 +15,6 @@ pub struct Follower {
     pub id: i32,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
-    pub profile_id: i32,
     pub ap_id: String,
     pub actor: String,
     pub followed_ap_id: String,

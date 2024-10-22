@@ -122,5 +122,6 @@ pub trait Outbox {
         conn: Db,
         events: EventChannels,
         profile: Actor,
+        raw: Value,
     ) -> Result<String, Status>;
 }

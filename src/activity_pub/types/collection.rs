@@ -11,6 +11,7 @@ use crate::models::{actors::Actor, followers::Follower, leaders::Leader};
 use crate::MaybeReference;
 use rocket::http::Status;
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use uuid::Uuid;
 
 pub trait Collectible {
@@ -111,6 +112,7 @@ impl Outbox for ApCollectionPage {
         _conn: Db,
         _events: EventChannels,
         _profile: Actor,
+        raw: Value,
     ) -> Result<String, Status> {
         Err(Status::ServiceUnavailable)
     }
@@ -179,6 +181,7 @@ impl Outbox for ApCollection {
         _conn: Db,
         _events: EventChannels,
         _profile: Actor,
+        raw: Value,
     ) -> Result<String, Status> {
         Err(Status::ServiceUnavailable)
     }

@@ -94,6 +94,7 @@ impl Outbox for String {
         _conn: Db,
         _events: EventChannels,
         _profile: Actor,
+        raw: Value,
     ) -> Result<String, Status> {
         Err(Status::ServiceUnavailable)
     }
@@ -105,6 +106,7 @@ impl Outbox for Identifier {
         _conn: Db,
         _events: EventChannels,
         _profile: Actor,
+        raw: Value,
     ) -> Result<String, Status> {
         Err(Status::ServiceUnavailable)
     }
@@ -116,6 +118,7 @@ impl Outbox for MaybeMultiple<Value> {
         _conn: Db,
         _events: EventChannels,
         _profile: Actor,
+        raw: Value,
     ) -> Result<String, Status> {
         Err(Status::ServiceUnavailable)
     }
@@ -127,6 +130,7 @@ impl Outbox for ApBasicContent {
         _conn: Db,
         _events: EventChannels,
         _profile: Actor,
+        raw: Value,
     ) -> Result<String, Status> {
         Err(Status::ServiceUnavailable)
     }

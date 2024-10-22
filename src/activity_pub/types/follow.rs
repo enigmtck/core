@@ -7,10 +7,7 @@ use crate::{
     fairings::events::EventChannels,
     helper::get_activity_ap_id_from_uuid,
     models::{
-        activities::{
-            create_activity, ActivityTarget, ActivityType, ApActivityTarget, ExtendedActivity,
-            NewActivity,
-        },
+        activities::{create_activity, ActivityTarget, ExtendedActivity, NewActivity},
         actors::{get_actor_by_as_id, Actor},
         from_serde,
     },
@@ -51,36 +48,42 @@ pub struct ApFollow {
 
 impl Inbox for ApFollow {
     async fn inbox(&self, conn: Db, channels: EventChannels, raw: Value) -> Result<Status, Status> {
-        let profile_ap_id = self.object.clone().reference().ok_or(Status::new(520))?;
+        let actor_as_id = self
+            .object
+            .clone()
+            .reference()
+            .ok_or(Status::UnprocessableEntity)?;
 
         if self.id.is_none() {
-            return Err(Status::new(524));
+            return Err(Status::UnprocessableEntity);
         };
-        //if let (Some(_), Some(profile_ap_id)) = (self.id.clone(), self.object.clone().reference()) {
-        let profile = get_actor_by_as_id(&conn, profile_ap_id.clone())
+
+        let actor = get_actor_by_as_id(&conn, actor_as_id.clone())
             .await
-            .ok_or(Status::new(521))?;
+            .ok_or(Status::NotFound)?;
+
         let mut activity = NewActivity::try_from((
             ApActivity::Follow(self.clone()),
-            Some(ActivityTarget::from(profile)),
-        ) as ApActivityTarget)
-        .map_err(|_| Status::new(522))?;
+            Some(ActivityTarget::from(actor)),
+        ))
+        .map_err(|_| Status::InternalServerError)?;
 
         activity.raw = Some(raw);
 
         log::debug!("ACTIVITY\n{activity:#?}");
+
         let activity = create_activity((&conn).into(), activity)
             .await
-            .map_err(|_| Status::new(523))?;
+            .map_err(|_| Status::InternalServerError)?;
+
         runner::run(
             runner::follow::acknowledge_followers_task,
             Some(conn),
             Some(channels),
-            vec![activity.uuid],
+            vec![activity.ap_id.ok_or(Status::InternalServerError)?],
         )
         .await;
         Ok(Status::Accepted)
-        //to_faktory(faktory, "acknowledge_followers", vec![activity.uuid])
     }
 }
 
@@ -90,6 +93,7 @@ impl Outbox for ApFollow {
         conn: Db,
         events: EventChannels,
         profile: Actor,
+        raw: Value,
     ) -> Result<String, Status> {
         outbox(conn, events, self.clone(), profile).await
     }
@@ -101,19 +105,17 @@ async fn outbox(
     follow: ApFollow,
     profile: Actor,
 ) -> Result<String, Status> {
-    if let MaybeReference::Reference(id) = follow.object {
-        let actor = get_actor_by_as_id(&conn, id).await;
+    if let MaybeReference::Reference(id) = follow.object.clone() {
+        let actor = get_actor_by_as_id(&conn, id)
+            .await
+            .ok_or(Status::NotFound)?;
 
         if let Ok(activity) = create_activity(
             Some(&conn),
-            NewActivity::from((
-                actor.clone(),
-                None,
-                ActivityType::Follow,
-                ApAddress::Address(profile.as_id),
-            ))
-            .link_profile(&conn)
-            .await,
+            NewActivity::try_from((follow.into(), Some(actor.into())))
+                .map_err(|_| Status::InternalServerError)?
+                .link_actor(&conn)
+                .await,
         )
         .await
         {
@@ -139,26 +141,20 @@ impl TryFrom<ExtendedActivity> for ApFollow {
     type Error = anyhow::Error;
 
     fn try_from(
-        (activity, _target_activity, target_object, _target_actor): ExtendedActivity,
+        (activity, _target_activity, _target_object, _target_actor): ExtendedActivity,
     ) -> Result<Self, Self::Error> {
-        if activity.kind.to_string().to_lowercase().as_str() == "follow" {
-            let object = target_object.ok_or(anyhow!("no follow object found"))?;
-            let object = object.as_id;
+        if activity.kind.is_follow() {
+            let target = activity
+                .target_ap_id
+                .ok_or(anyhow!("no target_ap_id on follow"))?;
             Ok(ApFollow {
                 context: Some(ApContext::default()),
                 kind: ApFollowType::default(),
                 actor: activity.actor.into(),
-                id: activity.ap_id.map_or(
-                    Some(format!(
-                        "{}/activities/{}",
-                        *crate::SERVER_URL,
-                        activity.uuid
-                    )),
-                    Some,
-                ),
+                id: Some(activity.ap_id.ok_or(anyhow!("no follow as_id found"))?),
                 to: activity.ap_to.and_then(from_serde),
                 cc: activity.cc.and_then(from_serde),
-                object: object.into(),
+                object: target.into(),
             })
         } else {
             log::error!("NOT A FOLLOW ACTIVITY");

@@ -129,6 +129,7 @@ impl Outbox for Box<ApDelete> {
         conn: Db,
         events: EventChannels,
         profile: Actor,
+        raw: Value,
     ) -> Result<String, Status> {
         outbox(conn, events, *self.clone(), profile).await
     }
@@ -149,7 +150,7 @@ async fn outbox(
             Some(&conn),
             NewActivity::try_from((Box::new(delete).into(), Some(object.into())))
                 .map_err(|_| Status::InternalServerError)?
-                .link_profile(&conn)
+                .link_actor(&conn)
                 .await,
         )
         .await
@@ -198,6 +199,7 @@ impl Outbox for ApTombstone {
         _conn: Db,
         _events: EventChannels,
         _profile: Actor,
+        raw: Value,
     ) -> Result<String, Status> {
         Err(Status::ServiceUnavailable)
     }

@@ -32,17 +32,24 @@ pub async fn process_follow_task(
         .ok_or(TaskError::TaskFailed)?;
 
         log::debug!("FOUND ACTIVITY\n{activity:#?}");
-        let profile_id = activity.actor_id.ok_or(TaskError::TaskFailed)?;
 
-        let sender = get_actor(conn.unwrap(), profile_id)
-            .await
-            .ok_or(TaskError::TaskFailed)?;
+        let sender = get_actor(
+            conn.unwrap(),
+            activity.actor_id.ok_or(TaskError::TaskFailed)?,
+        )
+        .await
+        .ok_or(TaskError::TaskFailed)?;
+
+        log::debug!("FOUND SENDER\n{sender:#?}");
 
         let activity =
             ApActivity::try_from((activity, target_activity, target_object, target_actor))
                 .map_err(|_| TaskError::TaskFailed)?;
         let inboxes: Vec<ApAddress> = get_inboxes(conn, activity.clone(), sender.clone()).await;
 
+        log::debug!(
+            "SENDING FOLLOW\nSENDER: {sender:#?}\nACTIVITY: {activity:#?}\nINBOXES: {inboxes:#?}"
+        );
         send_to_inboxes(inboxes, sender, activity.clone())
             .await
             .map_err(|_| TaskError::TaskFailed)?;
@@ -53,28 +60,37 @@ pub async fn process_follow_task(
 pub async fn process_accept_task(
     conn: Option<Db>,
     _channels: Option<EventChannels>,
-    uuids: Vec<String>,
+    as_ids: Vec<String>,
 ) -> Result<(), TaskError> {
     let conn = conn.as_ref();
 
-    for uuid in uuids {
-        log::debug!("UUID: {uuid}");
+    for as_id in as_ids {
+        log::debug!("AS_ID: {as_id}");
 
-        let (accept, follow, target_object, target_actor) = get_activity_by_ap_id(
-            conn.ok_or(TaskError::TaskFailed)?,
-            get_activity_ap_id_from_uuid(uuid.clone()),
-        )
-        .await
-        .ok_or(TaskError::TaskFailed)?;
+        let (accept, follow, target_object, target_actor) =
+            get_activity_by_ap_id(conn.ok_or(TaskError::TaskFailed)?, as_id)
+                .await
+                .ok_or(TaskError::TaskFailed)?;
+
+        log::debug!("RUNNER process_accept_task\nACCEPT: {accept:#?}\nFOLLOW: {follow:#?}\nTARGET_OBJECT: {target_object:#?}\nTARGET_ACTOR: {target_actor:#?}");
 
         let accept = ApAccept::try_from((accept, follow.clone(), target_object, target_actor))
-            .map_err(|_| TaskError::TaskFailed)?;
+            .map_err(|e| {
+                log::debug!("ApAccept::try_from FAILED: {e:#?}");
+                TaskError::TaskFailed
+            })?;
+
+        log::debug!("AFTER ACCEPT");
 
         let follow = follow.ok_or(TaskError::TaskFailed)?;
+
+        log::debug!("AFTER FOLLOW");
 
         let profile = get_actor_by_as_id(conn.unwrap(), follow.actor.to_string())
             .await
             .ok_or(TaskError::TaskFailed)?;
+
+        log::debug!("AFTER PROFILE");
 
         let mut leader = NewLeader::try_from(accept.clone()).map_err(|_| TaskError::TaskFailed)?;
         leader.link(profile);
@@ -121,21 +137,18 @@ pub async fn process_remote_undo_follow_task(
 pub async fn acknowledge_followers_task(
     conn: Option<Db>,
     _channels: Option<EventChannels>,
-    uuids: Vec<String>,
+    ap_ids: Vec<String>,
 ) -> Result<(), TaskError> {
     log::debug!("PROCESSING INCOMING FOLLOW REQUEST");
 
     let conn = conn.as_ref();
 
-    for uuid in uuids {
-        log::debug!("UUID: {uuid}");
+    for ap_id in ap_ids {
+        log::debug!("AS_ID: {ap_id}");
 
-        let extended_follow = get_activity_by_ap_id(
-            conn.ok_or(TaskError::TaskFailed)?,
-            get_activity_ap_id_from_uuid(uuid.clone()),
-        )
-        .await
-        .ok_or(TaskError::TaskFailed)?;
+        let extended_follow = get_activity_by_ap_id(conn.ok_or(TaskError::TaskFailed)?, ap_id)
+            .await
+            .ok_or(TaskError::TaskFailed)?;
 
         let follow = ApFollow::try_from(extended_follow).map_err(|_| TaskError::TaskFailed)?;
         let accept = ApAccept::try_from(follow.clone()).map_err(|_| TaskError::TaskFailed)?;

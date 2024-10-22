@@ -151,6 +151,23 @@ pub async fn shared_inbox_get(
     )))
 }
 
+#[post("/unsafe-inbox", data = "<raw>")]
+pub async fn unsafe_inbox_post(
+    conn: Db,
+    channels: EventChannels,
+    raw: Json<Value>,
+) -> Result<Status, Status> {
+    log::debug!("POSTING TO UNSAFE INBOX\n{raw:#?}");
+    let raw = raw.into_inner();
+
+    if let Ok(activity) = serde_json::from_value::<ApActivity>(raw.clone()) {
+        activity.inbox(conn, channels, raw).await
+    } else {
+        create_unprocessable(&conn, raw.into()).await;
+        Err(Status::UnprocessableEntity)
+    }
+}
+
 #[post("/inbox", data = "<raw>")]
 pub async fn shared_inbox_post(
     permitted: Permitted,

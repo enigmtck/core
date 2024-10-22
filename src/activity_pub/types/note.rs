@@ -23,6 +23,7 @@ use anyhow::{anyhow, Result};
 use chrono::{DateTime, Utc};
 use rocket::http::Status;
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use uuid::Uuid;
 
 use super::{actor::ApActorTerse, actor::ApAddress, create::ApCreate, object::ApObject};
@@ -264,6 +265,7 @@ impl Outbox for ApNote {
         conn: Db,
         events: EventChannels,
         profile: Actor,
+        raw: Value,
     ) -> Result<String, Status> {
         match self.kind {
             ApNoteType::Note => handle_note(conn, events, self.clone(), profile).await,
@@ -534,7 +536,7 @@ async fn handle_note(
         Some(&conn),
         NewActivity::try_from((create.into(), Some(object.into())))
             .map_err(|_| Status::InternalServerError)?
-            .link_profile(&conn)
+            .link_actor(&conn)
             .await,
     )
     .await

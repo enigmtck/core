@@ -62,25 +62,31 @@ async fn process_undo_activity(
     undo: &ApUndo,
     raw: Value,
 ) -> Result<Status, Status> {
-    let ap_id = undo_target_apid(ap_target).ok_or(Status::NotImplemented)?;
-    log::debug!("UNDO AP_ID: {ap_id}");
+    let target_ap_id = undo_target_apid(ap_target).ok_or(Status::NotImplemented)?;
+
+    log::debug!("UNDO AP_ID: {target_ap_id}");
+
     // retrieve the activity to undo from the database (models/activities)
-    let target = get_activity_by_ap_id(&conn, ap_id.clone())
+    let (activity, _, _, target_actor) = get_activity_by_ap_id(&conn, target_ap_id.clone())
         .await
         .ok_or(Status::NotFound)?;
-    log::debug!("TARGET: {target:#?}");
+
+    log::debug!("TARGET: {target_actor:#?}");
+
     // set up the parameters necessary to create an Activity in the database with linked
     // target activity; NewActivity::try_from creates the link given the appropriate database
     // in the parameterized enum
     let activity_and_target = (
         ApActivity::Undo(Box::new(undo.clone())),
-        Some(ActivityTarget::from(target.2.ok_or(Status::NotFound)?)),
+        Some(ActivityTarget::from(target_actor.ok_or(Status::NotFound)?)),
     ) as ApActivityTarget;
 
-    let mut activity = NewActivity::try_from(activity_and_target).map_err(|_| Status::new(522))?;
+    let mut activity =
+        NewActivity::try_from(activity_and_target).map_err(|_| Status::InternalServerError)?;
     activity.raw = Some(raw.clone());
 
     log::debug!("ACTIVITY\n{activity:#?}");
+
     if create_activity(Some(&conn), activity.clone()).await.is_ok() {
         match ap_target {
             ApActivity::Like(_) => {
@@ -88,7 +94,7 @@ async fn process_undo_activity(
                     runner::like::process_remote_undo_like_task,
                     Some(conn),
                     Some(channels),
-                    vec![ap_id.clone()],
+                    vec![target_ap_id.clone()],
                 )
                 .await;
                 Ok(Status::Accepted)
@@ -98,7 +104,7 @@ async fn process_undo_activity(
                     runner::follow::process_remote_undo_follow_task,
                     Some(conn),
                     Some(channels),
-                    vec![ap_id.clone()],
+                    vec![target_ap_id.clone()],
                 )
                 .await;
                 Ok(Status::Accepted)
@@ -108,15 +114,15 @@ async fn process_undo_activity(
                     runner::announce::remote_undo_announce_task,
                     Some(conn),
                     Some(channels),
-                    vec![ap_id.clone()],
+                    vec![target_ap_id.clone()],
                 )
                 .await;
                 Ok(Status::Accepted)
             }
-            _ => Err(Status::new(523)),
+            _ => Err(Status::NotImplemented),
         }
     } else {
-        Err(Status::new(524))
+        Err(Status::InternalServerError)
     }
 }
 
@@ -150,6 +156,7 @@ impl Outbox for Box<ApUndo> {
         conn: Db,
         events: EventChannels,
         profile: Actor,
+        _raw: Value,
     ) -> Result<String, Status> {
         handle_undo(conn, events, *self.clone(), profile).await
     }
@@ -183,7 +190,7 @@ async fn handle_undo(
                     ActivityType::Undo,
                     ApAddress::Address(profile.as_id),
                 ))
-                .link_profile(&conn)
+                .link_actor(&conn)
                 .await,
             )
             .await
@@ -216,56 +223,39 @@ impl TryFrom<ExtendedActivity> for ApUndo {
     fn try_from(
         (activity, target_activity, target_object, target_actor): ExtendedActivity,
     ) -> Result<Self, Self::Error> {
-        if let Some(target_activity) = target_activity {
-            if let Ok(recursive_activity) =
-                ApActivity::try_from((target_activity.clone(), None, target_object, target_actor))
-            {
-                match recursive_activity {
-                    ApActivity::Follow(follow) => Ok(ApUndo {
-                        context: Some(ApContext::default()),
-                        kind: ApUndoType::default(),
-                        actor: follow.actor.clone(),
-                        id: Some(format!(
-                            "{}/activities/{}",
-                            *crate::SERVER_URL,
-                            activity.uuid
-                        )),
-                        object: MaybeReference::Actual(ApActivity::Follow(follow)),
-                    }),
-                    ApActivity::Like(like) => Ok(ApUndo {
-                        context: Some(ApContext::default()),
-                        kind: ApUndoType::default(),
-                        actor: like.actor.clone(),
-                        id: Some(format!(
-                            "{}/activities/{}",
-                            *crate::SERVER_URL,
-                            activity.uuid
-                        )),
-                        object: MaybeReference::Actual(ApActivity::Like(like)),
-                    }),
-                    ApActivity::Announce(announce) => Ok(ApUndo {
-                        context: Some(ApContext::default()),
-                        kind: ApUndoType::default(),
-                        actor: announce.actor.clone(),
-                        id: Some(format!(
-                            "{}/activities/{}",
-                            *crate::SERVER_URL,
-                            activity.uuid
-                        )),
-                        object: MaybeReference::Actual(ApActivity::Announce(announce)),
-                    }),
-                    _ => {
-                        log::error!("FAILED TO MATCH IMPLEMENTED UNDO: {activity:#?}");
-                        Err(anyhow!("FAILED TO MATCH IMPLEMENTED UNDO"))
-                    }
-                }
-            } else {
-                log::error!("FAILED TO CONVERT ACTIVITY: {target_activity:#?}");
-                Err(anyhow!("FAILED TO CONVERT ACTIVITY"))
+        let target_activity = target_activity.ok_or(anyhow!("RECURSIVE CANNOT BE NONE"))?;
+        let target_activity = ApActivity::try_from((target_activity.clone(), None, None, None))?;
+
+        if !activity.kind.is_undo() {
+            return Err(anyhow!("activity is not an undo"));
+        }
+
+        match target_activity {
+            ApActivity::Follow(follow) => Ok(ApUndo {
+                context: Some(ApContext::default()),
+                kind: ApUndoType::default(),
+                actor: activity.actor.clone().into(),
+                id: activity.ap_id,
+                object: MaybeReference::Actual(ApActivity::Follow(follow)),
+            }),
+            ApActivity::Like(like) => Ok(ApUndo {
+                context: Some(ApContext::default()),
+                kind: ApUndoType::default(),
+                actor: activity.actor.clone().into(),
+                id: activity.ap_id,
+                object: MaybeReference::Actual(ApActivity::Like(like)),
+            }),
+            ApActivity::Announce(announce) => Ok(ApUndo {
+                context: Some(ApContext::default()),
+                kind: ApUndoType::default(),
+                actor: activity.actor.clone().into(),
+                id: activity.ap_id,
+                object: MaybeReference::Actual(ApActivity::Announce(announce)),
+            }),
+            _ => {
+                log::error!("FAILED TO MATCH IMPLEMENTED UNDO: {activity:#?}");
+                Err(anyhow!("FAILED TO MATCH IMPLEMENTED UNDO"))
             }
-        } else {
-            log::error!("RECURSIVE CANNOT BE NONE");
-            Err(anyhow!("RECURSIVE CANNOT BE NONE"))
         }
     }
 }

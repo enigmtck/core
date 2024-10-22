@@ -104,6 +104,7 @@ impl Outbox for ApAnnounce {
         conn: Db,
         events: EventChannels,
         profile: Actor,
+        raw: Value,
     ) -> Result<String, Status> {
         outbox(conn, events, self.clone(), profile).await
     }
@@ -124,7 +125,7 @@ async fn outbox(
             Some(&conn),
             NewActivity::try_from((announce.into(), Some(object.into())))
                 .map_err(|_| Status::InternalServerError)?
-                .link_profile(&conn)
+                .link_actor(&conn)
                 .await,
         )
         .await
