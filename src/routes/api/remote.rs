@@ -37,7 +37,7 @@ pub async fn remote_id_authenticated(
     username: &str,
     id: &str,
 ) -> Result<String, Status> {
-    let id = urlencoding::decode(id).map_err(|_| Status::new(525))?;
+    let id = urlencoding::decode(id).map_err(|_| Status::BadRequest)?;
     let id = (*id).to_string();
 
     if blocks.is_blocked(get_domain_from_url(id.clone())) {

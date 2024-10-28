@@ -17,7 +17,7 @@ pub async fn get_follower_inboxes(conn: &Db, profile: Actor) -> Vec<ApAddress> {
     let mut inboxes: HashSet<ApAddress> = HashSet::new();
 
     for (follower, _) in get_followers_by_actor_id(conn, profile.id).await {
-        if let Some(actor) = get_actor_by_as_id(conn, follower.actor).await {
+        if let Ok(actor) = get_actor_by_as_id(conn, follower.actor).await {
             let actor = ApActor::from(actor);
             if let Some(endpoints) = actor.endpoints {
                 inboxes.insert(ApAddress::Address(endpoints.shared_inbox));
@@ -48,6 +48,7 @@ pub async fn send_profile_update_task(
         log::debug!("UPDATE\n{update:#?}");
 
         send_to_inboxes(
+            conn.unwrap(),
             get_follower_inboxes(conn.unwrap(), profile.clone()).await,
             profile,
             ApActivity::Update(update),

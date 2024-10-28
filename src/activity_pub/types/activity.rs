@@ -34,15 +34,24 @@ pub enum ApActivity {
     Remove(ApRemove),
 }
 
-//pub type RecursiveActivity = (ExtendedActivity, Option<ExtendedActivity>);
-
-// impl TryFrom<ExtendedActivity> for ApActivity {
-//     type Error = anyhow::Error;
-
-//     fn try_from(activity: ExtendedActivity) -> Result<Self, Self::Error> {
-//         ApActivity::try_from((activity, None))
-//     }
-// }
+impl ApActivity {
+    pub fn as_id(&self) -> Option<String> {
+        match self {
+            ApActivity::Like(like) => like.id.clone(),
+            ApActivity::Follow(follow) => follow.id.clone(),
+            ApActivity::Announce(announce) => announce.id.clone(),
+            ApActivity::Delete(delete) => delete.id.clone(),
+            ApActivity::Undo(undo) => undo.id.clone(),
+            ApActivity::Accept(accept) => accept.id.clone(),
+            ApActivity::Create(create) => create.id.clone(),
+            ApActivity::Invite(invite) => invite.id.clone(),
+            ApActivity::Join(join) => join.id.clone(),
+            ApActivity::Update(update) => update.id.clone(),
+            ApActivity::Block(block) => block.id.clone(),
+            _ => None,
+        }
+    }
+}
 
 impl TryFrom<CoalescedActivity> for ApActivity {
     type Error = anyhow::Error;
@@ -78,8 +87,13 @@ impl TryFrom<ExtendedActivity> for ApActivity {
                 ApLike::try_from((activity, target_activity, target_object, target_actor))
                     .map(|activity| ApActivity::Like(Box::new(activity)))
             }
-            ActivityType::Delete => ApDelete::try_from(ApNote::try_from(target_object.unwrap())?)
-                .map(|delete| ApActivity::Delete(Box::new(delete))),
+            ActivityType::Delete => {
+                let note = ApNote::try_from(target_object.unwrap())?;
+                ApDelete::try_from(note).map(|mut delete| {
+                    delete.id = activity.ap_id;
+                    ApActivity::Delete(Box::new(delete))
+                })
+            }
             ActivityType::Follow => {
                 ApFollow::try_from((activity, target_activity, target_object, target_actor))
                     .map(ApActivity::Follow)

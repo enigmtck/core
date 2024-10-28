@@ -5,7 +5,6 @@ use crate::{
     activity_pub::{ApActivity, ApAddress, ApContext, ApNote, ApObject, Inbox, Outbox, Temporal},
     db::Db,
     fairings::events::EventChannels,
-    helper::get_activity_ap_id_from_uuid,
     models::{
         activities::{
             create_activity, ActivityTarget, ActivityType, ApActivityTarget, ExtendedActivity,
@@ -23,7 +22,6 @@ use chrono::{DateTime, Utc};
 use rocket::http::Status;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use uuid::Uuid;
 
 use super::{question::ApQuestion, signature::ApSignature};
 
@@ -90,27 +88,23 @@ impl Inbox for ApCreate {
     async fn inbox(&self, conn: Db, channels: EventChannels, raw: Value) -> Result<Status, Status> {
         match self.clone().object {
             MaybeReference::Actual(ApObject::Note(x)) => {
-                //let n = NewRemoteNote::from(x.clone());
                 let object = create_or_update_object(&conn, NewObject::from(x.clone()))
                     .await
-                    .map_err(|_| Status::InternalServerError)?;
+                    .map_err(|e| {
+                        log::error!("FAILED TO CREATE OR UPDATE OBJECT: {e:#?}");
+                        Status::InternalServerError
+                    })?;
 
-                log::debug!("OBJECT\n{object:#?}");
-
-                // creating Activity after RemoteNote is weird, but currently necessary
-                // see comment in models/activities.rs on TryFrom<ApActivity>
-                // let created_note = create_or_update_remote_note(Some(&conn), n)
-                //     .await
-                //     .ok_or(Status::new(520))?;
                 let mut activity = NewActivity::try_from((
                     ApActivity::Create(self.clone()),
                     Some(ActivityTarget::from(object.clone())),
-                ) as ApActivityTarget)
-                .map_err(|_| Status::new(521))?;
+                ))
+                .map_err(|e| {
+                    log::error!("FAILED TO BUILD ACTIVITY: {e:#?}");
+                    Status::InternalServerError
+                })?;
 
                 activity.raw = Some(raw);
-
-                log::debug!("ACTIVITY\n{activity:#?}");
 
                 if create_activity((&conn).into(), activity).await.is_ok() {
                     runner::run(
@@ -140,7 +134,7 @@ impl Inbox for ApCreate {
 
                 activity.raw = Some(raw);
 
-                log::debug!("ACTIVITY\n{activity:#?}");
+                //log::debug!("ACTIVITY\n{activity:#?}");
 
                 if create_activity((&conn).into(), activity).await.is_ok() {
                     runner::run(
@@ -170,7 +164,7 @@ impl Outbox for ApCreate {
         _conn: Db,
         _events: EventChannels,
         _profile: Actor,
-        raw: Value,
+        _raw: Value,
     ) -> Result<String, Status> {
         Err(Status::ServiceUnavailable)
     }
@@ -285,11 +279,10 @@ impl TryFrom<ApObject> for ApCreate {
     fn try_from(object: ApObject) -> Result<ApCreate> {
         match object.clone() {
             ApObject::Note(note) => {
-                let uuid = Uuid::new_v4().to_string();
                 let context = Some(ApContext::default());
                 let kind = ApCreateType::default();
                 let actor = note.attributed_to;
-                let id = Some(get_activity_ap_id_from_uuid(uuid));
+                let id = None; // The ID is assigned in NewActivity
                 let object = object.into();
                 let to = note.to;
                 let cc = note.cc;

@@ -6,12 +6,13 @@ use crate::schema::{activities, actors};
 use crate::POOL;
 use anyhow::Result;
 use chrono::{DateTime, NaiveDateTime, Utc};
+use diesel::pg::Pg;
 use diesel::query_builder::{BoxedSqlQuery, SqlQuery};
 use diesel::sql_types::Nullable;
 use diesel::{prelude::*, sql_query};
 use diesel::{AsChangeset, Identifiable, Insertable, Queryable};
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
+use serde_json::{json, Value};
 
 use super::actors::Actor;
 use super::coalesced_activity::CoalescedActivity;
@@ -87,6 +88,7 @@ pub struct NewActivity {
     pub target_object_id: Option<i32>,
     pub actor_id: Option<i32>,
     pub target_actor_id: Option<i32>,
+    pub log: Option<Value>,
 }
 
 impl Default for NewActivity {
@@ -108,6 +110,7 @@ impl Default for NewActivity {
             target_object_id: None,
             actor_id: None,
             target_actor_id: None,
+            log: Some(json!([])),
         }
     }
 }
@@ -145,6 +148,7 @@ pub struct Activity {
     pub target_object_id: Option<i32>,
     pub actor_id: Option<i32>,
     pub target_actor_id: Option<i32>,
+    pub log: Option<Value>,
 }
 
 #[derive(Default, Debug)]
@@ -280,7 +284,7 @@ fn query_end_block(mut query: String) -> String {
          m.object_type, m.object_published, m.object_as_id, m.object_url, m.object_to, m.object_cc, m.object_tag,\
          m.object_attributed_to, m.object_in_reply_to, m.object_content, m.object_conversation, m.object_attachment,\
          m.object_summary, m.object_end_time, m.object_one_of, m.object_any_of, m.object_voters_count,\
-         m.object_sensitive, m.object_metadata, m.object_profile_id, m.raw, m.actor_id, m.target_actor_id,\
+         m.object_sensitive, m.object_metadata, m.object_profile_id, m.raw, m.actor_id, m.target_actor_id, m.log,\
          m.target_object_id, m.actor_created_at, m.actor_updated_at, m.actor_uuid, m.actor_username,\
          m.actor_summary_markdown, m.actor_avatar_filename, m.actor_banner_filename, m.actor_private_key,\
          m.actor_password, m.actor_client_public_key, m.actor_client_private_key, m.actor_salt,\
@@ -339,7 +343,10 @@ fn build_main_query(
         query.push_str(&format!("WHERE a.id = {}), ", param_gen()));
     } else {
         if filters.clone().and_then(|x| x.view).is_some() {
-            query.push_str("WHERE a.kind IN ('announce','create') ");
+            query.push_str(
+                "WHERE a.kind IN ('announce','create') \
+                 AND NOT o.as_type IN ('tombstone') ",
+            );
         } else {
             query.push_str(
                 "WHERE a.kind IN ('announce','create','undo','like','follow','accept','delete') ",
@@ -441,13 +448,13 @@ fn build_main_query(
              AND  a.actor_id = {}) \
              GROUP BY m.id), \
              liked AS (\
-             SELECT m.id, MAX(a.uuid) AS object_liked \
+             SELECT m.id, a.ap_id AS object_liked \
              FROM main m \
              LEFT JOIN activities a ON (a.target_ap_id = m.object_as_id \
              AND NOT a.revoked \
              AND a.kind = 'like' \
              AND  a.actor_id = {}) \
-             GROUP BY m.id) ",
+             GROUP BY m.id, a.ap_id) ",
             param_gen(),
             param_gen()
         ));
@@ -467,6 +474,24 @@ fn build_main_query(
     params.query = Some(query);
 
     params
+}
+
+pub async fn add_log_by_as_id(conn: &Db, as_id: String, entry: Value) -> Result<usize> {
+    use diesel::sql_types::{Jsonb, Text};
+
+    //sql_query("UPDATE activities a SET log = jsonb_insert(a.log, '{0}', $1) WHERE ap_id = $2")
+    let mut query = sql_query(
+        "UPDATE activities a SET log = COALESCE(a.log, '[]'::jsonb) || $1::jsonb WHERE ap_id = $2",
+    )
+    .into_boxed::<Pg>();
+    query = query.bind::<Jsonb, _>(entry.clone());
+    query = query.bind::<Text, _>(as_id.clone());
+
+    log::debug!("LOG UPDATE ENTRY: {entry:#?}");
+    log::debug!("LOG UPDATE ID: {as_id:#?}");
+    conn.run(move |c| query.execute(c))
+        .await
+        .map_err(anyhow::Error::msg)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -661,6 +686,24 @@ pub async fn get_likers(
     .await
 }
 
+pub async fn revoke_activities_by_object_as_id(conn: &Db, as_id: String) -> Result<Activity> {
+    conn.run(move |c| {
+        diesel::update(
+            activities::table.filter(
+                activities::target_ap_id.eq(as_id).and(
+                    activities::kind
+                        .eq(ActivityType::Create)
+                        .or(activities::kind.eq(ActivityType::Announce)),
+                ),
+            ),
+        )
+        .set(activities::revoked.eq(true))
+        .get_result::<Activity>(c)
+        .map_err(anyhow::Error::msg)
+    })
+    .await
+}
+
 pub async fn revoke_activity_by_uuid(conn: Option<&Db>, uuid: String) -> Result<Activity> {
     match conn {
         Some(conn) => {
@@ -697,6 +740,31 @@ pub async fn revoke_activity_by_apid(conn: Option<&Db>, ap_id: String) -> Result
             let mut pool = POOL.get().map_err(anyhow::Error::msg)?;
             diesel::update(activities::table.filter(activities::ap_id.eq(ap_id)))
                 .set(activities::revoked.eq(true))
+                .get_result::<Activity>(&mut pool)
+                .map_err(anyhow::Error::msg)
+        }
+    }
+}
+
+pub async fn set_activity_log_by_apid(
+    conn: Option<&Db>,
+    ap_id: String,
+    log: Value,
+) -> Result<Activity> {
+    match conn {
+        Some(conn) => {
+            conn.run(move |c| {
+                diesel::update(activities::table.filter(activities::ap_id.eq(ap_id)))
+                    .set(activities::log.eq(log))
+                    .get_result::<Activity>(c)
+                    .map_err(anyhow::Error::msg)
+            })
+            .await
+        }
+        None => {
+            let mut pool = POOL.get().map_err(anyhow::Error::msg)?;
+            diesel::update(activities::table.filter(activities::ap_id.eq(ap_id)))
+                .set(activities::log.eq(log))
                 .get_result::<Activity>(&mut pool)
                 .map_err(anyhow::Error::msg)
         }

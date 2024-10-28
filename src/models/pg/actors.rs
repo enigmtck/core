@@ -24,6 +24,7 @@ pub enum ActorType {
     Group,
     Organization,
     Application,
+    Tombstone,
 }
 
 impl fmt::Display for ActorType {
@@ -51,6 +52,10 @@ impl ActorType {
 
     pub fn is_application(&self) -> bool {
         matches!(self, ActorType::Application)
+    }
+
+    pub fn is_tombstone(&self) -> bool {
+        matches!(self, ActorType::Tombstone)
     }
 }
 

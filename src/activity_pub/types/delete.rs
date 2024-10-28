@@ -1,19 +1,28 @@
 use core::fmt;
 use std::fmt::Debug;
 
+use crate::runner::TaskError;
 use crate::{
-    activity_pub::{
-        types::signature::ApSignatureType, ApAddress, ApContext, ApNote, ApObject, Inbox, Outbox,
-    },
+    activity_pub::{ApActivity, ApAddress, ApContext, ApNote, ApObject, Inbox, Outbox},
     db::Db,
     fairings::events::EventChannels,
     helper::get_activity_ap_id_from_uuid,
     models::{
-        activities::{create_activity, NewActivity},
-        actors::{delete_actor_by_as_id, Actor},
-        objects::{delete_object_by_as_id, get_object_by_as_id},
+        activities::get_activity_by_ap_id,
+        activities::{
+            create_activity, revoke_activities_by_object_as_id, ActivityTarget, NewActivity,
+        },
+        actors::{get_actor, get_actor_by_as_id, tombstone_actor_by_as_id, Actor},
+        objects::{get_object_by_as_id, tombstone_object_by_as_id, tombstone_object_by_uuid},
+        Tombstone,
     },
-    runner, MaybeMultiple, MaybeReference,
+    runner,
+    runner::{
+        //encrypted::handle_encrypted_note,
+        get_inboxes,
+        send_to_inboxes,
+    },
+    MaybeMultiple, MaybeReference,
 };
 use anyhow::anyhow;
 use rocket::http::Status;
@@ -58,68 +67,119 @@ impl Inbox for Box<ApDelete> {
         _channels: EventChannels,
         raw: Value,
     ) -> Result<Status, Status> {
-        async fn delete_actor(conn: &Db, ap_id: String) -> Result<Status, Status> {
-            if delete_actor_by_as_id(conn, ap_id).await {
-                log::debug!("REMOTE ACTOR RECORD DELETED");
-                Ok(Status::Accepted)
-            } else {
-                Err(Status::NoContent)
-            }
-        }
-
-        async fn delete_object(conn: &Db, as_id: String) -> Result<Status, Status> {
-            if delete_object_by_as_id(conn, as_id).await.is_ok() {
-                log::debug!("OBJECT RECORD DELETED");
-                Ok(Status::Accepted)
-            } else {
-                Err(Status::NoContent)
-            }
-        }
-
-        match self.object.clone() {
+        let tombstone = match self.object.clone() {
             MaybeReference::Actual(actual) => match actual {
-                ApObject::Tombstone(tombstone) => {
-                    let object = get_object_by_as_id(Some(&conn), tombstone.id.clone())
-                        .await
-                        .map_err(|_| Status::NotFound)?;
-
-                    if let Some(attributed_to) = object.as_attributed_to {
-                        let attributed_to: String = serde_json::from_value(attributed_to).unwrap();
-                        if attributed_to == self.actor.clone().to_string() {
-                            delete_object(&conn, tombstone.id.clone()).await
-                        } else {
-                            Err(Status::Unauthorized)
-                        }
-                    } else {
-                        Err(Status::NotFound)
+                ApObject::Tombstone(tombstone) => Ok(async {
+                    match get_actor_by_as_id(&conn, tombstone.id.clone()).await.ok() {
+                        Some(actor) => Some(Tombstone::Actor(actor)),
+                        None => get_object_by_as_id(Some(&conn), tombstone.id.clone())
+                            .await
+                            .ok()
+                            .map(Tombstone::Object),
                     }
                 }
-                ApObject::Identifier(obj) => {
-                    if obj.id == self.actor.clone().to_string() {
-                        delete_actor(&conn, obj.id).await
-                    } else {
-                        log::debug!("DOESN'T MATCH ACTOR; ASSUMING OBJECT");
-                        delete_object(&conn, obj.clone().id).await
+                .await
+                .ok_or_else(|| {
+                    log::error!("Failed to identify Tombstone: {}", tombstone.id);
+                    Status::NotFound
+                })?),
+                ApObject::Identifier(obj) => Ok(async {
+                    match get_actor_by_as_id(&conn, obj.id.clone()).await.ok() {
+                        Some(actor) => Some(Tombstone::Actor(actor)),
+                        None => get_object_by_as_id(Some(&conn), obj.id.clone())
+                            .await
+                            .ok()
+                            .map(Tombstone::Object),
                     }
                 }
+                .await
+                .ok_or_else(|| {
+                    log::error!("Failed to determine Identifier: {}", obj.id);
+                    Status::NotFound
+                })?),
                 _ => {
-                    log::debug!("delete didn't match anything");
+                    log::debug!("Failed to identify Delete Object: {:#?}", self.object);
                     Err(Status::NoContent)
                 }
             },
-            MaybeReference::Reference(ap_id) => {
-                if ap_id == self.actor.clone().to_string() {
-                    delete_actor(&conn, ap_id).await
-                } else {
-                    log::debug!("DOESN'T MATCH ACTOR; ASSUMING OBJECT");
-                    delete_object(&conn, ap_id.clone()).await
+            MaybeReference::Reference(ap_id) => Ok(async {
+                match get_actor_by_as_id(&conn, ap_id.clone()).await.ok() {
+                    Some(actor) => Some(Tombstone::Actor(actor)),
+                    None => get_object_by_as_id(Some(&conn), ap_id.clone())
+                        .await
+                        .ok()
+                        .map(Tombstone::Object),
                 }
             }
-            _ => {
-                log::error!("FAILED TO CREATE ACTIVITY\n{raw}");
-                Err(Status::NotImplemented)
+            .await
+            .ok_or_else(|| {
+                log::error!("Failed to identify Tombstone");
+                Status::NotFound
+            })?),
+            _ => Err(Status::NotImplemented),
+        };
+
+        let tombstone = tombstone.clone()?;
+
+        let mut activity = match tombstone.clone() {
+            Tombstone::Actor(actor) => NewActivity::try_from((
+                ApActivity::Delete(self.clone()),
+                Some(ActivityTarget::from(actor.clone())),
+            ))
+            .map_err(|e| {
+                log::error!("Failed to build Activity: {e:#?}");
+                Status::InternalServerError
+            })?,
+            Tombstone::Object(object) => NewActivity::try_from((
+                ApActivity::Delete(self.clone()),
+                Some(ActivityTarget::from(object.clone())),
+            ))
+            .map_err(|e| {
+                log::error!("Failed to build Activity: {e:#?}");
+                Status::InternalServerError
+            })?,
+        };
+
+        activity.raw = Some(raw);
+
+        create_activity(Some(&conn), activity).await.map_err(|e| {
+            log::error!("Failed to create Activity: {e:#?}");
+            Status::InternalServerError
+        })?;
+
+        match tombstone {
+            Tombstone::Actor(actor) => {
+                if self.actor.to_string() == actor.as_id {
+                    tombstone_actor_by_as_id(&conn, actor.as_id)
+                        .await
+                        .map_err(|e| {
+                            log::error!("Failed to delete Actor: {e:#?}");
+                            Status::InternalServerError
+                        })?;
+                }
+            }
+            Tombstone::Object(object) => {
+                if let Some(attributed_to) = object.attributed_to().first() {
+                    if self.actor.to_string() == attributed_to.clone() {
+                        tombstone_object_by_as_id(&conn, object.as_id.clone())
+                            .await
+                            .map_err(|e| {
+                                log::error!("Failed to delete Object: {e:#?}");
+                                Status::InternalServerError
+                            })?;
+
+                        revoke_activities_by_object_as_id(&conn, object.as_id)
+                            .await
+                            .map_err(|e| {
+                                log::error!("Failed to revoke Activities: {e:#?}");
+                                Status::InternalServerError
+                            })?;
+                    }
+                }
             }
         }
+
+        Ok(Status::Accepted)
     }
 }
 
@@ -131,44 +191,7 @@ impl Outbox for Box<ApDelete> {
         profile: Actor,
         raw: Value,
     ) -> Result<String, Status> {
-        outbox(conn, events, *self.clone(), profile).await
-    }
-}
-
-async fn outbox(
-    conn: Db,
-    channels: EventChannels,
-    delete: ApDelete,
-    _profile: Actor,
-) -> Result<String, Status> {
-    if let MaybeReference::Reference(as_id) = delete.clone().object {
-        let object = get_object_by_as_id(Some(&conn), as_id)
-            .await
-            .map_err(|_| Status::NotFound)?;
-
-        if let Ok(activity) = create_activity(
-            Some(&conn),
-            NewActivity::try_from((Box::new(delete).into(), Some(object.into())))
-                .map_err(|_| Status::InternalServerError)?
-                .link_actor(&conn)
-                .await,
-        )
-        .await
-        {
-            runner::run(
-                runner::note::delete_note_task,
-                Some(conn),
-                Some(channels),
-                vec![activity.uuid.clone()],
-            )
-            .await;
-            Ok(get_activity_ap_id_from_uuid(activity.uuid))
-        } else {
-            Err(Status::InternalServerError)
-        }
-    } else {
-        log::error!("DELETE OBJECT IS NOT A REFERENCE");
-        Err(Status::NoContent)
+        ApDelete::outbox(conn, events, *self.clone(), profile, raw).await
     }
 }
 
@@ -199,7 +222,7 @@ impl Outbox for ApTombstone {
         _conn: Db,
         _events: EventChannels,
         _profile: Actor,
-        raw: Value,
+        _raw: Value,
     ) -> Result<String, Status> {
         Err(Status::ServiceUnavailable)
     }
@@ -225,13 +248,13 @@ impl TryFrom<ApNote> for ApDelete {
     type Error = anyhow::Error;
 
     fn try_from(note: ApNote) -> Result<Self, Self::Error> {
-        let id = note.id.clone().ok_or(anyhow!("ApNote must have an ID"))?;
+        note.id.clone().ok_or(anyhow!("ApNote must have an ID"))?;
         let tombstone = ApTombstone::try_from(note.clone())?;
         Ok(ApDelete {
             context: Some(ApContext::default()),
             actor: note.attributed_to.clone(),
             kind: ApDeleteType::Delete,
-            id: Some(format!("{id}#delete")),
+            id: None, // This will be set in NewActivity
             object: MaybeReference::Actual(ApObject::Tombstone(tombstone)),
             signature: None,
             to: note.to,
@@ -241,35 +264,113 @@ impl TryFrom<ApNote> for ApDelete {
 }
 
 impl ApDelete {
-    // This function is based off of the description here: https://docs.joinmastodon.org/spec/security/#ld-sign
-    // The content to be signed is unclear: e.g., the "verify" talks about stripping the Signature object
-    // down to just created and creator, but the "signing" description doesn't talk about including that
-    // information. I'm assuming it should be included since the verify will not work without it. Also, I'm
-    // using the SHA256 built in to the RSA signing methods rather than handling that as a separate task.
-    // That may be a mistake, but it seems like I'd be double hashing to do otherwise.
+    async fn outbox(
+        conn: Db,
+        channels: EventChannels,
+        delete: ApDelete,
+        _profile: Actor,
+        raw: Value,
+    ) -> Result<String, Status> {
+        if let MaybeReference::Reference(as_id) = delete.clone().object {
+            if delete.id.is_some() {
+                return Err(Status::BadRequest);
+            }
 
-    // UPDATED: Tried to make sense of the JSON-LD documents, but this all seems unnecessarily complicated
-    // I'll review some other options (like the Proof stuff that silverpill and Mitra have) to see if that's
-    // more reasonable. For now, we just aren't signing these, so this will limit the ability for relayed
-    // messages to be acted on.
-    pub async fn sign(mut self, _profile: Actor) -> Result<ApDelete, ()> {
-        let document = serde_json::to_string(&self).unwrap();
-        log::debug!("DOCUMENT TO BE SIGNED\n{document:#?}");
+            let object = get_object_by_as_id(Some(&conn), as_id).await.map_err(|e| {
+                log::error!("Target object for deletion not found: {e:#?}");
+                Status::NotFound
+            })?;
 
-        //let private_key = RsaPrivateKey::from_pkcs8_pem(&profile.private_key).unwrap();
-        //let signing_key = SigningKey::<Sha256>::new_with_prefix(private_key);
+            let mut activity =
+                NewActivity::try_from((Box::new(delete).into(), Some(object.into())))
+                    .map_err(|e| {
+                        log::error!("Failed to build Delete activity: {e:#?}");
+                        Status::InternalServerError
+                    })?
+                    .link_actor(&conn)
+                    .await;
 
-        //let mut rng = rand::thread_rng();
-        //let signed_hash = signing_key.sign_with_rng(&mut rng, document.as_bytes());
+            activity.raw = Some(raw);
 
-        if let Some(mut signature) = self.signature {
-            //signature.signature_value = Some(base64::encode(signed_hash.as_bytes()));
-            signature.kind = Some(ApSignatureType::RsaSignature2017);
-            self.signature = Some(signature);
+            create_activity(Some(&conn), activity.clone())
+                .await
+                .map_err(|e| {
+                    log::error!("Failed to create activity: {e:#?}");
+                    Status::InternalServerError
+                })?;
 
-            Ok(self)
+            runner::run(
+                ApDelete::send_task,
+                Some(conn),
+                Some(channels),
+                vec![activity.ap_id.clone().ok_or_else(|| {
+                    log::error!("Activity must have an ID");
+                    Status::InternalServerError
+                })?],
+            )
+            .await;
+            Ok(activity.ap_id.unwrap())
         } else {
-            Err(())
+            log::error!("Delete object is not a reference");
+            Err(Status::NoContent)
         }
+    }
+
+    async fn send_task(
+        conn: Option<Db>,
+        _channels: Option<EventChannels>,
+        ap_ids: Vec<String>,
+    ) -> Result<(), TaskError> {
+        let conn = conn.as_ref();
+
+        for ap_id in ap_ids {
+            let (activity, target_activity, target_object, target_actor) =
+                get_activity_by_ap_id(conn.ok_or(TaskError::TaskFailed)?, ap_id)
+                    .await
+                    .ok_or_else(|| {
+                        log::error!("Failed to retrieve activity");
+                        TaskError::TaskFailed
+                    })?;
+
+            let profile_id = activity.actor_id.ok_or_else(|| {
+                log::error!("actor_id can not be None");
+                TaskError::TaskFailed
+            })?;
+
+            let sender = get_actor(conn.unwrap(), profile_id).await.ok_or_else(|| {
+                log::error!("Failed to retrieve Actor");
+                TaskError::TaskFailed
+            })?;
+
+            let object = target_object.clone().ok_or_else(|| {
+                log::error!("target_object can not be None");
+                TaskError::TaskFailed
+            })?;
+
+            let activity =
+                ApActivity::try_from((activity, target_activity, target_object, target_actor))
+                    .map_err(|e| {
+                        log::error!("Failed to build ApActivity: {e:#?}");
+                        TaskError::TaskFailed
+                    })?;
+
+            let inboxes: Vec<ApAddress> = get_inboxes(conn, activity.clone(), sender.clone()).await;
+
+            send_to_inboxes(conn.unwrap(), inboxes, sender, activity.clone())
+                .await
+                .map_err(|e| {
+                    log::error!("Failed to send to inboxes: {e:#?}");
+                    TaskError::TaskFailed
+                })?;
+
+            tombstone_object_by_uuid(conn.unwrap(), object.ek_uuid.ok_or(TaskError::TaskFailed)?)
+                .await
+                .map_err(|e| {
+                    log::error!("Failed to delete Objects: {e:#?}");
+                    TaskError::TaskFailed
+                })?;
+        }
+
+        Ok(())
     }
 }

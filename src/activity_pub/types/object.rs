@@ -1,4 +1,4 @@
-use crate::activity_pub::{ApActor, ApCollection, ApInstrument, ApNote, Outbox};
+use crate::activity_pub::{retriever, ApActor, ApCollection, ApInstrument, ApNote, Outbox};
 use crate::db::Db;
 use crate::fairings::events::EventChannels;
 use crate::models::actors::Actor;
@@ -12,7 +12,7 @@ use chrono::{DateTime, Utc};
 use enum_dispatch::enum_dispatch;
 use rocket::http::{ContentType, Status};
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
+use serde_json::{json, Value};
 use url::Url;
 
 use super::attachment::ApDocument;
@@ -30,7 +30,18 @@ pub enum ApContext {
 
 impl Default for ApContext {
     fn default() -> Self {
+        ApContext::activity_streams()
+    }
+}
+
+impl ApContext {
+    pub fn activity_streams() -> Self {
         ApContext::Plain("https://www.w3.org/ns/activitystreams".to_string())
+    }
+
+    pub fn full() -> Self {
+        let context = json!(["https://www.w3.org/ns/activitystreams", "https://w3id.org/security/v1", {"manuallyApprovesFollowers": "as:manuallyApprovesFollowers", "toot": "http://joinmastodon.org/ns#", "alsoKnownAs": {"@id": "as:alsoKnownAs","@type": "@id"}, "discoverable": "toot:discoverable", "schema": "http://schema.org#", "PropertyValue": "schema:PropertyValue", "value": "schema:value"}]);
+        ApContext::Complex(vec![OrdValue(context)])
     }
 }
 
@@ -94,7 +105,7 @@ impl Outbox for String {
         _conn: Db,
         _events: EventChannels,
         _profile: Actor,
-        raw: Value,
+        _raw: Value,
     ) -> Result<String, Status> {
         Err(Status::ServiceUnavailable)
     }
@@ -106,7 +117,7 @@ impl Outbox for Identifier {
         _conn: Db,
         _events: EventChannels,
         _profile: Actor,
-        raw: Value,
+        _raw: Value,
     ) -> Result<String, Status> {
         Err(Status::ServiceUnavailable)
     }
@@ -118,7 +129,7 @@ impl Outbox for MaybeMultiple<Value> {
         _conn: Db,
         _events: EventChannels,
         _profile: Actor,
-        raw: Value,
+        _raw: Value,
     ) -> Result<String, Status> {
         Err(Status::ServiceUnavailable)
     }
@@ -130,7 +141,7 @@ impl Outbox for ApBasicContent {
         _conn: Db,
         _events: EventChannels,
         _profile: Actor,
-        raw: Value,
+        _raw: Value,
     ) -> Result<String, Status> {
         Err(Status::ServiceUnavailable)
     }
@@ -158,6 +169,21 @@ impl ApObject {
             ApObject::Note(note) => note.ephemeral_timestamp.unwrap_or(Utc::now()),
             ApObject::Question(question) => question.ephemeral_updated_at.unwrap_or(Utc::now()),
             _ => Utc::now(),
+        }
+    }
+
+    pub async fn load_ephemeral(&mut self, conn: &Db) -> Self {
+        match self {
+            ApObject::Note(ref mut note) => {
+                if let Some(actor) =
+                    retriever::get_actor(conn, note.attributed_to.clone().to_string(), None, true)
+                        .await
+                {
+                    note.ephemeral_attributed_to = Some(vec![actor.into()]);
+                }
+                ApObject::Note(note.clone())
+            }
+            _ => self.clone(),
         }
     }
 }

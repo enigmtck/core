@@ -5,7 +5,6 @@ use crate::{
     activity_pub::{ApActivity, ApAddress, ApContext, ApNote, ApObject, Inbox, Outbox, Temporal},
     db::Db,
     fairings::events::EventChannels,
-    helper::get_activity_ap_id_from_uuid,
     models::{
         activities::{create_activity, ActivityType, ExtendedActivity, NewActivity},
         actors::Actor,
@@ -106,7 +105,7 @@ impl Outbox for ApAnnounce {
         profile: Actor,
         raw: Value,
     ) -> Result<String, Status> {
-        outbox(conn, events, self.clone(), profile).await
+        outbox(conn, events, self.clone(), profile, raw).await
     }
 }
 
@@ -115,30 +114,32 @@ async fn outbox(
     channels: EventChannels,
     announce: ApAnnounce,
     _profile: Actor,
+    raw: Value,
 ) -> Result<String, Status> {
     if let MaybeReference::Reference(as_id) = announce.clone().object {
         let object = get_object_by_as_id(Some(&conn), as_id)
             .await
             .map_err(|_| Status::NotFound)?;
 
-        let activity = create_activity(
-            Some(&conn),
-            NewActivity::try_from((announce.into(), Some(object.into())))
-                .map_err(|_| Status::InternalServerError)?
-                .link_actor(&conn)
-                .await,
-        )
-        .await
-        .map_err(|_| Status::new(521))?;
+        let mut activity = NewActivity::try_from((announce.into(), Some(object.into())))
+            .map_err(|_| Status::InternalServerError)?
+            .link_actor(&conn)
+            .await;
+
+        activity.raw = Some(raw);
+
+        let activity = create_activity(Some(&conn), activity)
+            .await
+            .map_err(|_| Status::InternalServerError)?;
 
         runner::run(
             runner::announce::send_announce_task,
             Some(conn),
             Some(channels),
-            vec![activity.uuid.clone()],
+            vec![activity.ap_id.clone().ok_or(Status::InternalServerError)?],
         )
         .await;
-        Ok(get_activity_ap_id_from_uuid(activity.uuid))
+        Ok(activity.ap_id.ok_or(Status::InternalServerError)?)
     } else {
         log::error!("ANNOUNCE OBJECT IS NOT A REFERENCE");
         Err(Status::new(523))

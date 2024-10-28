@@ -75,7 +75,7 @@ impl TryFrom<String> for ObjectType {
     }
 }
 
-#[derive(Serialize, Deserialize, Insertable, Default, Debug, AsChangeset)]
+#[derive(Serialize, Deserialize, Insertable, Default, Debug, AsChangeset, Clone)]
 #[diesel(table_name = objects)]
 pub struct NewObject {
     pub ap_conversation: Option<String>,
@@ -180,12 +180,22 @@ pub struct Object {
     pub ek_uuid: Option<String>,
 }
 
+impl Object {
+    pub fn attributed_to(&self) -> Vec<String> {
+        if let Some(attributed_to) = self.clone().as_attributed_to {
+            serde_json::from_value(attributed_to).unwrap_or_default()
+        } else {
+            vec![]
+        }
+    }
+}
+
 impl TryFrom<CoalescedActivity> for Object {
     type Error = anyhow::Error;
 
     fn try_from(activity: CoalescedActivity) -> Result<Self, Self::Error> {
         Ok(Object {
-            id: activity.target_object_id.ok_or(anyhow!("no object id"))?,
+            id: activity.target_object_id.unwrap_or(-1),
             created_at: activity
                 .object_created_at
                 .ok_or(anyhow!("no object created_at"))?,

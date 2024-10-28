@@ -39,7 +39,7 @@ impl Outbox for ApSession {
         conn: Db,
         events: EventChannels,
         profile: Actor,
-        raw: Value,
+        _raw: Value,
     ) -> Result<String, Status> {
         handle_session(conn, events, self.clone(), profile).await
     }
@@ -103,7 +103,7 @@ impl Outbox for ApInstrument {
         _conn: Db,
         _events: EventChannels,
         _profile: Actor,
-        raw: Value,
+        _raw: Value,
     ) -> Result<String, Status> {
         Err(Status::ServiceUnavailable)
     }

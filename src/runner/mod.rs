@@ -1,9 +1,12 @@
 use std::{collections::HashSet, error::Error, fmt::Debug};
 
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use diesel::{r2d2::ConnectionManager, PgConnection};
 use futures_lite::Future;
 use reqwest::Client;
+use reqwest::Request;
+use serde::Serialize;
+use std::collections::HashMap;
 use std::fmt;
 use url::Url;
 
@@ -11,7 +14,7 @@ use crate::{
     activity_pub::{ApActivity, ApActor, ApAddress},
     db::Db,
     fairings::events::EventChannels,
-    models::actors::Actor,
+    models::{activities::add_log_by_as_id, actors::Actor},
     signing::{Method, SignParams},
     MaybeMultiple, MaybeReference,
 };
@@ -22,11 +25,8 @@ pub mod actor;
 pub mod announce;
 pub mod cache;
 pub mod encrypted;
-pub mod follow;
-pub mod like;
 pub mod note;
 pub mod question;
-pub mod undo;
 pub mod user;
 
 pub type Pool = r2d2::Pool<ConnectionManager<PgConnection>>;
@@ -38,52 +38,122 @@ pub fn clean_text(text: String) -> String {
     ammonia.clean(&text).to_string()
 }
 
+#[derive(Serialize, Clone)]
+struct RequestInfo {
+    method: String,
+    url: String,
+    headers: HashMap<String, String>,
+    body: Option<String>,
+}
+
+fn request_builder_to_info(request: &Request) -> RequestInfo {
+    let method = request.method().to_string();
+    let url = request.url().to_string();
+    let headers = request
+        .headers()
+        .iter()
+        .map(|(name, value)| (name.to_string(), value.to_str().unwrap_or("").to_string()))
+        .collect();
+    let body = request
+        .body()
+        .and_then(|body| body.as_bytes())
+        .map(|bytes| String::from_utf8_lossy(bytes).to_string());
+
+    RequestInfo {
+        method,
+        url,
+        headers,
+        body,
+    }
+}
+
 pub async fn send_to_inboxes(
+    conn: &Db,
     inboxes: Vec<ApAddress>,
     profile: Actor,
     message: ApActivity,
 ) -> Result<()> {
-    log::debug!("INBOXES\n{inboxes:#?}");
+    let as_id = message.as_id().ok_or_else(|| {
+        log::debug!("MESSAGE DOES NOT HAVE AN ID");
+        anyhow!("MESSAGE DOES NOT HAVE AN ID")
+    })?;
+
+    let body = serde_json::to_string(&message).map_err(anyhow::Error::msg)?;
+
+    #[derive(Clone, Serialize)]
+    struct LogMessage {
+        pub code: Option<i32>,
+        pub request: Option<RequestInfo>,
+        pub response: Option<String>,
+    }
+
+    let mut logs: Vec<LogMessage> = vec![];
 
     for inbox in inboxes {
-        log::debug!("SENDING TO {inbox}");
+        let url = Url::parse(&inbox.clone().to_string());
 
-        let body = serde_json::to_string(&message).map_err(anyhow::Error::msg)?;
+        if url.is_err() {
+            continue;
+        }
 
-        let url = Url::parse(&inbox.clone().to_string()).map_err(anyhow::Error::msg)?;
+        let url = url.map_err(anyhow::Error::msg)?;
 
         let signature = crate::signing::sign(SignParams {
             profile: profile.clone(),
             url,
             body: Some(body.clone()),
             method: Method::Post,
-        })
-        .map_err(anyhow::Error::msg)?;
+        });
+
+        if signature.is_err() {
+            continue;
+        }
+
+        let signature = signature.map_err(anyhow::Error::msg)?;
 
         let client = Client::builder()
             .user_agent("Enigmatick/0.1")
             .build()
             .unwrap();
 
-        let client = client
+        let request = client
             .post(inbox.clone().to_string())
             .timeout(std::time::Duration::new(5, 0))
             .header("Date", signature.date)
             .header("Digest", signature.digest.unwrap())
             .header("Signature", &signature.signature)
             .header("Content-Type", "application/activity+json")
-            .body(body.clone());
+            .body(body.clone())
+            .build()
+            .unwrap();
 
-        log::debug!("{client:#?}");
-        log::debug!("{body:#?}");
+        let client_info = request_builder_to_info(&request);
 
-        if let Ok(resp) = client.send().await {
-            log::debug!(
-                "SEND RESULT FOR {inbox}: {} {:#?}",
-                resp.status(),
-                resp.text().await
-            );
+        match client.execute(request).await {
+            Ok(resp) => {
+                let code = resp.status().as_u16();
+
+                logs.push(LogMessage {
+                    code: Some(code.into()),
+                    request: Some(client_info),
+                    response: resp.text().await.ok(),
+                });
+            }
+            Err(e) => {
+                log::error!("FAILED TO SEND TO INBOX: {}", inbox.clone().to_string());
+
+                logs.push(LogMessage {
+                    code: Some(-1),
+                    request: Some(client_info),
+                    response: Some(e.to_string()),
+                });
+            }
         }
+    }
+
+    if !logs.is_empty() {
+        let logs = serde_json::to_value(&logs).unwrap();
+        add_log_by_as_id(conn, as_id.clone(), logs).await?;
     }
 
     Ok(())

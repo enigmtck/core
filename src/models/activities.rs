@@ -1,6 +1,6 @@
 use crate::activity_pub::{
-    ApAcceptType, ApActivity, ApAddress, ApAnnounceType, ApCreateType, ApFollowType, ApLikeType,
-    ApUndoType,
+    ApAcceptType, ApActivity, ApAddress, ApAnnounceType, ApCreateType, ApDeleteType, ApFollowType,
+    ApLikeType, ApUndoType,
 };
 use crate::db::Db;
 use crate::helper::get_activity_ap_id_from_uuid;
@@ -32,6 +32,8 @@ cfg_if::cfg_if! {
 
         pub use super::pg::activities::revoke_activity_by_uuid;
         pub use super::pg::activities::revoke_activity_by_apid;
+        pub use super::pg::activities::revoke_activities_by_object_as_id;
+        pub use super::pg::activities::add_log_by_as_id;
     } else if #[cfg(feature = "sqlite")] {
         pub use super::sqlite::activities::ActivityType;
 
@@ -82,6 +84,12 @@ impl From<String> for ActivityType {
 impl From<ApCreateType> for ActivityType {
     fn from(_: ApCreateType) -> Self {
         ActivityType::Create
+    }
+}
+
+impl From<ApDeleteType> for ActivityType {
+    fn from(_: ApDeleteType) -> Self {
+        ActivityType::Delete
     }
 }
 
@@ -179,7 +187,7 @@ pub struct TimelineFilters {
 
 impl NewActivity {
     pub async fn link_actor(&mut self, conn: &Db) -> Self {
-        if let Some(actor) = get_actor_by_as_id(conn, self.clone().actor).await {
+        if let Ok(actor) = get_actor_by_as_id(conn, self.clone().actor).await {
             self.actor_id = Some(actor.id);
         };
 
@@ -196,9 +204,7 @@ impl NewActivity {
                 }
                 ActivityTarget::Activity(activity) => {
                     self.target_activity_id = Some(activity.id);
-                    self.target_ap_id = activity
-                        .ap_id
-                        .map_or(Some(get_activity_ap_id_from_uuid(activity.uuid)), Some);
+                    self.target_ap_id = activity.ap_id;
                     self.reply = false;
                 }
                 ActivityTarget::Actor(actor) => {
@@ -234,6 +240,21 @@ impl TryFrom<ApActivityTarget> for NewActivity {
                 cc: to_serde(&create.cc),
                 revoked: false,
                 ap_id: create
+                    .id
+                    .map_or(Some(get_activity_ap_id_from_uuid(uuid)), Some),
+                ..Default::default()
+            }
+            .link_target(target)
+            .clone()),
+            ApActivity::Delete(delete) => Ok(NewActivity {
+                kind: to_kind(delete.kind.into()),
+                uuid: uuid.clone(),
+                actor: delete.actor.to_string(),
+                ap_to: to_serde(&Some(delete.to)),
+                cc: to_serde(&delete.cc),
+                target_ap_id: delete.object.reference(),
+                revoked: false,
+                ap_id: delete
                     .id
                     .map_or(Some(get_activity_ap_id_from_uuid(uuid)), Some),
                 ..Default::default()
@@ -473,6 +494,7 @@ fn target_to_main(coalesced: CoalescedActivity) -> Option<Activity> {
         target_object_id: coalesced.recursive_target_object_id,
         actor_id: coalesced.recursive_actor_id,
         target_actor_id: coalesced.recursive_target_actor_id,
+        log: None,
     })
 }
 
@@ -496,6 +518,7 @@ impl From<CoalescedActivity> for ExtendedActivity {
             target_object_id: coalesced.target_object_id,
             actor_id: coalesced.actor_id,
             target_actor_id: coalesced.target_actor_id,
+            log: coalesced.log.clone(),
         };
 
         let target_activity = target_to_main(coalesced.clone());

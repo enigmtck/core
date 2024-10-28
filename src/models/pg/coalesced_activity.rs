@@ -65,6 +65,9 @@ pub struct CoalescedActivity {
     #[diesel(sql_type = Nullable<Integer>)]
     pub target_actor_id: Option<i32>,
 
+    #[diesel(sql_type = Nullable<Jsonb>)]
+    pub log: Option<Value>,
+
     // Secondary Activity Fields
     #[diesel(sql_type = Nullable<Timestamptz>)]
     pub recursive_created_at: Option<DateTime<Utc>>,

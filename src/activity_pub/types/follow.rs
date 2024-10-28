@@ -2,16 +2,20 @@ use core::fmt;
 use std::fmt::Debug;
 
 use crate::{
-    activity_pub::{ApActivity, ApAddress, ApContext, ApObject, Inbox, Outbox},
+    activity_pub::{ApAccept, ApActivity, ApAddress, ApContext, ApObject, Inbox, Outbox},
     db::Db,
     fairings::events::EventChannels,
     helper::get_activity_ap_id_from_uuid,
     models::{
-        activities::{create_activity, ActivityTarget, ExtendedActivity, NewActivity},
-        actors::{get_actor_by_as_id, Actor},
+        activities::{
+            create_activity, get_activity_by_ap_id, ActivityTarget, ExtendedActivity, NewActivity,
+        },
+        actors::{get_actor, get_actor_by_as_id, Actor},
+        followers::{create_follower, NewFollower},
         from_serde,
     },
-    runner, MaybeMultiple, MaybeReference,
+    runner::{self, get_inboxes, send_to_inboxes, TaskError},
+    MaybeMultiple, MaybeReference,
 };
 use anyhow::anyhow;
 use rocket::http::Status;
@@ -40,8 +44,11 @@ pub struct ApFollow {
     #[serde(rename = "type")]
     pub kind: ApFollowType,
     pub actor: ApAddress,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub to: Option<MaybeMultiple<ApAddress>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub cc: Option<MaybeMultiple<ApAddress>>,
     pub object: MaybeReference<ApObject>,
 }
@@ -55,34 +62,43 @@ impl Inbox for ApFollow {
             .ok_or(Status::UnprocessableEntity)?;
 
         if self.id.is_none() {
+            log::error!("AP_FOLLOW ID IS NONE");
             return Err(Status::UnprocessableEntity);
         };
 
         let actor = get_actor_by_as_id(&conn, actor_as_id.clone())
             .await
-            .ok_or(Status::NotFound)?;
+            .map_err(|e| {
+                log::error!("FAILED TO RETRIEVE ACTOR: {e:#?}");
+                Status::NotFound
+            })?;
 
         let mut activity = NewActivity::try_from((
             ApActivity::Follow(self.clone()),
             Some(ActivityTarget::from(actor)),
         ))
-        .map_err(|_| Status::InternalServerError)?;
+        .map_err(|e| {
+            log::error!("FAILED TO BUILD FOLLOW ACTIVITY: {e:#?}");
+            Status::InternalServerError
+        })?;
 
         activity.raw = Some(raw);
 
-        log::debug!("ACTIVITY\n{activity:#?}");
-
         let activity = create_activity((&conn).into(), activity)
             .await
-            .map_err(|_| Status::InternalServerError)?;
+            .map_err(|e| {
+                log::error!("FAILED TO CREATE FOLLOW ACTIVITY: {e:#?}");
+                Status::InternalServerError
+            })?;
 
         runner::run(
-            runner::follow::acknowledge_followers_task,
+            ApFollow::process,
             Some(conn),
             Some(channels),
             vec![activity.ap_id.ok_or(Status::InternalServerError)?],
         )
         .await;
+
         Ok(Status::Accepted)
     }
 }
@@ -95,45 +111,158 @@ impl Outbox for ApFollow {
         profile: Actor,
         raw: Value,
     ) -> Result<String, Status> {
-        outbox(conn, events, self.clone(), profile).await
+        ApFollow::outbox(conn, events, self.clone(), profile, raw).await
     }
 }
 
-async fn outbox(
-    conn: Db,
-    channels: EventChannels,
-    follow: ApFollow,
-    profile: Actor,
-) -> Result<String, Status> {
-    if let MaybeReference::Reference(id) = follow.object.clone() {
-        let actor = get_actor_by_as_id(&conn, id)
-            .await
-            .ok_or(Status::NotFound)?;
+impl ApFollow {
+    async fn outbox(
+        conn: Db,
+        channels: EventChannels,
+        follow: ApFollow,
+        _profile: Actor,
+        raw: Value,
+    ) -> Result<String, Status> {
+        if let MaybeReference::Reference(id) = follow.object.clone() {
+            let actor = get_actor_by_as_id(&conn, id).await.map_err(|e| {
+                log::error!("FAILED TO RETRIEVE ACTOR: {e:#?}");
+                Status::NotFound
+            })?;
 
-        if let Ok(activity) = create_activity(
-            Some(&conn),
-            NewActivity::try_from((follow.into(), Some(actor.into())))
+            let mut activity = NewActivity::try_from((follow.into(), Some(actor.into())))
                 .map_err(|_| Status::InternalServerError)?
                 .link_actor(&conn)
-                .await,
-        )
-        .await
-        {
+                .await;
+
+            activity.raw = Some(raw);
+
+            create_activity(Some(&conn), activity.clone())
+                .await
+                .map_err(|e| {
+                    log::error!("FAILED TO CREATE FOLLOW ACTIVITY: {e:#?}");
+                    Status::InternalServerError
+                })?;
+
             runner::run(
-                runner::follow::process_follow_task,
+                ApFollow::send,
                 Some(conn),
                 Some(channels),
                 vec![activity.uuid.clone()],
             )
             .await;
+
             Ok(get_activity_ap_id_from_uuid(activity.uuid))
         } else {
-            log::error!("FAILED TO CREATE FOLLOW ACTIVITY");
-            Err(Status::NoContent)
+            log::error!("FOLLOW OBJECT IS NOT A REFERENCE");
+            Err(Status::BadRequest)
         }
-    } else {
-        log::error!("FOLLOW OBJECT IS NOT A REFERENCE");
-        Err(Status::NoContent)
+    }
+
+    async fn send(
+        conn: Option<Db>,
+        _channels: Option<EventChannels>,
+        ap_ids: Vec<String>,
+    ) -> Result<(), TaskError> {
+        let conn = conn.as_ref();
+
+        for ap_id in ap_ids {
+            let (activity, target_activity, target_object, target_actor) = get_activity_by_ap_id(
+                conn.ok_or(TaskError::TaskFailed)?,
+                get_activity_ap_id_from_uuid(ap_id.clone()),
+            )
+            .await
+            .ok_or(TaskError::TaskFailed)?;
+
+            let sender = get_actor(
+                conn.unwrap(),
+                activity.actor_id.ok_or(TaskError::TaskFailed)?,
+            )
+            .await
+            .ok_or(TaskError::TaskFailed)?;
+
+            let activity =
+                ApActivity::try_from((activity, target_activity, target_object, target_actor))
+                    .map_err(|e| {
+                        log::error!("FAILED TO BUILD AP_ACTIVITY: {e:#?}");
+                        TaskError::TaskFailed
+                    })?;
+
+            let inboxes: Vec<ApAddress> = get_inboxes(conn, activity.clone(), sender.clone()).await;
+
+            send_to_inboxes(conn.unwrap(), inboxes, sender, activity.clone())
+                .await
+                .map_err(|e| {
+                    log::error!("FAILED TO SEND TO INBOXES: {e:#?}");
+                    TaskError::TaskFailed
+                })?;
+        }
+        Ok(())
+    }
+
+    async fn process(
+        conn: Option<Db>,
+        _channels: Option<EventChannels>,
+        ap_ids: Vec<String>,
+    ) -> Result<(), TaskError> {
+        log::debug!("PROCESSING INCOMING FOLLOW REQUEST");
+
+        let conn = conn.as_ref();
+
+        for ap_id in ap_ids {
+            log::debug!("AS_ID: {ap_id}");
+
+            let extended_follow = get_activity_by_ap_id(conn.ok_or(TaskError::TaskFailed)?, ap_id)
+                .await
+                .ok_or(TaskError::TaskFailed)?;
+
+            let follow = ApFollow::try_from(extended_follow).map_err(|e| {
+                log::error!("FAILED TO BUILD FOLLOW: {e:#?}");
+                TaskError::TaskFailed
+            })?;
+            let accept = ApAccept::try_from(follow.clone()).map_err(|e| {
+                log::error!("FAILED TO BUILD ACCEPT: {e:#?}");
+                TaskError::TaskFailed
+            })?;
+
+            let accept_actor = get_actor_by_as_id(conn.unwrap(), accept.actor.clone().to_string())
+                .await
+                .map_err(|e| {
+                    log::error!("FAILED TO RETRIEVE ACTOR: {e:#?}");
+                    TaskError::TaskFailed
+                })?;
+
+            let follow_actor = get_actor_by_as_id(conn.unwrap(), follow.actor.clone().to_string())
+                .await
+                .map_err(|e| {
+                    log::error!("FAILED TO RETRIEVE ACTOR: {e:#?}");
+                    TaskError::TaskFailed
+                })?;
+
+            send_to_inboxes(
+                conn.unwrap(),
+                vec![follow_actor.as_inbox.clone().into()],
+                accept_actor.clone(),
+                ApActivity::Accept(Box::new(accept)),
+            )
+            .await
+            .map_err(|e| {
+                log::error!("FAILED TO SEND ACCEPT TO INBOXES: {e:#?}");
+                TaskError::TaskFailed
+            })?;
+
+            let follower = NewFollower::try_from(follow)
+                .map_err(|e| {
+                    log::error!("FAILED TO BUILD FOLLOWER: {e:#?}");
+                    TaskError::TaskFailed
+                })?
+                .link(accept_actor.clone());
+
+            if create_follower(conn, follower).await.is_some() {
+                log::info!("FOLLOWER CREATED");
+            }
+        }
+
+        Ok(())
     }
 }
 

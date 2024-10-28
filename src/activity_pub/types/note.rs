@@ -2,22 +2,33 @@ use core::fmt;
 use std::{collections::HashMap, fmt::Debug};
 
 use crate::{
+    activity_pub::ApActivity,
     activity_pub::{
         ApActor, ApAttachment, ApCollection, ApContext, ApImage, ApInstruments, ApTag, Outbox,
     },
     db::Db,
     fairings::events::EventChannels,
-    helper::{get_note_ap_id_from_uuid, get_note_url_from_uuid},
+    helper::{
+        get_conversation_ap_id_from_uuid, get_object_ap_id_from_uuid, get_object_url_from_uuid,
+    },
+    models::activities::get_activity_by_ap_id,
     models::{
         activities::{create_activity, NewActivity},
-        actors::Actor,
-        cache::{cache_content, Cache},
+        actors::{get_actor, Actor},
+        cache::{cache_content, Cache, Cacheable},
         from_serde, from_time,
         objects::{create_or_update_object, Object},
         pg::{coalesced_activity::CoalescedActivity, objects::ObjectType},
         vault::VaultItem,
     },
-    runner, MaybeMultiple,
+    runner::{
+        self,
+        //encrypted::handle_encrypted_note,
+        get_inboxes,
+        send_to_inboxes,
+        TaskError,
+    },
+    MaybeMultiple,
 };
 use anyhow::{anyhow, Result};
 use chrono::{DateTime, Utc};
@@ -227,6 +238,236 @@ impl ApNote {
         self.tag.as_mut().expect("unwrap failed").push(tag);
         self
     }
+
+    async fn outbox_note(
+        conn: Db,
+        channels: EventChannels,
+        mut note: ApNote,
+        profile: Actor,
+        raw: Value,
+    ) -> Result<String, Status> {
+        // ApNote -> NewNote -> ApNote -> ApActivity
+        // UUID is set in NewNote
+
+        if note.id.is_some() {
+            return Err(Status::NotAcceptable);
+        }
+
+        let mut is_public = false;
+        let mut followers_included = false;
+        let mut addresses_cc: Vec<ApAddress> = note.cc.clone().unwrap_or(vec![].into()).multiple();
+        let followers = ApActor::from(profile.clone()).followers;
+
+        if let Some(followers) = followers {
+            // look for the public and followers group address aliases in the to vec
+            for to in note.to.multiple().iter() {
+                if to.is_public() {
+                    is_public = true;
+                    if to.to_string().to_lowercase() == followers.to_lowercase() {
+                        followers_included = true;
+                    }
+                }
+            }
+
+            // look for the public and followers group address aliases in the cc vec
+            for cc in addresses_cc.iter() {
+                if cc.is_public() {
+                    is_public = true;
+                    if cc.to_string().to_lowercase() == followers.to_lowercase() {
+                        followers_included = true;
+                    }
+                }
+            }
+
+            // if the note is public and if it's not already included, add the sender's followers group
+            if is_public && !followers_included {
+                addresses_cc.push(followers.into());
+                note.cc = Some(MaybeMultiple::Multiple(addresses_cc));
+            }
+        }
+
+        let uuid = Uuid::new_v4().to_string();
+        note.internal_uuid = Some(uuid.clone());
+        note.id = Some(get_object_ap_id_from_uuid(uuid.clone()));
+        note.url = Some(get_object_url_from_uuid(uuid.clone()));
+        note.published = Utc::now().to_rfc3339();
+        note.attributed_to = profile.as_id.clone().into();
+        note.conversation = Some(get_conversation_ap_id_from_uuid(Uuid::new_v4().to_string()));
+        note.context = Some(ApContext::default());
+
+        let object = create_or_update_object(&conn, (note, profile).into())
+            .await
+            .map_err(|e| {
+                log::error!("FAILED TO CREATE OR UPDATE OBJECT: {e:#?}");
+                Status::InternalServerError
+            })?;
+
+        let create = ApCreate::try_from(ApObject::Note(ApNote::try_from(object.clone()).map_err(
+            |e| {
+                log::error!("FAILED TO BUILD AP_NOTE: {e:#?}");
+                Status::InternalServerError
+            },
+        )?))
+        .map_err(|e| {
+            log::error!("FAILED TO BUILD AP_CREATE: {e:#?}");
+            Status::InternalServerError
+        })?;
+
+        let mut activity = NewActivity::try_from((create.into(), Some(object.into())))
+            .map_err(|e| {
+                log::error!("FAILED TO BUILD ACTIVITY: {e:#?}");
+                Status::InternalServerError
+            })?
+            .link_actor(&conn)
+            .await;
+
+        activity.raw = Some(raw);
+
+        create_activity(Some(&conn), activity.clone())
+            .await
+            .map_err(|e| {
+                log::error!("FAILED TO CREATE ACTIVITY: {e:#?}");
+                Status::InternalServerError
+            })?;
+
+        runner::run(
+            ApNote::send_note,
+            Some(conn),
+            Some(channels),
+            vec![activity.ap_id.clone().ok_or_else(|| {
+                log::error!("ACTIVITY AP_ID CAN NOT BE NONE");
+                Status::InternalServerError
+            })?],
+        )
+        .await;
+        Ok(activity.uuid)
+    }
+
+    async fn send_note(
+        conn: Option<Db>,
+        _channels: Option<EventChannels>,
+        ap_ids: Vec<String>,
+    ) -> Result<(), TaskError> {
+        let conn = conn.as_ref();
+
+        for ap_id in ap_ids {
+            let (activity, target_activity, target_object, target_actor) =
+                get_activity_by_ap_id(conn.ok_or(TaskError::TaskFailed)?, ap_id.clone())
+                    .await
+                    .ok_or_else(|| {
+                        log::error!("FAILED TO RETRIEVE ACTIVITY");
+                        TaskError::TaskFailed
+                    })?;
+
+            let profile_id = activity.actor_id.ok_or_else(|| {
+                log::error!("ACTIVITY ACTOR_ID CAN NOT BE NONE");
+                TaskError::TaskFailed
+            })?;
+
+            let sender = get_actor(conn.unwrap(), profile_id).await.ok_or_else(|| {
+                log::error!("FAILED TO RETRIEVE SENDER ACTOR");
+                TaskError::TaskFailed
+            })?;
+
+            let note = ApNote::try_from(target_object.clone().ok_or(TaskError::TaskFailed)?)
+                .map_err(|e| {
+                    log::error!("FAILED TO BUILD ApNote: {e:#?}");
+                    TaskError::TaskFailed
+                })?;
+
+            // For the Svelte client, all images are passed through the server cache. To cache an image
+            // that's already on the server seems weird, but I think it's a better choice than trying
+            // to handle the URLs for local images differently.
+            //let ap_note: ApNote = note.clone().into();
+            if let Some(attachments) = note.clone().attachment {
+                for attachment in attachments {
+                    if let ApAttachment::Document(document) = attachment {
+                        let _ = cache_content(
+                            conn.unwrap(),
+                            Cacheable::try_from(ApImage::try_from(document)),
+                        )
+                        .await;
+                    }
+                }
+            }
+
+            cfg_if::cfg_if! {
+                if #[cfg(feature = "pg")] {
+                    let activity = match note.kind {
+                        ApNoteType::Note => {
+                            if let Ok(activity) =
+                                ApActivity::try_from((
+                                    activity,
+                                    target_activity,
+                                    target_object,
+                                    target_actor
+                                )) {
+                                    Some(activity)
+                                } else {
+                                    log::error!("FAILED TO BUILD ApActivity");
+                                    None
+                                }
+                        }
+                        // NoteType::EncryptedNote => {
+                        //     handle_encrypted_note(&mut note, sender.clone())
+                        //         .map(ApActivity::Create(ApCreate::from))
+                        // }
+                        _ => None,
+                    };
+                } else if #[cfg(feature = "sqlite")] {
+                    let activity = {
+                        if note.kind.to_lowercase().as_str() == "note" {
+                            if let Ok(activity) = ApActivity::try_from((
+                                (
+                                    activity,
+                                    target_activity,
+                                    target_object
+                                ),
+                                None,
+                            )) {
+                                Some(activity)
+                            } else {
+                                None
+                            }
+                        } else {
+                            // NoteType::EncryptedNote => {
+                            //     handle_encrypted_note(&mut note, sender.clone())
+                            //         .map(ApActivity::Create(ApCreate::from))
+                            // }
+                            None
+                        }
+                    };
+                }
+            }
+
+            let _ = runner::actor::get_actor(
+                conn,
+                sender.clone(),
+                note.clone().attributed_to.to_string(),
+            )
+            .await;
+
+            let activity = activity.ok_or_else(|| {
+                log::error!("ACTIVITY CANNOT BE NONE");
+                TaskError::TaskFailed
+            })?;
+
+            let inboxes: Vec<ApAddress> = get_inboxes(conn, activity.clone(), sender.clone()).await;
+
+            log::debug!("SENDING ACTIVITY\n{activity:#?}");
+            log::debug!("SENDER\n{sender:#?}");
+            log::debug!("INBOXES\n{inboxes:#?}");
+
+            send_to_inboxes(conn.unwrap(), inboxes, sender, activity)
+                .await
+                .map_err(|e| {
+                    log::error!("FAILED TO SEND ACTIVITY: {e:#?}");
+                    TaskError::TaskFailed
+                })?;
+        }
+
+        Ok(())
+    }
 }
 
 impl Cache for ApNote {
@@ -268,7 +509,7 @@ impl Outbox for ApNote {
         raw: Value,
     ) -> Result<String, Status> {
         match self.kind {
-            ApNoteType::Note => handle_note(conn, events, self.clone(), profile).await,
+            ApNoteType::Note => ApNote::outbox_note(conn, events, self.clone(), profile, raw).await,
             ApNoteType::EncryptedNote => {
                 handle_encrypted_note(conn, events, self.clone(), profile).await
             }
@@ -470,88 +711,6 @@ impl TryFrom<Object> for ApNote {
     }
 }
 
-async fn handle_note(
-    conn: Db,
-    channels: EventChannels,
-    mut note: ApNote,
-    profile: Actor,
-) -> Result<String, Status> {
-    // ApNote -> NewNote -> ApNote -> ApActivity
-    // UUID is set in NewNote
-
-    if note.id.is_some() {
-        return Err(Status::NotAcceptable);
-    }
-
-    let mut is_public = false;
-    let mut followers_included = false;
-    let mut addresses_cc: Vec<ApAddress> = note.cc.clone().unwrap_or(vec![].into()).multiple();
-    let followers = ApActor::from(profile.clone()).followers;
-
-    if let Some(followers) = followers {
-        // look for the public and followers group address aliases in the to vec
-        for to in note.to.multiple().iter() {
-            if to.is_public() {
-                is_public = true;
-                if to.to_string().to_lowercase() == followers.to_lowercase() {
-                    followers_included = true;
-                }
-            }
-        }
-
-        // look for the public and followers group address aliases in the cc vec
-        for cc in addresses_cc.iter() {
-            if cc.is_public() {
-                is_public = true;
-                if cc.to_string().to_lowercase() == followers.to_lowercase() {
-                    followers_included = true;
-                }
-            }
-        }
-
-        // if the note is public and if it's not already included, add the sender's followers group
-        if is_public && !followers_included {
-            addresses_cc.push(followers.into());
-            note.cc = Some(MaybeMultiple::Multiple(addresses_cc));
-        }
-    }
-
-    let uuid = Uuid::new_v4().to_string();
-    note.internal_uuid = Some(uuid.clone());
-    note.id = Some(get_note_ap_id_from_uuid(uuid.clone()));
-    note.url = Some(get_note_url_from_uuid(uuid.clone()));
-    note.published = Utc::now().to_rfc3339();
-    note.attributed_to = profile.as_id.into();
-
-    let object = create_or_update_object(&conn, note.into())
-        .await
-        .map_err(|_| Status::InternalServerError)?;
-
-    let create = ApCreate::try_from(ApObject::Note(
-        ApNote::try_from(object.clone()).map_err(|_| Status::InternalServerError)?,
-    ))
-    .map_err(|_| Status::InternalServerError)?;
-
-    let activity = create_activity(
-        Some(&conn),
-        NewActivity::try_from((create.into(), Some(object.into())))
-            .map_err(|_| Status::InternalServerError)?
-            .link_actor(&conn)
-            .await,
-    )
-    .await
-    .map_err(|_| Status::InternalServerError)?;
-
-    runner::run(
-        runner::note::outbound_note_task,
-        Some(conn),
-        Some(channels),
-        vec![activity.uuid.clone()],
-    )
-    .await;
-    Ok(activity.uuid)
-}
-
 async fn handle_encrypted_note(
     conn: Db,
     channels: EventChannels,
@@ -570,7 +729,7 @@ async fn handle_encrypted_note(
     let ek_uuid = object.ek_uuid.ok_or(Status::InternalServerError)?;
 
     runner::run(
-        runner::note::outbound_note_task,
+        ApNote::send_note,
         Some(conn),
         Some(channels),
         vec![ek_uuid.clone()],

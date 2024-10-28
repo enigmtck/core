@@ -1,5 +1,5 @@
 use crate::{
-    activity_pub::{ActorsPage, ApActor, ApCollection, FollowersPage, LeadersPage},
+    activity_pub::{ApActor, ApCollection, FollowersPage, LeadersPage},
     db::Db,
     fairings::signatures::Signed,
     models::{
@@ -68,40 +68,21 @@ pub async fn liked_get(conn: Db, username: String) -> Result<ActivityJson<ApColl
 
 #[get("/user/<username>/followers")]
 pub async fn get_followers(
-    signed: Signed,
+    _signed: Signed,
     conn: Db,
     username: String,
 ) -> Result<ActivityJson<ApCollection>, Status> {
-    if signed.local() {
-        if let Some(profile) = get_actor_by_username(&conn, username.clone()).await {
-            let followers = get_followers_by_actor_id(&conn, profile.id).await;
+    if let Some(profile) = get_actor_by_username(&conn, username).await {
+        let followers = get_followers_by_actor_id(&conn, profile.id).await;
 
-            Ok(ActivityJson(Json(ApCollection::from(ActorsPage {
-                page: 0,
-                profile,
-                actors: followers
-                    .iter()
-                    .filter_map(|(_, remote_actor)| {
-                        remote_actor
-                            .as_ref()
-                            .map(|remote_actor| remote_actor.clone().into())
-                    })
-                    .collect(),
-            }))))
-        } else if let Some(profile) = get_actor_by_username(&conn, username).await {
-            let followers = get_followers_by_actor_id(&conn, profile.id).await;
-
-            Ok(ActivityJson(Json(ApCollection::from(FollowersPage {
-                page: 0,
-                profile,
-                followers: followers
-                    .iter()
-                    .map(|(follower, _)| follower.clone())
-                    .collect(),
-            }))))
-        } else {
-            Err(Status::NotFound)
-        }
+        Ok(ActivityJson(Json(ApCollection::from(FollowersPage {
+            page: 0,
+            profile,
+            followers: followers
+                .iter()
+                .map(|(follower, _)| follower.clone())
+                .collect(),
+        }))))
     } else {
         Err(Status::NotFound)
     }
@@ -109,37 +90,18 @@ pub async fn get_followers(
 
 #[get("/user/<username>/following")]
 pub async fn get_leaders(
-    signed: Signed,
+    _signed: Signed,
     conn: Db,
     username: String,
 ) -> Result<ActivityJson<ApCollection>, Status> {
-    if signed.local() {
-        if let Some(profile) = get_actor_by_username(&conn, username.clone()).await {
-            let leaders = get_leaders_by_actor_id(&conn, profile.id).await;
+    if let Some(profile) = get_actor_by_username(&conn, username).await {
+        let leaders = get_leaders_by_actor_id(&conn, profile.id).await;
 
-            Ok(ActivityJson(Json(ApCollection::from(ActorsPage {
-                page: 0,
-                profile,
-                actors: leaders
-                    .iter()
-                    .filter_map(|(_, remote_actor)| {
-                        remote_actor
-                            .as_ref()
-                            .map(|remote_actor| remote_actor.clone().into())
-                    })
-                    .collect(),
-            }))))
-        } else if let Some(profile) = get_actor_by_username(&conn, username).await {
-            let leaders = get_leaders_by_actor_id(&conn, profile.id).await;
-
-            Ok(ActivityJson(Json(ApCollection::from(LeadersPage {
-                page: 0,
-                profile,
-                leaders: leaders.iter().map(|(leader, _)| leader.clone()).collect(),
-            }))))
-        } else {
-            Err(Status::NotFound)
-        }
+        Ok(ActivityJson(Json(ApCollection::from(LeadersPage {
+            page: 0,
+            profile,
+            leaders: leaders.iter().map(|(leader, _)| leader.clone()).collect(),
+        }))))
     } else {
         Err(Status::NotFound)
     }

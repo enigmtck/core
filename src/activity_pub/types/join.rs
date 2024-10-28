@@ -47,7 +47,7 @@ impl Inbox for ApJoin {
         log::debug!("PROCESSING JOIN ACTIVITY\n{self:#?}");
 
         if let Ok(ApAddress::Address(to)) = self.to.clone().single() {
-            if let Some(profile) = get_actor_by_as_id(&conn, to.clone()).await {
+            if let Ok(profile) = get_actor_by_as_id(&conn, to.clone()).await {
                 if create_remote_encrypted_session(&conn, (self.clone(), profile.id).into())
                     .await
                     .is_some()
@@ -94,7 +94,7 @@ impl Outbox for ApJoin {
         _conn: Db,
         _events: EventChannels,
         _profile: Actor,
-        raw: Value,
+        _raw: Value,
     ) -> Result<String, Status> {
         Err(Status::ServiceUnavailable)
     }

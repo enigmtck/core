@@ -10,6 +10,7 @@ use chrono::{DateTime, Utc};
 use diesel::prelude::*;
 use maplit::{hashmap, hashset};
 
+use super::actors::Actor;
 use super::from_serde;
 
 cfg_if::cfg_if! {
@@ -65,10 +66,19 @@ impl TryFrom<ApObject> for NewObject {
     }
 }
 
+type AttributedApNote = (ApNote, Actor);
+
+impl From<AttributedApNote> for NewObject {
+    fn from((note, actor): AttributedApNote) -> NewObject {
+        let mut object: NewObject = note.into();
+        object.ek_profile_id = Some(actor.id);
+
+        object.clone()
+    }
+}
+
 impl From<ApNote> for NewObject {
     fn from(note: ApNote) -> NewObject {
-        log::debug!("BUILDING NewObject FROM ApNote\n{note:#?}");
-
         let mut ammonia = ammonia::Builder::default();
 
         ammonia
@@ -100,8 +110,6 @@ impl From<ApNote> for NewObject {
 
             content_map
         };
-
-        log::debug!("ENTERING DEFINITION");
 
         NewObject {
             as_url: serde_json::to_value(note.clone().url).ok(),
@@ -193,6 +201,46 @@ pub async fn get_object_by_as_id(conn: Option<&Db>, as_id: String) -> Result<Obj
                 .map_err(anyhow::Error::msg)
         }
     }
+}
+
+pub async fn get_object_by_uuid(conn: Option<&Db>, uuid: String) -> Result<Object> {
+    match conn {
+        Some(conn) => conn
+            .run(move |c| {
+                objects::table
+                    .filter(objects::ek_uuid.eq(uuid))
+                    .first::<Object>(c)
+            })
+            .await
+            .map_err(anyhow::Error::msg),
+        None => {
+            let mut pool = POOL.get().map_err(anyhow::Error::msg)?;
+            objects::table
+                .filter(objects::ek_uuid.eq(uuid))
+                .first::<Object>(&mut pool)
+                .map_err(anyhow::Error::msg)
+        }
+    }
+}
+
+pub async fn tombstone_object_by_as_id(conn: &Db, as_id: String) -> Result<Object> {
+    conn.run(move |c| {
+        diesel::update(objects::table.filter(objects::as_id.eq(as_id)))
+            .set(objects::as_type.eq(ObjectType::Tombstone))
+            .get_result(c)
+    })
+    .await
+    .map_err(anyhow::Error::msg)
+}
+
+pub async fn tombstone_object_by_uuid(conn: &Db, uuid: String) -> Result<Object> {
+    conn.run(move |c| {
+        diesel::update(objects::table.filter(objects::ek_uuid.eq(uuid)))
+            .set(objects::as_type.eq(ObjectType::Tombstone))
+            .get_result(c)
+    })
+    .await
+    .map_err(anyhow::Error::msg)
 }
 
 pub async fn delete_object_by_as_id(conn: &Db, as_id: String) -> Result<usize> {

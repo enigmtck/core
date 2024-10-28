@@ -112,7 +112,7 @@ impl Outbox for ApCollectionPage {
         _conn: Db,
         _events: EventChannels,
         _profile: Actor,
-        raw: Value,
+        _raw: Value,
     ) -> Result<String, Status> {
         Err(Status::ServiceUnavailable)
     }
@@ -148,6 +148,7 @@ pub struct ApCollection {
     pub context: Option<ApContext>,
     #[serde(rename = "type")]
     pub kind: ApCollectionType,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub total_items: Option<i64>,
@@ -181,7 +182,7 @@ impl Outbox for ApCollection {
         _conn: Db,
         _events: EventChannels,
         _profile: Actor,
-        raw: Value,
+        _raw: Value,
     ) -> Result<String, Status> {
         Err(Status::ServiceUnavailable)
     }

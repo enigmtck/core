@@ -1,3 +1,4 @@
+#![feature(async_closure)]
 #![allow(async_fn_in_trait)]
 extern crate diesel;
 extern crate log;

@@ -136,7 +136,10 @@ pub async fn process_join_task(
             let session_clone = session.clone();
             let actor = get_actor_by_as_id(conn.unwrap(), session_clone.attributed_to)
                 .await
-                .ok_or(TaskError::TaskFailed)?;
+                .map_err(|e| {
+                    log::error!("FAILED TO RETRIEVE ACTOR: {e:#?}");
+                    TaskError::TaskFailed
+                })?;
             log::debug!("ACTOR\n{actor:#?}");
             //let session: ApSession = session.clone().into();
 
@@ -184,7 +187,7 @@ pub async fn send_kexinit_task(
                     }
                 }
             }
-        } else if let Some(actor) =
+        } else if let Ok(actor) =
             get_actor_by_as_id(conn.unwrap(), session.to.clone().to_string()).await
         {
             inbox = Some(actor.as_inbox);
@@ -194,6 +197,7 @@ pub async fn send_kexinit_task(
         let activity = ApInvite::try_from(session).map_err(|_| TaskError::TaskFailed)?;
 
         send_to_inboxes(
+            conn.unwrap(),
             vec![inbox.clone().into()],
             sender,
             ApActivity::Invite(activity),
@@ -223,7 +227,10 @@ pub async fn provide_one_time_key_task(
             get_local_identifier(session.ap_to.clone()).ok_or(TaskError::TaskFailed)?;
         let actor = get_actor_by_as_id(conn.unwrap(), session.attributed_to.clone())
             .await
-            .ok_or(TaskError::TaskFailed)?;
+            .map_err(|e| {
+                log::error!("FAILED TO RETRIEVE ACTOR: {e:#?}");
+                TaskError::TaskFailed
+            })?;
 
         if identifier.kind == LocalIdentifierType::User {
             let username = identifier.identifier;
@@ -256,6 +263,7 @@ pub async fn provide_one_time_key_task(
                 .is_some()
             {
                 match send_to_inboxes(
+                    conn.unwrap(),
                     vec![actor.as_inbox.into()],
                     profile,
                     ApActivity::Join(activity),

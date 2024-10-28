@@ -23,14 +23,11 @@ pub async fn get_remote_collection_page(
     profile: Option<Actor>,
     url: String,
 ) -> Result<ApCollectionPage> {
-    log::debug!("REMOTE COLLECTION PAGE REQUEST\n{url}");
     let response = signed_get(guaranteed_actor(conn, profile).await, url, false).await?;
 
     let raw = response.text().await?;
-    log::debug!("REMOTE COLLECTION PAGE RESPONSE\n{raw}");
     let page: ApCollectionPage = serde_json::from_str(&raw).map_err(anyhow::Error::msg)?;
 
-    //let page = response.json::<ApCollectionPage>().await?;
     Ok(page.cache(conn).await.clone())
 }
 
@@ -42,10 +39,8 @@ pub async fn get_remote_collection(
     let response = signed_get(guaranteed_actor(conn, profile).await, url, false).await?;
 
     let raw = response.text().await?;
-    log::debug!("REMOTE COLLECTION RESPONSE\n{raw}");
     let page: ApCollection = serde_json::from_str(&raw).map_err(anyhow::Error::msg)?;
 
-    //let page = response.json::<ApCollection>().await?;
     Ok(page.cache(conn).await.clone())
 }
 
@@ -89,8 +84,6 @@ async fn get_remote_webfinger(handle: String) -> Result<WebFinger> {
 
     let url = format!("https://{server}/.well-known/webfinger?resource=acct:{username}@{server}");
 
-    log::debug!("WEBFINGER URL: {url}");
-
     let client = Client::builder()
         .user_agent("Enigmatick/0.1")
         .build()
@@ -108,7 +101,16 @@ async fn get_remote_webfinger(handle: String) -> Result<WebFinger> {
 
 pub async fn get_object(conn: &Db, profile: Option<Actor>, id: String) -> Option<ApObject> {
     match get_object_by_as_id(Some(conn), id.clone()).await.ok() {
-        Some(object) => Some(ApObject::try_from(object).ok()?.cache(conn).await.clone()),
+        Some(object) => Some(
+            ApObject::try_from(object)
+                .ok()?
+                .cache(conn)
+                .await
+                .clone()
+                .load_ephemeral(conn)
+                .await
+                .clone(),
+        ),
         None => {
             let resp = signed_get(guaranteed_actor(conn, profile).await, id, false)
                 .await
@@ -118,13 +120,19 @@ pub async fn get_object(conn: &Db, profile: Option<Actor>, id: String) -> Option
                 let text = resp.text().await.ok()?;
                 let object = serde_json::from_str::<ApObject>(&text).ok()?;
 
-                create_or_update_object(
+                let object = create_or_update_object(
                     conn,
                     NewObject::try_from(object.cache(conn).await.clone()).ok()?,
                 )
                 .await
                 .ok()
-                .map(|x| ApObject::try_from(x).ok())?
+                .map(|x| ApObject::try_from(x).ok())?;
+
+                if let Some(mut object) = object {
+                    Some(object.load_ephemeral(conn).await.clone())
+                } else {
+                    None
+                }
             } else {
                 None
             }
@@ -138,7 +146,7 @@ pub async fn get_local_or_cached_actor(
     requester: Option<Actor>,
     _update: bool,
 ) -> Option<ApActor> {
-    let actor = get_actor_by_as_id(conn, id.clone()).await?;
+    let actor = get_actor_by_as_id(conn, id.clone()).await.ok()?;
 
     if let Some(requester) = requester.clone() {
         Some(ApActor::from((
@@ -158,7 +166,8 @@ pub async fn process_remote_actor_retrieval(
     let response = signed_get(guaranteed_actor(conn, profile).await, id, false).await?;
 
     if !response.status().is_success() {
-        return Err(anyhow::Error::msg("bad response"));
+        let message = response.text().await.ok();
+        return Err(anyhow::Error::msg(format!("BAD RESPONSE: {message:#?}")));
     }
 
     let text = response.text().await?;
@@ -166,7 +175,7 @@ pub async fn process_remote_actor_retrieval(
     let actor = NewActor::try_from(actor.cache(conn).await.clone()).map_err(anyhow::Error::msg)?;
     let actor = create_or_update_actor(Some(conn), actor)
         .await
-        .context("failed to create or update remote actor")?;
+        .context("FAILED TO CREATE OR UPDATE ACTOR")?;
 
     Ok(actor.into())
 }
@@ -191,7 +200,6 @@ pub async fn get_actor(
 }
 
 pub async fn signed_get(profile: Actor, url: String, accept_any: bool) -> Result<Response> {
-    log::debug!("RETRIEVING: {url}");
     let client = Client::builder()
         .user_agent("Enigmatick/0.1")
         .build()
@@ -209,7 +217,6 @@ pub async fn signed_get(profile: Actor, url: String, accept_any: bool) -> Result
     let method = Method::Get;
     let url = Url::parse(url_str)?;
 
-    log::debug!("SIGNING REQUEST FOR REMOTE RESOURCE");
     let signature = sign(SignParams {
         profile,
         url,
@@ -223,8 +230,6 @@ pub async fn signed_get(profile: Actor, url: String, accept_any: bool) -> Result
         .header("Accept", accept)
         .header("Signature", &signature.signature)
         .header("Date", signature.date);
-
-    log::debug!("CLIENT REQUEST\n{client:#?}");
 
     client.send().await.map_err(anyhow::Error::msg)
 }

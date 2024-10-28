@@ -3,6 +3,7 @@ use crate::db::Db;
 use crate::helper::{get_local_identifier, LocalIdentifierType};
 use crate::schema::{actors, leaders};
 use crate::{MaybeReference, POOL};
+use anyhow::Result;
 use diesel::prelude::*;
 use diesel::Insertable;
 use serde::{Deserialize, Serialize};
@@ -22,7 +23,7 @@ cfg_if::cfg_if! {
     }
 }
 
-#[derive(Serialize, Deserialize, Insertable, Default, Debug)]
+#[derive(Serialize, Deserialize, Insertable, Default, Debug, Clone)]
 #[diesel(table_name = leaders)]
 pub struct NewLeader {
     pub actor: String,
@@ -55,18 +56,18 @@ impl TryFrom<ApAccept> for NewLeader {
 }
 
 impl NewLeader {
-    pub fn link(&mut self, actor: Actor) -> &mut Self {
+    pub fn link(&mut self, actor: Actor) -> Self {
         if let Some(id) = get_local_identifier(self.actor.clone()) {
             if id.kind == LocalIdentifierType::User
                 && id.identifier.to_lowercase() == actor.ek_username.unwrap().to_lowercase()
             {
                 self.actor_id = actor.id;
-                self
+                self.clone()
             } else {
-                self
+                self.clone()
             }
         } else {
-            self
+            self.clone()
         }
     }
 }
@@ -149,4 +150,15 @@ pub async fn get_leaders_by_actor_id(conn: &Db, actor_id: i32) -> Vec<(Leader, O
     })
     .await
     .unwrap_or(vec![])
+}
+
+pub async fn get_leader_count_by_actor_id(conn: &Db, actor_id: i32) -> Result<i64> {
+    conn.run(move |c| {
+        leaders::table
+            .filter(leaders::actor_id.eq(actor_id))
+            .count()
+            .get_result(c)
+    })
+    .await
+    .map_err(anyhow::Error::msg)
 }

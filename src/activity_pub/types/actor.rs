@@ -7,8 +7,8 @@ use crate::fairings::events::EventChannels;
 use crate::models::actors::ActorType;
 use crate::models::actors::{get_actor_by_as_id, Actor};
 use crate::models::cache::{cache_content, Cache};
-use crate::models::followers::get_followers_by_actor_id;
-use crate::models::leaders::{get_leaders_by_actor_id, Leader};
+use crate::models::followers::get_follower_count_by_actor_id;
+use crate::models::leaders::{get_leader_count_by_actor_id, Leader};
 use crate::models::{from_serde, from_serde_option};
 use crate::{MaybeMultiple, DOMAIN_RE};
 use lazy_static::lazy_static;
@@ -100,6 +100,8 @@ pub enum ApActorType {
     Person,
     #[serde(alias = "service")]
     Service,
+    #[serde(alias = "tombstone")]
+    Tombstone,
     #[default]
     #[serde(alias = "unknown")]
     Unknown,
@@ -119,6 +121,7 @@ impl From<ActorType> for ApActorType {
             ActorType::Organization => ApActorType::Organization,
             ActorType::Person => ApActorType::Person,
             ActorType::Service => ApActorType::Service,
+            ActorType::Tombstone => ApActorType::Tombstone,
         }
     }
 }
@@ -201,12 +204,11 @@ pub struct ApActor {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub capabilities: Option<ApCapabilities>,
 
-    // These facilitate consolidation of joined tables in to this object
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub ephemeral_followers: Option<Vec<ApActor>>,
+    pub ephemeral_followers: Option<i64>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub ephemeral_leaders: Option<Vec<ApActor>>,
+    pub ephemeral_leaders: Option<i64>,
 
     // These are ephemeral attributes to facilitate client operations
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -234,6 +236,46 @@ pub struct ApActorTerse {
     pub icon: Option<ApImage>,
 }
 
+impl From<ApActor> for ApActorTerse {
+    fn from(actor: ApActor) -> Self {
+        let name = actor.name;
+        let id = actor.id.unwrap_or_default().to_string();
+        let preferred_username = actor.preferred_username;
+        let url = actor.url.unwrap_or_default();
+        let icon = actor.icon;
+        let tag = actor.tag.unwrap_or_default();
+
+        ApActorTerse {
+            name,
+            id,
+            preferred_username,
+            url,
+            icon,
+            tag,
+        }
+    }
+}
+
+impl From<Actor> for ApActorTerse {
+    fn from(actor: Actor) -> Self {
+        let name = actor.as_name;
+        let id = actor.as_id;
+        let preferred_username = actor.as_preferred_username.unwrap_or_default();
+        let url = actor.as_url.unwrap_or_default();
+        let icon = from_serde(actor.as_icon);
+        let tag = from_serde(actor.as_tag).unwrap_or(vec![]);
+
+        ApActorTerse {
+            name,
+            id,
+            preferred_username,
+            url,
+            icon,
+            tag,
+        }
+    }
+}
+
 impl Cache for ApActor {
     async fn cache(&self, conn: &Db) -> &Self {
         if let Some(tags) = self.tag.clone() {
@@ -259,7 +301,7 @@ impl Outbox for ApActor {
         _conn: Db,
         _events: EventChannels,
         _profile: Actor,
-        raw: Value,
+        _raw: Value,
     ) -> Result<String, Status> {
         Err(Status::ServiceUnavailable)
     }
@@ -309,30 +351,11 @@ impl Default for ApActor {
 impl ApActor {
     pub async fn load_ephemeral(&mut self, conn: &Db) -> Self {
         if let Some(ap_id) = self.id.clone() {
-            if let Some(profile) = get_actor_by_as_id(conn, ap_id.to_string()).await {
-                self.ephemeral_followers = Some(
-                    get_followers_by_actor_id(conn, profile.id)
-                        .await
-                        .iter()
-                        .filter_map(|(_, remote_actor)| {
-                            remote_actor
-                                .as_ref()
-                                .map(|remote_actor| remote_actor.clone().into())
-                        })
-                        .collect(),
-                );
+            if let Ok(profile) = get_actor_by_as_id(conn, ap_id.to_string()).await {
+                self.ephemeral_followers =
+                    get_follower_count_by_actor_id(conn, profile.id).await.ok();
 
-                self.ephemeral_leaders = Some(
-                    get_leaders_by_actor_id(conn, profile.id)
-                        .await
-                        .iter()
-                        .filter_map(|(_, remote_actor)| {
-                            remote_actor
-                                .as_ref()
-                                .map(|remote_actor| remote_actor.clone().into())
-                        })
-                        .collect(),
-                );
+                self.ephemeral_leaders = get_leader_count_by_actor_id(conn, profile.id).await.ok();
 
                 self.ephemeral_summary_markdown = profile.ek_summary_markdown;
             }
@@ -384,7 +407,7 @@ impl From<ExtendedActor> for ApActor {
 
 impl From<Actor> for ApActor {
     fn from(actor: Actor) -> Self {
-        let context = from_serde_option(actor.as_context);
+        let context = Some(from_serde_option(actor.as_context).unwrap_or(ApContext::default()));
         let name = actor.as_name;
         let summary = actor.as_summary;
         let id = Some(actor.as_id.into());
@@ -397,7 +420,9 @@ impl From<Actor> for ApActor {
         let featured = actor.as_featured;
         let featured_tags = actor.as_featured_tags;
         let manually_approves_followers = Some(actor.ap_manually_approves_followers);
-        let published = actor.as_published.map(|x| x.to_rfc3339());
+        let published = actor
+            .as_published
+            .map(|x| x.format("%Y-%m-%dT%H:%M:%SZ").to_string());
         let liked = actor.as_liked;
         let public_key = from_serde(actor.as_public_key).unwrap();
         let url = actor.as_url;

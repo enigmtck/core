@@ -3,222 +3,19 @@ use reqwest::StatusCode;
 use webpage::{Webpage, WebpageOptions};
 
 use crate::activity_pub::retriever::signed_get;
-use crate::activity_pub::{ApAttachment, ApHashtag, ApImage, ApNoteType, Metadata};
+use crate::activity_pub::{ApHashtag, Metadata};
 use crate::fairings::events::EventChannels;
-use crate::helper::get_activity_ap_id_from_uuid;
-use crate::models::actors::{get_actor, guaranteed_actor, Actor};
-use crate::models::cache::{Cache, Cacheable};
-use crate::models::objects::{
-    create_or_update_object, delete_object_by_uuid, get_object_by_as_id, Object,
-};
+use crate::models::actors::{guaranteed_actor, Actor};
+use crate::models::cache::Cache;
+use crate::models::objects::{create_or_update_object, get_object_by_as_id, Object};
 use crate::models::pg::objects;
 use crate::models::to_serde;
-use crate::runner::cache::cache_content;
-use crate::{
-    activity_pub::{ApActivity, ApAddress, ApNote, ApObject},
-    db::Db,
-    models::activities::get_activity_by_ap_id,
-    runner::{
-        //encrypted::handle_encrypted_note,
-        get_inboxes,
-        send_to_inboxes,
-    },
-    signing::Method,
-};
+use crate::{activity_pub::ApObject, db::Db, signing::Method};
 use crate::{runner, ANCHOR_RE};
 
 use super::TaskError;
 
-pub async fn delete_note_task(
-    conn: Option<Db>,
-    _channels: Option<EventChannels>,
-    uuids: Vec<String>,
-) -> Result<(), TaskError> {
-    let conn = conn.as_ref();
-
-    for uuid in uuids {
-        log::debug!("LOOKING FOR UUID {uuid}");
-
-        let (activity, target_activity, target_object, target_actor) = get_activity_by_ap_id(
-            conn.ok_or(TaskError::TaskFailed)?,
-            get_activity_ap_id_from_uuid(uuid.clone()),
-        )
-        .await
-        .ok_or(TaskError::TaskFailed)?;
-
-        log::debug!("FOUND ACTIVITY\n{activity:#?}");
-        let profile_id = activity.actor_id.ok_or(TaskError::TaskFailed)?;
-        let sender = get_actor(conn.unwrap(), profile_id)
-            .await
-            .ok_or(TaskError::TaskFailed)?;
-
-        let object = target_object.clone().ok_or(TaskError::TaskFailed)?;
-
-        let activity =
-            ApActivity::try_from((activity, target_activity, target_object, target_actor))
-                .map_err(|_| TaskError::TaskFailed)?;
-        let inboxes: Vec<ApAddress> = get_inboxes(conn, activity.clone(), sender.clone()).await;
-
-        send_to_inboxes(inboxes, sender, activity.clone())
-            .await
-            .map_err(|_| TaskError::TaskFailed)?;
-
-        let records =
-            delete_object_by_uuid(conn.unwrap(), object.ek_uuid.ok_or(TaskError::TaskFailed)?)
-                .await
-                .map_err(|_| TaskError::TaskFailed)?;
-        log::debug!("NOTE RECORDS DELETED: {records}");
-    }
-
-    Ok(())
-}
-
-pub async fn outbound_note_task(
-    conn: Option<Db>,
-    _channels: Option<EventChannels>,
-    uuids: Vec<String>,
-) -> Result<(), TaskError> {
-    let conn = conn.as_ref();
-
-    for uuid in uuids {
-        let (activity, target_activity, target_object, target_actor) = get_activity_by_ap_id(
-            conn.ok_or(TaskError::TaskFailed)?,
-            get_activity_ap_id_from_uuid(uuid.clone()),
-        )
-        .await
-        .ok_or(TaskError::TaskFailed)?;
-
-        let profile_id = activity.actor_id.ok_or(TaskError::TaskFailed)?;
-
-        let sender = get_actor(conn.unwrap(), profile_id)
-            .await
-            .ok_or(TaskError::TaskFailed)?;
-
-        let note = ApNote::try_from(target_object.clone().ok_or(TaskError::TaskFailed)?)
-            .map_err(|_| TaskError::TaskFailed)?;
-
-        // let new_tags: Vec<NewNoteHashtag> = note.clone().into();
-
-        // let _ = new_tags
-        //     .iter()
-        //     .map(|tag| async { create_note_hashtag(None, tag.clone()).await });
-
-        // For the Svelte client, all images are passed through the server cache. To cache an image
-        // that's already on the server seems weird, but I think it's a better choice than trying
-        // to handle the URLs for local images differently.
-        //let ap_note: ApNote = note.clone().into();
-        if let Some(attachments) = note.clone().attachment {
-            for attachment in attachments {
-                if let ApAttachment::Document(document) = attachment {
-                    let _ = cache_content(
-                        conn.unwrap(),
-                        Cacheable::try_from(ApImage::try_from(document)),
-                    )
-                    .await;
-                }
-            }
-        }
-
-        cfg_if::cfg_if! {
-            if #[cfg(feature = "pg")] {
-                let activity = match note.kind {
-                    ApNoteType::Note => {
-                        if let Ok(activity) =
-                            ApActivity::try_from((
-                                activity,
-                                target_activity,
-                                target_object,
-                                target_actor
-                            )) {
-                            Some(activity)
-                        } else {
-                            None
-                        }
-                    }
-                    // NoteType::EncryptedNote => {
-                    //     handle_encrypted_note(&mut note, sender.clone())
-                    //         .map(ApActivity::Create(ApCreate::from))
-                    // }
-                    _ => None,
-                };
-            } else if #[cfg(feature = "sqlite")] {
-                let activity = {
-                    if note.kind.to_lowercase().as_str() == "note" {
-                        if let Ok(activity) = ApActivity::try_from((
-                            (
-                                activity,
-                                target_activity,
-                                target_object
-                            ),
-                            None,
-                        )) {
-                            Some(activity)
-                        } else {
-                            None
-                        }
-                    } else {
-                        // NoteType::EncryptedNote => {
-                        //     handle_encrypted_note(&mut note, sender.clone())
-                        //         .map(ApActivity::Create(ApCreate::from))
-                        // }
-                        None
-                    }
-                };
-            }
-        }
-
-        let _ =
-            runner::actor::get_actor(conn, sender.clone(), note.clone().attributed_to.to_string())
-                .await;
-
-        let activity = activity.ok_or(TaskError::TaskFailed)?;
-
-        let inboxes: Vec<ApAddress> = get_inboxes(conn, activity.clone(), sender.clone()).await;
-
-        log::debug!("SENDING ACTIVITY\n{activity:#?}");
-        log::debug!("INBOXES\n{inboxes:#?}");
-
-        send_to_inboxes(inboxes, sender, activity)
-            .await
-            .map_err(|_| TaskError::TaskFailed)?;
-    }
-
-    Ok(())
-}
-
-// pub async fn retrieve_context_task(
-//     conn: Option<Db>,
-//     _channels: Option<EventChannels>,
-//     ap_ids: Vec<String>,
-// ) -> Result<(), TaskError> {
-//     let conn = conn.as_ref();
-
-//     let profile = guaranteed_profile(None, None).await;
-
-//     for ap_id in ap_ids {
-//         let profile = profile.clone();
-
-//         if let Some(note) = fetch_remote_note(
-//             conn.ok_or(TaskError::TaskFailed)?,
-//             ap_id.to_string(),
-//             profile,
-//         )
-//         .await
-//         {
-//             log::debug!("REPLIES\n{:#?}", note.replies);
-
-//             if let Some(replies) = ApNote::from(note).replies {
-//                 if let Some(MaybeReference::Actual(_first)) = replies.first {}
-//             }
-//         }
-//     }
-
-//     Ok(())
-// }
-
 pub async fn fetch_remote_object(conn: &Db, id: String, profile: Actor) -> Option<Object> {
-    log::debug!("PERFORMING REMOTE LOOKUP FOR OBJECT: {id}");
-
     let _url = id.clone();
     let _method = Method::Get;
 
@@ -298,8 +95,6 @@ pub async fn handle_object(
     mut object: Object,
     _announcer: Option<String>,
 ) -> anyhow::Result<Object> {
-    log::debug!("HANDLING OBJECT");
-
     let metadata = metadata_object(&object);
 
     if !metadata.is_empty() {
@@ -379,8 +174,6 @@ pub async fn object_task(
     let conn = conn.as_ref();
 
     let ap_id = ap_ids.first().unwrap().clone();
-
-    log::debug!("looking for ap_id: {}", ap_id);
 
     if let Ok(object) = get_object_by_as_id(conn, ap_id).await {
         cfg_if::cfg_if! {

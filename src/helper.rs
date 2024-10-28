@@ -77,12 +77,16 @@ pub fn get_ap_id_from_username(username: String) -> String {
     format!("{}/user/{username}", *crate::SERVER_URL)
 }
 
-pub fn get_note_ap_id_from_uuid(uuid: String) -> String {
-    format!("{}/notes/{uuid}", *crate::SERVER_URL)
+pub fn get_object_ap_id_from_uuid(uuid: String) -> String {
+    format!("{}/objects/{uuid}", *crate::SERVER_URL)
 }
 
-pub fn get_note_url_from_uuid(uuid: String) -> String {
-    format!("{}/notes?uuid={uuid}", *crate::SERVER_URL)
+pub fn get_conversation_ap_id_from_uuid(uuid: String) -> String {
+    format!("{}/conversations/{uuid}", *crate::SERVER_URL)
+}
+
+pub fn get_object_url_from_uuid(uuid: String) -> String {
+    format!("{}/objects?uuid={uuid}", *crate::SERVER_URL)
 }
 
 pub fn get_activity_ap_id_from_uuid(uuid: String) -> String {

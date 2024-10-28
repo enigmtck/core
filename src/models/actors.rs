@@ -97,6 +97,16 @@ impl TryFrom<ApActor> for NewActor {
     }
 }
 
+pub async fn tombstone_actor_by_as_id(conn: &Db, as_id: String) -> Result<Actor> {
+    conn.run(move |c| {
+        diesel::update(actors::table.filter(actors::as_id.eq(as_id)))
+            .set(actors::as_type.eq(ActorType::Tombstone))
+            .get_result(c)
+    })
+    .await
+    .map_err(anyhow::Error::msg)
+}
+
 pub async fn delete_actor_by_as_id(conn: &Db, as_id: String) -> bool {
     // This function checks if ek_username is null to avoid deleting local user records
     conn.run(move |c| {
@@ -145,14 +155,14 @@ pub async fn get_actor_by_uuid(conn: &Db, uuid: String) -> Option<Actor> {
     .ok()
 }
 
-pub async fn get_actor_by_as_id(conn: &Db, as_id: String) -> Option<Actor> {
+pub async fn get_actor_by_as_id(conn: &Db, as_id: String) -> Result<Actor> {
     conn.run(move |c| {
         actors::table
             .filter(actors::as_id.eq(as_id))
             .first::<Actor>(c)
     })
     .await
-    .ok()
+    .map_err(anyhow::Error::msg)
 }
 
 pub async fn get_follower_inboxes(conn: &Db, actor: Actor) -> Vec<ApAddress> {

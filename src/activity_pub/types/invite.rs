@@ -47,7 +47,7 @@ impl Inbox for ApInvite {
         log::debug!("PROCESSING INVITE\n{self:#?}");
 
         if let Ok(ApAddress::Address(to)) = self.to.clone().single() {
-            if let Some(profile) = get_actor_by_as_id(&conn, to).await {
+            if let Ok(profile) = get_actor_by_as_id(&conn, to).await {
                 if let Some(session) =
                     create_remote_encrypted_session(&conn, (self.clone(), profile.id).into()).await
                 {
@@ -81,7 +81,7 @@ impl Outbox for ApInvite {
         _conn: Db,
         _events: EventChannels,
         _profile: Actor,
-        raw: Value,
+        _raw: Value,
     ) -> Result<String, Status> {
         Err(Status::ServiceUnavailable)
     }

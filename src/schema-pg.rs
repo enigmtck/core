@@ -40,6 +40,7 @@ diesel::table! {
         target_object_id -> Nullable<Int4>,
         actor_id -> Nullable<Int4>,
         target_actor_id -> Nullable<Int4>,
+        log -> Nullable<Jsonb>,
     }
 }
 

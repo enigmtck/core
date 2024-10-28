@@ -40,7 +40,7 @@ pub async fn get_actor(
     // And in fact, for local outbound Notes we use this call to check that the local user is
     // represented as a "remote_actor" when adding the Note to the local Timeline.  This function
     // updates that remote_actor record (or creates it).
-    let remote_actor = get_actor_by_as_id(conn.unwrap(), id.clone()).await?;
+    let remote_actor = get_actor_by_as_id(conn.unwrap(), id.clone()).await.ok()?;
 
     if !remote_actor.is_stale() {
         Some((

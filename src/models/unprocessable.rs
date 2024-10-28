@@ -1,7 +1,3 @@
-use crate::db::Db;
-use crate::schema::unprocessable;
-use diesel::prelude::*;
-
 cfg_if::cfg_if! {
     if #[cfg(feature = "pg")] {
         pub use crate::models::pg::unprocessable::Unprocessable;

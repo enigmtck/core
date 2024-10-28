@@ -3,6 +3,7 @@ use crate::db::Db;
 use crate::helper::{get_local_identifier, LocalIdentifierType};
 use crate::schema::{actors, followers};
 use crate::{MaybeReference, POOL};
+use anyhow::Result;
 use diesel::prelude::*;
 
 use diesel::Insertable;
@@ -21,13 +22,18 @@ cfg_if::cfg_if! {
     }
 }
 
-#[derive(Serialize, Deserialize, Insertable, Default, Debug)]
+#[derive(Serialize, Deserialize, Insertable, Default, Debug, Clone)]
 #[diesel(table_name = followers)]
 pub struct NewFollower {
     pub ap_id: String,
+
+    // This is the as_id (usually remote) of the account that is initiating the Follow action.
     pub actor: String,
+
     pub followed_ap_id: String,
     pub uuid: String,
+
+    // This is the actor record associated with the followed_ap_id. It's confusing.
     pub actor_id: i32,
 }
 
@@ -57,7 +63,7 @@ impl TryFrom<ApFollow> for NewFollower {
 }
 
 impl NewFollower {
-    pub fn link(&mut self, actor: Actor) -> &mut Self {
+    pub fn link(&mut self, actor: Actor) -> Self {
         if let Some(id) = get_local_identifier(self.followed_ap_id.clone()) {
             if let Some(username) = actor.ek_username {
                 if id.kind == LocalIdentifierType::User
@@ -65,15 +71,15 @@ impl NewFollower {
                 {
                     //self.profile_id = profile.id;
                     self.actor_id = actor.id;
-                    self
+                    self.clone()
                 } else {
-                    self
+                    self.clone()
                 }
             } else {
-                self
+                self.clone()
             }
         } else {
-            self
+            self.clone()
         }
     }
 }
@@ -117,4 +123,15 @@ pub async fn get_followers_by_actor_id(conn: &Db, actor_id: i32) -> Vec<(Followe
     })
     .await
     .unwrap_or(vec![])
+}
+
+pub async fn get_follower_count_by_actor_id(conn: &Db, actor_id: i32) -> Result<i64> {
+    conn.run(move |c| {
+        followers::table
+            .filter(followers::actor_id.eq(actor_id))
+            .count()
+            .get_result(c)
+    })
+    .await
+    .map_err(anyhow::Error::msg)
 }

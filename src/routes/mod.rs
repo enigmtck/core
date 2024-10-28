@@ -4,6 +4,7 @@ pub mod api;
 pub mod inbox;
 pub mod instance;
 //pub mod notes;
+pub mod objects;
 pub mod outbox;
 pub mod retrieve;
 pub mod user;

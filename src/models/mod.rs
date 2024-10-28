@@ -1,6 +1,8 @@
 use chrono::{DateTime, Utc};
 use serde::Serialize;
 use serde_json::json;
+use actors::Actor;
+use objects::Object;
 
 pub mod activities;
 pub mod actors;
@@ -18,6 +20,12 @@ pub mod profiles;
 pub mod remote_encrypted_sessions;
 pub mod unprocessable;
 pub mod vault;
+
+#[derive(Clone)]
+pub enum Tombstone {
+    Actor(Actor),
+    Object(Object)
+}
 
 cfg_if::cfg_if! {
     if #[cfg(feature = "pg")] {

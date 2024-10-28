@@ -9,9 +9,11 @@ use crate::{
         activities::{
             create_activity, get_activity_by_ap_id, ActivityTarget, ExtendedActivity, NewActivity,
         },
-        actors::Actor,
+        actors::{get_actor_by_as_id, Actor},
+        leaders::{create_leader, NewLeader},
     },
-    runner, MaybeReference,
+    runner::{self, TaskError},
+    MaybeReference,
 };
 use anyhow::anyhow;
 use rocket::http::Status;
@@ -63,28 +65,79 @@ impl Inbox for Box<ApAccept> {
             ApActivity::Accept(self.clone()),
             Some(follow.clone().into()),
         ))
-        .map_err(|_| Status::InternalServerError)?
+        .map_err(|e| {
+            log::error!("UNABLE TO BUILD ACCEPT ACTIVITY: {e:#?}");
+            Status::InternalServerError
+        })?
         .link_actor(&conn)
         .await;
 
         accept.link_target(Some(ActivityTarget::Activity(follow)));
         accept.raw = Some(raw);
 
-        log::debug!("ACTIVITY\n{accept:#?}");
+        create_activity((&conn).into(), accept.clone())
+            .await
+            .map_err(|e| {
+                log::error!("UNABLE TO CREATE ACCEPT ACTIVITY: {e:#?}");
+                Status::InternalServerError
+            })?;
 
-        if let Ok(activity) = create_activity((&conn).into(), accept.clone()).await {
-            runner::run(
-                runner::follow::process_accept_task,
-                Some(conn),
-                Some(channels),
-                vec![accept.ap_id.clone().ok_or(Status::InternalServerError)?],
-            )
-            .await;
-            Ok(Status::Accepted)
-        } else {
-            log::error!("FAILED TO CREATE ACTIVITY RECORD");
-            Err(Status::NoContent)
+        runner::run(
+            ApAccept::process,
+            Some(conn),
+            Some(channels),
+            vec![accept.ap_id.clone().ok_or(Status::InternalServerError)?],
+        )
+        .await;
+
+        Ok(Status::Accepted)
+    }
+}
+
+impl ApAccept {
+    async fn process(
+        conn: Option<Db>,
+        _channels: Option<EventChannels>,
+        as_ids: Vec<String>,
+    ) -> Result<(), TaskError> {
+        let conn = conn.as_ref();
+
+        for as_id in as_ids {
+            let (accept, follow, target_object, target_actor) =
+                get_activity_by_ap_id(conn.ok_or(TaskError::TaskFailed)?, as_id)
+                    .await
+                    .ok_or(TaskError::TaskFailed)?;
+
+            let accept = ApAccept::try_from((accept, follow.clone(), target_object, target_actor))
+                .map_err(|e| {
+                    log::error!("ApAccept::try_from FAILED: {e:#?}");
+                    TaskError::TaskFailed
+                })?;
+
+            let follow = follow.ok_or(TaskError::TaskFailed)?;
+
+            let profile = get_actor_by_as_id(conn.unwrap(), follow.actor.to_string())
+                .await
+                .map_err(|e| {
+                    log::error!("FAILED TO RETRIEVE ACTOR: {e:#?}");
+                    TaskError::TaskFailed
+                })?;
+
+            let leader = NewLeader::try_from(accept.clone())
+                .map_err(|e| {
+                    log::error!("FAILED TO BUILD LEADER: {e:#?}");
+                    TaskError::TaskFailed
+                })?
+                .link(profile);
+
+            let leader = create_leader(conn, leader.clone())
+                .await
+                .ok_or(TaskError::TaskFailed)?;
+
+            log::debug!("LEADER CREATED: {}", leader.uuid);
         }
+
+        Ok(())
     }
 }
 
@@ -104,7 +157,7 @@ impl TryFrom<ExtendedActivity> for ApAccept {
     type Error = anyhow::Error;
 
     fn try_from(
-        (activity, target_activity, _target_object, target_actor): ExtendedActivity,
+        (activity, target_activity, _target_object, _target_actor): ExtendedActivity,
     ) -> Result<Self, Self::Error> {
         let follow = ApActivity::try_from((
             target_activity.ok_or(anyhow!("TARGET_ACTIVITY CANNOT BE NONE"))?,

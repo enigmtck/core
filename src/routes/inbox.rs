@@ -179,7 +179,7 @@ pub async fn shared_inbox_post(
     if permitted.is_permitted() {
         // let raw =
         //     serde_json::from_str::<Value>(&activity).map_err(|_| Status::UnprocessableEntity)?;
-        log::debug!("POSTING TO INBOX\n{raw:#?}");
+        //log::debug!("POSTING TO INBOX\n{raw:#?}");
         let raw = raw.into_inner();
 
         if let Ok(activity) = serde_json::from_value::<ApActivity>(raw.clone()) {
@@ -203,8 +203,8 @@ pub async fn shared_inbox_post(
 
 #[get("/api/announcers?<limit>&<min>&<max>&<target>")]
 pub async fn announcers_get(
-    permitted: Permitted,
-    signed: Signed,
+    _permitted: Permitted,
+    _signed: Signed,
     conn: Db,
     target: String,
     min: Option<i64>,
@@ -251,7 +251,7 @@ pub async fn conversation_get(
     let server_url = &*SERVER_URL;
     let base_url = format!("{server_url}/api/conversation?id={id}&limit={limit}");
 
-    log::debug!("RETRIEVING CONVERSATION: {decoded}");
+    //log::debug!("RETRIEVING CONVERSATION: {decoded}");
 
     let filters = TimelineFilters {
         view: Some(TimelineView::Global),

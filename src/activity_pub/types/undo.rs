@@ -5,15 +5,18 @@ use crate::{
     activity_pub::{ApActivity, ApAddress, ApContext, ApFollow, Inbox, Outbox},
     db::Db,
     fairings::events::EventChannels,
-    helper::{get_activity_ap_id_from_uuid, get_uuid},
+    helper::{get_local_identifier, LocalIdentifierType},
     models::{
         activities::{
-            create_activity, get_activity_by_ap_id, ActivityTarget, ActivityType, ApActivityTarget,
-            ExtendedActivity, NewActivity,
+            create_activity, get_activity_by_ap_id, revoke_activity_by_apid,
+            revoke_activity_by_uuid, ActivityTarget, ActivityType, ExtendedActivity, NewActivity,
         },
-        actors::Actor,
+        actors::{get_actor, Actor},
+        followers::delete_follower_by_ap_id,
+        leaders::delete_leader_by_ap_id_and_actor_id,
     },
-    runner, MaybeReference,
+    runner::{self, get_inboxes, send_to_inboxes, TaskError},
+    MaybeReference,
 };
 use anyhow::anyhow;
 use rocket::http::Status;
@@ -46,67 +49,98 @@ pub struct ApUndo {
     pub object: MaybeReference<ApActivity>,
 }
 
-fn undo_target_apid(activity: &ApActivity) -> Option<String> {
-    match activity {
-        ApActivity::Like(like) => like.id.clone(),
-        ApActivity::Follow(follow) => follow.id.clone(),
-        ApActivity::Announce(announce) => announce.id.clone(),
-        _ => None,
+impl Inbox for Box<ApUndo> {
+    async fn inbox(&self, conn: Db, channels: EventChannels, raw: Value) -> Result<Status, Status> {
+        match self.object.clone() {
+            MaybeReference::Actual(actual) => {
+                ApUndo::inbox(conn, channels, &actual, self, raw).await
+            }
+            MaybeReference::Reference(_) => {
+                log::warn!(
+                    "INSUFFICIENT CONTEXT FOR UNDO TARGET (REFERENCE FOUND WHEN ACTUAL IS REQUIRED)"
+                );
+                log::error!("FAILED TO HANDLE ACTIVITY\n{raw}");
+                Err(Status::BadRequest)
+            }
+            _ => {
+                log::warn!(
+                    "INSUFFICIENT CONTEXT FOR UNDO TARGET (NONE FOUND WHEN ACTUAL IS REQUIRED)"
+                );
+                log::error!("FAILED TO HANDLE ACTIVITY\n{raw}");
+                Err(Status::BadRequest)
+            }
+        }
     }
 }
 
-async fn process_undo_activity(
-    conn: Db,
-    channels: EventChannels,
-    ap_target: &ApActivity,
-    undo: &ApUndo,
-    raw: Value,
-) -> Result<Status, Status> {
-    let target_ap_id = undo_target_apid(ap_target).ok_or(Status::NotImplemented)?;
+impl Outbox for Box<ApUndo> {
+    async fn outbox(
+        &self,
+        conn: Db,
+        events: EventChannels,
+        profile: Actor,
+        raw: Value,
+    ) -> Result<String, Status> {
+        ApUndo::outbox(conn, events, *self.clone(), profile, raw).await
+    }
+}
 
-    log::debug!("UNDO AP_ID: {target_ap_id}");
+impl ApUndo {
+    async fn inbox(
+        conn: Db,
+        channels: EventChannels,
+        target: &ApActivity,
+        undo: &ApUndo,
+        raw: Value,
+    ) -> Result<Status, Status> {
+        let target_ap_id = target.as_id().ok_or({
+            log::error!("ApActivity.as_id() FAILED\n{target:#?}");
+            Status::NotImplemented
+        })?;
 
-    // retrieve the activity to undo from the database (models/activities)
-    let (activity, _, _, target_actor) = get_activity_by_ap_id(&conn, target_ap_id.clone())
-        .await
-        .ok_or(Status::NotFound)?;
+        let (_, target_activity, _, _) = get_activity_by_ap_id(&conn, target_ap_id.clone())
+            .await
+            .ok_or({
+            log::error!("ACTIVITY NOT FOUND: {target_ap_id}");
+            Status::NotFound
+        })?;
 
-    log::debug!("TARGET: {target_actor:#?}");
+        let activity_target = (
+            ApActivity::Undo(Box::new(undo.clone())),
+            Some(ActivityTarget::from(
+                target_activity.ok_or(Status::NotFound)?,
+            )),
+        );
 
-    // set up the parameters necessary to create an Activity in the database with linked
-    // target activity; NewActivity::try_from creates the link given the appropriate database
-    // in the parameterized enum
-    let activity_and_target = (
-        ApActivity::Undo(Box::new(undo.clone())),
-        Some(ActivityTarget::from(target_actor.ok_or(Status::NotFound)?)),
-    ) as ApActivityTarget;
+        let mut activity = NewActivity::try_from(activity_target).map_err(|e| {
+            log::error!("FAILED TO BUILD ACTIVITY: {e:#?}");
+            Status::InternalServerError
+        })?;
 
-    let mut activity =
-        NewActivity::try_from(activity_and_target).map_err(|_| Status::InternalServerError)?;
-    activity.raw = Some(raw.clone());
+        activity.raw = Some(raw.clone());
 
-    log::debug!("ACTIVITY\n{activity:#?}");
+        create_activity(Some(&conn), activity.clone())
+            .await
+            .map_err(|e| {
+                log::error!("FAILED TO CREATE ACTIVITY: {e:#?}");
+                Status::InternalServerError
+            })?;
 
-    if create_activity(Some(&conn), activity.clone()).await.is_ok() {
-        match ap_target {
+        match target {
             ApActivity::Like(_) => {
-                runner::run(
-                    runner::like::process_remote_undo_like_task,
-                    Some(conn),
-                    Some(channels),
-                    vec![target_ap_id.clone()],
-                )
-                .await;
+                revoke_activity_by_apid(Some(&conn), target_ap_id.clone())
+                    .await
+                    .map_err(|e| {
+                        log::error!("FAILED TO REVOKE LIKE: {e:#?}");
+                        Status::InternalServerError
+                    })?;
                 Ok(Status::Accepted)
             }
             ApActivity::Follow(_) => {
-                runner::run(
-                    runner::follow::process_remote_undo_follow_task,
-                    Some(conn),
-                    Some(channels),
-                    vec![target_ap_id.clone()],
-                )
-                .await;
+                if delete_follower_by_ap_id(Some(&conn), target_ap_id.clone()).await {
+                    log::info!("FOLLOWER RECORD DELETED: {target_ap_id}");
+                }
+
                 Ok(Status::Accepted)
             }
             ApActivity::Announce(_) => {
@@ -121,99 +155,160 @@ async fn process_undo_activity(
             }
             _ => Err(Status::NotImplemented),
         }
-    } else {
-        Err(Status::InternalServerError)
     }
-}
 
-impl Inbox for Box<ApUndo> {
-    async fn inbox(&self, conn: Db, channels: EventChannels, raw: Value) -> Result<Status, Status> {
-        match self.object.clone() {
-            MaybeReference::Actual(actual) => {
-                process_undo_activity(conn, channels, &actual, self, raw).await
-            }
-            MaybeReference::Reference(_) => {
-                log::warn!(
-                    "INSUFFICIENT CONTEXT FOR UNDO TARGET (REFERENCE FOUND WHEN ACTUAL IS REQUIRED)"
-                );
-                log::error!("FAILED TO HANDLE ACTIVITY\n{raw}");
-                Err(Status::NoContent)
-            }
-            _ => {
-                log::warn!(
-                    "INSUFFICIENT CONTEXT FOR UNDO TARGET (NONE FOUND WHEN ACTUAL IS REQUIRED)"
-                );
-                log::error!("FAILED TO HANDLE ACTIVITY\n{raw}");
-                Err(Status::NoContent)
-            }
-        }
-    }
-}
-
-impl Outbox for Box<ApUndo> {
     async fn outbox(
-        &self,
         conn: Db,
-        events: EventChannels,
+        channels: EventChannels,
+        undo: ApUndo,
         profile: Actor,
-        _raw: Value,
+        raw: Value,
     ) -> Result<String, Status> {
-        handle_undo(conn, events, *self.clone(), profile).await
-    }
-}
-
-async fn handle_undo(
-    conn: Db,
-    channels: EventChannels,
-    undo: ApUndo,
-    profile: Actor,
-) -> Result<String, Status> {
-    let target_ap_id = match undo.object {
-        MaybeReference::Actual(object) => match object {
-            ApActivity::Follow(follow) => follow.id.and_then(get_uuid),
-            ApActivity::Like(like) => like.id.and_then(get_uuid),
-            ApActivity::Announce(announce) => announce.id.and_then(get_uuid),
+        let target_ap_id = match undo.object {
+            MaybeReference::Actual(object) => object.as_id(),
             _ => None,
-        },
-        _ => None,
-    };
+        };
 
-    log::debug!("TARGET_AP_ID: {target_ap_id:#?}");
-    if let Some(target_ap_id) = target_ap_id {
-        if let Some((activity, _target_activity, _target_object, _target_actor)) =
-            get_activity_by_ap_id(&conn, target_ap_id).await
-        {
-            if let Ok(activity) = create_activity(
-                Some(&conn),
-                NewActivity::from((
-                    activity,
-                    ActivityType::Undo,
-                    ApAddress::Address(profile.as_id),
-                ))
-                .link_actor(&conn)
-                .await,
-            )
-            .await
-            {
-                runner::run(
-                    runner::undo::process_outbound_undo_task,
-                    Some(conn),
-                    Some(channels),
-                    vec![activity.uuid.clone()],
-                )
-                .await;
-                Ok(get_activity_ap_id_from_uuid(activity.uuid))
-            } else {
-                log::error!("FAILED TO CREATE UNDO ACTIVITY");
-                Err(Status::NoContent)
+        log::debug!("TARGET_AP_ID: {target_ap_id:#?}");
+
+        let (activity, _target_activity, _target_object, _target_actor) =
+            get_activity_by_ap_id(&conn, target_ap_id.ok_or(Status::InternalServerError)?)
+                .await
+                .ok_or(Status::NotFound)?;
+
+        let mut undo = create_activity(
+            Some(&conn),
+            NewActivity::from((
+                activity,
+                ActivityType::Undo,
+                ApAddress::Address(profile.as_id),
+            ))
+            .link_actor(&conn)
+            .await,
+        )
+        .await
+        .map_err(|_| Status::InternalServerError)?;
+
+        undo.raw = Some(raw);
+
+        log::debug!("UNDO ACTIVITY\n{undo:#?}");
+
+        runner::run(
+            ApUndo::send_task,
+            Some(conn),
+            Some(channels),
+            vec![undo.ap_id.clone().ok_or(Status::InternalServerError)?],
+        )
+        .await;
+
+        undo.ap_id.ok_or(Status::InternalServerError)
+    }
+
+    async fn send_task(
+        conn: Option<Db>,
+        _channels: Option<EventChannels>,
+        ap_ids: Vec<String>,
+    ) -> Result<(), TaskError> {
+        let conn = conn.as_ref();
+
+        for ap_id in ap_ids {
+            let (activity, target_activity, target_object, target_actor) =
+                get_activity_by_ap_id(conn.ok_or(TaskError::TaskFailed)?, ap_id.clone())
+                    .await
+                    .ok_or(TaskError::TaskFailed)?;
+
+            let profile_id = activity.actor_id.ok_or(TaskError::TaskFailed)?;
+
+            let sender = get_actor(conn.unwrap(), profile_id)
+                .await
+                .ok_or(TaskError::TaskFailed)?;
+
+            let ap_activity = ApActivity::try_from((
+                activity.clone(),
+                target_activity.clone(),
+                target_object.clone(),
+                target_actor.clone(),
+            ))
+            .map_err(|e| {
+                log::error!("FAILED TO BUILD AP_ACTIVITY: {e:#?}");
+                TaskError::TaskFailed
+            })?;
+
+            let inboxes: Vec<ApAddress> =
+                get_inboxes(conn, ap_activity.clone(), sender.clone()).await;
+
+            send_to_inboxes(conn.unwrap(), inboxes, sender, ap_activity.clone())
+                .await
+                .map_err(|e| {
+                    log::error!("FAILED TO SEND TO INBOXES: {e:#?}");
+                    TaskError::TaskFailed
+                })?;
+
+            let target_activity = ApActivity::try_from((
+                target_activity.ok_or(TaskError::TaskFailed)?,
+                None,
+                target_object,
+                target_actor,
+            ))
+            .map_err(|e| {
+                log::error!("FAILED TO BUILD TARGET_ACTIVITY: {e:#?}");
+                TaskError::TaskFailed
+            })?;
+
+            match target_activity {
+                ApActivity::Follow(follow) => {
+                    let id = follow.id.ok_or(TaskError::TaskFailed)?;
+                    log::debug!("FOLLOW ID: {id}");
+                    let identifier = get_local_identifier(id).ok_or(TaskError::TaskFailed)?;
+                    log::debug!("FOLLOW IDENTIFIER: {identifier:#?}");
+                    let profile_id = activity.actor_id.ok_or(TaskError::TaskFailed)?;
+                    if let MaybeReference::Reference(ap_id) = follow.object {
+                        if delete_leader_by_ap_id_and_actor_id(conn, ap_id, profile_id).await
+                            && revoke_activity_by_uuid(conn, identifier.identifier)
+                                .await
+                                .is_ok()
+                        {
+                            log::info!("LEADER DELETED");
+                        }
+                    }
+                }
+                ApActivity::Like(like) => {
+                    let id = like.id.ok_or(TaskError::TaskFailed)?;
+                    log::debug!("LIKE ID: {id}");
+                    let identifier = get_local_identifier(id).ok_or(TaskError::TaskFailed)?;
+                    log::debug!("LIKE IDENTIFIER: {identifier:#?}");
+                    if identifier.kind == LocalIdentifierType::Activity {
+                        revoke_activity_by_uuid(conn, identifier.identifier)
+                            .await
+                            .map_err(|e| {
+                                log::error!("LIKE REVOCATION FAILED: {e:#?}");
+                                TaskError::TaskFailed
+                            })?;
+                    };
+                }
+
+                ApActivity::Announce(announce) => {
+                    let id = announce.id.ok_or(TaskError::TaskFailed)?;
+                    log::debug!("ANNOUNCE ID: {id}");
+                    let identifier = get_local_identifier(id).ok_or(TaskError::TaskFailed)?;
+                    log::debug!("ANNOUNCE IDENTIFIER: {identifier:#?}");
+                    if identifier.kind == LocalIdentifierType::Activity {
+                        revoke_activity_by_uuid(conn, identifier.identifier)
+                            .await
+                            .map_err(|e| {
+                                log::error!("ANNOUNCE REVOCATION FAILED: {e:#?}");
+                                TaskError::TaskFailed
+                            })?;
+                    }
+                }
+                _ => {
+                    log::error!("FAILED TO MATCH REVOCABLE ACTIVITY");
+                    return Err(TaskError::TaskFailed);
+                }
             }
-        } else {
-            log::error!("FAILED TO RETRIEVE TARGET ACTIVITY");
-            Err(Status::NoContent)
         }
-    } else {
-        log::error!("FAILED TO CONVERT OBJECT TO RELEVANT ACTIVITY");
-        Err(Status::NoContent)
+
+        Ok(())
     }
 }
 
@@ -221,10 +316,11 @@ impl TryFrom<ExtendedActivity> for ApUndo {
     type Error = anyhow::Error;
 
     fn try_from(
-        (activity, target_activity, target_object, target_actor): ExtendedActivity,
+        (activity, target_activity, target_object, _target_actor): ExtendedActivity,
     ) -> Result<Self, Self::Error> {
         let target_activity = target_activity.ok_or(anyhow!("RECURSIVE CANNOT BE NONE"))?;
-        let target_activity = ApActivity::try_from((target_activity.clone(), None, None, None))?;
+        let target_activity =
+            ApActivity::try_from((target_activity.clone(), None, target_object, None))?;
 
         if !activity.kind.is_undo() {
             return Err(anyhow!("activity is not an undo"));

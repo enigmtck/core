@@ -44,7 +44,7 @@ pub async fn authenticate(conn: &Db, username: String, password_str: String) -> 
     let password_hash = pwhash::PasswordHash::from_encoded(&encoded_password_hash).ok()?;
 
     pwhash::hash_password_verify(&password_hash, &password).ok()?;
-    Some(profile.try_into().ok()?)
+    profile.try_into().ok()
 }
 
 pub async fn verify_and_generate_password(
