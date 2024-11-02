@@ -30,7 +30,10 @@ pub async fn upload_image(
             .open(10.mebibytes())
             .into_file(path)
             .await
-            .map_err(|_| Status::InternalServerError)?;
+            .map_err(|e| {
+                log::error!("FAILED TO SAVE FILE: {e:#?}");
+                Status::InternalServerError
+            })?;
 
         if file.is_complete() {
             if let Ok(attachment) = ApAttachment::try_from(filename.to_string()) {
@@ -54,11 +57,15 @@ pub async fn cached_image(conn: Db, url: String) -> Result<(ContentType, NamedFi
     log::debug!("CACHE URL BEFORE DECODING: {url}");
 
     //if let Ok(url) = urlencoding::decode(&url) {
-    let url = general_purpose::URL_SAFE_NO_PAD
-        .decode(url)
-        .map_err(|_| Status::BadRequest)?;
+    let url = general_purpose::URL_SAFE_NO_PAD.decode(url).map_err(|e| {
+        log::error!("FAILED TO DECODE url: {e:#?}");
+        Status::BadRequest
+    })?;
 
-    let url = String::from_utf8(url).map_err(|_| Status::BadRequest)?;
+    let url = String::from_utf8(url).map_err(|e| {
+        log::error!("FAILED TO DECODE url: {e:#?}");
+        Status::BadRequest
+    })?;
 
     log::debug!("DECODED CACHE URL: {url}");
     let cache = get_cache_item_by_url((&conn).into(), url)

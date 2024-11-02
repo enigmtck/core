@@ -1,7 +1,9 @@
 use core::fmt;
 use std::fmt::Debug;
 
-use crate::activity_pub::{ApAttachment, ApContext, ApEndpoint, ApImage, ApTag, Outbox};
+use crate::activity_pub::{
+    ActivityPub, ApAttachment, ApContext, ApEndpoint, ApImage, ApTag, Outbox,
+};
 use crate::db::Db;
 use crate::fairings::events::EventChannels;
 use crate::models::actors::ActorType;
@@ -69,7 +71,8 @@ impl TryFrom<serde_json::Value> for ApAddress {
     type Error = String;
 
     fn try_from(address: serde_json::Value) -> Result<Self, Self::Error> {
-        serde_json::from_value(address).map_err(|_| "failed to convert to ApAddress")?
+        serde_json::from_value(address)
+            .map_err(|e| format!("FAILED TO CONVERT TO ApAddress: {e:#?}"))?
     }
 }
 
@@ -405,6 +408,18 @@ impl From<ExtendedActor> for ApActor {
     }
 }
 
+impl FromIterator<Actor> for Vec<ApActor> {
+    fn from_iter<I: IntoIterator<Item = Actor>>(iter: I) -> Self {
+        iter.into_iter().map(ApActor::from).collect()
+    }
+}
+
+impl FromIterator<Actor> for Vec<ApActorTerse> {
+    fn from_iter<I: IntoIterator<Item = Actor>>(iter: I) -> Self {
+        iter.into_iter().map(ApActorTerse::from).collect()
+    }
+}
+
 impl From<Actor> for ApActor {
     fn from(actor: Actor) -> Self {
         let context = Some(from_serde_option(actor.as_context).unwrap_or(ApContext::default()));
@@ -420,9 +435,7 @@ impl From<Actor> for ApActor {
         let featured = actor.as_featured;
         let featured_tags = actor.as_featured_tags;
         let manually_approves_followers = Some(actor.ap_manually_approves_followers);
-        let published = actor
-            .as_published
-            .map(|x| x.format("%Y-%m-%dT%H:%M:%SZ").to_string());
+        let published = actor.as_published.map(ActivityPub::time);
         let liked = actor.as_liked;
         let public_key = from_serde(actor.as_public_key).unwrap();
         let url = actor.as_url;

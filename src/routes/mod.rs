@@ -3,7 +3,6 @@ use rocket::serde::json::Json;
 pub mod api;
 pub mod inbox;
 pub mod instance;
-//pub mod notes;
 pub mod objects;
 pub mod outbox;
 pub mod retrieve;
@@ -15,7 +14,7 @@ pub mod webfinger;
 pub struct ActivityJson<T>(Json<T>);
 
 #[derive(Responder)]
-#[response(content_type = "application/ld+json")]
+#[response(content_type = "application/ld+json; profile=\"https://www.w3.org/ns/activitystreams\"")]
 pub struct LdJson<T>(Json<T>);
 
 #[derive(Responder)]

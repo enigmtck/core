@@ -47,11 +47,17 @@ pub async fn update_summary(
         return Err(Status::NoContent);
     }
 
-    let Json(summary) = summary.map_err(|_| Status::NoContent)?;
+    let Json(summary) = summary.map_err(|e| {
+        log::error!("FAILED TO DECODE Summary: {e:#?}");
+        Status::InternalServerError
+    })?;
 
     let profile = update_summary_by_username(&conn, username, summary.content, summary.markdown)
         .await
-        .ok_or(Status::NoContent)?;
+        .ok_or_else(|| {
+            log::error!("FAILED TO UPDATE Summary");
+            Status::NoContent
+        })?;
 
     runner::run(
         runner::user::send_profile_update_task,
@@ -166,7 +172,10 @@ pub async fn upload_avatar(
         .open(20.mebibytes())
         .into_file(&format!("{}/avatars/{}", *crate::MEDIA_DIR, filename))
         .await
-        .map_err(|_| Status::UnsupportedMediaType)?;
+        .map_err(|e| {
+            log::error!("FAILED TO SAVE FILE: {e:#?}");
+            Status::UnsupportedMediaType
+        })?;
 
     if !file.is_complete() {
         return Err(Status::PayloadTooLarge);
@@ -205,7 +214,10 @@ pub async fn upload_banner(
         .open(20.mebibytes())
         .into_file(&format!("{}/banners/{}", *crate::MEDIA_DIR, filename))
         .await
-        .map_err(|_| Status::UnsupportedMediaType)?;
+        .map_err(|e| {
+            log::error!("FAILED TO SAVE FILE: {e:#?}");
+            Status::UnsupportedMediaType
+        })?;
 
     if !file.is_complete() {
         return Err(Status::PayloadTooLarge);

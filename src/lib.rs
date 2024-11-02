@@ -54,7 +54,7 @@ lazy_static! {
     pub static ref LOCAL_RE: Regex =
         Regex::new(&format!(r#"\w+?://{}/(.+)"#, *SERVER_NAME)).expect("invalid local regex");
     pub static ref LOCAL_URL_RE: Regex = Regex::new(&format!(
-        r#"^{}/(user|notes|session|collections|activities)/(.+)$"#,
+        r#"^{}/(user|notes|session|collections|activities|objects)/(.+)$"#,
         *SERVER_URL
     ))
     .expect("invalid local url regex");

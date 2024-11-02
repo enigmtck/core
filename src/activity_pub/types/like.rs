@@ -64,26 +64,29 @@ impl Inbox for Box<ApLike> {
 
         let note_apid = note_apid.ok_or(Status::BadRequest)?;
 
-        log::debug!("NOTE AP_ID\n{note_apid:#?}");
-
         let target = get_object_by_as_id(Some(&conn), note_apid)
             .await
-            .map_err(|_| Status::NotFound)?;
-
-        log::debug!("TARGET\n{target:#?}");
+            .map_err(|e| {
+                log::debug!("LIKE TARGET NOT FOUND: {e:#?}");
+                Status::NotFound
+            })?;
 
         let mut activity = NewActivity::try_from((
             ApActivity::Like(self.clone()),
             Some(ActivityTarget::from(target)),
         ))
-        .map_err(|_| Status::InternalServerError)?;
+        .map_err(|e| {
+            log::error!("FAILED TO BUILD ACTIVITY: {e:#?}");
+            Status::InternalServerError
+        })?;
         activity.raw = Some(raw.clone());
-
-        log::debug!("ACTIVITY\n{activity:#?}");
 
         create_activity((&conn).into(), activity.clone())
             .await
-            .map_err(|_| Status::InternalServerError)?;
+            .map_err(|e| {
+                log::error!("FAILED TO CREATE ACTIVITY: {e:#?}");
+                Status::InternalServerError
+            })?;
 
         Ok(Status::Accepted)
     }
@@ -154,14 +157,11 @@ impl ApLike {
         let conn = conn.as_ref();
 
         for ap_id in ap_ids {
-            log::debug!("LOOKING FOR AP_ID {ap_id}");
-
             let (activity, target_activity, target_object, target_actor) =
                 get_activity_by_ap_id(conn.ok_or(TaskError::TaskFailed)?, ap_id.clone())
                     .await
                     .ok_or(TaskError::TaskFailed)?;
 
-            log::debug!("FOUND ACTIVITY\n{activity:#?}");
             let profile_id = activity.actor_id.ok_or(TaskError::TaskFailed)?;
 
             let sender = get_actor(conn.unwrap(), profile_id)
@@ -170,14 +170,19 @@ impl ApLike {
 
             let activity =
                 ApActivity::try_from((activity, target_activity, target_object, target_actor))
-                    .map_err(|_| TaskError::TaskFailed)?;
+                    .map_err(|e| {
+                        log::error!("FAILED TO BUILD ApActivity: {e:#?}");
+                        TaskError::TaskFailed
+                    })?;
 
             let inboxes: Vec<ApAddress> = get_inboxes(conn, activity.clone(), sender.clone()).await;
 
-            log::debug!("SENDING LIKE\n{inboxes:#?}\n{sender:#?}\n{activity:#?}");
             send_to_inboxes(conn.unwrap(), inboxes, sender, activity.clone())
                 .await
-                .map_err(|_| TaskError::TaskFailed)?;
+                .map_err(|e| {
+                    log::error!("FAILED TO SEND TO INBOXES: {e:#?}");
+                    TaskError::TaskFailed
+                })?;
         }
 
         Ok(())

@@ -63,11 +63,15 @@ pub async fn get_olm_session(
         .await
         .ok_or(Status::NoContent)?;
 
-    let id = general_purpose::STANDARD
-        .decode(encoded)
-        .map_err(|_| Status::NoContent)?;
+    let id = general_purpose::STANDARD.decode(encoded).map_err(|e| {
+        log::error!("FAILED TO DECODE id: {e:#?}");
+        Status::NoContent
+    })?;
 
-    let id = String::from_utf8(id).map_err(|_| Status::NoContent)?;
+    let id = String::from_utf8(id).map_err(|e| {
+        log::error!("FAILED TO DECODE id: {e:#?}");
+        Status::NoContent
+    })?;
 
     let (encrypted_session, olm_session) =
         get_encrypted_session_by_profile_id_and_ap_to((&conn).into(), profile.id, id)
@@ -127,7 +131,10 @@ pub async fn update_processing_queue_item(
     item: Result<Json<QueueAction>, Error<'_>>,
 ) -> Result<Status, Status> {
     if signed.local() {
-        let Json(item) = item.map_err(|_| Status::NoContent)?;
+        let Json(item) = item.map_err(|e| {
+            log::error!("FAILED TO DECODE item: {e:#?}");
+            Status::NoContent
+        })?;
 
         let profile = get_actor_by_username(&conn, username)
             .await
@@ -172,7 +179,10 @@ pub async fn add_one_time_keys(
             .await
             .ok_or(Status::NoContent)?;
 
-        let Json(params) = params.map_err(|_| Status::NoContent)?;
+        let Json(params) = params.map_err(|e| {
+            log::error!("FAILED TO DECODE params: {e:#?}");
+            Status::NoContent
+        })?;
 
         if profile.ek_olm_pickled_account_hash == params.mutation_of.into() {
             if update_olm_account_by_username(&conn, username, params.account, params.account_hash)

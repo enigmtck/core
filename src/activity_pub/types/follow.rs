@@ -8,7 +8,8 @@ use crate::{
     helper::get_activity_ap_id_from_uuid,
     models::{
         activities::{
-            create_activity, get_activity_by_ap_id, ActivityTarget, ExtendedActivity, NewActivity,
+            create_activity, get_activity_by_ap_id, get_activity_by_kind_actor_id_and_target_ap_id,
+            ActivityTarget, ActivityType, ExtendedActivity, NewActivity,
         },
         actors::{get_actor, get_actor_by_as_id, Actor},
         followers::{create_follower, NewFollower},
@@ -120,28 +121,44 @@ impl ApFollow {
         conn: Db,
         channels: EventChannels,
         follow: ApFollow,
-        _profile: Actor,
+        profile: Actor,
         raw: Value,
     ) -> Result<String, Status> {
-        if let MaybeReference::Reference(id) = follow.object.clone() {
-            let actor = get_actor_by_as_id(&conn, id).await.map_err(|e| {
-                log::error!("FAILED TO RETRIEVE ACTOR: {e:#?}");
-                Status::NotFound
-            })?;
-
-            let mut activity = NewActivity::try_from((follow.into(), Some(actor.into())))
-                .map_err(|_| Status::InternalServerError)?
-                .link_actor(&conn)
-                .await;
-
-            activity.raw = Some(raw);
-
-            create_activity(Some(&conn), activity.clone())
+        if let MaybeReference::Reference(as_id) = follow.object.clone() {
+            let activity = {
+                if let Some(activity) = get_activity_by_kind_actor_id_and_target_ap_id(
+                    &conn,
+                    ActivityType::Follow,
+                    profile.id,
+                    as_id.clone(),
+                )
                 .await
-                .map_err(|e| {
-                    log::error!("FAILED TO CREATE FOLLOW ACTIVITY: {e:#?}");
-                    Status::InternalServerError
-                })?;
+                {
+                    activity
+                } else {
+                    let actor = get_actor_by_as_id(&conn, as_id).await.map_err(|e| {
+                        log::error!("FAILED TO RETRIEVE ACTOR: {e:#?}");
+                        Status::NotFound
+                    })?;
+
+                    let mut activity = NewActivity::try_from((follow.into(), Some(actor.into())))
+                        .map_err(|e| {
+                            log::error!("FAILED TO BUILD ACTIVITY: {e:#?}");
+                            Status::InternalServerError
+                        })?
+                        .link_actor(&conn)
+                        .await;
+
+                    activity.raw = Some(raw);
+
+                    create_activity(Some(&conn), activity.clone())
+                        .await
+                        .map_err(|e| {
+                            log::error!("FAILED TO CREATE FOLLOW ACTIVITY: {e:#?}");
+                            Status::InternalServerError
+                        })?
+                }
+            };
 
             runner::run(
                 ApFollow::send,

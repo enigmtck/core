@@ -1,3 +1,4 @@
+use super::OffsetPaging;
 use crate::activity_pub::{ApAccept, ApActivity};
 use crate::db::Db;
 use crate::helper::{get_local_identifier, LocalIdentifierType};
@@ -140,13 +141,25 @@ pub async fn get_leader_by_actor_id_and_ap_id(
     .ok()
 }
 
-pub async fn get_leaders_by_actor_id(conn: &Db, actor_id: i32) -> Vec<(Leader, Option<Actor>)> {
+pub async fn get_leaders_by_actor_id(
+    conn: &Db,
+    actor_id: i32,
+    paging: Option<OffsetPaging>,
+) -> Vec<(Leader, Option<Actor>)> {
     conn.run(move |c| {
-        leaders::table
+        let mut query = leaders::table
             .filter(leaders::actor_id.eq(actor_id))
             .left_join(actors::table.on(leaders::leader_ap_id.eq(actors::as_id)))
             .order_by(leaders::created_at.desc())
-            .get_results::<(Leader, Option<Actor>)>(c)
+            .into_boxed();
+
+        if let Some(paging) = paging {
+            query = query
+                .limit(paging.limit as i64)
+                .offset((paging.page * paging.limit) as i64);
+        }
+
+        query.get_results::<(Leader, Option<Actor>)>(c)
     })
     .await
     .unwrap_or(vec![])

@@ -175,7 +175,7 @@ impl ApObject {
     pub async fn load_ephemeral(&mut self, conn: &Db) -> Self {
         match self {
             ApObject::Note(ref mut note) => {
-                if let Some(actor) =
+                if let Ok(actor) =
                     retriever::get_actor(conn, note.attributed_to.clone().to_string(), None, true)
                         .await
                 {
@@ -224,7 +224,9 @@ pub struct ApMention {
     #[serde(rename = "type")]
     pub kind: ApMentionType,
     pub name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub href: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub value: Option<String>,
 }
 
@@ -262,6 +264,7 @@ pub struct ApEmoji {
     pub kind: ApEmojiType,
     pub id: String,
     pub name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub updated: Option<String>,
     pub icon: ApImage,
 }

@@ -169,12 +169,13 @@ impl ApUndo {
             _ => None,
         };
 
-        log::debug!("TARGET_AP_ID: {target_ap_id:#?}");
-
         let (activity, _target_activity, _target_object, _target_actor) =
             get_activity_by_ap_id(&conn, target_ap_id.ok_or(Status::InternalServerError)?)
                 .await
-                .ok_or(Status::NotFound)?;
+                .ok_or_else(|| {
+                    log::error!("FAILED TO RETRIEVE ACTIVITY");
+                    Status::NotFound
+                })?;
 
         let mut undo = create_activity(
             Some(&conn),
@@ -187,11 +188,12 @@ impl ApUndo {
             .await,
         )
         .await
-        .map_err(|_| Status::InternalServerError)?;
+        .map_err(|e| {
+            log::error!("FAILED TO CREATE ACTIVITY: {e:#?}");
+            Status::InternalServerError
+        })?;
 
         undo.raw = Some(raw);
-
-        log::debug!("UNDO ACTIVITY\n{undo:#?}");
 
         runner::run(
             ApUndo::send_task,

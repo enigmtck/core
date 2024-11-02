@@ -183,6 +183,22 @@ impl Object {
     }
 }
 
+pub async fn get_object(conn: Option<&Db>, id: i32) -> Result<Object> {
+    match conn {
+        Some(conn) => conn
+            .run(move |c| objects::table.find(id).first::<Object>(c))
+            .await
+            .map_err(anyhow::Error::msg),
+        None => {
+            let mut pool = POOL.get().map_err(anyhow::Error::msg)?;
+            objects::table
+                .find(id)
+                .first::<Object>(&mut pool)
+                .map_err(anyhow::Error::msg)
+        }
+    }
+}
+
 pub async fn get_object_by_as_id(conn: Option<&Db>, as_id: String) -> Result<Object> {
     match conn {
         Some(conn) => conn

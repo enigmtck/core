@@ -22,7 +22,11 @@ pub async fn authenticate_user(
 ) -> Result<Json<Profile>, Status> {
     log::debug!("AUTHENTICATING\n{user:#?}");
 
-    let user = user.map_err(|_| Status::Unauthorized)?;
+    let user = user.map_err(|e| {
+        log::error!("FAILED TO DECODE user: {e:#?}");
+        Status::Unauthorized
+    })?;
+
     let profile = admin::authenticate(&conn, user.username.clone(), user.password.clone())
         .await
         .ok_or(Status::Unauthorized)?;
@@ -49,7 +53,10 @@ pub async fn change_password(
     password: Result<Json<UpdatePassword>, Error<'_>>,
 ) -> Result<Json<Actor>, Status> {
     if signed.local() {
-        let password = password.map_err(|_| Status::Unauthorized)?;
+        let password = password.map_err(|e| {
+            log::error!("FAILED TO DECODE password: {e:#?}");
+            Status::Unauthorized
+        })?;
 
         let client_private_key = password.encrypted_client_private_key.clone();
         let olm_pickled_account = password.encrypted_olm_pickled_account.clone();

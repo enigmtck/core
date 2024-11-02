@@ -20,6 +20,7 @@ cfg_if::cfg_if! {
         pub use crate::models::pg::actors::Actor;
         pub use crate::models::pg::actors::ActorType;
         pub use crate::models::pg::actors::create_or_update_actor;
+        pub use crate::models::pg::actors::get_actor_by_key_id;
     } else if #[cfg(feature = "sqlite")] {
         pub use crate::models::sqlite::remote_actors::NewRemoteActor;
         pub use crate::models::sqlite::remote_actors::RemoteActor;
@@ -49,12 +50,11 @@ impl TryFrom<ApActor> for NewActor {
         let as_featured_tags = actor.featured_tags;
         let as_url = actor.url;
         let ap_manually_approves_followers = actor.manually_approves_followers.unwrap_or_default();
-        let as_published = actor
-            .published
-            .ok_or(anyhow!("no published"))?
-            .parse::<DateTime<chrono::FixedOffset>>()
-            .ok()
-            .map(|dt| dt.with_timezone(&Utc));
+        let as_published = actor.published.and_then(|x| {
+            x.parse::<DateTime<chrono::FixedOffset>>()
+                .ok()
+                .map(|dt| dt.with_timezone(&Utc))
+        });
         let as_tag = to_serde(&actor.tag).unwrap_or(json!([]));
         let as_attachment = to_serde(&actor.attachment).unwrap_or(json!({}));
         let as_endpoints = to_serde(&actor.endpoints).unwrap_or(json!({}));
@@ -168,7 +168,7 @@ pub async fn get_actor_by_as_id(conn: &Db, as_id: String) -> Result<Actor> {
 pub async fn get_follower_inboxes(conn: &Db, actor: Actor) -> Vec<ApAddress> {
     let mut inboxes: HashSet<ApAddress> = HashSet::new();
 
-    for (_follower, actor) in get_followers_by_actor_id(conn, actor.id).await {
+    for (_follower, actor) in get_followers_by_actor_id(conn, actor.id, None).await {
         if let Some(actor) = actor {
             inboxes.insert(ApAddress::Address(actor.as_inbox));
         }
@@ -182,6 +182,6 @@ pub async fn guaranteed_actor(conn: &Db, profile: Option<Actor>) -> Actor {
         Some(profile) => profile,
         None => get_actor_by_username(conn, (*crate::SYSTEM_USER).clone())
             .await
-            .expect("unable to retrieve system user"),
+            .expect("Unable to retrieve system user"),
     }
 }

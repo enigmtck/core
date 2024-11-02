@@ -1,8 +1,8 @@
+use actors::Actor;
 use chrono::{DateTime, Utc};
+use objects::Object;
 use serde::Serialize;
 use serde_json::json;
-use actors::Actor;
-use objects::Object;
 
 pub mod activities;
 pub mod actors;
@@ -24,7 +24,7 @@ pub mod vault;
 #[derive(Clone)]
 pub enum Tombstone {
     Actor(Actor),
-    Object(Object)
+    Object(Object),
 }
 
 cfg_if::cfg_if! {
@@ -75,4 +75,9 @@ cfg_if::cfg_if! {
              ))
         }
     }
+}
+
+pub struct OffsetPaging {
+    pub page: u32,
+    pub limit: u32,
 }

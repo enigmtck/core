@@ -102,6 +102,10 @@ impl ActivityPub {
             _ => Utc::now(),
         }
     }
+
+    pub fn time(timestamp: DateTime<Utc>) -> String {
+        timestamp.format("%Y-%m-%dT%H:%M:%SZ").to_string()
+    }
 }
 
 pub trait Temporal {

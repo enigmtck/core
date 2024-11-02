@@ -73,6 +73,10 @@ pub fn get_followers_ap_id_from_username(username: String) -> String {
     format!("{}/user/{username}/followers", *crate::SERVER_URL)
 }
 
+pub fn get_following_ap_id_from_username(username: String) -> String {
+    format!("{}/user/{username}/following", *crate::SERVER_URL)
+}
+
 pub fn get_ap_id_from_username(username: String) -> String {
     format!("{}/user/{username}", *crate::SERVER_URL)
 }

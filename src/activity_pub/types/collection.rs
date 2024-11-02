@@ -2,13 +2,17 @@ use core::fmt;
 use std::cmp::Reverse;
 use std::fmt::Debug;
 
-use crate::activity_pub::{ActivityPub, ApActivity, ApActor, ApContext, ApObject, Outbox};
+use crate::activity_pub::{
+    ActivityPub, ApActivity, ApActor, ApActorTerse, ApContext, ApObject, Outbox,
+};
 use crate::db::Db;
 use crate::fairings::events::EventChannels;
+use crate::helper::{get_followers_ap_id_from_username, get_following_ap_id_from_username};
 use crate::models::cache::Cache;
 use crate::models::vault::VaultItem;
 use crate::models::{actors::Actor, followers::Follower, leaders::Leader};
 use crate::MaybeReference;
+use anyhow::{anyhow, Result};
 use rocket::http::Status;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -98,6 +102,8 @@ pub struct ApCollectionPage {
     items: Option<Vec<ActivityPub>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     ordered_items: Option<Vec<ActivityPub>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ephemeral_actors: Option<Vec<ApActorTerse>>,
 }
 
 impl Collectible for ApCollectionPage {
@@ -136,6 +142,7 @@ impl Default for ApCollectionPage {
             next: None,
             prev: None,
             part_of: None,
+            ephemeral_actors: None,
         }
     }
 }
@@ -168,6 +175,8 @@ pub struct ApCollection {
     pub current: Option<MaybeReference<ApCollectionPage>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub part_of: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ephemeral_actors: Option<Vec<ApActorTerse>>,
 }
 
 impl Collectible for ApCollection {
@@ -207,6 +216,7 @@ impl Default for ApCollection {
             prev: None,
             current: None,
             part_of: None,
+            ephemeral_actors: None,
         }
     }
 }
@@ -317,24 +327,46 @@ impl From<ActorsPage> for ApCollection {
 
 #[derive(Clone)]
 pub struct FollowersPage {
-    pub page: u32,
+    pub page: Option<u32>,
     pub profile: Actor,
+    pub total_items: i64,
     pub followers: Vec<Follower>,
+    pub actors: Option<Vec<ApActorTerse>>,
 }
 
-impl From<FollowersPage> for ApCollection {
-    fn from(request: FollowersPage) -> Self {
-        if request.page == 0 {
-            ApCollection {
+impl TryFrom<FollowersPage> for ApCollection {
+    type Error = anyhow::Error;
+
+    fn try_from(request: FollowersPage) -> Result<Self> {
+        let id = get_followers_ap_id_from_username(
+            request
+                .profile
+                .ek_username
+                .ok_or(anyhow!("USERNAME CAN NOT BE NONE"))?,
+        );
+
+        fn get_last(total_items: i64, page_size: u8) -> i64 {
+            let remainder = if total_items % 20 > 0 { 1 } else { 0 };
+
+            (total_items / (page_size as i64)) + remainder
+        }
+
+        match request.page {
+            Some(page) => Ok(ApCollection {
                 kind: ApCollectionType::OrderedCollection,
-                id: Some(format!(
-                    "{}/users/{}/followers",
-                    *crate::SERVER_URL,
-                    request.profile.ek_username.unwrap()
-                )),
-                total_items: Some(request.followers.len() as i64),
-                first: None,
-                part_of: None,
+                id: Some(format!("{id}?page={page}")),
+                total_items: Some(request.total_items),
+                first: Some(format!("{id}?page=1").into()),
+                last: Some(format!("{id}?page={}", get_last(request.total_items, 20)).into()),
+                next: Some(format!("{id}?page={}", page + 1).into()),
+                prev: {
+                    if page > 1 {
+                        Some(format!("{id}?page={}", page - 1).into())
+                    } else {
+                        None
+                    }
+                },
+                part_of: Some(id.clone()),
                 ordered_items: Some(
                     request
                         .followers
@@ -342,75 +374,67 @@ impl From<FollowersPage> for ApCollection {
                         .map(|x| ActivityPub::Object(ApObject::Plain(x.actor)))
                         .collect::<Vec<ActivityPub>>(),
                 ),
+                ephemeral_actors: request.actors,
                 ..Default::default()
-            }
-        } else {
-            ApCollection {
-                part_of: None,
+            }),
+            None => Ok(ApCollection {
+                kind: ApCollectionType::OrderedCollection,
+                id: Some(id.clone()),
+                total_items: Some(request.total_items),
+                first: Some(format!("{id}?page=1").into()),
+                last: Some(format!("{id}?page={}", get_last(request.total_items, 20)).into()),
+                next: Some(format!("{id}?page=1").into()),
+                part_of: Some(id.clone()),
                 ordered_items: None,
+                ephemeral_actors: None,
                 ..Default::default()
-            }
+            }),
         }
     }
 }
 
-// #[derive(Clone)]
-// pub struct ActivitiesPage {
-//     pub profile: Profile,
-//     pub activities: Vec<ApActivity>,
-//     pub first: Option<String>,
-//     pub last: Option<String>,
-//     pub next: Option<String>,
-//     pub prev: Option<String>,
-//     pub part_of: Option<String>,
-// }
-
-// impl From<ActivitiesPage> for ApCollectionPage {
-//     fn from(request: ActivitiesPage) -> Self {
-//         ApCollectionPage {
-//             kind: ApCollectionPageType::OrderedCollectionPage,
-//             id: Some(format!(
-//                 "{}/users/{}/activities",
-//                 *crate::SERVER_URL,
-//                 request.profile.username
-//             )),
-//             first: request.first,
-//             last: request.last,
-//             next: request.next,
-//             prev: request.prev,
-//             part_of: request.part_of,
-//             ordered_items: Some(
-//                 request
-//                     .activities
-//                     .into_iter()
-//                     .map(ActivityPub::Activity)
-//                     .collect::<Vec<ActivityPub>>(),
-//             ),
-//             ..Default::default()
-//         }
-//     }
-// }
-
 #[derive(Clone)]
 pub struct LeadersPage {
-    pub page: u32,
+    pub page: Option<u32>,
     pub profile: Actor,
+    pub total_items: i64,
     pub leaders: Vec<Leader>,
+    pub actors: Option<Vec<ApActorTerse>>,
 }
 
-impl From<LeadersPage> for ApCollection {
-    fn from(request: LeadersPage) -> Self {
-        if request.page == 0 {
-            ApCollection {
+impl TryFrom<LeadersPage> for ApCollection {
+    type Error = anyhow::Error;
+
+    fn try_from(request: LeadersPage) -> Result<Self> {
+        let id = get_following_ap_id_from_username(
+            request
+                .profile
+                .ek_username
+                .ok_or(anyhow!("USERNAME CAN NOT BE NONE"))?,
+        );
+
+        fn get_last(total_items: i64, page_size: u8) -> i64 {
+            let remainder = if total_items % 20 > 0 { 1 } else { 0 };
+
+            (total_items / (page_size as i64)) + remainder
+        }
+
+        match request.page {
+            Some(page) => Ok(ApCollection {
                 kind: ApCollectionType::OrderedCollection,
-                id: Some(format!(
-                    "{}/users/{}/following",
-                    *crate::SERVER_URL,
-                    request.profile.ek_username.unwrap()
-                )),
-                total_items: Some(request.leaders.len() as i64),
-                first: None,
-                part_of: None,
+                id: Some(format!("{id}?page={page}")),
+                total_items: Some(request.total_items),
+                first: Some(format!("{id}?page=1").into()),
+                last: Some(format!("{id}?page={}", get_last(request.total_items, 20)).into()),
+                next: Some(format!("{id}?page={}", page + 1).into()),
+                prev: {
+                    if page > 1 {
+                        Some(format!("{id}?page={}", page - 1).into())
+                    } else {
+                        None
+                    }
+                },
+                part_of: Some(id.clone()),
                 ordered_items: Some(
                     request
                         .leaders
@@ -418,14 +442,21 @@ impl From<LeadersPage> for ApCollection {
                         .map(|x| ActivityPub::Object(ApObject::Plain(x.leader_ap_id)))
                         .collect::<Vec<ActivityPub>>(),
                 ),
+                ephemeral_actors: request.actors,
                 ..Default::default()
-            }
-        } else {
-            ApCollection {
-                part_of: None,
+            }),
+            None => Ok(ApCollection {
+                kind: ApCollectionType::OrderedCollection,
+                id: Some(id.clone()),
+                total_items: Some(request.total_items),
+                first: Some(format!("{id}?page=1").into()),
+                last: Some(format!("{id}?page={}", get_last(request.total_items, 20)).into()),
+                next: Some(format!("{id}?page=1").into()),
+                part_of: Some(id.clone()),
                 ordered_items: None,
+                ephemeral_actors: None,
                 ..Default::default()
-            }
+            }),
         }
     }
 }

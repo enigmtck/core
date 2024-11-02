@@ -149,9 +149,10 @@ pub async fn vault_get(
         .await
         .ok_or(Status::Unauthorized)?;
 
-    let actor = general_purpose::STANDARD
-        .decode(actor)
-        .map_err(|_| Status::UnprocessableEntity)?;
+    let actor = general_purpose::STANDARD.decode(actor).map_err(|e| {
+        log::error!("FAILED TO DECODE Actor: {e:#?}");
+        Status::UnprocessableEntity
+    })?;
 
     let items: Vec<VaultItem> = get_vault_items_by_profile_id_and_remote_actor(
         &conn,

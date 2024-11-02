@@ -407,57 +407,6 @@ impl From<ActorActivity> for NewActivity {
     }
 }
 
-// pub struct NoteActivity {
-//     pub note: NoteLike,
-//     pub profile: Actor,
-//     pub kind: ActivityType,
-// }
-
-// impl From<NoteActivity> for NewActivity {
-//     fn from(note_activity: NoteActivity) -> Self {
-//         let mut activity = NewActivity {
-//             kind: to_kind(note_activity.kind.clone()),
-//             uuid: uuid::Uuid::new_v4().to_string(),
-//             actor: note_activity.profile.as_id,
-//             ap_to: to_serde(&Some(vec![ApAddress::get_public()])),
-//             ..Default::default()
-//         };
-
-//         match note_activity.note {
-//             NoteLike::Note(note) => {
-//                 if note_activity.kind == ActivityType::Like
-//                     || note_activity.kind == ActivityType::Announce
-//                 {
-//                     activity.cc = to_serde(&Some(vec![
-//                         note.attributed_to,
-//                         note_activity.profile.as_followers.unwrap(),
-//                     ]));
-//                 } else {
-//                     activity.cc = to_serde(&Some(vec![note_activity.profile.as_followers]));
-//                 }
-//                 activity.target_note_id = Some(note.id);
-//                 activity.target_ap_id = Some(get_note_ap_id_from_uuid(note.uuid));
-//             }
-//             NoteLike::Object(object) => {
-//                 if note_activity.kind == ActivityType::Like
-//                     || note_activity.kind == ActivityType::Announce
-//                 {
-//                     activity.cc = to_serde(&Some(vec![
-//                         from_serde(object.as_attributed_to.unwrap()).unwrap(),
-//                         note_activity.profile.as_followers,
-//                     ]));
-//                 } else {
-//                     activity.cc = to_serde(&Some(vec![note_activity.profile.as_followers]));
-//                 }
-//                 activity.target_object_id = Some(object.id);
-//                 activity.target_ap_id = Some(object.as_id);
-//             }
-//         }
-
-//         activity
-//     }
-// }
-
 pub type UndoActivity = (Activity, ActivityType, ApAddress);
 impl From<UndoActivity> for NewActivity {
     fn from((activity, kind, actor): UndoActivity) -> Self {

@@ -3,7 +3,9 @@ use crate::schema::actors;
 use crate::POOL;
 use anyhow::{anyhow, Result};
 use chrono::{DateTime, Duration, Utc};
+use diesel::pg::Pg;
 use diesel::prelude::*;
+use diesel::sql_query;
 use diesel::{AsChangeset, Identifiable, Insertable, Queryable};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -120,7 +122,17 @@ pub struct NewActor {
     pub ap_manually_approves_followers: bool,
 }
 
-#[derive(Identifiable, Queryable, Serialize, Deserialize, Default, Debug, AsChangeset, Clone)]
+#[derive(
+    Identifiable,
+    Queryable,
+    QueryableByName,
+    Serialize,
+    Deserialize,
+    Default,
+    Debug,
+    AsChangeset,
+    Clone,
+)]
 #[diesel(table_name = actors)]
 pub struct Actor {
     #[serde(skip_serializing)]
@@ -392,4 +404,16 @@ pub async fn update_password_by_username(
     })
     .await
     .ok()
+}
+
+pub async fn get_actor_by_key_id(conn: &Db, key_id: String) -> Result<Actor> {
+    use diesel::sql_types::Text;
+
+    conn.run(move |c: &mut PgConnection| {
+        sql_query("SELECT * FROM actors WHERE as_public_key->>'id' = $1 LIMIT 1")
+            .bind::<Text, _>(key_id.clone())
+            .get_result::<Actor>(c)
+    })
+    .await
+    .map_err(anyhow::Error::msg)
 }

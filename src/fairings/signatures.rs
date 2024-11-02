@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use crate::{
     db::Db,
     models::{actors::Actor, instances::create_or_update_instance},
-    signing::{verify, VerificationType, VerifyParams},
+    signing::{verify, VerificationType, VerifyMapParams},
     ASSIGNMENT_RE, DOMAIN_RE,
 };
 
@@ -113,7 +113,7 @@ impl<'r> FromRequest<'r> for Signed {
                         1 => {
                             let signature = signature_vec[0].to_string();
 
-                            let verify_params = VerifyParams {
+                            let verify_params = VerifyMapParams {
                                 signature: signature.clone(),
                                 request_target,
                                 host,
@@ -129,7 +129,7 @@ impl<'r> FromRequest<'r> for Signed {
                                     Outcome::Success(Signed(true, t))
                                 }
                                 Err(e) => {
-                                    log::debug!("{e:#?}");
+                                    log::debug!("SIGNATURE VERIFICATION FAILED\n{e:#?}");
                                     Outcome::Error((
                                         Status::BadRequest,
                                         SignatureError::SignatureInvalid,

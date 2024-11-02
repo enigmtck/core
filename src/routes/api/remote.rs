@@ -15,7 +15,10 @@ use crate::fairings::signatures::Signed;
 /// This accepts an actor in URL form (e.g., https://enigmatick.social/user/justin).
 #[get("/api/remote/webfinger?<id>")]
 pub async fn remote_id(blocks: BlockList, conn: Db, id: &str) -> Result<String, Status> {
-    let id = urlencoding::decode(id).map_err(|_| Status::new(525))?;
+    let id = urlencoding::decode(id).map_err(|e| {
+        log::error!("FAILED TO DECODE id: {e:#?}");
+        Status::InternalServerError
+    })?;
     let id = (*id).to_string();
 
     if blocks.is_blocked(get_domain_from_url(id.clone())) {
@@ -23,8 +26,11 @@ pub async fn remote_id(blocks: BlockList, conn: Db, id: &str) -> Result<String, 
     } else {
         get_actor(&conn, id, None, true)
             .await
-            .and_then(|actor| actor.get_webfinger())
-            .ok_or(Status::NotFound)
+            .map(|actor| actor.get_webfinger().unwrap_or_default())
+            .map_err(|e| {
+                log::error!("FAILED TO RETRIEVE WEBFINGER: {e:#?}");
+                Status::NotFound
+            })
     }
 }
 
@@ -37,7 +43,10 @@ pub async fn remote_id_authenticated(
     username: &str,
     id: &str,
 ) -> Result<String, Status> {
-    let id = urlencoding::decode(id).map_err(|_| Status::BadRequest)?;
+    let id = urlencoding::decode(id).map_err(|e| {
+        log::error!("FAILED TO DECODE id: {e:#?}");
+        Status::BadRequest
+    })?;
     let id = (*id).to_string();
 
     if blocks.is_blocked(get_domain_from_url(id.clone())) {
@@ -49,8 +58,11 @@ pub async fn remote_id_authenticated(
 
         get_actor(&conn, id, Some(profile), true)
             .await
-            .and_then(|actor| actor.get_webfinger())
-            .ok_or(Status::NotFound)
+            .map(|actor| actor.get_webfinger().unwrap_or_default())
+            .map_err(|e| {
+                log::error!("FAILED TO RETRIEVE WEBFINGER: {e:#?}");
+                Status::NotFound
+            })
     } else {
         log::error!("BAD SIGNATURE");
         Err(Status::Unauthorized)
@@ -63,7 +75,7 @@ async fn remote_actor_response(conn: &Db, webfinger: String) -> Result<Json<ApAc
         Ok(Json(ApActor::from(actor)))
     } else if let Some(ap_id) = get_ap_id_from_webfinger(webfinger).await {
         log::debug!("RETRIEVING ACTOR WEBFINGER FROM REMOTE OR LOCAL PROFILE");
-        if let Some(actor) = get_actor(conn, ap_id, None, true).await {
+        if let Ok(actor) = get_actor(conn, ap_id, None, true).await {
             Ok(Json(actor))
         } else {
             log::error!("FAILED TO RETRIEVE ACTOR BY AP_ID");
@@ -95,14 +107,19 @@ async fn remote_actor_authenticated_response(
     webfinger: String,
 ) -> Result<Json<ApActor>, Status> {
     if let Some(profile) = signed.profile() {
-        let ap_id = get_ap_id_from_webfinger(webfinger)
-            .await
-            .ok_or(Status::new(525))?;
-        log::debug!("RETRIEVING ACTOR WEBFINGER FROM REMOTE OR LOCAL PROFILE");
-        let actor = get_actor(conn, ap_id, Some(profile), true)
-            .await
-            .ok_or(Status::NotFound)?;
-        Ok(Json(actor))
+        let ap_id = get_ap_id_from_webfinger(webfinger).await.ok_or_else(|| {
+            log::error!("FAILED TO GET AP_ID FROM WEBFINGER");
+            Status::InternalServerError
+        })?;
+
+        Ok(Json(
+            get_actor(conn, ap_id, Some(profile), true)
+                .await
+                .map_err(|e| {
+                    log::error!("FAILED TO RETRIEVE ACTOR: {e:#?}");
+                    Status::NotFound
+                })?,
+        ))
     } else {
         Err(Status::Unauthorized)
     }
@@ -133,16 +150,25 @@ pub async fn remote_followers(
     if blocks.is_blocked(get_domain_from_webfinger(webfinger.to_string())) {
         Err(Status::Forbidden)
     } else if let Ok(Json(actor)) = remote_actor_response(&conn, webfinger.to_string()).await {
-        let followers = actor.followers.ok_or(Status::new(523))?;
+        let followers = actor.followers.ok_or_else(|| {
+            log::error!("Actor MUST HAVE FOLLOWERS COLLECTION");
+            Status::InternalServerError
+        })?;
 
         if let Some(page) = page {
-            let url = urlencoding::decode(page).map_err(|_| Status::new(524))?;
+            let url = urlencoding::decode(page).map_err(|e| {
+                log::error!("FAILED TO DECODE page: {e:#?}");
+                Status::InternalServerError
+            })?;
             let url = &(*url).to_string();
 
             if url.contains(&followers) {
                 let collection = get_remote_collection_page(&conn, None, page.to_string())
                     .await
-                    .map_err(|_| Status::new(525))?;
+                    .map_err(|e| {
+                        log::error!("FAILED TO RETRIEVE REMOTE CollectionPage: {e:#?}");
+                        Status::InternalServerError
+                    })?;
 
                 Ok(Json(ApObject::CollectionPage(collection)))
             } else {
@@ -151,11 +177,14 @@ pub async fn remote_followers(
         } else {
             let collection = get_remote_collection(&conn, None, followers)
                 .await
-                .map_err(|_| Status::NoContent)?;
+                .map_err(|e| {
+                    log::error!("FAILED TO RETRIEVE REMOTE Collection: {e:#?}");
+                    Status::InternalServerError
+                })?;
             Ok(Json(ApObject::Collection(collection)))
         }
     } else {
-        Err(Status::new(520))
+        Err(Status::InternalServerError)
     }
 }
 
@@ -182,14 +211,20 @@ pub async fn remote_followers_authenticated(
         {
             let followers = actor.followers.ok_or(Status::InternalServerError)?;
             if let Some(page) = page {
-                let url = urlencoding::decode(page).map_err(|_| Status::UnprocessableEntity)?;
+                let url = urlencoding::decode(page).map_err(|e| {
+                    log::error!("FAILED TO DECODE Page: {e:#?}");
+                    Status::UnprocessableEntity
+                })?;
                 let url = &(*url).to_string();
 
                 if url.contains(&followers) {
                     let collection =
                         get_remote_collection_page(&conn, Some(profile), page.to_string())
                             .await
-                            .map_err(|_| Status::InternalServerError)?;
+                            .map_err(|e| {
+                                log::error!("FAILED TO RETRIEVE REMOTE CollectionPage: {e:#?}");
+                                Status::InternalServerError
+                            })?;
                     Ok(Json(ApObject::CollectionPage(collection)))
                 } else {
                     Err(Status::NoContent)
@@ -197,7 +232,10 @@ pub async fn remote_followers_authenticated(
             } else {
                 let collection = get_remote_collection(&conn, Some(profile), followers)
                     .await
-                    .map_err(|_| Status::NoContent)?;
+                    .map_err(|e| {
+                        log::error!("FAILED TO RETRIEVE REMOTE Collection: {e:#?}");
+                        Status::InternalServerError
+                    })?;
                 Ok(Json(ApObject::Collection(collection)))
             }
         } else {
@@ -226,13 +264,19 @@ pub async fn remote_following(
     } else if let Ok(Json(actor)) = remote_actor_response(&conn, webfinger.to_string()).await {
         let following = actor.following.ok_or(Status::InternalServerError)?;
         if let Some(page) = page {
-            let url = urlencoding::decode(page).map_err(|_| Status::UnprocessableEntity)?;
+            let url = urlencoding::decode(page).map_err(|e| {
+                log::error!("FAILED TO DECODE page: {e:#?}");
+                Status::UnprocessableEntity
+            })?;
             let url = &(*url).to_string();
 
             if url.contains(&following) {
                 let collection = get_remote_collection_page(&conn, None, page.to_string())
                     .await
-                    .map_err(|_| Status::InternalServerError)?;
+                    .map_err(|e| {
+                        log::error!("FAILED TO RETRIEVE REMOTE CollectionPage: {e:#?}");
+                        Status::InternalServerError
+                    })?;
                 Ok(Json(ApObject::CollectionPage(collection)))
             } else {
                 Err(Status::InternalServerError)
@@ -240,7 +284,10 @@ pub async fn remote_following(
         } else {
             let collection = get_remote_collection(&conn, None, following)
                 .await
-                .map_err(|_| Status::InternalServerError)?;
+                .map_err(|e| {
+                    log::error!("FAILED TO RETRIEVE REMOTE Collection: {e:#?}");
+                    Status::InternalServerError
+                })?;
             Ok(Json(ApObject::Collection(collection)))
         }
     } else {
@@ -265,13 +312,19 @@ pub async fn remote_following_authenticated(
         {
             let following = actor.following.ok_or(Status::InternalServerError)?;
             if let Some(page) = page {
-                let url = urlencoding::decode(page).map_err(|_| Status::UnprocessableEntity)?;
+                let url = urlencoding::decode(page).map_err(|e| {
+                    log::error!("FAILED TO DECODE Page: {e:#?}");
+                    Status::UnprocessableEntity
+                })?;
                 let url = &(*url).to_string();
                 if url.contains(&following) {
                     let collection =
                         get_remote_collection_page(&conn, Some(profile), page.to_string())
                             .await
-                            .map_err(|_| Status::NoContent)?;
+                            .map_err(|e| {
+                                log::error!("FAILED TO RETRIEVE REMOTE CollectionPage: {e:#?}");
+                                Status::InternalServerError
+                            })?;
 
                     Ok(Json(ApObject::CollectionPage(collection)))
                 } else {
@@ -280,7 +333,10 @@ pub async fn remote_following_authenticated(
             } else {
                 let collection = get_remote_collection(&conn, Some(profile), following)
                     .await
-                    .map_err(|_| Status::NoContent)?;
+                    .map_err(|e| {
+                        log::error!("FAILED TO RETRIEVE REMOTE Collection: {e:#?}");
+                        Status::InternalServerError
+                    })?;
                 Ok(Json(ApObject::Collection(collection)))
             }
         } else {
@@ -308,12 +364,18 @@ pub async fn remote_outbox(
         Err(Status::Forbidden)
     } else if let Ok(Json(actor)) = remote_actor_response(&conn, webfinger.to_string()).await {
         if let Some(page) = page {
-            let url = urlencoding::decode(page).map_err(|_| Status::UnprocessableEntity)?;
+            let url = urlencoding::decode(page).map_err(|e| {
+                log::error!("FAILED TO DECODE Page: {e:#?}");
+                Status::UnprocessableEntity
+            })?;
             let url = &(*url).to_string();
             if url.contains(&actor.outbox) {
                 let collection = get_remote_collection_page(&conn, None, page.to_string())
                     .await
-                    .map_err(|_| Status::NoContent)?;
+                    .map_err(|e| {
+                        log::error!("FAILED TO RETRIEVE REMOTE CollectionPage: {e:#?}");
+                        Status::InternalServerError
+                    })?;
 
                 Ok(Json(ApObject::CollectionPage(collection)))
             } else {
@@ -322,7 +384,10 @@ pub async fn remote_outbox(
         } else {
             let collection = get_remote_collection(&conn, None, actor.outbox)
                 .await
-                .map_err(|_| Status::new(526))?;
+                .map_err(|e| {
+                    log::error!("FAILED TO RETRIEVE REMOTE Collection: {e:#?}");
+                    Status::InternalServerError
+                })?;
             Ok(Json(ApObject::Collection(collection)))
         }
     } else {
@@ -347,12 +412,18 @@ pub async fn remote_outbox_authenticated(
         let profile = signed.profile();
 
         if let Some(page) = page {
-            let url = urlencoding::decode(page).map_err(|_| Status::UnprocessableEntity)?;
+            let url = urlencoding::decode(page).map_err(|e| {
+                log::error!("FAILED TO DECODE Page: {e:#?}");
+                Status::UnprocessableEntity
+            })?;
             let url = &(*url).to_string();
             if url.contains(&actor.outbox) {
                 let collection = get_remote_collection_page(&conn, profile, page.to_string())
                     .await
-                    .map_err(|_| Status::ServiceUnavailable)?;
+                    .map_err(|e| {
+                        log::error!("FAILED TO RETRIEVE REMOTE CollectionPage: {e:#?}");
+                        Status::InternalServerError
+                    })?;
 
                 Ok(Json(ApObject::CollectionPage(collection)))
             } else {
@@ -361,7 +432,10 @@ pub async fn remote_outbox_authenticated(
         } else {
             let collection = get_remote_collection(&conn, profile, actor.outbox)
                 .await
-                .map_err(|_| Status::ServiceUnavailable)?;
+                .map_err(|e| {
+                    log::error!("FAILED TO RETRIEVE REMOTE Collection: {e:#?}");
+                    Status::ServiceUnavailable
+                })?;
             Ok(Json(ApObject::Collection(collection)))
         }
     } else {

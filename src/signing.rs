@@ -1,9 +1,10 @@
 use std::collections::HashMap;
 
-use crate::activity_pub::{retriever, ApActor};
+use crate::activity_pub::ApActor;
 use crate::db::Db;
-use crate::models::actors::{get_actor_by_username, Actor};
+use crate::models::actors::{get_actor_by_key_id, get_actor_by_username, Actor};
 use crate::{ASSIGNMENT_RE, LOCAL_USER_KEY_ID_RE};
+use anyhow::anyhow;
 use base64::{engine::general_purpose, engine::Engine as _};
 use rsa::pkcs1v15::{Signature, SigningKey};
 use rsa::signature::{RandomizedSigner, SignatureEncoding, Verifier};
@@ -15,7 +16,7 @@ use std::time::SystemTime;
 use url::Url;
 
 #[derive(Clone, Debug)]
-pub struct VerifyParams {
+pub struct VerifyMapParams {
     pub signature: String,
     pub request_target: String,
     pub host: String,
@@ -26,9 +27,17 @@ pub struct VerifyParams {
     pub user_agent: Option<String>,
 }
 
-fn build_verify_string(
-    params: VerifyParams,
-) -> (String, String, String, Option<String>, bool, Option<String>) {
+#[derive(Clone, Debug)]
+pub struct VerifyParams {
+    verify_string: String,
+    signature: String,
+    key_id: String,
+    key_selector: Option<String>,
+    local: bool,
+    signer_username: Option<String>,
+}
+
+fn build_verify_string(params: VerifyMapParams) -> VerifyParams {
     let mut signature_map = HashMap::<String, String>::new();
 
     for cap in ASSIGNMENT_RE.captures_iter(&params.signature) {
@@ -37,20 +46,16 @@ fn build_verify_string(
 
     let key_id = signature_map
         .get("keyId")
-        .expect("keyId not found in signature_map");
-    let key_id_parts: Vec<_> = key_id.split('#').collect();
-    let ap_id = key_id_parts
-        .first()
-        .expect("Failed to parse ap_id")
-        .to_string();
+        .expect("keyId not found in signature_map")
+        .clone();
 
     let mut local = false;
-    let mut username = Option::<String>::None;
+    let mut signer_username = Option::<String>::None;
     let mut key_selector = Option::<String>::None;
 
-    if let Some(captures) = LOCAL_USER_KEY_ID_RE.captures(key_id) {
+    if let Some(captures) = LOCAL_USER_KEY_ID_RE.captures(&key_id) {
         local = true;
-        username = Some(captures[2].to_string());
+        signer_username = Some(captures[2].to_string());
         key_selector = Some(captures[3].to_string());
     }
 
@@ -81,17 +86,17 @@ fn build_verify_string(
 
     log::debug!("VERIFY STRING: {verify_string}");
 
-    (
+    VerifyParams {
         verify_string,
-        signature_map
+        signature: signature_map
             .get("signature")
             .expect("signature not found in signature_map")
             .clone(),
-        ap_id,
+        key_id,
         key_selector,
         local,
-        username,
-    )
+        signer_username,
+    }
 }
 
 #[derive(Clone)]
@@ -103,21 +108,29 @@ pub enum VerificationType {
 
 #[derive(Debug)]
 pub enum VerificationError {
-    DecodeError,
-    SignatureError,
-    VerificationFailed,
-    PublicKeyError,
-    ActorNotFound,
+    DecodeError(anyhow::Error),
+    SignatureError(anyhow::Error),
+    VerificationFailed(anyhow::Error),
+    PublicKeyError(anyhow::Error),
+    ActorNotFound(Box<VerifyParams>),
     ProfileNotFound,
     ClientKeyNotFound,
 }
 
 pub async fn verify(
     conn: &Db,
-    params: VerifyParams,
+    params: VerifyMapParams,
 ) -> Result<VerificationType, VerificationError> {
-    let (verify_string, signature_str, ap_id, key_selector, local, username) =
-        build_verify_string(params.clone());
+    let verify_params = build_verify_string(params.clone());
+
+    let VerifyParams {
+        verify_string,
+        signature: signature_str,
+        key_id,
+        key_selector,
+        local,
+        signer_username: username,
+    } = verify_params.clone();
 
     fn verify(
         public_key: &RsaPublicKey,
@@ -128,47 +141,52 @@ pub async fn verify(
 
         general_purpose::STANDARD
             .decode(signature_str.as_bytes())
-            .map_err(|_| VerificationError::DecodeError)
+            .map_err(|e| VerificationError::DecodeError(anyhow!(e)))
             .and_then(|signature_bytes| {
                 rsa::pkcs1v15::Signature::try_from(signature_bytes.as_slice())
-                    .map_err(|_| VerificationError::SignatureError)
+                    .map_err(|e| VerificationError::SignatureError(anyhow!(e)))
             })
             .and_then(|signature| {
-                if verifying_key
+                verifying_key
                     .verify(verify_string.as_bytes(), &signature)
-                    .is_ok()
-                {
-                    Ok(())
-                } else {
-                    Err(VerificationError::VerificationFailed)
-                }
+                    .map_err(|e| VerificationError::VerificationFailed(anyhow!(e)))
             })
     }
 
     if local && key_selector == Some("client-key".to_string()) {
-        if let Some(username) = username {
-            if let Some(profile) = get_actor_by_username(conn, username).await {
-                if let Some(public_key) = profile.ek_client_public_key.clone() {
-                    RsaPublicKey::from_public_key_pem(public_key.trim_end())
-                        .map_err(|_| VerificationError::PublicKeyError)
-                        .and_then(|pk| verify(&pk, &signature_str, &verify_string))?;
-                    Ok(VerificationType::Local(Box::from(profile)))
-                } else {
-                    Err(VerificationError::ClientKeyNotFound)
-                }
-            } else {
-                Err(VerificationError::ProfileNotFound)
-            }
-        } else {
-            Err(VerificationError::ProfileNotFound)
-        }
-    } else if let Some(actor) = retriever::get_actor(conn, ap_id, None, true).await {
-        RsaPublicKey::from_public_key_pem(actor.public_key.public_key_pem.trim_end())
-            .map_err(|_| VerificationError::PublicKeyError)
+        let username = username.ok_or(VerificationError::ProfileNotFound)?;
+        let profile = get_actor_by_username(conn, username)
+            .await
+            .ok_or(VerificationError::ProfileNotFound)?;
+
+        let public_key = profile
+            .ek_client_public_key
+            .clone()
+            .ok_or(VerificationError::ClientKeyNotFound)?;
+
+        RsaPublicKey::from_public_key_pem(public_key.trim_end())
+            .map_err(|e| VerificationError::PublicKeyError(anyhow!(e)))
             .and_then(|pk| verify(&pk, &signature_str, &verify_string))?;
+
+        Ok(VerificationType::Local(Box::from(profile)))
+    } else if let Ok(actor) = get_actor_by_key_id(conn, key_id).await {
+        // I'm making a conscious choice here to limit accessibility to Actors that already have local records.
+        // Because all we get is a KeyId in this exchange, and because KeyIds do not have a standard format
+        // that lends itself to Actor ID discovery, trying to resolve to an unknown Actor ID is guesswork.
+        // For example, Mastodon and Enigmatick use https://{server}/user(s)/{username}#main-key. GoToSocial
+        // uses https://{server}/users/{username}/main-key. I could RegEx the variant, but it's clear that with
+        // no real standard, I'd be chasing subjectivity across implementations.
+        //
+        // This approach should be okay with one exception: if we eventually integrate with a Relay of some sort
+        // where we're getting messages from completely unknown Actors.
+        RsaPublicKey::from_public_key_pem(
+            ApActor::from(actor).public_key.public_key_pem.trim_end(),
+        )
+        .map_err(|e| VerificationError::PublicKeyError(anyhow!(e)))
+        .and_then(|pk| verify(&pk, &signature_str, &verify_string))?;
         Ok(VerificationType::Remote)
     } else {
-        Err(VerificationError::ActorNotFound)
+        Err(VerificationError::ActorNotFound(verify_params.into()))
     }
 }
 

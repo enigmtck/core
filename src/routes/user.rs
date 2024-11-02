@@ -3,8 +3,9 @@ use crate::{
     db::Db,
     fairings::signatures::Signed,
     models::{
-        actors::get_actor_by_username, followers::get_followers_by_actor_id,
-        leaders::get_leaders_by_actor_id,
+        actors::get_actor_by_username, followers::get_follower_count_by_actor_id,
+        followers::get_followers_by_actor_id, leaders::get_leader_count_by_actor_id,
+        leaders::get_leaders_by_actor_id, OffsetPaging,
     },
 };
 use rocket::{get, http::Status, response::Redirect, serde::json::Json};
@@ -66,43 +67,118 @@ pub async fn liked_get(conn: Db, username: String) -> Result<ActivityJson<ApColl
     }
 }
 
-#[get("/user/<username>/followers")]
+#[get("/user/<username>/followers?<page>")]
 pub async fn get_followers(
     _signed: Signed,
     conn: Db,
     username: String,
+    page: Option<u32>,
 ) -> Result<ActivityJson<ApCollection>, Status> {
-    if let Some(profile) = get_actor_by_username(&conn, username).await {
-        let followers = get_followers_by_actor_id(&conn, profile.id).await;
+    let profile = get_actor_by_username(&conn, username)
+        .await
+        .ok_or(Status::NotFound)?;
 
-        Ok(ActivityJson(Json(ApCollection::from(FollowersPage {
-            page: 0,
+    let total_items = get_follower_count_by_actor_id(&conn, profile.id)
+        .await
+        .map_err(|e| {
+            log::error!("FAILED TO RETRIEVE FOLLOWER COUNT: {e:#?}");
+            Status::InternalServerError
+        })?;
+
+    let results = match page {
+        Some(p) if p > 0 => {
+            get_followers_by_actor_id(
+                &conn,
+                profile.id,
+                Some(OffsetPaging {
+                    page: p - 1,
+                    limit: 20,
+                }),
+            )
+            .await
+        }
+        _ => vec![],
+    };
+
+    let followers = results
+        .iter()
+        .map(|(follower, _)| follower.clone())
+        .collect();
+
+    let actors = Some(
+        results
+            .iter()
+            .filter_map(|(_, actor)| actor.clone())
+            .collect::<Vec<_>>(),
+    );
+
+    Ok(ActivityJson(Json(
+        ApCollection::try_from(FollowersPage {
+            page,
             profile,
-            followers: followers
-                .iter()
-                .map(|(follower, _)| follower.clone())
-                .collect(),
-        }))))
-    } else {
-        Err(Status::NotFound)
-    }
+            total_items,
+            followers,
+            actors,
+        })
+        .map_err(|e| {
+            log::error!("FAILED TO RETRIEVE LEADERS: {e:#?}");
+            Status::InternalServerError
+        })?,
+    )))
 }
 
-#[get("/user/<username>/following")]
+#[get("/user/<username>/following?<page>")]
 pub async fn get_leaders(
     _signed: Signed,
     conn: Db,
     username: String,
+    page: Option<u32>, // page starts at 1; must be adjusted to 0 for query
 ) -> Result<ActivityJson<ApCollection>, Status> {
-    if let Some(profile) = get_actor_by_username(&conn, username).await {
-        let leaders = get_leaders_by_actor_id(&conn, profile.id).await;
+    let profile = get_actor_by_username(&conn, username)
+        .await
+        .ok_or(Status::NotFound)?;
 
-        Ok(ActivityJson(Json(ApCollection::from(LeadersPage {
-            page: 0,
+    let total_items = get_leader_count_by_actor_id(&conn, profile.id)
+        .await
+        .map_err(|e| {
+            log::error!("FAILED TO RETRIEVE LEADER COUNT: {e:#?}");
+            Status::InternalServerError
+        })?;
+
+    let results = match page {
+        Some(p) if p > 0 => {
+            get_leaders_by_actor_id(
+                &conn,
+                profile.id,
+                Some(OffsetPaging {
+                    page: p - 1,
+                    limit: 20,
+                }),
+            )
+            .await
+        }
+        _ => vec![],
+    };
+
+    let leaders = results.iter().map(|(leader, _)| leader.clone()).collect();
+    let actors = Some(
+        results
+            .iter()
+            .filter_map(|(_, actor)| actor.clone())
+            .collect::<Vec<_>>(),
+    );
+
+    Ok(ActivityJson(Json(
+        ApCollection::try_from(LeadersPage {
+            page,
             profile,
-            leaders: leaders.iter().map(|(leader, _)| leader.clone()).collect(),
-        }))))
-    } else {
-        Err(Status::NotFound)
-    }
+            total_items,
+            leaders,
+            actors,
+        })
+        .map_err(|e| {
+            log::error!("FAILED TO RETRIEVE LEADERS: {e:#?}");
+            Status::InternalServerError
+        })?,
+    )))
 }

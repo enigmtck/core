@@ -4,7 +4,8 @@ use std::{collections::HashMap, fmt::Debug};
 use crate::{
     activity_pub::ApActivity,
     activity_pub::{
-        ApActor, ApAttachment, ApCollection, ApContext, ApImage, ApInstruments, ApTag, Outbox,
+        ActivityPub, ApActor, ApAttachment, ApCollection, ApContext, ApImage, ApInstruments, ApTag,
+        Outbox,
     },
     db::Db,
     fairings::events::EventChannels,
@@ -290,9 +291,13 @@ impl ApNote {
         note.internal_uuid = Some(uuid.clone());
         note.id = Some(get_object_ap_id_from_uuid(uuid.clone()));
         note.url = Some(get_object_url_from_uuid(uuid.clone()));
-        note.published = Utc::now().to_rfc3339();
+        note.published = ActivityPub::time(Utc::now());
         note.attributed_to = profile.as_id.clone().into();
-        note.conversation = Some(get_conversation_ap_id_from_uuid(Uuid::new_v4().to_string()));
+
+        if note.conversation.is_none() {
+            note.conversation = Some(get_conversation_ap_id_from_uuid(Uuid::new_v4().to_string()));
+        }
+
         note.context = Some(ApContext::default());
 
         let object = create_or_update_object(&conn, (note, profile).into())
@@ -528,7 +533,7 @@ impl Default for ApNote {
             kind: ApNoteType::Note,
             to: MaybeMultiple::Multiple(vec![]),
             url: None,
-            published: Utc::now().format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string(),
+            published: ActivityPub::time(Utc::now()),
             cc: None,
             replies: None,
             attachment: None,
@@ -581,7 +586,7 @@ impl From<IdentifiedVaultItem> for ApNote {
                 vault.uuid
             )),
             content: vault.encrypted_data,
-            published: from_time(vault.created_at).unwrap().to_rfc3339(),
+            published: ActivityPub::time(from_time(vault.created_at).unwrap()),
             ..Default::default()
         }
     }
@@ -658,7 +663,7 @@ impl TryFrom<CoalescedActivity> for ApNote {
             attachment,
             summary,
             sensitive,
-            published: published.to_rfc2822(),
+            published: ActivityPub::time(published),
             ephemeral_metadata,
             ephemeral_announces,
             ephemeral_likes,
@@ -678,7 +683,7 @@ impl TryFrom<Object> for ApNote {
             Ok(ApNote {
                 id: Some(object.as_id.clone()),
                 kind: ApNoteType::Note,
-                published: object.as_published.unwrap_or(Utc::now()).to_rfc2822(),
+                published: ActivityPub::time(object.as_published.unwrap_or(Utc::now())),
                 url: object.as_url.clone().and_then(from_serde),
                 to: object
                     .as_to
@@ -722,11 +727,15 @@ async fn handle_encrypted_note(
 
     let object = create_or_update_object(&conn, note.into())
         .await
-        .map_err(|_| Status::InternalServerError)?;
+        .map_err(|e| {
+            log::error!("FAILED TO CREATE Object: {e:#?}");
+            Status::InternalServerError
+        })?;
 
-    log::debug!("created_note\n{object:#?}");
-
-    let ek_uuid = object.ek_uuid.ok_or(Status::InternalServerError)?;
+    let ek_uuid = object.ek_uuid.ok_or_else(|| {
+        log::error!("MISSING ed_uuid");
+        Status::InternalServerError
+    })?;
 
     runner::run(
         ApNote::send_note,

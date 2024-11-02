@@ -194,7 +194,10 @@ pub async fn send_kexinit_task(
         }
 
         let inbox = inbox.ok_or(TaskError::TaskFailed)?;
-        let activity = ApInvite::try_from(session).map_err(|_| TaskError::TaskFailed)?;
+        let activity = ApInvite::try_from(session).map_err(|e| {
+            log::error!("FAILED TO BUILD ApInvite: {e:#?}");
+            TaskError::TaskFailed
+        })?;
 
         send_to_inboxes(
             conn.unwrap(),
@@ -203,7 +206,10 @@ pub async fn send_kexinit_task(
             ApActivity::Invite(activity),
         )
         .await
-        .map_err(|_| TaskError::TaskFailed)?
+        .map_err(|e| {
+            log::error!("FAILED TO SEND TO INBOXES: {e:#?}");
+            TaskError::TaskFailed
+        })?
     }
 
     Ok(())
@@ -254,7 +260,10 @@ pub async fn provide_one_time_key_task(
                 reference: session.ap_id,
             });
 
-            let activity = ApJoin::try_from(session.clone()).map_err(|_| TaskError::TaskFailed)?;
+            let activity = ApJoin::try_from(session.clone()).map_err(|e| {
+                log::error!("FAILED TO BUILD ApJoin: {e:#?}");
+                TaskError::TaskFailed
+            })?;
 
             let encrypted_session: NewEncryptedSession = (session.clone(), profile.id).into();
 

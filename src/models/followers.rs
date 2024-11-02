@@ -1,9 +1,11 @@
+use super::OffsetPaging;
 use crate::activity_pub::ApFollow;
 use crate::db::Db;
 use crate::helper::{get_local_identifier, LocalIdentifierType};
 use crate::schema::{actors, followers};
 use crate::{MaybeReference, POOL};
 use anyhow::Result;
+use diesel::pg::Pg;
 use diesel::prelude::*;
 
 use diesel::Insertable;
@@ -113,13 +115,25 @@ pub async fn delete_follower_by_ap_id(conn: Option<&Db>, ap_id: String) -> bool 
     }
 }
 
-pub async fn get_followers_by_actor_id(conn: &Db, actor_id: i32) -> Vec<(Follower, Option<Actor>)> {
+pub async fn get_followers_by_actor_id(
+    conn: &Db,
+    actor_id: i32,
+    paging: Option<OffsetPaging>,
+) -> Vec<(Follower, Option<Actor>)> {
     conn.run(move |c| {
-        followers::table
+        let mut query = followers::table
             .filter(followers::actor_id.eq(actor_id))
             .left_join(actors::table.on(followers::actor.eq(actors::as_id)))
             .order_by(followers::created_at.desc())
-            .get_results::<(Follower, Option<Actor>)>(c)
+            .into_boxed();
+
+        if let Some(paging) = paging {
+            query = query
+                .limit(paging.limit as i64)
+                .offset((paging.page * paging.limit) as i64);
+        }
+
+        query.get_results::<(Follower, Option<Actor>)>(c)
     })
     .await
     .unwrap_or(vec![])

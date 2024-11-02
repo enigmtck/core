@@ -16,7 +16,7 @@ use super::TaskError;
 pub async fn get_follower_inboxes(conn: &Db, profile: Actor) -> Vec<ApAddress> {
     let mut inboxes: HashSet<ApAddress> = HashSet::new();
 
-    for (follower, _) in get_followers_by_actor_id(conn, profile.id).await {
+    for (follower, _) in get_followers_by_actor_id(conn, profile.id, None).await {
         if let Ok(actor) = get_actor_by_as_id(conn, follower.actor).await {
             let actor = ApActor::from(actor);
             if let Some(endpoints) = actor.endpoints {
@@ -38,14 +38,14 @@ pub async fn send_profile_update_task(
     let conn = conn.as_ref();
 
     for uuid in uuids {
-        log::debug!("LOOKING UP {uuid}");
         let profile = get_actor_by_uuid(conn.unwrap(), uuid)
             .await
             .ok_or(TaskError::TaskFailed)?;
-        log::debug!("FOUND PROFILE");
-        let update = ApUpdate::try_from(ApActor::from(profile.clone()))
-            .map_err(|_| TaskError::TaskFailed)?;
-        log::debug!("UPDATE\n{update:#?}");
+
+        let update = ApUpdate::try_from(ApActor::from(profile.clone())).map_err(|e| {
+            log::error!("FAILED TO BUILD ApUpdate: {e:#?}");
+            TaskError::TaskFailed
+        })?;
 
         send_to_inboxes(
             conn.unwrap(),
@@ -54,7 +54,10 @@ pub async fn send_profile_update_task(
             ApActivity::Update(update),
         )
         .await
-        .map_err(|_| TaskError::TaskFailed)?;
+        .map_err(|e| {
+            log::error!("FAILED TO SEND TO INBOXES: {e:#?}");
+            TaskError::TaskFailed
+        })?;
     }
 
     Ok(())

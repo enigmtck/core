@@ -1,6 +1,7 @@
 use crate::activity_pub::PUBLIC_COLLECTION;
 use crate::db::Db;
 use crate::helper::{get_activity_ap_id_from_uuid, get_ap_id_from_username};
+use crate::models::activities::{get_activity, ExtendedActivity};
 use crate::models::pg::parameter_generator;
 use crate::schema::{activities, actors};
 use crate::POOL;
@@ -149,6 +150,12 @@ pub struct Activity {
     pub actor_id: Option<i32>,
     pub target_actor_id: Option<i32>,
     pub log: Option<Value>,
+}
+
+impl Activity {
+    pub async fn extend(&self, conn: &Db) -> Option<ExtendedActivity> {
+        get_activity(Some(conn), self.id).await
+    }
 }
 
 #[derive(Default, Debug)]

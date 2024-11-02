@@ -185,17 +185,15 @@ pub async fn get_actor(
     id: String,
     requester: Option<Actor>,
     update: bool,
-) -> Option<ApActor> {
+) -> Result<ApActor> {
     let actor = get_local_or_cached_actor(conn, id.clone(), requester.clone(), update).await;
 
     if let Some(actor) = actor {
-        Some(actor.cache(conn).await.clone())
+        Ok(actor.cache(conn).await.clone())
     } else if update {
-        process_remote_actor_retrieval(conn, requester, id)
-            .await
-            .ok()
+        process_remote_actor_retrieval(conn, requester, id).await
     } else {
-        None
+        Err(anyhow!("FAILED TO RETRIEVE ACTOR"))
     }
 }
 

@@ -2,7 +2,9 @@ use core::fmt;
 use std::fmt::Debug;
 
 use crate::{
-    activity_pub::{ApActivity, ApAddress, ApContext, ApNote, ApObject, Inbox, Outbox, Temporal},
+    activity_pub::{
+        ActivityPub, ApActivity, ApAddress, ApContext, ApNote, ApObject, Inbox, Outbox, Temporal,
+    },
     db::Db,
     fairings::events::EventChannels,
     models::{
@@ -73,11 +75,13 @@ pub struct ApAnnounce {
 impl Inbox for ApAnnounce {
     async fn inbox(&self, conn: Db, channels: EventChannels, raw: Value) -> Result<Status, Status> {
         let mut activity = NewActivity::try_from((ApActivity::Announce(self.clone()), None))
-            .map_err(|_| Status::new(520))?;
+            .map_err(|e| {
+                log::error!("FAILED TO BUILD ACTIVITY: {e:#?}");
+                Status::InternalServerError
+            })?;
 
         activity.raw = Some(raw.clone());
 
-        log::debug!("ACTIVITY\n{activity:#?}");
         if create_activity((&conn).into(), activity.clone())
             .await
             .is_ok()
@@ -117,20 +121,25 @@ async fn outbox(
     raw: Value,
 ) -> Result<String, Status> {
     if let MaybeReference::Reference(as_id) = announce.clone().object {
-        let object = get_object_by_as_id(Some(&conn), as_id)
-            .await
-            .map_err(|_| Status::NotFound)?;
+        let object = get_object_by_as_id(Some(&conn), as_id).await.map_err(|e| {
+            log::error!("FAILED TO RETRIEVE Object: {e:#?}");
+            Status::NotFound
+        })?;
 
         let mut activity = NewActivity::try_from((announce.into(), Some(object.into())))
-            .map_err(|_| Status::InternalServerError)?
+            .map_err(|e| {
+                log::error!("FAILED TO BUILD Activity: {e:#?}");
+                Status::InternalServerError
+            })?
             .link_actor(&conn)
             .await;
 
         activity.raw = Some(raw);
 
-        let activity = create_activity(Some(&conn), activity)
-            .await
-            .map_err(|_| Status::InternalServerError)?;
+        let activity = create_activity(Some(&conn), activity).await.map_err(|e| {
+            log::error!("FAILED TO CREATE Activity: {e:#?}");
+            Status::InternalServerError
+        })?;
 
         runner::run(
             runner::announce::send_announce_task,
@@ -186,7 +195,7 @@ impl TryFrom<CoalescedActivity> for ApAnnounce {
             .and_then(from_serde)
             .ok_or_else(|| anyhow::anyhow!("ap_to is None"))?;
         let cc = coalesced.clone().cc.and_then(from_serde);
-        let published = from_time(coalesced.created_at).unwrap().to_rfc3339();
+        let published = ActivityPub::time(from_time(coalesced.created_at).unwrap());
         let ephemeral_created_at = from_time(coalesced.created_at);
         let ephemeral_updated_at = from_time(coalesced.updated_at);
 
@@ -228,7 +237,7 @@ impl TryFrom<ExtendedActivity> for ApAnnounce {
                 )),
                 to: from_serde(ap_to).unwrap(),
                 cc: activity.cc.and_then(from_serde),
-                published: from_time(activity.created_at).unwrap().to_rfc3339(),
+                published: ActivityPub::time(from_time(activity.created_at).unwrap()),
                 object,
                 ephemeral_created_at: from_time(activity.created_at),
                 ephemeral_updated_at: from_time(activity.updated_at),

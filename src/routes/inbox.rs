@@ -14,6 +14,7 @@ use crate::models::activities::{TimelineFilters, TimelineView};
 use crate::models::leaders::get_leaders_by_actor_id;
 use crate::models::pg::activities::get_announcers;
 use crate::models::unprocessable::create_unprocessable;
+use crate::models::OffsetPaging;
 use crate::SERVER_URL;
 use std::fmt;
 //use crate::models::remote_activities::create_remote_activity;
@@ -106,8 +107,11 @@ pub async fn shared_inbox_get(
                 },
                 InboxView::Home => TimelineFilters {
                     view: if let Some(profile) = profile.clone() {
+                        // The limit below is arbitrary; it means that only the 1000 most recently
+                        // followed accounts will be in the Home timeline. I think that's okay for the
+                        // moment and it makes sense to impose some kind of limit
                         Some(TimelineView::Home(
-                            get_leaders_by_actor_id(&conn, profile.id)
+                            get_leaders_by_actor_id(&conn, profile.id, None)
                                 .await
                                 .iter()
                                 .filter_map(|leader| leader.1.clone()?.as_followers.clone())
@@ -217,7 +221,10 @@ pub async fn announcers_get(
     let limit = limit.unwrap_or(50);
     let base_url = format!("{server_url}/api/announcers?limit={limit}&target={target}");
 
-    let decoded = urlencoding::decode(&target).map_err(|_| Status::UnprocessableEntity)?;
+    let decoded = urlencoding::decode(&target).map_err(|e| {
+        log::error!("FAILED TO DECODE target: {e:#?}");
+        Status::UnprocessableEntity
+    })?;
 
     let actors = get_announcers(&conn, min, max, Some(limit), decoded.to_string())
         .await
@@ -246,7 +253,10 @@ pub async fn conversation_get(
     min: Option<i64>,
     max: Option<i64>,
 ) -> Result<ActivityJson<ApObject>, Status> {
-    let decoded = urlencoding::decode(&id).map_err(|_| Status::UnprocessableEntity)?;
+    let decoded = urlencoding::decode(&id).map_err(|e| {
+        log::error!("FAILED TO DECODE id: {e:#?}");
+        Status::UnprocessableEntity
+    })?;
     let limit = limit.unwrap_or(20);
     let server_url = &*SERVER_URL;
     let base_url = format!("{server_url}/api/conversation?id={id}&limit={limit}");
