@@ -271,7 +271,7 @@ fn query_end_block(mut query: String) -> String {
          'icon', ac.as_icon, 'preferredUsername', ac.as_preferred_username)) \
          FILTER (WHERE a.actor IS NOT NULL AND a.kind = 'like'), '[]') \
          AS object_likers, \
-         JSONB_AGG(jsonb_build_object('id', ac2.as_id, 'name', ac2.as_name, 'tag', ac2.as_tag, 'url', ac2.as_url,\
+         JSONB_AGG(DISTINCT jsonb_build_object('id', ac2.as_id, 'name', ac2.as_name, 'tag', ac2.as_tag, 'url', ac2.as_url,\
          'icon', ac2.as_icon, 'preferredUsername', ac2.as_preferred_username)) AS object_attributed_to_profiles, \
          announced.object_announced, \
          liked.object_liked \

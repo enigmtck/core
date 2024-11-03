@@ -21,10 +21,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use super::{
-    actor::{ApActor, ApAddress},
-    collection::ApCollectionType,
-    note::{ApNoteType, Metadata},
-    object::ApImage,
+    actor::ApAddress, collection::ApCollectionType, note::ApNoteType, object::ApImage, Ephemeral,
 };
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default, Eq, PartialEq)]
@@ -123,45 +120,25 @@ pub struct ApQuestion {
     pub in_reply_to: Option<String>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub ephemeral_announces: Option<Vec<String>>,
-
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub ephemeral_actors: Option<Vec<ApActor>>,
-
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub ephemeral_liked: Option<String>,
-
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub ephemeral_announced: Option<String>,
-
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub ephemeral_targeted: Option<bool>,
-
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub ephemeral_metadata: Option<Vec<Metadata>>,
-
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub ephemeral_likes: Option<Vec<String>>,
-
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub ephemeral_created_at: Option<DateTime<Utc>>,
-
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub ephemeral_updated_at: Option<DateTime<Utc>>,
+    pub ephemeral: Option<Ephemeral>,
 }
 
 impl ApQuestion {
     pub fn dedup(mut self) -> Self {
-        if let Some(mut announces) = self.ephemeral_announces {
-            announces.sort();
-            announces.dedup();
-            self.ephemeral_announces = Some(announces);
-        }
+        if let Some(mut ephemeral) = self.ephemeral {
+            if let Some(mut announces) = ephemeral.announces {
+                announces.sort();
+                announces.dedup();
+                ephemeral.announces = Some(announces);
+            }
 
-        if let Some(mut likes) = self.ephemeral_likes {
-            likes.sort();
-            likes.dedup();
-            self.ephemeral_likes = Some(likes);
+            if let Some(mut likes) = ephemeral.likes {
+                likes.sort();
+                likes.dedup();
+                ephemeral.likes = Some(likes);
+            }
+
+            self.ephemeral = Some(ephemeral);
         }
 
         self
@@ -182,14 +159,16 @@ impl Cache for ApQuestion {
             }
         }
 
-        if let Some(metadata_vec) = self.ephemeral_metadata.clone() {
-            for metadata in metadata_vec {
-                if let Some(og_image) = metadata.og_image.clone() {
-                    cache_content(conn, Ok(ApImage::from(og_image).into())).await;
-                }
+        if let Some(ephemeral) = self.ephemeral.clone() {
+            if let Some(metadata_vec) = ephemeral.metadata.clone() {
+                for metadata in metadata_vec {
+                    if let Some(og_image) = metadata.og_image.clone() {
+                        cache_content(conn, Ok(ApImage::from(og_image).into())).await;
+                    }
 
-                if let Some(twitter_image) = metadata.twitter_image.clone() {
-                    cache_content(conn, Ok(ApImage::from(twitter_image).into())).await;
+                    if let Some(twitter_image) = metadata.twitter_image.clone() {
+                        cache_content(conn, Ok(ApImage::from(twitter_image).into())).await;
+                    }
                 }
             }
         }
@@ -299,8 +278,11 @@ impl TryFrom<Object> for ApQuestion {
             attachment: object.as_attachment.and_then(from_serde),
             sensitive: object.ap_sensitive,
             in_reply_to: object.as_in_reply_to.and_then(from_serde),
-            ephemeral_created_at: from_time(object.created_at),
-            ephemeral_updated_at: from_time(object.updated_at),
+            ephemeral: Some(Ephemeral {
+                created_at: from_time(object.created_at),
+                updated_at: from_time(object.updated_at),
+                ..Default::default()
+            }),
             ..Default::default()
         })
     }

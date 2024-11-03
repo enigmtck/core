@@ -20,6 +20,7 @@ use super::collection::ApCollectionPage;
 use super::delete::ApTombstone;
 use super::question::ApQuestion;
 use super::session::ApSession;
+use super::Ephemeral;
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 #[serde(untagged)]
@@ -166,8 +167,20 @@ impl Outbox for ApBasicContent {
 impl ApObject {
     pub fn timestamp(&self) -> DateTime<Utc> {
         match self {
-            ApObject::Note(note) => note.ephemeral_timestamp.unwrap_or(Utc::now()),
-            ApObject::Question(question) => question.ephemeral_updated_at.unwrap_or(Utc::now()),
+            ApObject::Note(note) => {
+                if let Some(ephemeral) = note.ephemeral.clone() {
+                    ephemeral.updated_at.unwrap_or(Utc::now())
+                } else {
+                    Utc::now()
+                }
+            }
+            ApObject::Question(question) => {
+                if let Some(ephemeral) = question.ephemeral.clone() {
+                    ephemeral.updated_at.unwrap_or(Utc::now())
+                } else {
+                    Utc::now()
+                }
+            }
             _ => Utc::now(),
         }
     }
@@ -179,7 +192,10 @@ impl ApObject {
                     retriever::get_actor(conn, note.attributed_to.clone().to_string(), None, true)
                         .await
                 {
-                    note.ephemeral_attributed_to = Some(vec![actor.into()]);
+                    note.ephemeral = Some(Ephemeral {
+                        attributed_to: Some(vec![actor.into()]),
+                        ..Default::default()
+                    });
                 }
                 ApObject::Note(note.clone())
             }

@@ -2,6 +2,7 @@ use core::fmt;
 use std::cmp::Reverse;
 use std::fmt::Debug;
 
+use super::Ephemeral;
 use crate::activity_pub::{
     ActivityPub, ApActivity, ApActor, ApActorTerse, ApContext, ApObject, Outbox,
 };
@@ -49,6 +50,25 @@ impl Cache for ApCollection {
         }
 
         self
+    }
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(untagged)]
+pub enum ApCollectionAmbiguated {
+    Collection(ApCollection),
+    Page(ApCollectionPage),
+}
+
+impl From<ApCollection> for ApCollectionAmbiguated {
+    fn from(collection: ApCollection) -> Self {
+        ApCollectionAmbiguated::Collection(collection)
+    }
+}
+
+impl From<ApCollectionPage> for ApCollectionAmbiguated {
+    fn from(collection: ApCollectionPage) -> Self {
+        ApCollectionAmbiguated::Page(collection)
     }
 }
 
@@ -103,7 +123,7 @@ pub struct ApCollectionPage {
     #[serde(skip_serializing_if = "Option::is_none")]
     ordered_items: Option<Vec<ActivityPub>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub ephemeral_actors: Option<Vec<ApActorTerse>>,
+    pub ephemeral: Option<Ephemeral>,
 }
 
 impl Collectible for ApCollectionPage {
@@ -142,7 +162,7 @@ impl Default for ApCollectionPage {
             next: None,
             prev: None,
             part_of: None,
-            ephemeral_actors: None,
+            ephemeral: None,
         }
     }
 }
@@ -176,7 +196,7 @@ pub struct ApCollection {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub part_of: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub ephemeral_actors: Option<Vec<ApActorTerse>>,
+    pub ephemeral: Option<Ephemeral>,
 }
 
 impl Collectible for ApCollection {
@@ -216,7 +236,7 @@ impl Default for ApCollection {
             prev: None,
             current: None,
             part_of: None,
-            ephemeral_actors: None,
+            ephemeral: None,
         }
     }
 }
@@ -334,7 +354,7 @@ pub struct FollowersPage {
     pub actors: Option<Vec<ApActorTerse>>,
 }
 
-impl TryFrom<FollowersPage> for ApCollection {
+impl TryFrom<FollowersPage> for ApCollectionAmbiguated {
     type Error = anyhow::Error;
 
     fn try_from(request: FollowersPage) -> Result<Self> {
@@ -352,8 +372,8 @@ impl TryFrom<FollowersPage> for ApCollection {
         }
 
         match request.page {
-            Some(page) => Ok(ApCollection {
-                kind: ApCollectionType::OrderedCollection,
+            Some(page) => Ok(ApCollectionPage {
+                kind: ApCollectionPageType::OrderedCollectionPage,
                 id: Some(format!("{id}?page={page}")),
                 total_items: Some(request.total_items),
                 first: Some(format!("{id}?page=1").into()),
@@ -374,9 +394,10 @@ impl TryFrom<FollowersPage> for ApCollection {
                         .map(|x| ActivityPub::Object(ApObject::Plain(x.actor)))
                         .collect::<Vec<ActivityPub>>(),
                 ),
-                ephemeral_actors: request.actors,
+                ephemeral: Some(request.actors.into()),
                 ..Default::default()
-            }),
+            }
+            .into()),
             None => Ok(ApCollection {
                 kind: ApCollectionType::OrderedCollection,
                 id: Some(id.clone()),
@@ -386,9 +407,10 @@ impl TryFrom<FollowersPage> for ApCollection {
                 next: Some(format!("{id}?page=1").into()),
                 part_of: Some(id.clone()),
                 ordered_items: None,
-                ephemeral_actors: None,
+                ephemeral: None,
                 ..Default::default()
-            }),
+            }
+            .into()),
         }
     }
 }
@@ -402,7 +424,7 @@ pub struct LeadersPage {
     pub actors: Option<Vec<ApActorTerse>>,
 }
 
-impl TryFrom<LeadersPage> for ApCollection {
+impl TryFrom<LeadersPage> for ApCollectionAmbiguated {
     type Error = anyhow::Error;
 
     fn try_from(request: LeadersPage) -> Result<Self> {
@@ -420,8 +442,8 @@ impl TryFrom<LeadersPage> for ApCollection {
         }
 
         match request.page {
-            Some(page) => Ok(ApCollection {
-                kind: ApCollectionType::OrderedCollection,
+            Some(page) => Ok(ApCollectionPage {
+                kind: ApCollectionPageType::OrderedCollectionPage,
                 id: Some(format!("{id}?page={page}")),
                 total_items: Some(request.total_items),
                 first: Some(format!("{id}?page=1").into()),
@@ -442,9 +464,10 @@ impl TryFrom<LeadersPage> for ApCollection {
                         .map(|x| ActivityPub::Object(ApObject::Plain(x.leader_ap_id)))
                         .collect::<Vec<ActivityPub>>(),
                 ),
-                ephemeral_actors: request.actors,
+                ephemeral: Some(request.actors.into()),
                 ..Default::default()
-            }),
+            }
+            .into()),
             None => Ok(ApCollection {
                 kind: ApCollectionType::OrderedCollection,
                 id: Some(id.clone()),
@@ -454,9 +477,10 @@ impl TryFrom<LeadersPage> for ApCollection {
                 next: Some(format!("{id}?page=1").into()),
                 part_of: Some(id.clone()),
                 ordered_items: None,
-                ephemeral_actors: None,
+                ephemeral: None,
                 ..Default::default()
-            }),
+            }
+            .into()),
         }
     }
 }

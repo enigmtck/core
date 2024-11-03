@@ -107,9 +107,6 @@ pub async fn shared_inbox_get(
                 },
                 InboxView::Home => TimelineFilters {
                     view: if let Some(profile) = profile.clone() {
-                        // The limit below is arbitrary; it means that only the 1000 most recently
-                        // followed accounts will be in the Home timeline. I think that's okay for the
-                        // moment and it makes sense to impose some kind of limit
                         Some(TimelineView::Home(
                             get_leaders_by_actor_id(&conn, profile.id, None)
                                 .await

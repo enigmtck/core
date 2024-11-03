@@ -1,6 +1,7 @@
 use core::fmt;
 use std::fmt::Debug;
 
+use super::Ephemeral;
 use crate::activity_pub::{
     ActivityPub, ApAttachment, ApContext, ApEndpoint, ApImage, ApTag, Outbox,
 };
@@ -208,24 +209,7 @@ pub struct ApActor {
     pub capabilities: Option<ApCapabilities>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub ephemeral_followers: Option<i64>,
-
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub ephemeral_leaders: Option<i64>,
-
-    // These are ephemeral attributes to facilitate client operations
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub ephemeral_following: Option<bool>,
-
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub ephemeral_leader_ap_id: Option<String>,
-
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub ephemeral_follow_activity_ap_id: Option<String>,
-
-    // These are used for user operations on their own profile
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub ephemeral_summary_markdown: Option<String>,
+    pub ephemeral: Option<Ephemeral>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Eq, PartialEq, Ord, PartialOrd)]
@@ -341,12 +325,7 @@ impl Default for ApActor {
             also_known_as: None,
             discoverable: None,
             capabilities: None,
-            ephemeral_following: None,
-            ephemeral_leader_ap_id: None,
-            ephemeral_summary_markdown: None,
-            ephemeral_followers: None,
-            ephemeral_leaders: None,
-            ephemeral_follow_activity_ap_id: None,
+            ephemeral: None,
         }
     }
 }
@@ -355,12 +334,12 @@ impl ApActor {
     pub async fn load_ephemeral(&mut self, conn: &Db) -> Self {
         if let Some(ap_id) = self.id.clone() {
             if let Ok(profile) = get_actor_by_as_id(conn, ap_id.to_string()).await {
-                self.ephemeral_followers =
-                    get_follower_count_by_actor_id(conn, profile.id).await.ok();
-
-                self.ephemeral_leaders = get_leader_count_by_actor_id(conn, profile.id).await.ok();
-
-                self.ephemeral_summary_markdown = profile.ek_summary_markdown;
+                self.ephemeral = Some(Ephemeral {
+                    followers: get_follower_count_by_actor_id(conn, profile.id).await.ok(),
+                    leaders: get_leader_count_by_actor_id(conn, profile.id).await.ok(),
+                    summary_markdown: profile.ek_summary_markdown,
+                    ..Default::default()
+                });
             }
         }
 
@@ -396,15 +375,22 @@ impl From<ExtendedActor> for ApActor {
     fn from((actor, leader): ExtendedActor) -> Self {
         let mut actor = ApActor::from(actor);
 
-        actor.ephemeral_following = leader.clone().and_then(|x| x.accepted);
-
-        actor.ephemeral_leader_ap_id = leader
-            .clone()
-            .and_then(|x| format!("{}/leader/{}", *crate::SERVER_URL, x.uuid).into());
-
-        actor.ephemeral_follow_activity_ap_id = leader.and_then(|x| x.follow_ap_id);
+        actor.ephemeral = Some(Ephemeral {
+            following: leader.clone().and_then(|x| x.accepted),
+            leader_as_id: leader
+                .clone()
+                .and_then(|x| format!("{}/leader/{}", *crate::SERVER_URL, x.uuid).into()),
+            follow_activity_as_id: leader.and_then(|x| x.follow_ap_id),
+            ..Default::default()
+        });
 
         actor
+    }
+}
+
+impl FromIterator<ApActor> for Vec<ApActorTerse> {
+    fn from_iter<I: IntoIterator<Item = ApActor>>(iter: I) -> Self {
+        iter.into_iter().map(ApActorTerse::from).collect()
     }
 }
 
@@ -475,12 +461,7 @@ impl From<Actor> for ApActor {
             also_known_as,
             tag,
             endpoints,
-            ephemeral_summary_markdown: None,
-            ephemeral_following: None,
-            ephemeral_leader_ap_id: None,
-            ephemeral_followers: None,
-            ephemeral_leaders: None,
-            ephemeral_follow_activity_ap_id: None,
+            ephemeral: None,
         }
     }
 }
@@ -495,13 +476,14 @@ type ActorAndLeader = (ApActor, Option<Leader>);
 
 impl From<ActorAndLeader> for ApActor {
     fn from((mut actor, leader): ActorAndLeader) -> Self {
-        actor.ephemeral_following = leader.clone().and_then(|x| x.accepted);
-
-        actor.ephemeral_leader_ap_id = leader
-            .clone()
-            .and_then(|x| format!("{}/leader/{}", *crate::SERVER_URL, x.uuid).into());
-
-        actor.ephemeral_follow_activity_ap_id = leader.and_then(|x| x.follow_ap_id);
+        actor.ephemeral = Some(Ephemeral {
+            following: leader.clone().and_then(|x| x.accepted),
+            leader_as_id: leader
+                .clone()
+                .and_then(|x| format!("{}/leader/{}", *crate::SERVER_URL, x.uuid).into()),
+            follow_activity_as_id: leader.and_then(|x| x.follow_ap_id),
+            ..Default::default()
+        });
 
         actor
     }

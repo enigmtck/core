@@ -23,6 +23,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use super::question::ApQuestion;
+use super::Ephemeral;
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub enum ApAnnounceType {
@@ -66,10 +67,7 @@ pub struct ApAnnounce {
     pub object: MaybeReference<ApObject>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub ephemeral_created_at: Option<DateTime<Utc>>,
-
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub ephemeral_updated_at: Option<DateTime<Utc>>,
+    pub ephemeral: Option<Ephemeral>,
 }
 
 impl Inbox for ApAnnounce {
@@ -161,11 +159,11 @@ impl Temporal for ApAnnounce {
     }
 
     fn created_at(&self) -> Option<DateTime<Utc>> {
-        self.ephemeral_created_at
+        self.ephemeral.clone().and_then(|x| x.created_at)
     }
 
     fn updated_at(&self) -> Option<DateTime<Utc>> {
-        self.ephemeral_updated_at
+        self.ephemeral.clone().and_then(|x| x.updated_at)
     }
 }
 
@@ -196,8 +194,11 @@ impl TryFrom<CoalescedActivity> for ApAnnounce {
             .ok_or_else(|| anyhow::anyhow!("ap_to is None"))?;
         let cc = coalesced.clone().cc.and_then(from_serde);
         let published = ActivityPub::time(from_time(coalesced.created_at).unwrap());
-        let ephemeral_created_at = from_time(coalesced.created_at);
-        let ephemeral_updated_at = from_time(coalesced.updated_at);
+        let ephemeral = Some(Ephemeral {
+            created_at: from_time(coalesced.created_at),
+            updated_at: from_time(coalesced.updated_at),
+            ..Default::default()
+        });
 
         Ok(ApAnnounce {
             context,
@@ -208,8 +209,7 @@ impl TryFrom<CoalescedActivity> for ApAnnounce {
             to,
             cc,
             published,
-            ephemeral_created_at,
-            ephemeral_updated_at,
+            ephemeral,
         })
     }
 }
@@ -239,8 +239,11 @@ impl TryFrom<ExtendedActivity> for ApAnnounce {
                 cc: activity.cc.and_then(from_serde),
                 published: ActivityPub::time(from_time(activity.created_at).unwrap()),
                 object,
-                ephemeral_created_at: from_time(activity.created_at),
-                ephemeral_updated_at: from_time(activity.updated_at),
+                ephemeral: Some(Ephemeral {
+                    created_at: from_time(activity.created_at),
+                    updated_at: from_time(activity.updated_at),
+                    ..Default::default()
+                }),
             })
         } else {
             log::error!("NOT AN ANNOUNCE ACTIVITY");

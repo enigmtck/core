@@ -9,8 +9,7 @@ use crate::{
     fairings::events::EventChannels,
     models::{
         activities::{
-            create_activity, ActivityTarget, ActivityType, ApActivityTarget, ExtendedActivity,
-            NewActivity,
+            create_activity, ActivityTarget, ActivityType, ExtendedActivity, NewActivity,
         },
         actors::Actor,
         from_serde, from_time,
@@ -25,7 +24,7 @@ use rocket::http::Status;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use super::{question::ApQuestion, signature::ApSignature};
+use super::{question::ApQuestion, signature::ApSignature, Ephemeral};
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub enum ApCreateType {
@@ -79,11 +78,9 @@ pub struct ApCreate {
     pub published: Option<String>,
     pub signature: Option<ApSignature>,
 
+    // These are ephemeral attributes to facilitate client operations
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub ephemeral_created_at: Option<DateTime<Utc>>,
-
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub ephemeral_updated_at: Option<DateTime<Utc>>,
+    pub ephemeral: Option<Ephemeral>,
 }
 
 impl Inbox for ApCreate {
@@ -204,8 +201,11 @@ impl TryFrom<CoalescedActivity> for ApCreate {
         let cc = coalesced.clone().cc.and_then(from_serde);
         let signature = None;
         let published = Some(ActivityPub::time(from_time(coalesced.created_at).unwrap()));
-        let ephemeral_created_at = from_time(coalesced.created_at);
-        let ephemeral_updated_at = from_time(coalesced.updated_at);
+        let ephemeral = Some(Ephemeral {
+            created_at: from_time(coalesced.created_at),
+            updated_at: from_time(coalesced.updated_at),
+            ..Default::default()
+        });
 
         Ok(ApCreate {
             context,
@@ -217,8 +217,7 @@ impl TryFrom<CoalescedActivity> for ApCreate {
             cc,
             signature,
             published,
-            ephemeral_created_at,
-            ephemeral_updated_at,
+            ephemeral,
         })
     }
 }
@@ -253,8 +252,11 @@ impl TryFrom<ExtendedActivity> for ApCreate {
             cc: activity.cc.and_then(from_serde),
             signature: None,
             published: Some(ActivityPub::time(from_time(activity.created_at).unwrap())),
-            ephemeral_created_at: from_time(activity.created_at),
-            ephemeral_updated_at: from_time(activity.updated_at),
+            ephemeral: Some(Ephemeral {
+                created_at: from_time(activity.created_at),
+                updated_at: from_time(activity.updated_at),
+                ..Default::default()
+            }),
         })
     }
 }
@@ -271,11 +273,11 @@ impl Temporal for ApCreate {
     }
 
     fn created_at(&self) -> Option<DateTime<Utc>> {
-        self.ephemeral_created_at
+        self.ephemeral.clone().and_then(|x| x.created_at)
     }
 
     fn updated_at(&self) -> Option<DateTime<Utc>> {
-        self.ephemeral_updated_at
+        self.ephemeral.clone().and_then(|x| x.updated_at)
     }
 }
 
@@ -294,8 +296,7 @@ impl TryFrom<ApObject> for ApCreate {
                 let cc = note.cc;
                 let signature = None;
                 let published = Some(note.published);
-                let ephemeral_created_at = None;
-                let ephemeral_updated_at = None;
+                let ephemeral = None;
 
                 Ok(ApCreate {
                     context,
@@ -307,8 +308,7 @@ impl TryFrom<ApObject> for ApCreate {
                     cc,
                     signature,
                     published,
-                    ephemeral_created_at,
-                    ephemeral_updated_at,
+                    ephemeral,
                 })
             }
             _ => Err(anyhow!("unimplemented object type")),

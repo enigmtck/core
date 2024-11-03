@@ -1,6 +1,7 @@
 use core::fmt;
 use std::{collections::HashMap, fmt::Debug};
 
+use super::Ephemeral;
 use crate::{
     activity_pub::ApActivity,
     activity_pub::{
@@ -32,13 +33,13 @@ use crate::{
     MaybeMultiple,
 };
 use anyhow::{anyhow, Result};
-use chrono::{DateTime, Utc};
+use chrono::Utc;
 use rocket::http::Status;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use uuid::Uuid;
 
-use super::{actor::ApActorTerse, actor::ApAddress, create::ApCreate, object::ApObject};
+use super::{actor::ApAddress, create::ApCreate, object::ApObject};
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default, Eq, PartialEq)]
 pub enum ApNoteType {
@@ -84,7 +85,7 @@ impl TryFrom<ObjectType> for ApNoteType {
     }
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug, Eq, PartialEq, Ord, PartialOrd)]
 #[serde(rename_all = "camelCase")]
 pub struct Metadata {
     pub url: String,
@@ -198,26 +199,7 @@ pub struct ApNote {
 
     // These are ephemeral attributes to facilitate client operations
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub ephemeral_announces: Option<Vec<ApActorTerse>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub ephemeral_actors: Option<Vec<ApActor>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub ephemeral_liked: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub ephemeral_announced: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub ephemeral_targeted: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub ephemeral_timestamp: Option<DateTime<Utc>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub ephemeral_metadata: Option<Vec<Metadata>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub ephemeral_likes: Option<Vec<ApActorTerse>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub ephemeral_attributed_to: Option<Vec<ApActorTerse>>,
-
-    #[serde(skip_serializing)]
-    pub internal_uuid: Option<String>,
+    pub ephemeral: Option<Ephemeral>,
 }
 
 impl ApNote {
@@ -288,7 +270,10 @@ impl ApNote {
         }
 
         let uuid = Uuid::new_v4().to_string();
-        note.internal_uuid = Some(uuid.clone());
+        note.ephemeral = Some(Ephemeral {
+            internal_uuid: Some(uuid.clone()),
+            ..Default::default()
+        });
         note.id = Some(get_object_ap_id_from_uuid(uuid.clone()));
         note.url = Some(get_object_url_from_uuid(uuid.clone()));
         note.published = ActivityPub::time(Utc::now());
@@ -489,14 +474,16 @@ impl Cache for ApNote {
             }
         }
 
-        if let Some(metadata_vec) = self.ephemeral_metadata.clone() {
-            for metadata in metadata_vec {
-                if let Some(og_image) = metadata.og_image.clone() {
-                    cache_content(conn, Ok(ApImage::from(og_image).into())).await;
-                }
+        if let Some(ephemeral) = self.ephemeral.clone() {
+            if let Some(metadata_vec) = ephemeral.metadata.clone() {
+                for metadata in metadata_vec {
+                    if let Some(og_image) = metadata.og_image.clone() {
+                        cache_content(conn, Ok(ApImage::from(og_image).into())).await;
+                    }
 
-                if let Some(twitter_image) = metadata.twitter_image.clone() {
-                    cache_content(conn, Ok(ApImage::from(twitter_image).into())).await;
+                    if let Some(twitter_image) = metadata.twitter_image.clone() {
+                        cache_content(conn, Ok(ApImage::from(twitter_image).into())).await;
+                    }
                 }
             }
         }
@@ -546,16 +533,7 @@ impl Default for ApNote {
             conversation: None,
             content_map: None,
             instrument: None,
-            ephemeral_announces: None,
-            ephemeral_actors: None,
-            ephemeral_liked: None,
-            ephemeral_announced: None,
-            ephemeral_targeted: None,
-            ephemeral_timestamp: None,
-            ephemeral_metadata: None,
-            ephemeral_likes: None,
-            ephemeral_attributed_to: None,
-            internal_uuid: None,
+            ephemeral: None,
         }
     }
 }
@@ -642,12 +620,15 @@ impl TryFrom<CoalescedActivity> for ApNote {
         let published = coalesced
             .object_published
             .ok_or_else(|| anyhow::anyhow!("object_published is None"))?;
-        let ephemeral_metadata = coalesced.object_metadata.and_then(from_serde);
-        let ephemeral_announces = from_serde(coalesced.object_announcers);
-        let ephemeral_likes = from_serde(coalesced.object_likers);
-        let ephemeral_announced = coalesced.object_announced;
-        let ephemeral_liked = coalesced.object_liked;
-        let ephemeral_attributed_to = from_serde(coalesced.object_attributed_to_profiles);
+        let ephemeral = Some(Ephemeral {
+            metadata: coalesced.object_metadata.and_then(from_serde),
+            announces: from_serde(coalesced.object_announcers),
+            likes: from_serde(coalesced.object_likers),
+            announced: coalesced.object_announced,
+            liked: coalesced.object_liked,
+            attributed_to: from_serde(coalesced.object_attributed_to_profiles),
+            ..Default::default()
+        });
 
         Ok(ApNote {
             kind,
@@ -664,12 +645,7 @@ impl TryFrom<CoalescedActivity> for ApNote {
             summary,
             sensitive,
             published: ActivityPub::time(published),
-            ephemeral_metadata,
-            ephemeral_announces,
-            ephemeral_likes,
-            ephemeral_announced,
-            ephemeral_liked,
-            ephemeral_attributed_to,
+            ephemeral,
             ..Default::default()
         })
     }
@@ -706,8 +682,11 @@ impl TryFrom<Object> for ApNote {
                     Err(_) => None,
                 },
                 conversation: object.ap_conversation.clone(),
-                ephemeral_timestamp: Some(object.created_at),
-                ephemeral_metadata: object.ek_metadata.and_then(from_serde),
+                ephemeral: Some(Ephemeral {
+                    timestamp: Some(object.created_at),
+                    metadata: object.ek_metadata.and_then(from_serde),
+                    ..Default::default()
+                }),
                 ..Default::default()
             })
         } else {

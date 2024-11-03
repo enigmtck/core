@@ -6,7 +6,6 @@ use crate::{
     activity_pub::{ApActivity, ApAddress, ApContext, ApNote, ApObject, Inbox, Outbox},
     db::Db,
     fairings::events::EventChannels,
-    helper::get_activity_ap_id_from_uuid,
     models::{
         activities::get_activity_by_ap_id,
         activities::{

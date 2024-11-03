@@ -128,7 +128,7 @@ impl From<ApNote> for NewObject {
             ap_conversation: note.conversation,
             as_content_map: to_serde(&Some(clean_content_map)),
             as_attachment: to_serde(&note.attachment),
-            ek_uuid: note.internal_uuid,
+            ek_uuid: note.ephemeral.and_then(|x| x.internal_uuid),
             ..Default::default()
         }
     }

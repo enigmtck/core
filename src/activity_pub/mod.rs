@@ -19,8 +19,8 @@ pub use types::add::{ApAdd, ApAddType};
 pub use types::announce::{ApAnnounce, ApAnnounceType};
 pub use types::block::{ApBlock, ApBlockType};
 pub use types::collection::{
-    ActorsPage, ApCollection, ApCollectionPage, ApCollectionPageType, ApCollectionType,
-    Collectible, FollowersPage, IdentifiedVaultItems, LeadersPage,
+    ActorsPage, ApCollection, ApCollectionAmbiguated, ApCollectionPage, ApCollectionPageType,
+    ApCollectionType, Collectible, FollowersPage, IdentifiedVaultItems, LeadersPage,
 };
 pub use types::create::{ApCreate, ApCreateType};
 pub use types::delete::{ApDelete, ApDeleteType, ApTombstone};
@@ -87,16 +87,18 @@ impl From<ApActor> for ActivityPub {
 impl ActivityPub {
     pub fn timestamp(&self) -> DateTime<Utc> {
         match self {
-            ActivityPub::Object(object) => match object {
-                ApObject::Note(note) => note.ephemeral_timestamp.unwrap_or(Utc::now()),
-                ApObject::Question(question) => question.ephemeral_updated_at.unwrap_or(Utc::now()),
-                _ => Utc::now(),
-            },
+            ActivityPub::Object(object) => object.timestamp(),
             ActivityPub::Activity(activity) => match activity {
-                ApActivity::Create(create) => create.ephemeral_created_at.unwrap_or(Utc::now()),
-                ApActivity::Announce(announce) => {
-                    announce.ephemeral_created_at.unwrap_or(Utc::now())
-                }
+                ApActivity::Create(create) => create
+                    .ephemeral
+                    .clone()
+                    .and_then(|x| x.created_at)
+                    .unwrap_or(Utc::now()),
+                ApActivity::Announce(announce) => announce
+                    .ephemeral
+                    .clone()
+                    .and_then(|x| x.created_at)
+                    .unwrap_or(Utc::now()),
                 _ => Utc::now(),
             },
             _ => Utc::now(),
