@@ -104,6 +104,7 @@ pub enum VerificationType {
     Remote,
     Local(Box<Actor>),
     None,
+    Deferred(Box<VerifyMapParams>),
 }
 
 #[derive(Debug)]
@@ -112,7 +113,7 @@ pub enum VerificationError {
     SignatureError(anyhow::Error),
     VerificationFailed(anyhow::Error),
     PublicKeyError(anyhow::Error),
-    ActorNotFound(Box<VerifyParams>),
+    ActorNotFound(Box<VerifyMapParams>),
     ProfileNotFound,
     ClientKeyNotFound,
 }
@@ -186,7 +187,7 @@ pub async fn verify(
         .and_then(|pk| verify(&pk, &signature_str, &verify_string))?;
         Ok(VerificationType::Remote)
     } else {
-        Err(VerificationError::ActorNotFound(verify_params.into()))
+        Err(VerificationError::ActorNotFound(params.into()))
     }
 }
 

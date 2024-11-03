@@ -119,6 +119,7 @@ pub trait Temporal {
 #[enum_dispatch(ApActivity)]
 pub trait Inbox {
     async fn inbox(&self, conn: Db, channels: EventChannels, raw: Value) -> Result<Status, Status>;
+    fn actor(&self) -> ApAddress;
 }
 
 #[enum_dispatch(ApActivity, ApObject)]

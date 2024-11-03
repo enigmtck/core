@@ -159,6 +159,10 @@ impl Inbox for ApCreate {
             }
         }
     }
+
+    fn actor(&self) -> ApAddress {
+        self.actor.clone()
+    }
 }
 
 impl Outbox for ApCreate {

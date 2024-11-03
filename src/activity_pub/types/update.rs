@@ -115,6 +115,10 @@ impl Inbox for ApUpdate {
             _ => Err(Status::NoContent),
         }
     }
+
+    fn actor(&self) -> ApAddress {
+        self.actor.clone()
+    }
 }
 
 impl Outbox for ApUpdate {

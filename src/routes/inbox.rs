@@ -5,7 +5,9 @@ use rocket::serde::json::Json;
 use rocket::{get, post};
 use serde_json::Value;
 
-use crate::activity_pub::{ActivityPub, ApActivity, ApActor, ApCollectionPage, ApObject, Inbox};
+use crate::activity_pub::{
+    retriever, ActivityPub, ApActivity, ApActor, ApCollectionPage, ApObject, Inbox,
+};
 use crate::db::Db;
 use crate::fairings::access_control::Permitted;
 use crate::fairings::events::EventChannels;
@@ -14,7 +16,7 @@ use crate::models::activities::{TimelineFilters, TimelineView};
 use crate::models::leaders::get_leaders_by_actor_id;
 use crate::models::pg::activities::get_announcers;
 use crate::models::unprocessable::create_unprocessable;
-use crate::models::OffsetPaging;
+use crate::signing::{verify, VerificationType};
 use crate::SERVER_URL;
 use std::fmt;
 //use crate::models::remote_activities::create_remote_activity;
@@ -177,28 +179,33 @@ pub async fn shared_inbox_post(
     channels: EventChannels,
     raw: Json<Value>,
 ) -> Result<Status, Status> {
-    if permitted.is_permitted() {
-        // let raw =
-        //     serde_json::from_str::<Value>(&activity).map_err(|_| Status::UnprocessableEntity)?;
-        //log::debug!("POSTING TO INBOX\n{raw:#?}");
-        let raw = raw.into_inner();
-
-        if let Ok(activity) = serde_json::from_value::<ApActivity>(raw.clone()) {
-            //log::debug!("POSTING TO INBOX\n{activity:#?}");
-
-            if signed.any() {
-                activity.inbox(conn, channels, raw).await
-            } else {
-                log::debug!("REQUEST WAS UNSIGNED OR MALFORMED");
-                Err(Status::Unauthorized)
-            }
-        } else {
-            create_unprocessable(&conn, raw.into()).await;
-            Err(Status::UnprocessableEntity)
-        }
-    } else {
+    if !permitted.is_permitted() {
         log::debug!("REQUEST WAS EXPLICITLY PROHIBITED");
-        Err(Status::Forbidden)
+        return Err(Status::Forbidden);
+    }
+
+    let raw = raw.into_inner();
+
+    let activity = match serde_json::from_value::<ApActivity>(raw.clone()) {
+        Ok(activity) => activity,
+        Err(_) => {
+            create_unprocessable(&conn, raw.into()).await;
+            return Err(Status::UnprocessableEntity);
+        }
+    };
+
+    let is_authorized = if let Some(deferred) = signed.deferred() {
+        let _ = retriever::get_actor(&conn, activity.actor().to_string(), None, true).await;
+        matches!(verify(&conn, deferred).await, Ok(VerificationType::Remote))
+    } else {
+        signed.any()
+    };
+
+    if is_authorized {
+        activity.inbox(conn, channels, raw).await
+    } else {
+        log::debug!("REQUEST WAS UNSIGNED OR MALFORMED");
+        Err(Status::Unauthorized)
     }
 }
 

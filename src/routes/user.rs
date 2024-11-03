@@ -108,7 +108,7 @@ pub async fn get_followers(
     let actors = Some(
         results
             .iter()
-            .filter_map(|(_, actor)| actor.clone())
+            .map(|(_, actor)| actor.clone())
             .collect::<Vec<_>>(),
     );
 

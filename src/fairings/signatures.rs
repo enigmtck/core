@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use crate::{
     db::Db,
     models::{actors::Actor, instances::create_or_update_instance},
-    signing::{verify, VerificationType, VerifyMapParams},
+    signing::{verify, VerificationError, VerificationType, VerifyMapParams},
     ASSIGNMENT_RE, DOMAIN_RE,
 };
 
@@ -29,9 +29,18 @@ impl Signed {
     }
 
     pub fn profile(&self) -> Option<Actor> {
-        match self {
-            Signed(true, VerificationType::Local(profile)) => Some(*profile.clone()),
-            _ => None,
+        if let Signed(true, VerificationType::Local(profile)) = self {
+            Some(*profile.clone())
+        } else {
+            None
+        }
+    }
+
+    pub fn deferred(&self) -> Option<VerifyMapParams> {
+        if let Signed(true, VerificationType::Deferred(params)) = self {
+            Some(*params.clone())
+        } else {
+            None
         }
     }
 }
@@ -128,13 +137,25 @@ impl<'r> FromRequest<'r> for Signed {
                                     update_instance(&conn, signature.to_string()).await;
                                     Outcome::Success(Signed(true, t))
                                 }
-                                Err(e) => {
-                                    log::debug!("SIGNATURE VERIFICATION FAILED\n{e:#?}");
-                                    Outcome::Error((
-                                        Status::BadRequest,
-                                        SignatureError::SignatureInvalid,
-                                    ))
-                                }
+                                Err(e) => match e {
+                                    // It's possible that we've never seen the signing actor before and don't
+                                    // yet have them in the database. The ID of the user is not available in
+                                    // the Fairing (i.e., it's not in the header), so we defer the verification
+                                    // to the receiving route that decodes the whole request
+                                    VerificationError::ActorNotFound(verify_map_params) => {
+                                        Outcome::Success(Signed(
+                                            false,
+                                            VerificationType::Deferred(verify_map_params),
+                                        ))
+                                    }
+                                    _ => {
+                                        log::debug!("SIGNATURE VERIFICATION FAILED\n{e:#?}");
+                                        Outcome::Error((
+                                            Status::BadRequest,
+                                            SignatureError::SignatureInvalid,
+                                        ))
+                                    }
+                                },
                             }
                         }
                         _ => {

@@ -49,6 +49,10 @@ impl Inbox for ApAdd {
         log::error!("{raw}");
         Err(Status::NoContent)
     }
+
+    fn actor(&self) -> ApAddress {
+        self.actor.clone()
+    }
 }
 
 impl Outbox for ApAdd {

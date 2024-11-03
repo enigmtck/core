@@ -169,9 +169,7 @@ pub async fn get_follower_inboxes(conn: &Db, actor: Actor) -> Vec<ApAddress> {
     let mut inboxes: HashSet<ApAddress> = HashSet::new();
 
     for (_follower, actor) in get_followers_by_actor_id(conn, actor.id, None).await {
-        if let Some(actor) = actor {
-            inboxes.insert(ApAddress::Address(actor.as_inbox));
-        }
+        inboxes.insert(ApAddress::Address(actor.as_inbox));
     }
 
     Vec::from_iter(inboxes)

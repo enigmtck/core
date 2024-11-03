@@ -90,6 +90,10 @@ impl Inbox for Box<ApLike> {
 
         Ok(Status::Accepted)
     }
+
+    fn actor(&self) -> ApAddress {
+        self.actor.clone()
+    }
 }
 
 impl Outbox for Box<ApLike> {

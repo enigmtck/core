@@ -97,6 +97,10 @@ impl Inbox for ApAnnounce {
             Err(Status::new(521))
         }
     }
+
+    fn actor(&self) -> ApAddress {
+        self.actor.clone()
+    }
 }
 
 impl Outbox for ApAnnounce {

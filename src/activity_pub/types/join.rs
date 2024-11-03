@@ -86,6 +86,10 @@ impl Inbox for ApJoin {
             Err(Status::NoContent)
         }
     }
+
+    fn actor(&self) -> ApAddress {
+        self.actor.clone()
+    }
 }
 
 impl Outbox for ApJoin {

@@ -71,6 +71,10 @@ impl Inbox for Box<ApUndo> {
             }
         }
     }
+
+    fn actor(&self) -> ApAddress {
+        self.actor.clone()
+    }
 }
 
 impl Outbox for Box<ApUndo> {

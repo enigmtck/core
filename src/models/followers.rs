@@ -5,7 +5,6 @@ use crate::helper::{get_local_identifier, LocalIdentifierType};
 use crate::schema::{actors, followers};
 use crate::{MaybeReference, POOL};
 use anyhow::Result;
-use diesel::pg::Pg;
 use diesel::prelude::*;
 
 use diesel::Insertable;
@@ -119,11 +118,12 @@ pub async fn get_followers_by_actor_id(
     conn: &Db,
     actor_id: i32,
     paging: Option<OffsetPaging>,
-) -> Vec<(Follower, Option<Actor>)> {
+) -> Vec<(Follower, Actor)> {
+    // inner join is used to exclude Actor records that have been deleted
     conn.run(move |c| {
         let mut query = followers::table
             .filter(followers::actor_id.eq(actor_id))
-            .left_join(actors::table.on(followers::actor.eq(actors::as_id)))
+            .inner_join(actors::table.on(followers::actor.eq(actors::as_id)))
             .order_by(followers::created_at.desc())
             .into_boxed();
 
@@ -133,16 +133,18 @@ pub async fn get_followers_by_actor_id(
                 .offset((paging.page * paging.limit) as i64);
         }
 
-        query.get_results::<(Follower, Option<Actor>)>(c)
+        query.get_results::<(Follower, Actor)>(c)
     })
     .await
     .unwrap_or(vec![])
 }
 
 pub async fn get_follower_count_by_actor_id(conn: &Db, actor_id: i32) -> Result<i64> {
+    // inner join is used to exclude Actor records that have been deleted
     conn.run(move |c| {
         followers::table
             .filter(followers::actor_id.eq(actor_id))
+            .inner_join(actors::table.on(followers::actor.eq(actors::as_id)))
             .count()
             .get_result(c)
     })

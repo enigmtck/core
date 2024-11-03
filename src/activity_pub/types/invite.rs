@@ -73,6 +73,10 @@ impl Inbox for ApInvite {
             Err(Status::NoContent)
         }
     }
+
+    fn actor(&self) -> ApAddress {
+        self.actor.clone()
+    }
 }
 
 impl Outbox for ApInvite {

@@ -49,6 +49,10 @@ impl Inbox for ApRemove {
         log::error!("FAILED TO HANDLE ACTIVITY\n{raw}");
         Err(Status::NoContent)
     }
+
+    fn actor(&self) -> ApAddress {
+        self.actor.clone()
+    }
 }
 
 impl Outbox for ApRemove {

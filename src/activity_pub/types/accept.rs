@@ -92,6 +92,10 @@ impl Inbox for Box<ApAccept> {
 
         Ok(Status::Accepted)
     }
+
+    fn actor(&self) -> ApAddress {
+        self.actor.clone()
+    }
 }
 
 impl ApAccept {

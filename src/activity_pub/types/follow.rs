@@ -102,6 +102,10 @@ impl Inbox for ApFollow {
 
         Ok(Status::Accepted)
     }
+
+    fn actor(&self) -> ApAddress {
+        self.actor.clone()
+    }
 }
 
 impl Outbox for ApFollow {

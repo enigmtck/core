@@ -48,6 +48,10 @@ impl Inbox for ApBlock {
         log::error!("FAILED TO CREATE ACTIVITY\n{raw}");
         Err(Status::NoContent)
     }
+
+    fn actor(&self) -> ApAddress {
+        self.actor.clone()
+    }
 }
 
 impl Outbox for ApBlock {
