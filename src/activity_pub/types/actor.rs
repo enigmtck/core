@@ -174,8 +174,9 @@ pub struct ApActor {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub featured_tags: Option<String>,
 
+    // BlueSky seems to use an array here (or the bridges do)
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub url: Option<String>,
+    pub url: Option<MaybeMultiple<String>>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
     pub manually_approves_followers: Option<bool>,
@@ -216,7 +217,7 @@ pub struct ApActor {
 #[serde(rename_all = "camelCase")]
 pub struct ApActorTerse {
     pub id: String,
-    pub url: String,
+    pub url: MaybeMultiple<String>,
     pub name: Option<String>,
     pub preferred_username: String,
     pub tag: Vec<ApTag>,
@@ -248,7 +249,7 @@ impl From<Actor> for ApActorTerse {
         let name = actor.as_name;
         let id = actor.as_id;
         let preferred_username = actor.as_preferred_username.unwrap_or_default();
-        let url = actor.as_url.unwrap_or_default();
+        let url = from_serde_option(actor.as_url).unwrap_or_default();
         let icon = from_serde(actor.as_icon);
         let tag = from_serde(actor.as_tag).unwrap_or(vec![]);
 
@@ -424,7 +425,7 @@ impl From<Actor> for ApActor {
         let published = actor.as_published.map(ActivityPub::time);
         let liked = actor.as_liked;
         let public_key = from_serde(actor.as_public_key).unwrap();
-        let url = actor.as_url;
+        let url = from_serde_option(actor.as_url);
         let icon = from_serde(actor.as_icon);
         let image = from_serde(actor.as_image);
         let discoverable = Some(actor.as_discoverable);

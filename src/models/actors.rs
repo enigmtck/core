@@ -48,7 +48,7 @@ impl TryFrom<ApActor> for NewActor {
         let as_public_key = to_serde(&Some(actor.public_key)).unwrap();
         let as_featured = actor.featured;
         let as_featured_tags = actor.featured_tags;
-        let as_url = actor.url;
+        let as_url = to_serde(&actor.url.clone());
         let ap_manually_approves_followers = actor.manually_approves_followers.unwrap_or_default();
         let as_published = actor.published.and_then(|x| {
             x.parse::<DateTime<chrono::FixedOffset>>()

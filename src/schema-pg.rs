@@ -82,7 +82,7 @@ diesel::table! {
         as_public_key -> Jsonb,
         as_featured -> Nullable<Varchar>,
         as_featured_tags -> Nullable<Varchar>,
-        as_url -> Nullable<Varchar>,
+        as_url -> Nullable<Jsonb>,
         as_published -> Nullable<Timestamptz>,
         as_tag -> Jsonb,
         as_attachment -> Jsonb,

@@ -18,6 +18,7 @@ use crate::models::actors::{
 };
 use crate::models::profiles::Profile;
 use crate::models::to_serde;
+use crate::MaybeMultiple;
 
 struct KeyPair {
     private_key: RsaPrivateKey,
@@ -123,7 +124,7 @@ pub async fn create_user(conn: Option<&Db>, user: NewUser) -> Result<Actor> {
         as_following: Some(format!("{owner}/following")),
         as_liked: Some(format!("{owner}/liked")),
         as_published: Some(Utc::now()),
-        as_url: Some(format!("{server}/@{username}")),
+        as_url: to_serde(&Some(MaybeMultiple::from(format!("{server}/@{username}")))),
         as_endpoints: to_serde(&Some(ApEndpoint {
             shared_inbox: format!("{server}/inbox"),
         }))

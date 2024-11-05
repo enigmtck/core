@@ -3,7 +3,6 @@ use crate::schema::actors;
 use crate::POOL;
 use anyhow::{anyhow, Result};
 use chrono::{DateTime, Duration, Utc};
-use diesel::pg::Pg;
 use diesel::prelude::*;
 use diesel::sql_query;
 use diesel::{AsChangeset, Identifiable, Insertable, Queryable};
@@ -109,7 +108,7 @@ pub struct NewActor {
     pub as_public_key: Value,
     pub as_featured: Option<String>,
     pub as_featured_tags: Option<String>,
-    pub as_url: Option<String>,
+    pub as_url: Option<Value>,
     pub as_published: Option<DateTime<Utc>>,
     pub as_tag: Value,
     pub as_attachment: Value,
@@ -171,7 +170,7 @@ pub struct Actor {
     pub as_public_key: Value,
     pub as_featured: Option<String>,
     pub as_featured_tags: Option<String>,
-    pub as_url: Option<String>,
+    pub as_url: Option<Value>,
     pub as_published: Option<DateTime<Utc>>,
     pub as_tag: Value,
     pub as_attachment: Value,

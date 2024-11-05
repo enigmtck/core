@@ -378,14 +378,9 @@ impl TryFrom<FollowersPage> for ApCollectionAmbiguated {
                 total_items: Some(request.total_items),
                 first: Some(format!("{id}?page=1").into()),
                 last: Some(format!("{id}?page={}", get_last(request.total_items, 20)).into()),
-                next: Some(format!("{id}?page={}", page + 1).into()),
-                prev: {
-                    if page > 1 {
-                        Some(format!("{id}?page={}", page - 1).into())
-                    } else {
-                        None
-                    }
-                },
+                next: ((page as i64) < get_last(request.total_items, 20))
+                    .then_some(format!("{id}?page={}", page + 1).into()),
+                prev: (page > 1).then_some(format!("{id}?page={}", page - 1).into()),
                 part_of: Some(id.clone()),
                 ordered_items: Some(
                     request
@@ -448,14 +443,9 @@ impl TryFrom<LeadersPage> for ApCollectionAmbiguated {
                 total_items: Some(request.total_items),
                 first: Some(format!("{id}?page=1").into()),
                 last: Some(format!("{id}?page={}", get_last(request.total_items, 20)).into()),
-                next: Some(format!("{id}?page={}", page + 1).into()),
-                prev: {
-                    if page > 1 {
-                        Some(format!("{id}?page={}", page - 1).into())
-                    } else {
-                        None
-                    }
-                },
+                next: ((page as i64) < get_last(request.total_items, 20))
+                    .then_some(format!("{id}?page={}", page + 1).into()),
+                prev: (page > 1).then_some(format!("{id}?page={}", page - 1).into()),
                 part_of: Some(id.clone()),
                 ordered_items: Some(
                     request

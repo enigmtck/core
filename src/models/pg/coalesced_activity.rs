@@ -296,8 +296,8 @@ pub struct CoalescedActivity {
     #[diesel(sql_type = Nullable<Text>)]
     pub actor_featured_tags: Option<String>,
 
-    #[diesel(sql_type = Nullable<Text>)]
-    pub actor_url: Option<String>,
+    #[diesel(sql_type = Nullable<Jsonb>)]
+    pub actor_url: Option<Value>,
 
     #[diesel(sql_type = Nullable<Timestamptz>)]
     pub actor_published: Option<DateTime<Utc>>,
