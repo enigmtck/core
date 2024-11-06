@@ -97,7 +97,7 @@ impl ApUndo {
         undo: &ApUndo,
         raw: Value,
     ) -> Result<Status, Status> {
-        let target_ap_id = target.as_id().ok_or({
+        let target_ap_id = target.as_id().ok_or_else(|| {
             log::error!("ApActivity.as_id() FAILED\n{target:#?}");
             Status::NotImplemented
         })?;

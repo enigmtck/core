@@ -152,6 +152,7 @@ pub enum TimelineView {
     Home(Vec<String>),
     Local,
     Global,
+    Direct,
 }
 
 impl TryFrom<String> for TimelineView {
@@ -162,6 +163,7 @@ impl TryFrom<String> for TimelineView {
             "local" => Ok(TimelineView::Local),
             "global" => Ok(TimelineView::Global),
             "home" => Ok(TimelineView::Home(vec![])),
+            "direct" => Ok(TimelineView::Direct),
             _ => Err(anyhow!("invalid view")),
         }
     }
@@ -173,6 +175,7 @@ impl From<InboxView> for TimelineView {
             InboxView::Local => TimelineView::Local,
             InboxView::Global => TimelineView::Global,
             InboxView::Home => TimelineView::Home(vec![]),
+            InboxView::Direct => TimelineView::Direct,
         }
     }
 }
@@ -183,6 +186,7 @@ pub struct TimelineFilters {
     pub hashtags: Vec<String>,
     pub username: Option<String>,
     pub conversation: Option<String>,
+    pub direct: bool,
 }
 
 impl NewActivity {

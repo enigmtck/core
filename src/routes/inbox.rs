@@ -19,7 +19,6 @@ use crate::models::unprocessable::create_unprocessable;
 use crate::signing::{verify, VerificationType};
 use crate::SERVER_URL;
 use std::fmt;
-//use crate::models::remote_activities::create_remote_activity;
 
 use super::{retrieve, ActivityJson};
 
@@ -28,6 +27,7 @@ pub enum InboxView {
     Home,
     Local,
     Global,
+    Direct,
 }
 
 impl Display for InboxView {
@@ -106,6 +106,7 @@ pub async fn shared_inbox_get(
                     hashtags: hashtags.unwrap_or_default(),
                     username: None,
                     conversation: None,
+                    direct: false,
                 },
                 InboxView::Home => TimelineFilters {
                     view: if let Some(profile) = profile.clone() {
@@ -122,12 +123,21 @@ pub async fn shared_inbox_get(
                     hashtags: hashtags.unwrap_or_default(),
                     username: None,
                     conversation: None,
+                    direct: false,
                 },
                 InboxView::Local => TimelineFilters {
                     view: Some(view.into()),
                     hashtags: hashtags.unwrap_or_default(),
                     username: None,
                     conversation: None,
+                    direct: false,
+                },
+                InboxView::Direct => TimelineFilters {
+                    view: Some(view.into()),
+                    hashtags: hashtags.unwrap_or_default(),
+                    username: None,
+                    conversation: None,
+                    direct: true,
                 },
             }
         } else {
@@ -136,6 +146,7 @@ pub async fn shared_inbox_get(
                 hashtags: hashtags.unwrap_or_default(),
                 username: None,
                 conversation: None,
+                direct: false,
             }
         }
     };
@@ -160,7 +171,7 @@ pub async fn unsafe_inbox_post(
     channels: EventChannels,
     raw: Json<Value>,
 ) -> Result<Status, Status> {
-    log::debug!("POSTING TO UNSAFE INBOX\n{raw:#?}");
+    log::debug!("Posting to unsafe inbox\n{raw:#?}");
     let raw = raw.into_inner();
 
     if let Ok(activity) = serde_json::from_value::<ApActivity>(raw.clone()) {
@@ -180,7 +191,7 @@ pub async fn shared_inbox_post(
     raw: Json<Value>,
 ) -> Result<Status, Status> {
     if !permitted.is_permitted() {
-        log::debug!("REQUEST WAS EXPLICITLY PROHIBITED");
+        log::debug!("Request was explicitly forbidden");
         return Err(Status::Forbidden);
     }
 
@@ -204,7 +215,7 @@ pub async fn shared_inbox_post(
     if is_authorized {
         activity.inbox(conn, channels, raw).await
     } else {
-        log::debug!("REQUEST WAS UNSIGNED OR MALFORMED");
+        log::debug!("Request was not authorized");
         Err(Status::Unauthorized)
     }
 }
@@ -226,7 +237,7 @@ pub async fn announcers_get(
     let base_url = format!("{server_url}/api/announcers?limit={limit}&target={target}");
 
     let decoded = urlencoding::decode(&target).map_err(|e| {
-        log::error!("FAILED TO DECODE target: {e:#?}");
+        log::error!("Failed to decode target: {e:#?}");
         Status::UnprocessableEntity
     })?;
 
@@ -258,20 +269,19 @@ pub async fn conversation_get(
     max: Option<i64>,
 ) -> Result<ActivityJson<ApObject>, Status> {
     let decoded = urlencoding::decode(&id).map_err(|e| {
-        log::error!("FAILED TO DECODE id: {e:#?}");
+        log::error!("Failed to decode id: {e:#?}");
         Status::UnprocessableEntity
     })?;
     let limit = limit.unwrap_or(20);
     let server_url = &*SERVER_URL;
     let base_url = format!("{server_url}/api/conversation?id={id}&limit={limit}");
 
-    //log::debug!("RETRIEVING CONVERSATION: {decoded}");
-
     let filters = TimelineFilters {
         view: Some(TimelineView::Global),
         hashtags: vec![],
         username: None,
         conversation: Some(decoded.to_string()),
+        direct: false,
     };
 
     Ok(ActivityJson(Json(

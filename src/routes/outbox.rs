@@ -34,6 +34,7 @@ pub async fn outbox_get(
                 hashtags: vec![],
                 username: Some(username.clone()),
                 conversation: None,
+                direct: false,
             }
         };
 

@@ -37,7 +37,7 @@ impl Signed {
     }
 
     pub fn deferred(&self) -> Option<VerifyMapParams> {
-        if let Signed(true, VerificationType::Deferred(params)) = self {
+        if let Signed(false, VerificationType::Deferred(params)) = self {
             Some(*params.clone())
         } else {
             None
@@ -56,6 +56,7 @@ pub enum SignatureError {
     InvalidRequestUsername,
     LocalUserNotFound,
     SignatureInvalid,
+    Unknown,
 }
 
 async fn update_instance(conn: &Db, signature: String) {
@@ -71,11 +72,11 @@ async fn update_instance(conn: &Db, signature: String) {
 
     let domain_name = DOMAIN_RE
         .captures(key_id)
-        .expect("unable to locate domain name")[1]
+        .expect("Unable to locate domain name")[1]
         .to_string();
 
     if let Err(e) = create_or_update_instance(Some(conn), domain_name.into()).await {
-        log::error!("INSTANCE UPDATE ERROR: {e}");
+        log::error!("Instance update error: {e}");
     }
 }
 
@@ -104,7 +105,7 @@ impl<'r> FromRequest<'r> for Signed {
                 let date = match get_header("date").or_else(|| get_header("enigmatick-date")) {
                     Some(val) => val,
                     None => {
-                        log::debug!("NO DATE PROVIDED");
+                        log::debug!("Header must include date for signature verification");
                         return Outcome::Success(Signed(false, VerificationType::None));
                     }
                 };
@@ -143,13 +144,17 @@ impl<'r> FromRequest<'r> for Signed {
                                     // the Fairing (i.e., it's not in the header), so we defer the verification
                                     // to the receiving route that decodes the whole request
                                     VerificationError::ActorNotFound(verify_map_params) => {
+                                        log::debug!(
+                                            "Signature verification deferred\n{:#?}",
+                                            verify_map_params.clone()
+                                        );
                                         Outcome::Success(Signed(
                                             false,
                                             VerificationType::Deferred(verify_map_params),
                                         ))
                                     }
                                     _ => {
-                                        log::debug!("SIGNATURE VERIFICATION FAILED\n{e:#?}");
+                                        log::debug!("Signature verification failed\n{e:#?}");
                                         Outcome::Error((
                                             Status::BadRequest,
                                             SignatureError::SignatureInvalid,
@@ -159,22 +164,22 @@ impl<'r> FromRequest<'r> for Signed {
                             }
                         }
                         _ => {
-                            log::debug!("MULTIPLE SIGNATURES");
+                            log::debug!("Multiple signatures in header");
                             Outcome::Error((Status::BadRequest, SignatureError::MultipleSignatures))
                         }
                     }
                 } else {
-                    log::debug!("NO CONTENT-TYPE SPECIFIED");
+                    log::debug!("Content-Type required for signature verification");
                     Outcome::Success(Signed(false, VerificationType::None))
                 }
             }
             Outcome::Error(e) => {
-                log::error!("UNABLE TO CONNECT TO DATABASE: {e:?}");
+                log::error!("Unable to connect to database: {e:?}");
                 Outcome::Error((Status::InternalServerError, SignatureError::NoDbConnection))
             }
             _ => {
-                log::error!("UNKNOWN PROBLEM");
-                Outcome::Error((Status::InternalServerError, SignatureError::NoDbConnection))
+                log::error!("Unknown error");
+                Outcome::Error((Status::InternalServerError, SignatureError::Unknown))
             }
         }
     }

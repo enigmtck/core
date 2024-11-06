@@ -61,8 +61,8 @@ impl TryFrom<CoalescedActivity> for ApActivity {
             ActivityType::Create => ApCreate::try_from(coalesced).map(ApActivity::Create),
             ActivityType::Announce => ApAnnounce::try_from(coalesced).map(ApActivity::Announce),
             _ => {
-                log::error!("FAILED TO MATCH IMPLEMENTED ACTIVITY\n{coalesced:#?}");
-                Err(anyhow!("FAILED TO MATCH IMPLEMENTED ACTIVITY"))
+                log::error!("Failed to match implemented activity\n{coalesced:#?}");
+                Err(anyhow!("Failed to match implemented activity"))
             }
         }
     }
@@ -108,9 +108,9 @@ impl TryFrom<ExtendedActivity> for ApActivity {
             }
             _ => {
                 log::error!(
-                    "FAILED TO MATCH IMPLEMENTED ACTIVITY IN TryFrom FOR ApActivity\nACTIVITY: {activity:#?}\nTARGET_ACTIVITY: {target_activity:#?}\nTARGET_OBJECT: {target_object:#?}\nTARGET_ACTOR {target_actor:#?}"
+                    "Failed to match implemented activity in TryFrom for ApActivity\nACTIVITY: {activity:#?}\nTARGET_ACTIVITY: {target_activity:#?}\nTARGET_OBJECT: {target_object:#?}\nTARGET_ACTOR {target_actor:#?}"
                 );
-                Err(anyhow!("FAILED TO MATCH IMPLEMENTED ACTIVITY"))
+                Err(anyhow!("Failed to match implemented activity"))
             }
         }
     }

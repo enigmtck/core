@@ -172,6 +172,7 @@ struct QueryParams {
     activity_as_id: Option<String>,
     activity_uuid: Option<String>,
     activity_id: Option<i32>,
+    direct: bool,
 }
 
 fn query_initial_block() -> String {
@@ -327,7 +328,6 @@ fn build_main_query(
         ..Default::default()
     };
 
-    log::debug!("IN COALESCED");
     let mut param_gen = parameter_generator();
 
     let mut query = query_initial_block();
@@ -408,13 +408,20 @@ fn build_main_query(
                         query.push_str("AND o.ek_uuid IS NOT NULL ");
                     }
                     TimelineView::Home(leaders) => {
-                        log::debug!("LEADERS\n{leaders:#?} ");
                         if let Some(profile) = profile.clone() {
-                            if let Some(username) = profile.ek_username.clone() {
-                                let ap_id = get_ap_id_from_username(username);
-                                params.to.extend(vec![ap_id]);
-                                params.to.extend(leaders);
-                            }
+                            params.to.extend(vec![profile.as_id]);
+                            params.to.extend(leaders);
+                        }
+                    }
+                    TimelineView::Direct => {
+                        if let Some(profile) = profile.clone() {
+                            params.to.extend(vec![profile.as_id]);
+                            params.direct = true;
+                            query.push_str(&format!(
+                                "AND NOT (a.ap_to ?| {} OR a.cc ?| {}) ",
+                                param_gen(),
+                                param_gen(),
+                            ));
                         }
                     }
                 }
@@ -494,8 +501,6 @@ pub async fn add_log_by_as_id(conn: &Db, as_id: String, entry: Value) -> Result<
     query = query.bind::<Jsonb, _>(entry.clone());
     query = query.bind::<Text, _>(as_id.clone());
 
-    log::debug!("LOG UPDATE ENTRY: {entry:#?}");
-    log::debug!("LOG UPDATE ID: {as_id:#?}");
     conn.run(move |c| query.execute(c))
         .await
         .map_err(anyhow::Error::msg)
@@ -555,6 +560,12 @@ fn bind_params<'a>(
         if let Some(username) = params.username.clone() {
             log::debug!("SETTING USERNAME: |{username}|");
             query = query.bind::<Text, _>(username);
+        }
+
+        if params.direct {
+            log::debug!("SETTING DIRECT");
+            query = query.bind::<Array<Text>, _>((*PUBLIC_COLLECTION).clone());
+            query = query.bind::<Array<Text>, _>((*PUBLIC_COLLECTION).clone());
         }
 
         if !params.to.is_empty() {
