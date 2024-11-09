@@ -42,7 +42,7 @@ pub use types::attachment::{
 
 pub use types::remove::{ApRemove, ApRemoveType};
 pub use types::session::JoinData;
-pub use types::session::{ApInstrument, ApInstrumentType, ApInstruments, ApSession};
+pub use types::session::{ApInstrument, ApInstrumentType, ApSession};
 pub use types::undo::{ApUndo, ApUndoType};
 pub use types::update::{ApUpdate, ApUpdateType};
 

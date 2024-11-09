@@ -2,7 +2,7 @@ use core::fmt;
 use std::fmt::Debug;
 
 use crate::{
-    activity_pub::{ApAddress, ApContext, ApInstruments, ApObject, ApSession, Inbox, Outbox},
+    activity_pub::{ApAddress, ApContext, ApObject, ApSession, Inbox, Outbox},
     db::Db,
     fairings::events::EventChannels,
     models::{
@@ -51,13 +51,13 @@ impl Inbox for ApInvite {
                 if let Some(session) =
                     create_remote_encrypted_session(&conn, (self.clone(), profile.id).into()).await
                 {
-                    runner::run(
-                        runner::encrypted::provide_one_time_key_task,
-                        Some(conn),
-                        Some(channels),
-                        vec![session.ap_id],
-                    )
-                    .await;
+                    // runner::run(
+                    //     runner::encrypted::provide_one_time_key_task,
+                    //     Some(conn),
+                    //     Some(channels),
+                    //     vec![session.ap_id],
+                    // )
+                    // .await;
                     Ok(Status::Accepted)
                     //to_faktory(faktory, "provide_one_time_key", vec![session.ap_id])
                 } else {
@@ -94,7 +94,7 @@ impl Outbox for ApInvite {
 impl TryFrom<ApSession> for ApInvite {
     type Error = &'static str;
     fn try_from(session: ApSession) -> Result<Self, Self::Error> {
-        if let ApInstruments::Single(_) = session.instrument {
+        if let MaybeMultiple::Single(_) = session.instrument {
             Ok(ApInvite {
                 context: Some(ApContext::default()),
                 kind: ApInviteType::default(),

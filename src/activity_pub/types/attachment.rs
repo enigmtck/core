@@ -70,10 +70,15 @@ pub enum ApDocumentType {
 pub struct ApDocument {
     #[serde(rename = "type")]
     pub kind: ApDocumentType,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub media_type: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub url: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub blurhash: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub width: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub height: Option<i32>,
 }
 
@@ -87,7 +92,9 @@ pub enum ApPropertyValueType {
 pub struct ApPropertyValue {
     #[serde(rename = "type")]
     pub kind: ApPropertyValueType,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub value: Option<String>,
 }
 
@@ -108,9 +115,13 @@ impl fmt::Display for ApLinkType {
 pub struct ApLink {
     #[serde(rename = "type")]
     pub kind: ApLinkType,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub href: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub media_type: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub rel: Option<Vec<String>>,
 }
 
@@ -135,7 +146,10 @@ pub enum ApVerifiableIdentityStatementType {
 pub struct ApVerifiableIdentityStatement {
     #[serde(rename = "type")]
     pub kind: ApVerifiableIdentityStatementType,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub subject: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub proof: Option<ApProof>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub also_known_as: Option<String>,
 }

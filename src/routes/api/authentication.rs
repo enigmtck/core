@@ -43,6 +43,7 @@ pub struct UpdatePassword {
     pub updated: String,
     pub encrypted_client_private_key: String,
     pub encrypted_olm_pickled_account: String,
+    pub olm_pickled_account_hash: String,
 }
 
 #[post("/api/user/<username>/password", format = "json", data = "<password>")]
@@ -60,6 +61,7 @@ pub async fn change_password(
 
         let client_private_key = password.encrypted_client_private_key.clone();
         let olm_pickled_account = password.encrypted_olm_pickled_account.clone();
+        let olm_pickled_account_hash = password.olm_pickled_account_hash.clone();
 
         let password = verify_and_generate_password(
             &conn,
@@ -77,6 +79,7 @@ pub async fn change_password(
                 password,
                 client_private_key,
                 olm_pickled_account,
+                olm_pickled_account_hash,
             )
             .await
             .unwrap_or_default(),

@@ -1,7 +1,9 @@
 use std::collections::HashMap;
 
 use crate::{
-    activity_pub::{ActivityPub, ApCollectionPage, ApObject, ApSession},
+    activity_pub::{
+        ActivityPub, ApCollection, ApCollectionPage, ApInstrument, ApObject, ApSession,
+    },
     db::Db,
     fairings::signatures::Signed,
     models::{
@@ -10,12 +12,17 @@ use crate::{
             get_encrypted_session_by_profile_id_and_ap_to, get_encrypted_sessions_by_profile_id,
             EncryptedSession,
         },
-        olm_one_time_keys::create_olm_one_time_key,
+        olm_one_time_keys::{
+            create_olm_one_time_key, get_next_otk_by_profile_id, get_otk_count_by_profile_id,
+        },
         olm_sessions::OlmSession,
         pg::actors::update_olm_account_by_username,
         processing_queue::{self, resolve_processed_item_by_ap_id_and_profile_id},
     },
+    routes::ActivityJson,
+    MaybeMultiple,
 };
+use anyhow::anyhow;
 use base64::{engine::general_purpose, engine::Engine as _};
 use rocket::{get, http::Status, post, serde::json::Error, serde::json::Json};
 use serde::{Deserialize, Serialize};
@@ -174,34 +181,89 @@ pub async fn add_one_time_keys(
 ) -> Result<Status, Status> {
     log::debug!("ADDING ONE-TIME-KEYS\n{params:#?}");
 
-    if signed.local() {
-        let profile = get_actor_by_username(&conn, username.clone())
+    let profile = signed.profile().ok_or(Status::Unauthorized)?;
+
+    let Json(params) = params.map_err(|e| {
+        log::error!("FAILED TO DECODE params: {e:#?}");
+        Status::NoContent
+    })?;
+
+    if profile
+        .ek_olm_pickled_account_hash
+        .ok_or(Status::InternalServerError)?
+        == params.mutation_of
+    {
+        if update_olm_account_by_username(&conn, username, params.account, params.account_hash)
             .await
-            .ok_or(Status::NoContent)?;
-
-        let Json(params) = params.map_err(|e| {
-            log::error!("FAILED TO DECODE params: {e:#?}");
-            Status::NoContent
-        })?;
-
-        if profile.ek_olm_pickled_account_hash == params.mutation_of.into() {
-            if update_olm_account_by_username(&conn, username, params.account, params.account_hash)
-                .await
-                .is_some()
-            {
-                for (key, otk) in params.keys {
-                    create_olm_one_time_key(&conn, (profile.id, key, otk).into()).await;
-                }
-
-                Ok(Status::Accepted)
-            } else {
-                Err(Status::NoContent)
+            .is_some()
+        {
+            for (key, otk) in params.keys {
+                create_olm_one_time_key(&conn, (profile.id, key, otk).into()).await;
             }
+
+            Ok(Status::Accepted)
         } else {
-            log::error!("UNEXPECTED MUTATION");
             Err(Status::NoContent)
         }
     } else {
+        log::error!("UNEXPECTED MUTATION");
         Err(Status::NoContent)
+    }
+}
+
+#[get("/user/<username>/keys?<otk>", format = "application/activity+json")]
+pub async fn keys_get(
+    signed: Signed,
+    conn: Db,
+    username: String,
+    otk: Option<bool>,
+) -> Result<ActivityJson<MaybeMultiple<ApObject>>, Status> {
+    let requester_as_id = {
+        if let Some(actor) = signed.actor() {
+            actor.id
+        } else if let Some(profile) = signed.profile() {
+            Some(profile.as_id.into())
+        } else {
+            None
+        }
+    };
+
+    let requester_as_id = requester_as_id.ok_or(Status::Unauthorized)?;
+    let profile = get_actor_by_username(&conn, username.clone())
+        .await
+        .ok_or(Status::NotFound)?;
+
+    if otk.is_some_and(|x| x) {
+        let otk = get_next_otk_by_profile_id(&conn, requester_as_id.to_string(), profile.id)
+            .await
+            .map_err(|e| {
+                log::error!("Failed to get OTK: {e:#?}");
+                Status::InternalServerError
+            })?;
+
+        let idk = ApInstrument::try_from(profile.clone()).map_err(|e| {
+            log::error!("Failed to get IDK: {e:#?}");
+            Status::InternalServerError
+        })?;
+
+        Ok(ActivityJson(Json(
+            vec![ApObject::Instrument(otk.into()), idk.into()].into(),
+        )))
+    } else {
+        let count = get_otk_count_by_profile_id(&conn, profile.id)
+            .await
+            .map_err(|e| {
+                log::error!("Failed to retrieve OTK count: {e:#?}");
+                Status::InternalServerError
+            })?;
+
+        let mut collection = ApCollection::default();
+        collection.total_items = Some(count as i64);
+        collection.id = Some(format!(
+            "https://{}/user/{username}/keys",
+            *crate::SERVER_NAME
+        ));
+
+        Ok(ActivityJson(Json(ApObject::Collection(collection).into())))
     }
 }

@@ -20,6 +20,7 @@ pub struct OlmOneTimeKey {
     pub olm_id: i32,
     pub key_data: String,
     pub distributed: bool,
+    pub assignee: Option<String>,
 }
 
 pub async fn create_olm_one_time_key(
@@ -33,51 +34,4 @@ pub async fn create_olm_one_time_key(
     })
     .await
     .ok()
-}
-
-pub async fn get_olm_one_time_key_by_profile_id(
-    conn: Option<&Db>,
-    profile_id: i32,
-) -> Option<OlmOneTimeKey> {
-    match conn {
-        Some(conn) => {
-            let otk = conn
-                .run(move |c| {
-                    olm_one_time_keys::table
-                        .filter(olm_one_time_keys::profile_id.eq(profile_id))
-                        .filter(olm_one_time_keys::distributed.eq(false))
-                        .order(olm_one_time_keys::created_at.asc())
-                        .first::<OlmOneTimeKey>(c)
-                })
-                .await
-                .ok();
-
-            if let Some(otk) = otk {
-                conn.run(move |c| {
-                    diesel::update(olm_one_time_keys::table.find(otk.id))
-                        .set(olm_one_time_keys::distributed.eq(true))
-                        .get_result::<OlmOneTimeKey>(c)
-                })
-                .await
-                .ok()
-            } else {
-                None
-            }
-        }
-        None => {
-            let mut pool = POOL.get().ok()?;
-
-            olm_one_time_keys::table
-                .filter(olm_one_time_keys::profile_id.eq(profile_id))
-                .filter(olm_one_time_keys::distributed.eq(false))
-                .order(olm_one_time_keys::created_at.asc())
-                .first::<OlmOneTimeKey>(&mut pool)
-                .and_then(|otk| {
-                    diesel::update(olm_one_time_keys::table.find(otk.id))
-                        .set(olm_one_time_keys::distributed.eq(true))
-                        .get_result::<OlmOneTimeKey>(&mut pool)
-                })
-                .ok()
-        }
-    }
 }

@@ -3,8 +3,8 @@ use std::collections::HashSet;
 
 use crate::{
     activity_pub::{
-        ApActivity, ApActor, ApInstrument, ApInstrumentType, ApInstruments, ApInvite, ApJoin,
-        ApNote, ApSession, JoinData,
+        ApActivity, ApActor, ApInstrument, ApInstrumentType, ApInvite, ApJoin, ApNote, ApSession,
+        JoinData,
     },
     db::Db,
     fairings::events::EventChannels,
@@ -15,13 +15,14 @@ use crate::{
             create_encrypted_session, get_encrypted_session_by_profile_id_and_ap_to,
             get_encrypted_session_by_uuid, NewEncryptedSession,
         },
+        from_serde,
         objects::Object,
-        olm_one_time_keys::get_olm_one_time_key_by_profile_id,
         olm_sessions::{create_olm_session, update_olm_session},
         processing_queue::create_processing_item,
         remote_encrypted_sessions::get_remote_encrypted_session_by_ap_id,
     },
     runner::{self, send_to_inboxes},
+    MaybeMultiple,
 };
 
 use super::TaskError;
@@ -87,19 +88,19 @@ pub async fn handle_encrypted_note(
     if let Some(instrument) = &note.ek_instrument {
         cfg_if::cfg_if! {
             if #[cfg(feature = "pg")] {
-                let instruments = serde_json::from_value::<ApInstruments>(instrument.clone()).ok()?;
+                let instruments = serde_json::from_value::<MaybeMultiple<ApInstrument>>(instrument.clone()).ok()?;
             } else if #[cfg(feature = "sqlite")] {
-                let instruments = serde_json::from_str::<ApInstruments>(&instrument.clone()).ok()?;
+                let instruments = serde_json::from_str::<MaybeMultiple<ApInstrument>>(&instrument.clone()).ok()?;
             }
         }
 
         match instruments {
-            ApInstruments::Multiple(instruments) => {
+            MaybeMultiple::Multiple(instruments) => {
                 for instrument in instruments {
                     let _ = do_it(conn, instrument, inboxes, note, sender.clone()).await;
                 }
             }
-            ApInstruments::Single(instrument) => {
+            MaybeMultiple::Single(instrument) => {
                 let _ = do_it(conn, instrument, inboxes, note, sender).await;
             }
             _ => (),
@@ -215,82 +216,82 @@ pub async fn send_kexinit_task(
     Ok(())
 }
 
-pub async fn provide_one_time_key_task(
-    conn: Option<Db>,
-    _channels: Option<EventChannels>,
-    ap_ids: Vec<String>,
-) -> Result<(), TaskError> {
-    log::debug!("RUNNING provide_one_time_key JOB");
+// pub async fn provide_one_time_key_task(
+//     conn: Option<Db>,
+//     _channels: Option<EventChannels>,
+//     ap_ids: Vec<String>,
+// ) -> Result<(), TaskError> {
+//     log::debug!("RUNNING provide_one_time_key JOB");
 
-    let conn = conn.as_ref();
+//     let conn = conn.as_ref();
 
-    for ap_id in ap_ids {
-        let session = get_remote_encrypted_session_by_ap_id(conn, ap_id)
-            .await
-            .ok_or(TaskError::TaskFailed)?;
+//     for ap_id in ap_ids {
+//         let session = get_remote_encrypted_session_by_ap_id(conn, ap_id)
+//             .await
+//             .ok_or(TaskError::TaskFailed)?;
 
-        let identifier =
-            get_local_identifier(session.ap_to.clone()).ok_or(TaskError::TaskFailed)?;
-        let actor = get_actor_by_as_id(conn.unwrap(), session.attributed_to.clone())
-            .await
-            .map_err(|e| {
-                log::error!("FAILED TO RETRIEVE ACTOR: {e:#?}");
-                TaskError::TaskFailed
-            })?;
+//         let identifier =
+//             get_local_identifier(session.ap_to.clone()).ok_or(TaskError::TaskFailed)?;
+//         let actor = get_actor_by_as_id(conn.unwrap(), session.attributed_to.clone())
+//             .await
+//             .map_err(|e| {
+//                 log::error!("FAILED TO RETRIEVE ACTOR: {e:#?}");
+//                 TaskError::TaskFailed
+//             })?;
 
-        if identifier.kind == LocalIdentifierType::User {
-            let username = identifier.identifier;
-            let profile = get_actor_by_username(conn.unwrap(), username.clone())
-                .await
-                .ok_or(TaskError::TaskFailed)?;
+//         if identifier.kind == LocalIdentifierType::User {
+//             let username = identifier.identifier;
+//             let profile = get_actor_by_username(conn.unwrap(), username.clone())
+//                 .await
+//                 .ok_or(TaskError::TaskFailed)?;
 
-            let identity_key = profile
-                .ek_olm_identity_key
-                .clone()
-                .ok_or(TaskError::TaskFailed)?;
-            let otk = get_olm_one_time_key_by_profile_id(conn, profile.id)
-                .await
-                .ok_or(TaskError::TaskFailed)?;
+//             let identity_key = profile
+//                 .ek_olm_identity_key
+//                 .clone()
+//                 .ok_or(TaskError::TaskFailed)?;
+//             let otk = get_olm_one_time_key_by_profile_id(conn, profile.id)
+//                 .await
+//                 .ok_or(TaskError::TaskFailed)?;
 
-            let session = ApSession::from(JoinData {
-                one_time_key: otk.key_data,
-                identity_key,
-                to: session.attributed_to,
-                attributed_to: session.ap_to,
-                reference: session.ap_id,
-            });
+//             let session = ApSession::from(JoinData {
+//                 one_time_key: otk.key_data,
+//                 identity_key,
+//                 to: session.attributed_to,
+//                 attributed_to: session.ap_to,
+//                 reference: session.ap_id,
+//             });
 
-            let activity = ApJoin::try_from(session.clone()).map_err(|e| {
-                log::error!("FAILED TO BUILD ApJoin: {e:#?}");
-                TaskError::TaskFailed
-            })?;
+//             let activity = ApJoin::try_from(session.clone()).map_err(|e| {
+//                 log::error!("FAILED TO BUILD ApJoin: {e:#?}");
+//                 TaskError::TaskFailed
+//             })?;
 
-            let encrypted_session: NewEncryptedSession = (session.clone(), profile.id).into();
+//             let encrypted_session: NewEncryptedSession = (session.clone(), profile.id).into();
 
-            if create_encrypted_session(conn, encrypted_session)
-                .await
-                .is_some()
-            {
-                match send_to_inboxes(
-                    conn.unwrap(),
-                    vec![actor.as_inbox.into()],
-                    profile,
-                    ApActivity::Join(activity),
-                )
-                .await
-                {
-                    Ok(_) => {
-                        log::info!("JOIN SENT");
-                    }
-                    Err(e) => {
-                        log::error!("ERROR SENDING JOIN: {e:#?}",)
-                    }
-                }
-            } else {
-                log::error!("FAILED TO SAVE ENCRYPTED SESSION");
-            }
-        }
-    }
+//             if create_encrypted_session(conn, encrypted_session)
+//                 .await
+//                 .is_some()
+//             {
+//                 match send_to_inboxes(
+//                     conn.unwrap(),
+//                     vec![actor.as_inbox.into()],
+//                     profile,
+//                     ApActivity::Join(activity),
+//                 )
+//                 .await
+//                 {
+//                     Ok(_) => {
+//                         log::info!("JOIN SENT");
+//                     }
+//                     Err(e) => {
+//                         log::error!("ERROR SENDING JOIN: {e:#?}",)
+//                     }
+//                 }
+//             } else {
+//                 log::error!("FAILED TO SAVE ENCRYPTED SESSION");
+//             }
+//         }
+//     }
 
-    Ok(())
-}
+//     Ok(())
+// }

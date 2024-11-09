@@ -99,9 +99,9 @@ fn build_verify_string(params: VerifyMapParams) -> VerifyParams {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub enum VerificationType {
-    Remote,
+    Remote(Box<ApActor>),
     Local(Box<Actor>),
     None,
     Deferred(Box<VerifyMapParams>),
@@ -171,21 +171,11 @@ pub async fn verify(
 
         Ok(VerificationType::Local(Box::from(profile)))
     } else if let Ok(actor) = get_actor_by_key_id(conn, key_id).await {
-        // I'm making a conscious choice here to limit accessibility to Actors that already have local records.
-        // Because all we get is a KeyId in this exchange, and because KeyIds do not have a standard format
-        // that lends itself to Actor ID discovery, trying to resolve to an unknown Actor ID is guesswork.
-        // For example, Mastodon and Enigmatick use https://{server}/user(s)/{username}#main-key. GoToSocial
-        // uses https://{server}/users/{username}/main-key. I could RegEx the variant, but it's clear that with
-        // no real standard, I'd be chasing subjectivity across implementations.
-        //
-        // This approach should be okay with one exception: if we eventually integrate with a Relay of some sort
-        // where we're getting messages from completely unknown Actors.
-        RsaPublicKey::from_public_key_pem(
-            ApActor::from(actor).public_key.public_key_pem.trim_end(),
-        )
-        .map_err(|e| VerificationError::PublicKeyError(anyhow!(e)))
-        .and_then(|pk| verify(&pk, &signature_str, &verify_string))?;
-        Ok(VerificationType::Remote)
+        let actor = ApActor::from(actor.clone());
+        RsaPublicKey::from_public_key_pem(actor.clone().public_key.public_key_pem.trim_end())
+            .map_err(|e| VerificationError::PublicKeyError(anyhow!(e)))
+            .and_then(|pk| verify(&pk, &signature_str, &verify_string))?;
+        Ok(VerificationType::Remote(Box::new(actor)))
     } else {
         Err(VerificationError::ActorNotFound(params.into()))
     }

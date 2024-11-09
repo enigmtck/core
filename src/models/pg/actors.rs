@@ -391,6 +391,7 @@ pub async fn update_password_by_username(
     password: String,
     client_private_key: String,
     olm_pickled_account: String,
+    olm_pickled_account_hash: String,
 ) -> Option<Actor> {
     conn.run(move |c| {
         diesel::update(actors::table.filter(actors::ek_username.eq(username)))
@@ -398,6 +399,7 @@ pub async fn update_password_by_username(
                 actors::ek_password.eq(password),
                 actors::ek_client_private_key.eq(client_private_key),
                 actors::ek_olm_pickled_account.eq(olm_pickled_account),
+                actors::ek_olm_pickled_account_hash.eq(olm_pickled_account_hash),
             ))
             .get_result::<Actor>(c)
     })

@@ -69,6 +69,14 @@ pub fn get_local_identifier(ap_id: String) -> Option<LocalIdentifier> {
     }
 }
 
+pub fn get_session_as_id_from_uuid(uuid: String) -> String {
+    format!("{}/sessionss/{uuid}", *crate::SERVER_URL)
+}
+
+pub fn get_instrument_as_id_from_uuid(uuid: String) -> String {
+    format!("{}/instruments/{uuid}", *crate::SERVER_URL)
+}
+
 pub fn get_followers_ap_id_from_username(username: String) -> String {
     format!("{}/user/{username}/followers", *crate::SERVER_URL)
 }

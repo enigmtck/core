@@ -2,7 +2,7 @@ use core::fmt;
 use std::fmt::Debug;
 
 use crate::{
-    activity_pub::{ApAddress, ApContext, ApInstruments, ApObject, ApSession, Inbox, Outbox},
+    activity_pub::{ApAddress, ApContext, ApObject, ApSession, Inbox, Outbox},
     db::Db,
     fairings::events::EventChannels,
     models::{
@@ -107,7 +107,7 @@ impl Outbox for ApJoin {
 impl TryFrom<ApSession> for ApJoin {
     type Error = &'static str;
     fn try_from(session: ApSession) -> Result<Self, Self::Error> {
-        if let ApInstruments::Multiple(_) = session.instrument {
+        if let MaybeMultiple::Multiple(_) = session.instrument {
             Ok(ApJoin {
                 context: Some(ApContext::default()),
                 kind: ApJoinType::default(),

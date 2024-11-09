@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
 use crate::{
+    activity_pub::ApActor,
     db::Db,
     models::{actors::Actor, instances::create_or_update_instance},
     signing::{verify, VerificationError, VerificationType, VerifyMapParams},
@@ -12,7 +13,7 @@ use rocket::{
     request::{FromRequest, Outcome, Request},
 };
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Signed(pub bool, pub VerificationType);
 
 impl Signed {
@@ -21,11 +22,19 @@ impl Signed {
     }
 
     pub fn remote(&self) -> bool {
-        matches!(self, Signed(true, VerificationType::Remote))
+        matches!(self, Signed(true, VerificationType::Remote(_)))
     }
 
     pub fn any(&self) -> bool {
         matches!(self, Signed(true, _))
+    }
+
+    pub fn actor(&self) -> Option<ApActor> {
+        if let Signed(true, VerificationType::Remote(actor)) = self {
+            Some(*actor.clone())
+        } else {
+            None
+        }
     }
 
     pub fn profile(&self) -> Option<Actor> {

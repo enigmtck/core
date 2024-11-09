@@ -1,4 +1,4 @@
-use crate::activity_pub::{ApInstruments, ApObject, ApSession};
+use crate::activity_pub::{ApObject, ApSession};
 use crate::db::Db;
 use crate::schema::processing_queue;
 use diesel::prelude::*;
@@ -7,6 +7,7 @@ use super::actors::Actor;
 use super::remote_encrypted_sessions::RemoteEncryptedSession;
 use crate::models::encrypted_sessions::get_encrypted_session_by_profile_id_and_ap_to;
 use crate::models::{from_serde, to_serde};
+use crate::MaybeMultiple;
 
 cfg_if::cfg_if! {
     if #[cfg(feature = "pg")] {
@@ -83,7 +84,7 @@ pub async fn retrieve(conn: &Db, profile: Actor) -> Vec<ApObject> {
                 log::debug!("FOUND ENCRYPTED SESSION\n{session:#?}");
                 if let Some(olm_session) = session.1 {
                     log::debug!("FOUND OLM SESSION\n{olm_session:#?}");
-                    note.instrument = Some(ApInstruments::Single(olm_session.into()));
+                    note.instrument = Some(MaybeMultiple::Single(olm_session.into()));
                 }
             }
 

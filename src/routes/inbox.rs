@@ -19,6 +19,7 @@ use crate::models::unprocessable::create_unprocessable;
 use crate::signing::{verify, VerificationType};
 use crate::SERVER_URL;
 use std::fmt;
+use urlencoding::encode;
 
 use super::{retrieve, ActivityJson};
 
@@ -62,6 +63,21 @@ pub async fn inbox_post(
     shared_inbox_post(permitted, signed, conn, channels, activity).await
 }
 
+pub fn convert_hashtags_to_query_string(hashtags: &[String]) -> String {
+    hashtags
+        .iter()
+        .map(|tag| format!("&hashtags[]={}", encode(tag)))
+        .collect::<Vec<String>>()
+        .join("")
+}
+
+pub fn add_hash_to_tags(hashtags: &[String]) -> Vec<String> {
+    hashtags
+        .iter()
+        .map(|tag| format!("#{tag}"))
+        .collect::<Vec<String>>()
+}
+
 #[get("/inbox?<min>&<max>&<limit>&<hashtags>&<view>")]
 pub async fn shared_inbox_get(
     signed: Signed,
@@ -85,11 +101,7 @@ pub async fn shared_inbox_get(
 
     let hashtags_query = {
         if let Some(hashtags) = hashtags.clone() {
-            hashtags
-                .iter()
-                .map(|h| format!("hashtag[]={}", h))
-                .collect::<Vec<String>>()
-                .join("&")
+            convert_hashtags_to_query_string(&hashtags)
         } else {
             String::new()
         }
@@ -98,12 +110,18 @@ pub async fn shared_inbox_get(
     let base_url =
         format!("{server_url}/inbox?page=true&limit={limit}{view_query}{hashtags_query}");
 
+    let hashtags = if let Some(hashtags) = hashtags.clone() {
+        add_hash_to_tags(&hashtags)
+    } else {
+        vec![]
+    };
+
     let filters = {
         if let Some(view) = view {
             match view {
                 InboxView::Global => TimelineFilters {
                     view: Some(view.into()),
-                    hashtags: hashtags.unwrap_or_default(),
+                    hashtags,
                     username: None,
                     conversation: None,
                     direct: false,
@@ -120,21 +138,21 @@ pub async fn shared_inbox_get(
                     } else {
                         Some(TimelineView::Global)
                     },
-                    hashtags: hashtags.unwrap_or_default(),
+                    hashtags,
                     username: None,
                     conversation: None,
                     direct: false,
                 },
                 InboxView::Local => TimelineFilters {
                     view: Some(view.into()),
-                    hashtags: hashtags.unwrap_or_default(),
+                    hashtags,
                     username: None,
                     conversation: None,
                     direct: false,
                 },
                 InboxView::Direct => TimelineFilters {
                     view: Some(view.into()),
-                    hashtags: hashtags.unwrap_or_default(),
+                    hashtags,
                     username: None,
                     conversation: None,
                     direct: true,
@@ -143,7 +161,7 @@ pub async fn shared_inbox_get(
         } else {
             TimelineFilters {
                 view: Some(TimelineView::Global),
-                hashtags: hashtags.unwrap_or_default(),
+                hashtags,
                 username: None,
                 conversation: None,
                 direct: false,
@@ -207,7 +225,10 @@ pub async fn shared_inbox_post(
 
     let is_authorized = if let Some(deferred) = signed.deferred() {
         let _ = retriever::get_actor(&conn, activity.actor().to_string(), None, true).await;
-        matches!(verify(&conn, deferred).await, Ok(VerificationType::Remote))
+        matches!(
+            verify(&conn, deferred).await,
+            Ok(VerificationType::Remote(_))
+        )
     } else {
         signed.any()
     };

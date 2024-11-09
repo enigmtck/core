@@ -2,14 +2,17 @@ use crate::{
     activity_pub::{ApAddress, ApContext, Outbox},
     db::Db,
     fairings::events::EventChannels,
+    helper::{get_instrument_as_id_from_uuid, get_session_as_id_from_uuid},
     models::{
         actors::Actor,
         encrypted_sessions::{create_encrypted_session, EncryptedSession, NewEncryptedSession},
+        olm_one_time_keys::OlmOneTimeKey,
         olm_sessions::OlmSession,
         remote_encrypted_sessions::RemoteEncryptedSession,
     },
-    runner,
+    runner, MaybeMultiple,
 };
+use anyhow::{anyhow, Result};
 use rocket::http::Status;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -27,7 +30,7 @@ pub struct ApSession {
     pub id: Option<String>,
     pub to: ApAddress,
     pub attributed_to: ApAddress,
-    pub instrument: ApInstruments,
+    pub instrument: MaybeMultiple<ApInstrument>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reference: Option<String>,
     pub uuid: Option<String>,
@@ -47,16 +50,16 @@ impl Outbox for ApSession {
 
 impl Default for ApSession {
     fn default() -> ApSession {
-        let uuid = Uuid::new_v4();
+        let uuid = Uuid::new_v4().to_string();
         ApSession {
             context: Some(ApContext::default()),
             kind: ApSessionType::default(),
-            id: Some(format!("https://{}/session/{}", *crate::SERVER_NAME, uuid)),
+            id: Some(get_session_as_id_from_uuid(uuid.clone())),
             to: ApAddress::None,
             attributed_to: ApAddress::None,
-            instrument: ApInstruments::default(),
+            instrument: MaybeMultiple::None,
             reference: Option::None,
-            uuid: Some(uuid.to_string()),
+            uuid: Some(uuid),
         }
     }
 }
@@ -68,7 +71,7 @@ pub enum ApSessionType {
     EncryptedSession,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, Default)]
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq, Eq)]
 pub enum ApInstrumentType {
     #[default]
     #[serde(alias = "identity_key")]
@@ -81,10 +84,11 @@ pub enum ApInstrumentType {
     Service,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, Default)]
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq, Eq)]
 pub struct ApInstrument {
     #[serde(rename = "type")]
     pub kind: ApInstrumentType,
+    pub id: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub content: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -109,55 +113,70 @@ impl Outbox for ApInstrument {
     }
 }
 
+impl TryFrom<Actor> for ApInstrument {
+    type Error = anyhow::Error;
+
+    fn try_from(actor: Actor) -> Result<Self> {
+        Ok(Self {
+            kind: ApInstrumentType::IdentityKey,
+            id: format!("{}#identity-key", actor.as_id),
+            content: Some(
+                actor
+                    .ek_olm_identity_key
+                    .ok_or(anyhow!("Actor does not have an IDK"))?,
+            ),
+            hash: None,
+            uuid: None,
+            name: None,
+            url: None,
+        })
+    }
+}
+
 impl From<OlmSession> for ApInstrument {
     fn from(session: OlmSession) -> Self {
-        ApInstrument {
+        Self {
             kind: ApInstrumentType::OlmSession,
+            id: get_session_as_id_from_uuid(session.uuid.clone()),
             content: Some(session.session_data),
             hash: Some(session.session_hash),
-            uuid: Some(session.uuid),
+            uuid: None,
             name: None,
             url: None,
         }
     }
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, Default)]
-#[serde(untagged)]
-pub enum ApInstruments {
-    Multiple(Vec<ApInstrument>),
-    Single(ApInstrument),
-    #[default]
-    Unknown,
+impl From<OlmOneTimeKey> for ApInstrument {
+    fn from(otk: OlmOneTimeKey) -> Self {
+        Self {
+            kind: ApInstrumentType::SessionKey,
+            id: get_instrument_as_id_from_uuid(otk.uuid.clone()),
+            content: Some(otk.key_data),
+            uuid: None,
+            hash: None,
+            name: None,
+            url: None,
+        }
+    }
 }
 
-#[derive(Deserialize, Clone, Debug)]
+#[derive(Deserialize, Serialize, Clone, Debug)]
 pub struct JoinData {
-    pub one_time_key: String,
-    pub identity_key: String,
-    pub to: String,
-    pub attributed_to: String,
+    pub session_key: ApInstrument,
+    pub identity_key: ApInstrument,
+    pub to: ApAddress,
+    pub attributed_to: ApAddress,
     pub reference: String,
 }
 
 impl From<JoinData> for ApSession {
-    fn from(keys: JoinData) -> ApSession {
-        ApSession {
+    fn from(keys: JoinData) -> Self {
+        Self {
             reference: Some(keys.reference),
-            to: ApAddress::Address(keys.to),
-            attributed_to: ApAddress::Address(keys.attributed_to),
-            instrument: ApInstruments::Multiple(vec![
-                ApInstrument {
-                    kind: ApInstrumentType::IdentityKey,
-                    content: Some(keys.identity_key),
-                    ..Default::default()
-                },
-                ApInstrument {
-                    kind: ApInstrumentType::SessionKey,
-                    content: Some(keys.one_time_key),
-                    ..Default::default()
-                },
-            ]),
+            to: keys.to,
+            attributed_to: keys.attributed_to,
+            instrument: MaybeMultiple::Multiple(vec![keys.identity_key, keys.session_key]),
             ..Default::default()
         }
     }
@@ -197,15 +216,15 @@ impl From<JoinedOlmSession> for ApSession {
         let mut session = ap_session;
 
         match session.instrument {
-            ApInstruments::Multiple(instruments) if olm_session.is_some() => {
+            MaybeMultiple::Multiple(instruments) if olm_session.is_some() => {
                 let mut instruments = instruments;
                 instruments.push(olm_session.unwrap().into());
-                session.instrument = ApInstruments::Multiple(instruments);
+                session.instrument = MaybeMultiple::Multiple(instruments);
             }
-            ApInstruments::Single(instrument) if olm_session.is_some() => {
+            MaybeMultiple::Single(instrument) if olm_session.is_some() => {
                 let mut instruments: Vec<ApInstrument> = vec![instrument];
                 instruments.push(olm_session.unwrap().into());
-                session.instrument = ApInstruments::Multiple(instruments);
+                session.instrument = MaybeMultiple::Multiple(instruments);
             }
             _ => (),
         }

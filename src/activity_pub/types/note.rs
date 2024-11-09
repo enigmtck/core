@@ -5,7 +5,7 @@ use super::Ephemeral;
 use crate::{
     activity_pub::ApActivity,
     activity_pub::{
-        ActivityPub, ApActor, ApAttachment, ApCollection, ApContext, ApImage, ApInstruments, ApTag,
+        ActivityPub, ApActor, ApAttachment, ApCollection, ApContext, ApImage, ApInstrument, ApTag,
         Outbox,
     },
     db::Db,
@@ -195,7 +195,7 @@ pub struct ApNote {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub content_map: Option<HashMap<String, String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub instrument: Option<ApInstruments>,
+    pub instrument: Option<MaybeMultiple<ApInstrument>>,
 
     // These are ephemeral attributes to facilitate client operations
     #[serde(skip_serializing_if = "Option::is_none")]

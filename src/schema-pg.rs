@@ -269,6 +269,7 @@ diesel::table! {
         olm_id -> Int4,
         key_data -> Varchar,
         distributed -> Bool,
+        assignee -> Nullable<Text>,
     }
 }
 

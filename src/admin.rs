@@ -82,6 +82,7 @@ pub async fn create_user(conn: Option<&Db>, user: NewUser) -> Result<Actor> {
     let key_pair = get_key_pair();
     let owner = get_ap_id_from_username(user.username.clone());
     let server = crate::SERVER_URL.clone();
+    let avatar = crate::DEFAULT_AVATAR.clone();
     let password = pwhash::Password::from_slice(user.password.as_bytes())?;
     let username = user.username.clone();
 
@@ -117,7 +118,7 @@ pub async fn create_user(conn: Option<&Db>, user: NewUser) -> Result<Actor> {
         ek_olm_pickled_account_hash: user.olm_pickled_account_hash,
         ek_olm_identity_key: user.olm_identity_key,
         ek_salt: user.salt,
-        as_preferred_username: Some(owner.clone()),
+        as_preferred_username: Some(username.clone()),
         as_inbox: format!("{owner}/inbox"),
         as_outbox: format!("{owner}/outbox"),
         as_followers: Some(format!("{owner}/followers")),
@@ -140,7 +141,7 @@ pub async fn create_user(conn: Option<&Db>, user: NewUser) -> Result<Actor> {
         as_tag: json!([]),
         as_id: owner,
         as_icon: to_serde(&Some(ApImage {
-            url: format!("{server}/media/avatars/default.png"),
+            url: format!("{server}/{avatar}"),
             kind: ApImageType::Image,
             media_type: Some("png".to_string()),
         }))

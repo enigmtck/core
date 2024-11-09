@@ -196,6 +196,18 @@ pub enum MaybeMultiple<T> {
     None,
 }
 
+impl<T: PartialEq> MaybeMultiple<T> {
+    fn is_none(&self) -> bool {
+        *self == MaybeMultiple::None
+    }
+}
+
+impl From<ApObject> for MaybeMultiple<ApObject> {
+    fn from(data: ApObject) -> Self {
+        MaybeMultiple::Single(data)
+    }
+}
+
 impl From<String> for MaybeMultiple<String> {
     fn from(data: String) -> Self {
         MaybeMultiple::Single(data)
