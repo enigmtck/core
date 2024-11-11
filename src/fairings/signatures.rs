@@ -107,9 +107,13 @@ impl<'r> FromRequest<'r> for Signed {
             Outcome::Success(conn) => {
                 let method = request.method().to_string();
                 let host = request.host().expect("Host not found").to_string();
-                let path = request.uri().to_string();
+                //let path = request.uri().to_string();
+                let path = request.uri().path().to_string(); // SHOULD BE
+                                                             // NEED TO ADJUST SIGNING IN WASM CLIENT TO MATCH (i.e., no paramaters)
                 let path = path.trim_end_matches('&');
                 let request_target = format!("{} {}", method.to_lowercase(), path);
+
+                log::debug!("REQUEST TARGET: {request_target}");
 
                 let date = match get_header("date").or_else(|| get_header("enigmatick-date")) {
                     Some(val) => val,
@@ -122,65 +126,66 @@ impl<'r> FromRequest<'r> for Signed {
                 let digest = get_header("digest");
                 let user_agent = get_header("user-agent");
                 let content_length = get_header("content-length");
+                let content_type = request.content_type().map(|x| x.to_string());
 
-                if let Some(content_type) = request.content_type() {
-                    let content_type = content_type.to_string();
-                    let signature_vec: Vec<_> = request.headers().get("signature").collect();
+                //if let Some(content_type) = request.content_type() {
+                //let content_type = content_type.to_string();
+                let signature_vec: Vec<_> = request.headers().get("signature").collect();
 
-                    match signature_vec.len() {
-                        0 => Outcome::Success(Signed(false, VerificationType::None)),
-                        1 => {
-                            let signature = signature_vec[0].to_string();
+                match signature_vec.len() {
+                    0 => Outcome::Success(Signed(false, VerificationType::None)),
+                    1 => {
+                        let signature = signature_vec[0].to_string();
 
-                            let verify_params = VerifyMapParams {
-                                signature: signature.clone(),
-                                request_target,
-                                host,
-                                date,
-                                digest,
-                                content_type,
-                                content_length,
-                                user_agent,
-                            };
-                            match verify(&conn, verify_params.clone()).await {
-                                Ok(t) => {
-                                    update_instance(&conn, signature.to_string()).await;
-                                    Outcome::Success(Signed(true, t))
-                                }
-                                Err(e) => match e {
-                                    // It's possible that we've never seen the signing actor before and don't
-                                    // yet have them in the database. The ID of the user is not available in
-                                    // the Fairing (i.e., it's not in the header), so we defer the verification
-                                    // to the receiving route that decodes the whole request
-                                    VerificationError::ActorNotFound(verify_map_params) => {
-                                        log::debug!(
-                                            "Signature verification deferred\n{:#?}",
-                                            verify_map_params.clone()
-                                        );
-                                        Outcome::Success(Signed(
-                                            false,
-                                            VerificationType::Deferred(verify_map_params),
-                                        ))
-                                    }
-                                    _ => {
-                                        log::debug!("Signature verification failed\n{e:#?}");
-                                        Outcome::Error((
-                                            Status::BadRequest,
-                                            SignatureError::SignatureInvalid,
-                                        ))
-                                    }
-                                },
+                        let verify_params = VerifyMapParams {
+                            signature: signature.clone(),
+                            request_target,
+                            host,
+                            date,
+                            digest,
+                            content_type,
+                            content_length,
+                            user_agent,
+                        };
+                        match verify(&conn, verify_params.clone()).await {
+                            Ok(t) => {
+                                update_instance(&conn, signature.to_string()).await;
+                                Outcome::Success(Signed(true, t))
                             }
-                        }
-                        _ => {
-                            log::debug!("Multiple signatures in header");
-                            Outcome::Error((Status::BadRequest, SignatureError::MultipleSignatures))
+                            Err(e) => match e {
+                                // It's possible that we've never seen the signing actor before and don't
+                                // yet have them in the database. The ID of the user is not available in
+                                // the Fairing (i.e., it's not in the header), so we defer the verification
+                                // to the receiving route that decodes the whole request
+                                VerificationError::ActorNotFound(verify_map_params) => {
+                                    log::debug!(
+                                        "Signature verification deferred\n{:#?}",
+                                        verify_map_params.clone()
+                                    );
+                                    Outcome::Success(Signed(
+                                        false,
+                                        VerificationType::Deferred(verify_map_params),
+                                    ))
+                                }
+                                _ => {
+                                    log::debug!("Signature verification failed\n{e:#?}");
+                                    Outcome::Error((
+                                        Status::BadRequest,
+                                        SignatureError::SignatureInvalid,
+                                    ))
+                                }
+                            },
                         }
                     }
-                } else {
-                    log::debug!("Content-Type required for signature verification");
-                    Outcome::Success(Signed(false, VerificationType::None))
+                    _ => {
+                        log::debug!("Multiple signatures in header");
+                        Outcome::Error((Status::BadRequest, SignatureError::MultipleSignatures))
+                    }
                 }
+                // } else {
+                //     log::debug!("Content-Type required for signature verification");
+                //     Outcome::Success(Signed(false, VerificationType::None))
+                // }
             }
             Outcome::Error(e) => {
                 log::error!("Unable to connect to database: {e:?}");

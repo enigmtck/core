@@ -224,7 +224,10 @@ pub async fn shared_inbox_post(
     };
 
     let is_authorized = if let Some(deferred) = signed.deferred() {
-        let _ = retriever::get_actor(&conn, activity.actor().to_string(), None, true).await;
+        let actor = retriever::get_actor(&conn, activity.actor().to_string(), None, true).await;
+
+        log::debug!("Deferred Actor retrieved\n{actor:#?}");
+
         matches!(
             verify(&conn, deferred).await,
             Ok(VerificationType::Remote(_))

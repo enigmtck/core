@@ -119,6 +119,7 @@ pub struct NewActor {
     pub as_discoverable: bool,
     pub ap_capabilities: Value,
     pub ap_manually_approves_followers: bool,
+    pub ek_keys: Option<String>,
 }
 
 #[derive(
@@ -181,6 +182,7 @@ pub struct Actor {
     pub as_discoverable: bool,
     pub ap_capabilities: Value,
     pub ap_manually_approves_followers: bool,
+    pub ek_keys: Option<String>,
 }
 
 impl TryFrom<CoalescedActivity> for Actor {
@@ -239,6 +241,7 @@ impl TryFrom<CoalescedActivity> for Actor {
         let ap_manually_approves_followers = activity
             .actor_manually_approves_followers
             .ok_or(anyhow!("no manually_approves_followers"))?;
+        let ek_keys = activity.actor_keys;
 
         Ok(Actor {
             id,
@@ -284,6 +287,7 @@ impl TryFrom<CoalescedActivity> for Actor {
             as_also_known_as,
             as_discoverable,
             ap_capabilities,
+            ek_keys,
             ap_manually_approves_followers,
         })
     }

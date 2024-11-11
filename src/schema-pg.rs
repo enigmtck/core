@@ -93,6 +93,7 @@ diesel::table! {
         as_discoverable -> Bool,
         ap_capabilities -> Jsonb,
         ap_manually_approves_followers -> Bool,
+        ek_keys -> Nullable<Text>,
     }
 }
 
@@ -339,6 +340,7 @@ diesel::table! {
     }
 }
 
+diesel::joinable!(olm_one_time_keys -> actors (profile_id));
 diesel::joinable!(olm_sessions -> encrypted_sessions (encrypted_session_id));
 
 diesel::allow_tables_to_appear_in_same_query!(

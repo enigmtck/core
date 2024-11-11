@@ -209,6 +209,10 @@ pub struct ApActor {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub capabilities: Option<ApCapabilities>,
 
+    // Enigmatick-specific
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub keys: Option<String>,
+
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ephemeral: Option<Ephemeral>,
 }
@@ -326,6 +330,7 @@ impl Default for ApActor {
             also_known_as: None,
             discoverable: None,
             capabilities: None,
+            keys: None,
             ephemeral: None,
         }
     }
@@ -434,6 +439,7 @@ impl From<Actor> for ApActor {
         let also_known_as = from_serde(actor.as_also_known_as);
         let tag = from_serde(actor.as_tag);
         let endpoints = from_serde(actor.as_endpoints);
+        let keys = actor.ek_keys;
 
         ApActor {
             context,
@@ -462,6 +468,7 @@ impl From<Actor> for ApActor {
             also_known_as,
             tag,
             endpoints,
+            keys,
             ephemeral: None,
         }
     }

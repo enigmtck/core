@@ -443,6 +443,39 @@ pub async fn remote_outbox_authenticated(
     }
 }
 
+#[get("/api/user/<_username>/remote/keys?<webfinger>")]
+pub async fn remote_keys_authenticated(
+    blocks: BlockList,
+    signed: Signed,
+    conn: Db,
+    _username: &str,
+    webfinger: &str,
+) -> Result<Json<ApObject>, Status> {
+    if blocks.is_blocked(get_domain_from_webfinger(webfinger.to_string())) {
+        Err(Status::Forbidden)
+    } else if let Some(profile) = signed.profile() {
+        let Json(actor) =
+            remote_actor_authenticated_response(signed, &conn, webfinger.to_string()).await?;
+
+        let keys = actor.keys.ok_or_else(|| {
+            log::error!("Actor must have a Keys collection");
+            Status::InternalServerError
+        })?;
+
+        let keys = format!("{keys}?otk=true");
+
+        let collection = get_remote_collection(&conn, Some(profile), keys)
+            .await
+            .map_err(|e| {
+                log::error!("FAILED TO RETRIEVE REMOTE Collection: {e:#?}");
+                Status::InternalServerError
+            })?;
+        Ok(Json(ApObject::Collection(collection)))
+    } else {
+        Err(Status::Unauthorized)
+    }
+}
+
 #[get("/api/remote/object?<id>")]
 pub async fn remote_object(
     blocks: BlockList,

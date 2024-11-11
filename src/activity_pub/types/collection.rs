@@ -4,7 +4,7 @@ use std::fmt::Debug;
 
 use super::Ephemeral;
 use crate::activity_pub::{
-    ActivityPub, ApActivity, ApActor, ApActorTerse, ApContext, ApObject, Outbox,
+    ActivityPub, ApActivity, ApActor, ApActorTerse, ApContext, ApInstrument, ApObject, Outbox,
 };
 use crate::db::Db;
 use crate::fairings::events::EventChannels;
@@ -301,6 +301,17 @@ impl From<ApCollectionPageParams> for ApCollectionPage {
                 })
             }),
             part_of: base_url,
+            ..Default::default()
+        }
+    }
+}
+
+impl From<Vec<ApInstrument>> for ApCollection {
+    fn from(instruments: Vec<ApInstrument>) -> Self {
+        Self {
+            kind: ApCollectionType::Collection,
+            total_items: Some(instruments.len() as i64),
+            items: Some(instruments.into_iter().map(ApObject::from).collect()),
             ..Default::default()
         }
     }

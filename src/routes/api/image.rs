@@ -56,7 +56,6 @@ pub async fn upload_image(
 pub async fn cached_image(conn: Db, url: String) -> Result<(ContentType, NamedFile), Status> {
     log::debug!("CACHE URL BEFORE DECODING: {url}");
 
-    //if let Ok(url) = urlencoding::decode(&url) {
     let url = general_purpose::URL_SAFE_NO_PAD.decode(url).map_err(|e| {
         log::error!("FAILED TO DECODE url: {e:#?}");
         Status::BadRequest
@@ -75,14 +74,16 @@ pub async fn cached_image(conn: Db, url: String) -> Result<(ContentType, NamedFi
     let path = format!("{}/cache/{}", &*crate::MEDIA_DIR, cache.uuid);
     let media_type = &cache.clone().media_type.map_or("any".to_string(), |x| x);
 
-    let content_type =
-        ContentType::parse_flexible(media_type).ok_or(Status::InternalServerError)?;
+    let content_type = ContentType::parse_flexible(media_type).ok_or_else(|| {
+        log::error!("Failed to determine ContentType");
+        Status::InternalServerError
+    })?;
 
-    NamedFile::open(path)
-        .await
-        .map_or(Err(Status::InternalServerError), |x| Ok((content_type, x)))
-
-    // } else {
-    //     Err(Status::BadRequest)
-    // }
+    NamedFile::open(path).await.map_or_else(
+        |e| {
+            log::error!("Failed to open file: {e:#?}");
+            Err(Status::InternalServerError)
+        },
+        |x| Ok((content_type, x)),
+    )
 }

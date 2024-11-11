@@ -258,6 +258,7 @@ fn query_initial_block() -> String {
      COALESCE(ta.as_also_known_as, ta2.as_also_known_as) AS actor_also_known_as,\
      COALESCE(ta.as_discoverable, ta2.as_discoverable) AS actor_discoverable,\
      COALESCE(ta.ap_capabilities, ta2.ap_capabilities) AS actor_capabilities,\
+     COALESCE(ta.ek_keys, ta2.ek_keys) AS actor_keys,\
      COALESCE(ta.ap_manually_approves_followers, ta2.ap_manually_approves_followers) AS actor_manually_approves_followers ".to_string()
 }
 
@@ -301,7 +302,8 @@ fn query_end_block(mut query: String) -> String {
          m.actor_preferred_username, m.actor_summary, m.actor_inbox, m.actor_outbox, m.actor_followers,\
          m.actor_following, m.actor_liked, m.actor_public_key, m.actor_featured, m.actor_featured_tags, m.actor_url,\
          m.actor_published, m.actor_tag, m.actor_attachment, m.actor_endpoints, m.actor_icon, m.actor_image,\
-         m.actor_also_known_as, m.actor_discoverable, m.actor_capabilities, m.actor_manually_approves_followers,\
+         m.actor_also_known_as, m.actor_discoverable, m.actor_capabilities, m.actor_keys,\
+         m.actor_manually_approves_followers,\
          announced.object_announced, liked.object_liked \
          ORDER BY m.created_at DESC");
     query

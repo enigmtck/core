@@ -264,6 +264,7 @@ fn rocket() -> Rocket<Build> {
                 cached_image,
                 user_activity_json,
                 announcers_get,
+                remote_keys_authenticated,
             ],
         )
 }

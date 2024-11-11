@@ -326,6 +326,9 @@ pub struct CoalescedActivity {
     #[diesel(sql_type = Nullable<Jsonb>)]
     pub actor_capabilities: Option<Value>,
 
+    #[diesel(sql_type = Nullable<Text>)]
+    pub actor_keys: Option<String>,
+
     #[diesel(sql_type = Nullable<Bool>)]
     pub actor_manually_approves_followers: Option<bool>,
 }

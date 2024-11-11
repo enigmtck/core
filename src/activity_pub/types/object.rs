@@ -89,6 +89,12 @@ pub enum ApObject {
     Plain(String),
 }
 
+impl FromIterator<ApInstrument> for Vec<ApObject> {
+    fn from_iter<I: IntoIterator<Item = ApInstrument>>(iter: I) -> Self {
+        iter.into_iter().map(ApObject::from).collect()
+    }
+}
+
 impl TryFrom<Object> for ApObject {
     type Error = anyhow::Error;
 

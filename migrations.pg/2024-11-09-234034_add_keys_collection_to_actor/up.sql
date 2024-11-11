@@ -1,0 +1,1 @@
+ALTER TABLE actors ADD COLUMN ek_keys TEXT;

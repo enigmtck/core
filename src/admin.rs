@@ -9,13 +9,14 @@ use serde_json::json;
 use uuid::Uuid;
 
 use crate::activity_pub::{
-    ApCapabilities, ApContext, ApEndpoint, ApImage, ApImageType, ApPublicKey,
+    ApActor, ApCapabilities, ApContext, ApEndpoint, ApImage, ApImageType, ApPublicKey,
 };
 use crate::db::Db;
 use crate::helper::get_ap_id_from_username;
 use crate::models::actors::{
     create_or_update_actor, get_actor_by_username, Actor, ActorType, NewActor,
 };
+use crate::models::cache::Cache;
 use crate::models::profiles::Profile;
 use crate::models::to_serde;
 use crate::MaybeMultiple;
@@ -124,6 +125,7 @@ pub async fn create_user(conn: Option<&Db>, user: NewUser) -> Result<Actor> {
         as_followers: Some(format!("{owner}/followers")),
         as_following: Some(format!("{owner}/following")),
         as_liked: Some(format!("{owner}/liked")),
+        ek_keys: Some(format!("{owner}/keys")),
         as_published: Some(Utc::now()),
         as_url: to_serde(&Some(MaybeMultiple::from(format!("{server}/@{username}")))),
         as_endpoints: to_serde(&Some(ApEndpoint {
@@ -143,7 +145,7 @@ pub async fn create_user(conn: Option<&Db>, user: NewUser) -> Result<Actor> {
         as_icon: to_serde(&Some(ApImage {
             url: format!("{server}/{avatar}"),
             kind: ApImageType::Image,
-            media_type: Some("png".to_string()),
+            media_type: Some("image/png".to_string()),
         }))
         .ok_or(anyhow!("failed to initialize image"))?,
         as_image: json!("{}"),
@@ -159,5 +161,7 @@ pub async fn create_user(conn: Option<&Db>, user: NewUser) -> Result<Actor> {
         as_featured_tags: None,
     };
 
-    create_or_update_actor(conn, new_profile).await
+    let actor = create_or_update_actor(conn, new_profile).await?;
+    ApActor::from(actor.clone()).cache(conn.unwrap()).await;
+    Ok(actor)
 }

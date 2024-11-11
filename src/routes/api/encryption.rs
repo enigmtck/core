@@ -217,29 +217,26 @@ pub async fn keys_get(
     conn: Db,
     username: String,
     otk: Option<bool>,
-) -> Result<ActivityJson<MaybeMultiple<ApObject>>, Status> {
-    let requester_as_id = {
-        if let Some(actor) = signed.actor() {
-            actor.id
-        } else if let Some(profile) = signed.profile() {
-            Some(profile.as_id.into())
-        } else {
-            None
-        }
-    };
-
-    let requester_as_id = requester_as_id.ok_or(Status::Unauthorized)?;
+) -> Result<ActivityJson<ApObject>, Status> {
     let profile = get_actor_by_username(&conn, username.clone())
         .await
         .ok_or(Status::NotFound)?;
 
-    if otk.is_some_and(|x| x) {
-        let otk = get_next_otk_by_profile_id(&conn, requester_as_id.to_string(), profile.id)
-            .await
-            .map_err(|e| {
-                log::error!("Failed to get OTK: {e:#?}");
-                Status::InternalServerError
-            })?;
+    // Requests for OTKs should come via the external path (i.e., signed.actor() not
+    // signed.profile()). The WASM login process does call this endpoint to check for the
+    // key population, so the 'else' path allows for unsigned access to the collection
+    // description.
+    if signed.actor().is_some_and(|x| x.id.is_some()) && otk.is_some_and(|x| x) {
+        let otk = get_next_otk_by_profile_id(
+            &conn,
+            signed.actor().unwrap().id.unwrap().to_string(),
+            profile.id,
+        )
+        .await
+        .map_err(|e| {
+            log::error!("Failed to get OTK: {e:#?}");
+            Status::InternalServerError
+        })?;
 
         let idk = ApInstrument::try_from(profile.clone()).map_err(|e| {
             log::error!("Failed to get IDK: {e:#?}");
@@ -247,7 +244,7 @@ pub async fn keys_get(
         })?;
 
         Ok(ActivityJson(Json(
-            vec![ApObject::Instrument(otk.into()), idk.into()].into(),
+            ApCollection::from(vec![otk.into(), idk]).into(),
         )))
     } else {
         let count = get_otk_count_by_profile_id(&conn, profile.id)
@@ -264,6 +261,6 @@ pub async fn keys_get(
             *crate::SERVER_NAME
         ));
 
-        Ok(ActivityJson(Json(ApObject::Collection(collection).into())))
+        Ok(ActivityJson(Json(collection.into())))
     }
 }
