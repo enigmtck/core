@@ -74,14 +74,16 @@ pub enum ApSessionType {
 #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq, Eq)]
 pub enum ApInstrumentType {
     #[default]
-    #[serde(alias = "identity_key")]
-    IdentityKey,
-    #[serde(alias = "session_key")]
-    SessionKey,
+    #[serde(alias = "olm_identity_key")]
+    OlmIdentityKey,
+    #[serde(alias = "olm_one_time_key")]
+    OlmOneTimeKey,
     #[serde(alias = "olm_session")]
     OlmSession,
-    #[serde(alias = "service")]
-    Service,
+    #[serde(alias = "olm_account")]
+    OlmAccount,
+    #[serde(alias = "vault_item")]
+    VaultItem,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq, Eq)]
@@ -118,7 +120,7 @@ impl TryFrom<Actor> for ApInstrument {
 
     fn try_from(actor: Actor) -> Result<Self> {
         Ok(Self {
-            kind: ApInstrumentType::IdentityKey,
+            kind: ApInstrumentType::OlmIdentityKey,
             id: format!("{}#identity-key", actor.as_id),
             content: Some(
                 actor
@@ -150,7 +152,7 @@ impl From<OlmSession> for ApInstrument {
 impl From<OlmOneTimeKey> for ApInstrument {
     fn from(otk: OlmOneTimeKey) -> Self {
         Self {
-            kind: ApInstrumentType::SessionKey,
+            kind: ApInstrumentType::OlmOneTimeKey,
             id: get_instrument_as_id_from_uuid(otk.uuid.clone()),
             content: Some(otk.key_data),
             uuid: None,

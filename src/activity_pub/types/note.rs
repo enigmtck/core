@@ -187,10 +187,6 @@ pub struct ApNote {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sensitive: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub atom_uri: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub in_reply_to_atom_uri: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub conversation: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub content_map: Option<HashMap<String, String>>,
@@ -528,8 +524,6 @@ impl Default for ApNote {
             content: String::new(),
             summary: None,
             sensitive: None,
-            atom_uri: None,
-            in_reply_to_atom_uri: None,
             conversation: None,
             content_map: None,
             instrument: None,
