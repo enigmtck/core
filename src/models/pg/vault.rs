@@ -15,10 +15,9 @@ pub struct VaultItem {
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
     pub uuid: String,
-    pub profile_id: i32,
-    pub encrypted_data: String,
-    pub remote_actor: String,
-    pub outbound: bool,
+    pub owner_as_id: String,
+    pub activity_id: i32,
+    pub data: String,
 }
 
 pub async fn create_vault_item(conn: &Db, vault_item: NewVaultItem) -> Option<VaultItem> {

@@ -5,7 +5,7 @@ use diesel::prelude::*;
 
 use super::actors::Actor;
 use super::remote_encrypted_sessions::RemoteEncryptedSession;
-use crate::models::encrypted_sessions::get_encrypted_session_by_profile_id_and_ap_to;
+//use crate::models::encrypted_sessions::get_encrypted_session_by_profile_id_and_ap_to;
 use crate::models::{from_serde, to_serde};
 use crate::MaybeMultiple;
 

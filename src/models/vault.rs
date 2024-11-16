@@ -1,5 +1,7 @@
+use crate::activity_pub::ApNote;
 use crate::db::Db;
 use crate::schema::vault;
+use crate::MaybeMultiple;
 use diesel::prelude::*;
 use diesel::Insertable;
 use rocket_sync_db_pools::diesel;
@@ -18,55 +20,33 @@ cfg_if::cfg_if! {
 #[derive(Serialize, Deserialize, Insertable, Default, Debug, Clone)]
 #[diesel(table_name = vault)]
 pub struct NewVaultItem {
-    pub profile_id: i32,
     pub uuid: String,
-    pub encrypted_data: String,
-    pub remote_actor: String,
+    pub owner_as_id: String,
+    pub activity_id: i32,
+    pub data: String,
 }
 
-type EncryptedData = (String, i32, String);
+type EncryptedData = (String, String, i32);
 impl From<EncryptedData> for NewVaultItem {
-    fn from((encrypted_data, profile_id, remote_actor): EncryptedData) -> Self {
+    fn from((data, owner_as_id, activity_id): EncryptedData) -> Self {
         NewVaultItem {
-            profile_id,
-            encrypted_data,
-            remote_actor,
+            data,
+            owner_as_id,
+            activity_id,
             uuid: uuid::Uuid::new_v4().to_string(),
         }
     }
 }
 
-pub async fn get_vault_items_by_profile_id_and_remote_actor(
+pub async fn get_vault_items_by_owner_as_id(
     conn: &Db,
-    id: i32,
-    limit: i64,
-    offset: i64,
-    actor: String,
-) -> Vec<VaultItem> {
-    conn.run(move |c| {
-        let query = vault::table
-            .filter(vault::profile_id.eq(id))
-            .filter(vault::remote_actor.eq(actor))
-            .order(vault::created_at.desc())
-            .limit(limit)
-            .offset(offset)
-            .into_boxed();
-
-        query.get_results::<VaultItem>(c)
-    })
-    .await
-    .unwrap_or(vec![])
-}
-
-pub async fn get_vault_items_by_profile_id(
-    conn: &Db,
-    id: i32,
+    owner_as_id: String,
     limit: i64,
     offset: i64,
 ) -> Vec<VaultItem> {
     conn.run(move |c| {
         let query = vault::table
-            .filter(vault::profile_id.eq(id))
+            .filter(vault::owner_as_id.eq(owner_as_id))
             .order(vault::created_at.desc())
             .limit(limit)
             .offset(offset)

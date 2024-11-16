@@ -3,18 +3,21 @@ use std::fmt::Debug;
 
 use crate::{
     activity_pub::{
-        ActivityPub, ApActivity, ApAddress, ApContext, ApNote, ApObject, Inbox, Outbox, Temporal,
+        ActivityPub, ApActivity, ApAddress, ApContext, ApInstrument, ApNote, ApObject, Inbox,
+        Outbox, Temporal,
     },
     db::Db,
     fairings::events::EventChannels,
     models::{
         activities::{
-            create_activity, ActivityTarget, ActivityType, ExtendedActivity, NewActivity,
+            create_activity, get_activity_by_ap_id, ActivityTarget, ActivityType, ExtendedActivity,
+            NewActivity,
         },
         actors::Actor,
         from_serde, from_time,
         objects::{create_or_update_object, NewObject},
         pg::coalesced_activity::CoalescedActivity,
+        pg::objects::ObjectType,
     },
     runner, MaybeMultiple, MaybeReference,
 };
@@ -72,11 +75,17 @@ pub struct ApCreate {
     pub kind: ApCreateType,
     pub actor: ApAddress,
     pub to: MaybeMultiple<ApAddress>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub cc: Option<MaybeMultiple<ApAddress>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub id: Option<String>,
     pub object: MaybeReference<ApObject>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub published: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub signature: Option<ApSignature>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub instrument: Option<MaybeMultiple<ApInstrument>>,
 
     // These are ephemeral attributes to facilitate client operations
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -85,6 +94,12 @@ pub struct ApCreate {
 
 impl Inbox for ApCreate {
     async fn inbox(&self, conn: Db, channels: EventChannels, raw: Value) -> Result<Status, Status> {
+        if let Some(id) = self.id.clone() {
+            if get_activity_by_ap_id(&conn, id).await.is_some() {
+                return Ok(Status::NotModified);
+            }
+        }
+
         match self.clone().object {
             MaybeReference::Actual(ApObject::Note(x)) => {
                 let object = create_or_update_object(&conn, NewObject::from(x.clone()))
@@ -185,12 +200,14 @@ impl TryFrom<CoalescedActivity> for ApCreate {
             .clone()
             .object_type
             .ok_or_else(|| anyhow::anyhow!("object_type is None"))?
-            .to_string()
-            .to_lowercase()
-            .as_str()
         {
-            "note" => Ok(ApObject::Note(ApNote::try_from(coalesced.clone())?).into()),
-            "question" => Ok(ApObject::Question(ApQuestion::try_from(coalesced.clone())?).into()),
+            ObjectType::Note => Ok(ApObject::Note(ApNote::try_from(coalesced.clone())?).into()),
+            ObjectType::EncryptedNote => {
+                Ok(ApObject::Note(ApNote::try_from(coalesced.clone())?).into())
+            }
+            ObjectType::Question => {
+                Ok(ApObject::Question(ApQuestion::try_from(coalesced.clone())?).into())
+            }
             _ => Err(anyhow!("invalid type")),
         }?;
         let kind = coalesced.kind.clone().try_into()?;
@@ -211,6 +228,17 @@ impl TryFrom<CoalescedActivity> for ApCreate {
             ..Default::default()
         });
 
+        let mut instrument: Option<MaybeMultiple<ApInstrument>> =
+            coalesced.instrument.clone().and_then(from_serde);
+
+        if let Ok(vault_item) = ApInstrument::try_from(coalesced) {
+            if let Some(i) = instrument {
+                instrument = Some(i.extend(vec![vault_item]));
+            } else {
+                instrument = Some(MaybeMultiple::Single(vault_item));
+            }
+        }
+
         Ok(ApCreate {
             context,
             kind,
@@ -222,17 +250,21 @@ impl TryFrom<CoalescedActivity> for ApCreate {
             signature,
             published,
             ephemeral,
+            instrument,
         })
     }
 }
 
+// I suspect that any uses of this have now been redirected to the CoalescedActivity above,
+// even if functions are still calling this impl. It would be good to remove this and clean
+// up the function chains.
 impl TryFrom<ExtendedActivity> for ApCreate {
     type Error = anyhow::Error;
     fn try_from(
         (activity, _target_activity, target_object, _target_actor): ExtendedActivity,
     ) -> Result<Self, Self::Error> {
         let note = {
-            if let Some(object) = target_object {
+            if let Some(object) = target_object.clone() {
                 ApObject::Note(ApNote::try_from(object)?)
             } else {
                 return Err(anyhow!("ACTIVITY MUST INCLUDE A NOTE OR REMOTE_NOTE"));
@@ -242,15 +274,30 @@ impl TryFrom<ExtendedActivity> for ApCreate {
         let ap_to = activity
             .ap_to
             .ok_or(anyhow!("ACTIVITY DOES NOT HAVE A TO FIELD"))?;
+
+        let instrument: Option<MaybeMultiple<ApInstrument>> = activity
+            .instrument
+            .and_then(from_serde)
+            .map(|instrument: MaybeMultiple<ApInstrument>| match instrument {
+                MaybeMultiple::Single(instrument) => instrument
+                    .is_olm_identity_key()
+                    .then_some(vec![instrument].into()),
+                MaybeMultiple::Multiple(instruments) => Some(
+                    instruments
+                        .into_iter()
+                        .filter(|x| x.is_olm_identity_key())
+                        .collect::<Vec<ApInstrument>>()
+                        .into(),
+                ),
+                _ => None,
+            })
+            .unwrap_or_default();
+
         Ok(ApCreate {
             context: Some(ApContext::default()),
             kind: ApCreateType::default(),
             actor: ApAddress::Address(activity.actor.clone()),
-            id: Some(format!(
-                "{}/activities/{}",
-                *crate::SERVER_URL,
-                activity.uuid
-            )),
+            id: activity.ap_id,
             object: note.into(),
             to: from_serde(ap_to).unwrap(),
             cc: activity.cc.and_then(from_serde),
@@ -261,6 +308,7 @@ impl TryFrom<ExtendedActivity> for ApCreate {
                 updated_at: from_time(activity.updated_at),
                 ..Default::default()
             }),
+            instrument,
         })
     }
 }
@@ -302,6 +350,24 @@ impl TryFrom<ApObject> for ApCreate {
                 let published = Some(note.published);
                 let ephemeral = None;
 
+                let instrument: Option<MaybeMultiple<ApInstrument>> = note
+                    .instrument
+                    .clone()
+                    .map(|instrument: MaybeMultiple<ApInstrument>| match instrument {
+                        MaybeMultiple::Single(instrument) => instrument
+                            .is_olm_identity_key()
+                            .then_some(vec![instrument].into()),
+                        MaybeMultiple::Multiple(instruments) => Some(
+                            instruments
+                                .into_iter()
+                                .filter(|x| x.is_olm_identity_key())
+                                .collect::<Vec<ApInstrument>>()
+                                .into(),
+                        ),
+                        _ => None,
+                    })
+                    .unwrap_or_default();
+
                 Ok(ApCreate {
                     context,
                     kind,
@@ -313,6 +379,7 @@ impl TryFrom<ApObject> for ApCreate {
                     signature,
                     published,
                     ephemeral,
+                    instrument,
                 })
             }
             _ => Err(anyhow!("unimplemented object type")),

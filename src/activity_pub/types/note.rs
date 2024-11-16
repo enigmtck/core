@@ -10,6 +10,7 @@ use crate::{
     },
     db::Db,
     fairings::events::EventChannels,
+    helper::get_instrument_as_id_from_uuid,
     helper::{
         get_conversation_ap_id_from_uuid, get_object_ap_id_from_uuid, get_object_url_from_uuid,
     },
@@ -20,7 +21,10 @@ use crate::{
         cache::{cache_content, Cache, Cacheable},
         from_serde, from_time,
         objects::{create_or_update_object, Object},
-        pg::{coalesced_activity::CoalescedActivity, objects::ObjectType},
+        olm_sessions::create_or_update_olm_session,
+        pg::{
+            coalesced_activity::CoalescedActivity, objects::ObjectType, vault::create_vault_item,
+        },
         vault::VaultItem,
     },
     runner::{
@@ -77,10 +81,10 @@ impl TryFrom<ObjectType> for ApNoteType {
     type Error = anyhow::Error;
 
     fn try_from(kind: ObjectType) -> Result<Self, Self::Error> {
-        if kind.is_note() {
-            Ok(ApNoteType::Note)
-        } else {
-            Err(anyhow!("invalid Object type for ApNote"))
+        match kind {
+            ObjectType::Note => Ok(Self::Note),
+            ObjectType::EncryptedNote => Ok(Self::EncryptedNote),
+            _ => Err(anyhow!("invalid Object type for ApNote")),
         }
     }
 }
@@ -168,7 +172,6 @@ pub struct ApNote {
     pub id: Option<String>,
     #[serde(rename = "type")]
     pub kind: ApNoteType,
-    //pub to: Vec<String>,
     pub to: MaybeMultiple<ApAddress>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub url: Option<String>,
@@ -190,7 +193,11 @@ pub struct ApNote {
     pub conversation: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub content_map: Option<HashMap<String, String>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+
+    // We skip serializing here because 'instrument' doesn't belong
+    // on a Note object; it's here only to facilitate the Outbox action
+    // to move it to the Create activity.
+    #[serde(skip_serializing)]
     pub instrument: Option<MaybeMultiple<ApInstrument>>,
 
     // These are ephemeral attributes to facilitate client operations
@@ -281,7 +288,53 @@ impl ApNote {
 
         note.context = Some(ApContext::default());
 
-        let object = create_or_update_object(&conn, (note, profile).into())
+        // Setting the ID for the instruments here to use in the ApCreate further down.
+        // The UUID will be overwritten for the VaultItem when that is stored to the database.
+        let instruments = note
+            .instrument
+            .clone()
+            .map(|mut instrument| match &mut instrument {
+                MaybeMultiple::Single(inst) => {
+                    let uuid = Uuid::new_v4().to_string();
+                    inst.uuid = Some(uuid.clone());
+                    inst.id = Some(get_instrument_as_id_from_uuid(uuid));
+                    vec![inst.clone()]
+                }
+                MaybeMultiple::Multiple(insts) => {
+                    insts.iter_mut().for_each(|inst| {
+                        let uuid = Uuid::new_v4().to_string();
+                        inst.uuid = Some(uuid.clone());
+                        inst.id = Some(get_instrument_as_id_from_uuid(uuid))
+                    });
+                    insts.clone()
+                }
+                _ => vec![],
+            })
+            .unwrap_or_default();
+
+        note.instrument = if instruments.is_empty() {
+            None
+        } else {
+            Some(instruments.clone().into())
+        };
+
+        for instrument in instruments.clone() {
+            if instrument.is_olm_session() {
+                create_or_update_olm_session(
+                    &conn,
+                    (
+                        instrument.clone(),
+                        note.attributed_to.to_string(),
+                        note.to.single().unwrap().to_string(),
+                    )
+                        .try_into()
+                        .unwrap(),
+                )
+                .await;
+            };
+        }
+
+        let object = create_or_update_object(&conn, (note.clone(), profile).into())
             .await
             .map_err(|e| {
                 log::error!("FAILED TO CREATE OR UPDATE OBJECT: {e:#?}");
@@ -309,12 +362,27 @@ impl ApNote {
 
         activity.raw = Some(raw);
 
-        create_activity(Some(&conn), activity.clone())
+        let activity = create_activity(Some(&conn), activity.clone())
             .await
             .map_err(|e| {
                 log::error!("FAILED TO CREATE ACTIVITY: {e:#?}");
                 Status::InternalServerError
             })?;
+
+        for instrument in instruments.clone() {
+            if instrument.is_vault_item() {
+                create_vault_item(
+                    &conn,
+                    (
+                        instrument.content.unwrap(),
+                        note.attributed_to.to_string(),
+                        activity.id,
+                    )
+                        .into(),
+                )
+                .await;
+            }
+        }
 
         runner::run(
             ApNote::send_note,
@@ -380,7 +448,7 @@ impl ApNote {
             cfg_if::cfg_if! {
                 if #[cfg(feature = "pg")] {
                     let activity = match note.kind {
-                        ApNoteType::Note => {
+                        ApNoteType::Note | ApNoteType::EncryptedNote => {
                             if let Ok(activity) =
                                 ApActivity::try_from((
                                     activity,
@@ -444,12 +512,13 @@ impl ApNote {
             log::debug!("SENDER\n{sender:#?}");
             log::debug!("INBOXES\n{inboxes:#?}");
 
-            send_to_inboxes(conn.unwrap(), inboxes, sender, activity)
-                .await
-                .map_err(|e| {
-                    log::error!("FAILED TO SEND ACTIVITY: {e:#?}");
-                    TaskError::TaskFailed
-                })?;
+            log::debug!("SKIPPING SEND FOR DEBUG");
+            // send_to_inboxes(conn.unwrap(), inboxes, sender, activity)
+            //     .await
+            //     .map_err(|e| {
+            //         log::error!("FAILED TO SEND ACTIVITY: {e:#?}");
+            //         TaskError::TaskFailed
+            //     })?;
         }
 
         Ok(())
@@ -496,13 +565,7 @@ impl Outbox for ApNote {
         profile: Actor,
         raw: Value,
     ) -> Result<String, Status> {
-        match self.kind {
-            ApNoteType::Note => ApNote::outbox_note(conn, events, self.clone(), profile, raw).await,
-            ApNoteType::EncryptedNote => {
-                handle_encrypted_note(conn, events, self.clone(), profile).await
-            }
-            _ => Err(Status::NoContent),
-        }
+        ApNote::outbox_note(conn, events, self.clone(), profile, raw).await
     }
 }
 
@@ -532,37 +595,37 @@ impl Default for ApNote {
     }
 }
 
-type IdentifiedVaultItem = (VaultItem, Actor);
+// type IdentifiedVaultItem = (VaultItem, Actor);
 
-impl From<IdentifiedVaultItem> for ApNote {
-    fn from((vault, profile): IdentifiedVaultItem) -> Self {
-        ApNote {
-            kind: ApNoteType::VaultNote,
-            attributed_to: {
-                if vault.outbound {
-                    ApAddress::Address(profile.clone().as_id)
-                } else {
-                    ApAddress::Address(vault.clone().remote_actor)
-                }
-            },
-            to: {
-                if vault.outbound {
-                    MaybeMultiple::Multiple(vec![ApAddress::Address(vault.remote_actor)])
-                } else {
-                    MaybeMultiple::Multiple(vec![ApAddress::Address(profile.as_id)])
-                }
-            },
-            id: Some(format!(
-                "https://{}/vault/{}",
-                *crate::SERVER_NAME,
-                vault.uuid
-            )),
-            content: vault.encrypted_data,
-            published: ActivityPub::time(from_time(vault.created_at).unwrap()),
-            ..Default::default()
-        }
-    }
-}
+// impl From<IdentifiedVaultItem> for ApNote {
+//     fn from((vault, profile): IdentifiedVaultItem) -> Self {
+//         ApNote {
+//             kind: ApNoteType::VaultNote,
+//             attributed_to: {
+//                 if vault.outbound {
+//                     ApAddress::Address(profile.clone().as_id)
+//                 } else {
+//                     ApAddress::Address(vault.clone().remote_actor)
+//                 }
+//             },
+//             to: {
+//                 if vault.outbound {
+//                     MaybeMultiple::Multiple(vec![ApAddress::Address(vault.remote_actor)])
+//                 } else {
+//                     MaybeMultiple::Multiple(vec![ApAddress::Address(profile.as_id)])
+//                 }
+//             },
+//             id: Some(format!(
+//                 "https://{}/vault/{}",
+//                 *crate::SERVER_NAME,
+//                 vault.uuid
+//             )),
+//             content: vault.encrypted_data,
+//             published: ActivityPub::time(from_time(vault.created_at).unwrap()),
+//             ..Default::default()
+//         }
+//     }
+// }
 
 impl From<ApActor> for ApNote {
     fn from(actor: ApActor) -> Self {
@@ -623,6 +686,7 @@ impl TryFrom<CoalescedActivity> for ApNote {
             attributed_to: from_serde(coalesced.object_attributed_to_profiles),
             ..Default::default()
         });
+        let instrument = coalesced.object_instrument.and_then(from_serde);
 
         Ok(ApNote {
             kind,
@@ -640,6 +704,7 @@ impl TryFrom<CoalescedActivity> for ApNote {
             sensitive,
             published: ActivityPub::time(published),
             ephemeral,
+            instrument,
             ..Default::default()
         })
     }
@@ -649,10 +714,10 @@ impl TryFrom<Object> for ApNote {
     type Error = anyhow::Error;
 
     fn try_from(object: Object) -> Result<ApNote> {
-        if object.as_type.is_note() {
+        if object.as_type.is_note() || object.as_type.is_encrypted_note() {
             Ok(ApNote {
                 id: Some(object.as_id.clone()),
-                kind: ApNoteType::Note,
+                kind: object.as_type.try_into()?,
                 published: ActivityPub::time(object.as_published.unwrap_or(Utc::now())),
                 url: object.as_url.clone().and_then(from_serde),
                 to: object
@@ -681,6 +746,7 @@ impl TryFrom<Object> for ApNote {
                     metadata: object.ek_metadata.and_then(from_serde),
                     ..Default::default()
                 }),
+                instrument: object.ek_instrument.clone().and_then(from_serde),
                 ..Default::default()
             })
         } else {

@@ -8,7 +8,8 @@ use crate::{
         encrypted_sessions::{create_encrypted_session, EncryptedSession, NewEncryptedSession},
         olm_one_time_keys::OlmOneTimeKey,
         olm_sessions::OlmSession,
-        remote_encrypted_sessions::RemoteEncryptedSession,
+        pg::coalesced_activity::CoalescedActivity,
+        //remote_encrypted_sessions::RemoteEncryptedSession,
     },
     runner, MaybeMultiple,
 };
@@ -44,7 +45,8 @@ impl Outbox for ApSession {
         profile: Actor,
         _raw: Value,
     ) -> Result<String, Status> {
-        handle_session(conn, events, self.clone(), profile).await
+        //handle_session(conn, events, self.clone(), profile).await
+        Err(Status::NotImplemented)
     }
 }
 
@@ -71,7 +73,7 @@ pub enum ApSessionType {
     EncryptedSession,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq, Eq, Ord, PartialOrd)]
 pub enum ApInstrumentType {
     #[default]
     #[serde(alias = "olm_identity_key")]
@@ -86,11 +88,11 @@ pub enum ApInstrumentType {
     VaultItem,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq, Eq, Ord, PartialOrd)]
 pub struct ApInstrument {
     #[serde(rename = "type")]
     pub kind: ApInstrumentType,
-    pub id: String,
+    pub id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub content: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -101,6 +103,30 @@ pub struct ApInstrument {
     pub name: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub url: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mutation_of: Option<String>,
+}
+
+impl ApInstrument {
+    pub fn is_olm_identity_key(&self) -> bool {
+        matches!(self.kind, ApInstrumentType::OlmIdentityKey)
+    }
+
+    pub fn is_olm_one_time_key(&self) -> bool {
+        matches!(self.kind, ApInstrumentType::OlmOneTimeKey)
+    }
+
+    pub fn is_olm_session(&self) -> bool {
+        matches!(self.kind, ApInstrumentType::OlmSession)
+    }
+
+    pub fn is_olm_account(&self) -> bool {
+        matches!(self.kind, ApInstrumentType::OlmAccount)
+    }
+
+    pub fn is_vault_item(&self) -> bool {
+        matches!(self.kind, ApInstrumentType::VaultItem)
+    }
 }
 
 impl Outbox for ApInstrument {
@@ -121,7 +147,7 @@ impl TryFrom<Actor> for ApInstrument {
     fn try_from(actor: Actor) -> Result<Self> {
         Ok(Self {
             kind: ApInstrumentType::OlmIdentityKey,
-            id: format!("{}#identity-key", actor.as_id),
+            id: Some(format!("{}#identity-key", actor.as_id)),
             content: Some(
                 actor
                     .ek_olm_identity_key
@@ -131,6 +157,7 @@ impl TryFrom<Actor> for ApInstrument {
             uuid: None,
             name: None,
             url: None,
+            mutation_of: None,
         })
     }
 }
@@ -139,12 +166,13 @@ impl From<OlmSession> for ApInstrument {
     fn from(session: OlmSession) -> Self {
         Self {
             kind: ApInstrumentType::OlmSession,
-            id: get_session_as_id_from_uuid(session.uuid.clone()),
+            id: Some(get_session_as_id_from_uuid(session.uuid.clone())),
             content: Some(session.session_data),
             hash: Some(session.session_hash),
             uuid: None,
             name: None,
             url: None,
+            mutation_of: None,
         }
     }
 }
@@ -153,127 +181,158 @@ impl From<OlmOneTimeKey> for ApInstrument {
     fn from(otk: OlmOneTimeKey) -> Self {
         Self {
             kind: ApInstrumentType::OlmOneTimeKey,
-            id: get_instrument_as_id_from_uuid(otk.uuid.clone()),
+            id: Some(get_instrument_as_id_from_uuid(otk.uuid.clone())),
             content: Some(otk.key_data),
             uuid: None,
             hash: None,
             name: None,
             url: None,
+            mutation_of: None,
         }
     }
 }
 
-#[derive(Deserialize, Serialize, Clone, Debug)]
-pub struct JoinData {
-    pub session_key: ApInstrument,
-    pub identity_key: ApInstrument,
-    pub to: ApAddress,
-    pub attributed_to: ApAddress,
-    pub reference: String,
-}
+impl TryFrom<CoalescedActivity> for ApInstrument {
+    type Error = anyhow::Error;
 
-impl From<JoinData> for ApSession {
-    fn from(keys: JoinData) -> Self {
-        Self {
-            reference: Some(keys.reference),
-            to: keys.to,
-            attributed_to: keys.attributed_to,
-            instrument: MaybeMultiple::Multiple(vec![keys.identity_key, keys.session_key]),
-            ..Default::default()
-        }
-    }
-}
-
-impl From<EncryptedSession> for ApSession {
-    fn from(session: EncryptedSession) -> ApSession {
-        cfg_if::cfg_if! {
-            if #[cfg(feature = "pg")] {
-                let instrument = serde_json::from_value(session.instrument).unwrap();
-            } else if #[cfg(feature = "sqlite")] {
-                let instrument = serde_json::from_str(&session.instrument).unwrap();
-            }
-        }
-
-        ApSession {
-            id: Some(format!(
-                "https://{}/session/{}",
-                *crate::SERVER_NAME,
-                session.uuid
+    fn try_from(coalesced: CoalescedActivity) -> Result<Self, Self::Error> {
+        Ok(Self {
+            kind: ApInstrumentType::VaultItem,
+            id: Some(get_instrument_as_id_from_uuid(
+                coalesced
+                    .vault_uuid
+                    .clone()
+                    .ok_or(anyhow!("VaultItem must have a UUID"))?,
             )),
-            reference: session.reference,
-            to: ApAddress::Address(session.ap_to),
-            attributed_to: ApAddress::Address(session.attributed_to),
-            instrument,
-            uuid: Some(session.uuid),
-
-            ..Default::default()
-        }
+            content: Some(
+                coalesced
+                    .vault_data
+                    .ok_or(anyhow!("VaultItem must have content"))?,
+            ),
+            uuid: Some(
+                coalesced
+                    .vault_uuid
+                    .ok_or(anyhow!("VaultItem must have a UUID"))?,
+            ),
+            hash: None,
+            name: None,
+            url: None,
+            mutation_of: None,
+        })
     }
 }
 
-type JoinedOlmSession = (ApSession, Option<OlmSession>);
+// #[derive(Deserialize, Serialize, Clone, Debug)]
+// pub struct JoinData {
+//     pub session_key: ApInstrument,
+//     pub identity_key: ApInstrument,
+//     pub to: ApAddress,
+//     pub attributed_to: ApAddress,
+//     pub reference: String,
+// }
 
-impl From<JoinedOlmSession> for ApSession {
-    fn from((ap_session, olm_session): JoinedOlmSession) -> Self {
-        let mut session = ap_session;
+// impl From<JoinData> for ApSession {
+//     fn from(keys: JoinData) -> Self {
+//         Self {
+//             reference: Some(keys.reference),
+//             to: keys.to,
+//             attributed_to: keys.attributed_to,
+//             instrument: MaybeMultiple::Multiple(vec![keys.identity_key, keys.session_key]),
+//             ..Default::default()
+//         }
+//     }
+// }
 
-        match session.instrument {
-            MaybeMultiple::Multiple(instruments) if olm_session.is_some() => {
-                let mut instruments = instruments;
-                instruments.push(olm_session.unwrap().into());
-                session.instrument = MaybeMultiple::Multiple(instruments);
-            }
-            MaybeMultiple::Single(instrument) if olm_session.is_some() => {
-                let mut instruments: Vec<ApInstrument> = vec![instrument];
-                instruments.push(olm_session.unwrap().into());
-                session.instrument = MaybeMultiple::Multiple(instruments);
-            }
-            _ => (),
-        }
+// impl From<EncryptedSession> for ApSession {
+//     fn from(session: EncryptedSession) -> ApSession {
+//         cfg_if::cfg_if! {
+//             if #[cfg(feature = "pg")] {
+//                 let instrument = serde_json::from_value(session.instrument).unwrap();
+//             } else if #[cfg(feature = "sqlite")] {
+//                 let instrument = serde_json::from_str(&session.instrument).unwrap();
+//             }
+//         }
 
-        session
-    }
-}
+//         ApSession {
+//             id: Some(format!(
+//                 "https://{}/session/{}",
+//                 *crate::SERVER_NAME,
+//                 session.uuid
+//             )),
+//             reference: session.reference,
+//             to: ApAddress::Address(session.ap_to),
+//             attributed_to: ApAddress::Address(session.attributed_to),
+//             instrument,
+//             uuid: Some(session.uuid),
 
-impl From<RemoteEncryptedSession> for ApSession {
-    fn from(session: RemoteEncryptedSession) -> ApSession {
-        cfg_if::cfg_if! {
-            if #[cfg(feature = "pg")] {
-                let instrument = serde_json::from_value(session.instrument).unwrap();
-            } else if #[cfg(feature = "sqlite")] {
-                let instrument = serde_json::from_str(&session.instrument).unwrap();
-            }
-        }
+//             ..Default::default()
+//         }
+//     }
+// }
 
-        ApSession {
-            id: Some(session.ap_id),
-            reference: session.reference,
-            to: ApAddress::Address(session.ap_to),
-            attributed_to: ApAddress::Address(session.attributed_to),
-            instrument,
-            ..Default::default()
-        }
-    }
-}
+// type JoinedOlmSession = (ApSession, Option<OlmSession>);
 
-async fn handle_session(
-    conn: Db,
-    channels: EventChannels,
-    session: ApSession,
-    profile: Actor,
-) -> Result<String, Status> {
-    let encrypted_session: NewEncryptedSession = (session.clone(), profile.id).into();
+// impl From<JoinedOlmSession> for ApSession {
+//     fn from((ap_session, olm_session): JoinedOlmSession) -> Self {
+//         let mut session = ap_session;
 
-    if let Some(session) = create_encrypted_session(Some(&conn), encrypted_session.clone()).await {
-        runner::run(
-            runner::encrypted::send_kexinit_task,
-            Some(conn),
-            Some(channels),
-            vec![session.uuid.clone()],
-        )
-        .await;
-        Ok(session.uuid)
-    } else {
-        Err(Status::NoContent)
-    }
-}
+//         match session.instrument {
+//             MaybeMultiple::Multiple(instruments) if olm_session.is_some() => {
+//                 let mut instruments = instruments;
+//                 instruments.push(olm_session.unwrap().into());
+//                 session.instrument = MaybeMultiple::Multiple(instruments);
+//             }
+//             MaybeMultiple::Single(instrument) if olm_session.is_some() => {
+//                 let mut instruments: Vec<ApInstrument> = vec![instrument];
+//                 instruments.push(olm_session.unwrap().into());
+//                 session.instrument = MaybeMultiple::Multiple(instruments);
+//             }
+//             _ => (),
+//         }
+
+//         session
+//     }
+// }
+
+// impl From<RemoteEncryptedSession> for ApSession {
+//     fn from(session: RemoteEncryptedSession) -> ApSession {
+//         cfg_if::cfg_if! {
+//             if #[cfg(feature = "pg")] {
+//                 let instrument = serde_json::from_value(session.instrument).unwrap();
+//             } else if #[cfg(feature = "sqlite")] {
+//                 let instrument = serde_json::from_str(&session.instrument).unwrap();
+//             }
+//         }
+
+//         ApSession {
+//             id: Some(session.ap_id),
+//             reference: session.reference,
+//             to: ApAddress::Address(session.ap_to),
+//             attributed_to: ApAddress::Address(session.attributed_to),
+//             instrument,
+//             ..Default::default()
+//         }
+//     }
+// }
+
+// async fn handle_session(
+//     conn: Db,
+//     channels: EventChannels,
+//     session: ApSession,
+//     profile: Actor,
+// ) -> Result<String, Status> {
+//     let encrypted_session: NewEncryptedSession = (session.clone(), profile.id).into();
+
+//     if let Some(session) = create_encrypted_session(Some(&conn), encrypted_session.clone()).await {
+//         runner::run(
+//             runner::encrypted::send_kexinit_task,
+//             Some(conn),
+//             Some(channels),
+//             vec![session.uuid.clone()],
+//         )
+//         .await;
+//         Ok(session.uuid)
+//     } else {
+//         Err(Status::NoContent)
+//     }
+// }

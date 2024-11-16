@@ -24,7 +24,7 @@ use self::{actor::get_actor, user::get_follower_inboxes};
 pub mod actor;
 pub mod announce;
 pub mod cache;
-pub mod encrypted;
+//pub mod encrypted;
 pub mod note;
 pub mod question;
 pub mod user;

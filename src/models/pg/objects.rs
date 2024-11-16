@@ -30,6 +30,7 @@ pub enum ObjectType {
     Relationship,
     Tombstone,
     Video,
+    EncryptedNote,
 }
 
 impl fmt::Display for ObjectType {
@@ -41,6 +42,10 @@ impl fmt::Display for ObjectType {
 impl ObjectType {
     pub fn is_note(&self) -> bool {
         matches!(self, ObjectType::Note)
+    }
+
+    pub fn is_encrypted_note(&self) -> bool {
+        matches!(self, ObjectType::EncryptedNote)
     }
 
     pub fn is_question(&self) -> bool {
@@ -70,6 +75,7 @@ impl TryFrom<String> for ObjectType {
             "relationship" => Ok(ObjectType::Relationship),
             "tombstone" => Ok(ObjectType::Tombstone),
             "video" => Ok(ObjectType::Video),
+            "encrypted_note" => Ok(ObjectType::EncryptedNote),
             _ => Err(anyhow!("unimplemented ObjectType")),
         }
     }

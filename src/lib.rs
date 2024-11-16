@@ -14,11 +14,12 @@ use diesel::r2d2::ConnectionManager;
 use dotenvy::dotenv;
 use lazy_static::lazy_static;
 use regex::Regex;
-use serde::{Deserialize, Serialize};
-use serde_json::Value;
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use serde_json::{json, Value};
 use std::cmp::Ordering;
 use std::env;
 use std::fmt;
+use std::ops::Add;
 
 pub mod activity_pub;
 pub mod admin;
@@ -196,11 +197,65 @@ pub enum MaybeMultiple<T> {
     None,
 }
 
+// ----- I'd like to replace Option<MaybeMultiple> with MaybeMultiple in some
+// instances but haven't gotten it to work yet. Problems with serde::from always
+// crop up when I try.
 impl<T: PartialEq> MaybeMultiple<T> {
     fn is_none(&self) -> bool {
         *self == MaybeMultiple::None
     }
 }
+
+impl<T> From<Option<Vec<T>>> for MaybeMultiple<T> {
+    fn from(data: Option<Vec<T>>) -> Self {
+        match data {
+            Some(x) => MaybeMultiple::Multiple(x),
+            None => MaybeMultiple::None,
+        }
+    }
+}
+
+impl<T: DeserializeOwned> From<Option<Value>> for MaybeMultiple<T> {
+    fn from(data: Option<Value>) -> Self {
+        match data {
+            Some(value) => value.into(),
+            None => MaybeMultiple::None,
+        }
+    }
+}
+
+impl<T: DeserializeOwned> From<Value> for MaybeMultiple<T> {
+    fn from(data: Value) -> Self {
+        // First, try to convert to Vec<T>
+        if let Ok(vec_result) = serde_json::from_value::<Vec<T>>(data.clone()) {
+            MaybeMultiple::Multiple(vec_result)
+        }
+        // If Vec conversion fails, try single T
+        else if let Ok(single_result) = serde_json::from_value::<T>(data) {
+            MaybeMultiple::Single(single_result)
+        }
+        // If both conversions fail, return None
+        else {
+            MaybeMultiple::None
+        }
+    }
+}
+
+impl<T: Serialize> From<&MaybeMultiple<T>> for Option<Value> {
+    fn from(object: &MaybeMultiple<T>) -> Self {
+        match object {
+            MaybeMultiple::None => None,
+            _ => Some(json!(object)),
+        }
+    }
+}
+
+impl<T: Serialize> From<&MaybeMultiple<T>> for Value {
+    fn from(object: &MaybeMultiple<T>) -> Self {
+        json!(object)
+    }
+}
+// -----
 
 impl From<ApObject> for MaybeMultiple<ApObject> {
     fn from(data: ApObject) -> Self {

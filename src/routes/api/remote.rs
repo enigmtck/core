@@ -170,7 +170,7 @@ pub async fn remote_followers(
                         Status::InternalServerError
                     })?;
 
-                Ok(Json(ApObject::CollectionPage(collection)))
+                Ok(Json(ApObject::CollectionAmbiguated(collection.into())))
             } else {
                 Err(Status::NoContent)
             }
@@ -181,7 +181,7 @@ pub async fn remote_followers(
                     log::error!("FAILED TO RETRIEVE REMOTE Collection: {e:#?}");
                     Status::InternalServerError
                 })?;
-            Ok(Json(ApObject::Collection(collection)))
+            Ok(Json(ApObject::CollectionAmbiguated(collection)))
         }
     } else {
         Err(Status::InternalServerError)
@@ -225,7 +225,7 @@ pub async fn remote_followers_authenticated(
                                 log::error!("FAILED TO RETRIEVE REMOTE CollectionPage: {e:#?}");
                                 Status::InternalServerError
                             })?;
-                    Ok(Json(ApObject::CollectionPage(collection)))
+                    Ok(Json(ApObject::CollectionAmbiguated(collection.into())))
                 } else {
                     Err(Status::NoContent)
                 }
@@ -236,7 +236,7 @@ pub async fn remote_followers_authenticated(
                         log::error!("FAILED TO RETRIEVE REMOTE Collection: {e:#?}");
                         Status::InternalServerError
                     })?;
-                Ok(Json(ApObject::Collection(collection)))
+                Ok(Json(ApObject::CollectionAmbiguated(collection)))
             }
         } else {
             Err(Status::InternalServerError)
@@ -277,7 +277,7 @@ pub async fn remote_following(
                         log::error!("FAILED TO RETRIEVE REMOTE CollectionPage: {e:#?}");
                         Status::InternalServerError
                     })?;
-                Ok(Json(ApObject::CollectionPage(collection)))
+                Ok(Json(ApObject::CollectionAmbiguated(collection.into())))
             } else {
                 Err(Status::InternalServerError)
             }
@@ -288,7 +288,7 @@ pub async fn remote_following(
                     log::error!("FAILED TO RETRIEVE REMOTE Collection: {e:#?}");
                     Status::InternalServerError
                 })?;
-            Ok(Json(ApObject::Collection(collection)))
+            Ok(Json(ApObject::CollectionAmbiguated(collection)))
         }
     } else {
         Err(Status::Unauthorized)
@@ -326,7 +326,7 @@ pub async fn remote_following_authenticated(
                                 Status::InternalServerError
                             })?;
 
-                    Ok(Json(ApObject::CollectionPage(collection)))
+                    Ok(Json(ApObject::CollectionAmbiguated(collection.into())))
                 } else {
                     Err(Status::NoContent)
                 }
@@ -337,7 +337,7 @@ pub async fn remote_following_authenticated(
                         log::error!("FAILED TO RETRIEVE REMOTE Collection: {e:#?}");
                         Status::InternalServerError
                     })?;
-                Ok(Json(ApObject::Collection(collection)))
+                Ok(Json(ApObject::CollectionAmbiguated(collection)))
             }
         } else {
             Err(Status::NotFound)
@@ -377,7 +377,7 @@ pub async fn remote_outbox(
                         Status::InternalServerError
                     })?;
 
-                Ok(Json(ApObject::CollectionPage(collection)))
+                Ok(Json(ApObject::CollectionAmbiguated(collection.into())))
             } else {
                 Err(Status::NoContent)
             }
@@ -388,7 +388,7 @@ pub async fn remote_outbox(
                     log::error!("FAILED TO RETRIEVE REMOTE Collection: {e:#?}");
                     Status::InternalServerError
                 })?;
-            Ok(Json(ApObject::Collection(collection)))
+            Ok(Json(ApObject::CollectionAmbiguated(collection)))
         }
     } else {
         Err(Status::new(520))
@@ -425,7 +425,7 @@ pub async fn remote_outbox_authenticated(
                         Status::InternalServerError
                     })?;
 
-                Ok(Json(ApObject::CollectionPage(collection)))
+                Ok(Json(ApObject::CollectionAmbiguated(collection.into())))
             } else {
                 Err(Status::UnprocessableEntity)
             }
@@ -436,7 +436,7 @@ pub async fn remote_outbox_authenticated(
                     log::error!("FAILED TO RETRIEVE REMOTE Collection: {e:#?}");
                     Status::ServiceUnavailable
                 })?;
-            Ok(Json(ApObject::Collection(collection)))
+            Ok(Json(ApObject::CollectionAmbiguated(collection)))
         }
     } else {
         Err(Status::ServiceUnavailable)
@@ -470,7 +470,7 @@ pub async fn remote_keys_authenticated(
                 log::error!("FAILED TO RETRIEVE REMOTE Collection: {e:#?}");
                 Status::InternalServerError
             })?;
-        Ok(Json(ApObject::Collection(collection)))
+        Ok(Json(ApObject::CollectionAmbiguated(collection)))
     } else {
         Err(Status::Unauthorized)
     }

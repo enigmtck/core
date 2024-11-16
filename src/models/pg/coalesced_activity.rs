@@ -68,6 +68,9 @@ pub struct CoalescedActivity {
     #[diesel(sql_type = Nullable<Jsonb>)]
     pub log: Option<Value>,
 
+    #[diesel(sql_type = Nullable<Jsonb>)]
+    pub instrument: Option<Value>,
+
     // Secondary Activity Fields
     #[diesel(sql_type = Nullable<Timestamptz>)]
     pub recursive_created_at: Option<DateTime<Utc>>,
@@ -113,6 +116,9 @@ pub struct CoalescedActivity {
 
     #[diesel(sql_type = Nullable<Integer>)]
     pub recursive_target_actor_id: Option<i32>,
+
+    #[diesel(sql_type = Nullable<Jsonb>)]
+    pub recursive_instrument: Option<Value>,
 
     // Object Fields
     #[diesel(sql_type = Nullable<Timestamptz>)]
@@ -198,6 +204,9 @@ pub struct CoalescedActivity {
 
     #[diesel(sql_type = Nullable<Text>)]
     pub object_liked: Option<String>,
+
+    #[diesel(sql_type = Nullable<Jsonb>)]
+    pub object_instrument: Option<Value>,
 
     // Actor Fields
     #[diesel(sql_type = Nullable<Timestamptz>)]
@@ -331,4 +340,26 @@ pub struct CoalescedActivity {
 
     #[diesel(sql_type = Nullable<Bool>)]
     pub actor_manually_approves_followers: Option<bool>,
+
+    // Vault Fields
+    #[diesel(sql_type = Nullable<Integer>)]
+    pub vault_id: Option<i32>,
+
+    #[diesel(sql_type = Nullable<Timestamptz>)]
+    pub vault_created_at: Option<DateTime<Utc>>,
+
+    #[diesel(sql_type = Nullable<Timestamptz>)]
+    pub vault_updated_at: Option<DateTime<Utc>>,
+
+    #[diesel(sql_type = Nullable<Text>)]
+    pub vault_uuid: Option<String>,
+
+    #[diesel(sql_type = Nullable<Text>)]
+    pub vault_owner_as_id: Option<String>,
+
+    #[diesel(sql_type = Nullable<Integer>)]
+    pub vault_activity_id: Option<i32>,
+
+    #[diesel(sql_type = Nullable<Text>)]
+    pub vault_data: Option<String>,
 }

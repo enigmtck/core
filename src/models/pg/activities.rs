@@ -90,6 +90,7 @@ pub struct NewActivity {
     pub actor_id: Option<i32>,
     pub target_actor_id: Option<i32>,
     pub log: Option<Value>,
+    pub instrument: Option<Value>,
 }
 
 impl Default for NewActivity {
@@ -112,6 +113,7 @@ impl Default for NewActivity {
             actor_id: None,
             target_actor_id: None,
             log: Some(json!([])),
+            instrument: None,
         }
     }
 }
@@ -150,6 +152,7 @@ pub struct Activity {
     pub actor_id: Option<i32>,
     pub target_actor_id: Option<i32>,
     pub log: Option<Value>,
+    pub instrument: Option<Value>,
 }
 
 impl Activity {
@@ -163,6 +166,7 @@ struct QueryParams {
     min: Option<i64>,
     max: Option<i64>,
     to: Vec<String>,
+    from: Vec<String>,
     hashtags: Vec<String>,
     date: DateTime<Utc>,
     username: Option<String>,
@@ -193,6 +197,7 @@ fn query_initial_block() -> String {
      a2.target_object_id AS recursive_target_object_id,\
      a2.actor_id AS recursive_actor_id,\
      a2.target_actor_id AS recursive_target_actor_id,\
+     a2.instrument AS recursive_instrument,\
      COALESCE(o.created_at, o2.created_at) AS object_created_at,\
      COALESCE(o.updated_at, o2.updated_at) AS object_updated_at,\
      COALESCE(o.ek_uuid, o2.ek_uuid) AS object_uuid,\
@@ -216,6 +221,7 @@ fn query_initial_block() -> String {
      COALESCE(o.ap_sensitive, o2.ap_sensitive) AS object_sensitive,\
      COALESCE(o.ek_metadata, o2.ek_metadata) AS object_metadata,\
      COALESCE(o.ek_profile_id, o2.ek_profile_id) AS object_profile_id,\
+     COALESCE(o.ek_instrument, o2.ek_instrument) AS object_instrument,\
      COALESCE(ta.created_at, ta2.created_at) AS actor_created_at,\
      COALESCE(ta.updated_at, ta2.updated_at) AS actor_updated_at,\
      COALESCE(ta.ek_uuid, ta2.ek_uuid) AS actor_uuid,\
@@ -276,7 +282,8 @@ fn query_end_block(mut query: String) -> String {
          JSONB_AGG(DISTINCT jsonb_build_object('id', ac2.as_id, 'name', ac2.as_name, 'tag', ac2.as_tag, 'url', ac2.as_url,\
          'icon', ac2.as_icon, 'preferredUsername', ac2.as_preferred_username)) AS object_attributed_to_profiles, \
          announced.object_announced, \
-         liked.object_liked \
+         liked.object_liked, \
+         vaulted.* \
          FROM main m \
          LEFT JOIN actors ac2 ON (m.object_attributed_to ?| ARRAY[ac2.as_id]) \
          LEFT JOIN activities a \
@@ -284,16 +291,18 @@ fn query_end_block(mut query: String) -> String {
          LEFT JOIN actors ac ON (ac.as_id = a.actor) \
          LEFT JOIN announced ON m.id = announced.id \
          LEFT JOIN liked ON m.id = liked.id \
+         LEFT JOIN vaulted ON m.id = vaulted.vault_activity_id \
          GROUP BY m.id, m.created_at, m.updated_at, m.kind, m.uuid, m.actor, m.ap_to, m.cc,\
-         m.target_activity_id, m.target_ap_id, m.revoked, m.ap_id, m.reply, m.recursive_created_at,\
+         m.target_activity_id, m.target_ap_id, m.revoked, m.ap_id, m.reply, m.instrument, m.recursive_created_at,\
          m.recursive_updated_at, m.recursive_kind, m.recursive_uuid, m.recursive_actor,\
          m.recursive_ap_to, m.recursive_cc, m.recursive_target_activity_id, m.recursive_target_ap_id,\
          m.recursive_revoked, m.recursive_ap_id, m.recursive_reply, m.recursive_target_object_id, m.recursive_actor_id,\
-         m.recursive_target_actor_id, m.object_created_at,m.object_updated_at, m.object_uuid,\
+         m.recursive_target_actor_id, m.recursive_instrument, m.object_created_at,m.object_updated_at, m.object_uuid,\
          m.object_type, m.object_published, m.object_as_id, m.object_url, m.object_to, m.object_cc, m.object_tag,\
          m.object_attributed_to, m.object_in_reply_to, m.object_content, m.object_conversation, m.object_attachment,\
          m.object_summary, m.object_end_time, m.object_one_of, m.object_any_of, m.object_voters_count,\
-         m.object_sensitive, m.object_metadata, m.object_profile_id, m.raw, m.actor_id, m.target_actor_id, m.log,\
+         m.object_sensitive, m.object_metadata, m.object_profile_id, m.object_instrument, m.raw, m.actor_id,\
+         m.target_actor_id, m.log,\
          m.target_object_id, m.actor_created_at, m.actor_updated_at, m.actor_uuid, m.actor_username,\
          m.actor_summary_markdown, m.actor_avatar_filename, m.actor_banner_filename, m.actor_private_key,\
          m.actor_password, m.actor_client_public_key, m.actor_client_private_key, m.actor_salt,\
@@ -304,7 +313,9 @@ fn query_end_block(mut query: String) -> String {
          m.actor_published, m.actor_tag, m.actor_attachment, m.actor_endpoints, m.actor_icon, m.actor_image,\
          m.actor_also_known_as, m.actor_discoverable, m.actor_capabilities, m.actor_keys,\
          m.actor_manually_approves_followers,\
-         announced.object_announced, liked.object_liked \
+         announced.object_announced, liked.object_liked, vaulted.vault_id,\
+         vaulted.vault_created_at, vaulted.vault_updated_at, vaulted.vault_uuid, vaulted.vault_owner_as_id,\
+         vaulted.vault_activity_id, vaulted.vault_data \
          ORDER BY m.created_at DESC");
     query
 }
@@ -417,8 +428,9 @@ fn build_main_query(
                     }
                     TimelineView::Direct => {
                         if let Some(profile) = profile.clone() {
-                            params.to.extend(vec![profile.as_id]);
                             params.direct = true;
+                            params.to.extend(vec![profile.as_id.clone()]);
+                            params.from.extend(vec![profile.as_id]);
                             query.push_str(&format!(
                                 "AND NOT (a.ap_to ?| {} OR a.cc ?| {}) ",
                                 param_gen(),
@@ -429,9 +441,16 @@ fn build_main_query(
                 }
             }
 
-            if !params.to.is_empty() {
+            if !params.to.is_empty() && params.from.is_empty() {
                 query.push_str(&format!(
                     "AND (a.ap_to ?| {} OR a.cc ?| {}) ",
+                    param_gen(),
+                    param_gen()
+                ));
+            } else if !params.to.is_empty() && !params.from.is_empty() {
+                query.push_str(&format!(
+                    "AND (a.ap_to ?| {} OR a.cc ?| {} OR a.actor = ANY({})) ",
+                    param_gen(),
                     param_gen(),
                     param_gen()
                 ));
@@ -470,7 +489,16 @@ fn build_main_query(
              AND NOT a.revoked \
              AND a.kind = 'like' \
              AND  a.actor_id = {}) \
-             GROUP BY m.id, a.ap_id) ",
+             GROUP BY m.id, a.ap_id), \
+             vaulted AS (\
+             SELECT v.id AS vault_id, v.created_at AS vault_created_at, v.updated_at AS vault_updated_at, \
+             v.uuid AS vault_uuid, v.owner_as_id AS vault_owner_as_id, v.activity_id AS vault_activity_id, \
+             v.data AS vault_data \
+             FROM main m \
+             LEFT JOIN vault v ON (v.activity_id = m.id \
+             AND m.actor = {}) \
+             ) ",
+            param_gen(),
             param_gen(),
             param_gen()
         ));
@@ -481,6 +509,11 @@ fn build_main_query(
              FROM main m), \
              liked AS (\
              SELECT m.id, NULL AS object_liked \
+             FROM main m), \
+             vaulted AS (\
+             SELECT NULL AS vault_id, NULL AS vault_created_at, NULL AS vault_updated_at, \
+             NULL AS vault_uuid, NULL AS vault_owner_as_id, NULL::INT AS vault_activity_id, \
+             NULL AS vault_data \
              FROM main m) ",
         );
     }
@@ -570,10 +603,16 @@ fn bind_params<'a>(
             query = query.bind::<Array<Text>, _>((*PUBLIC_COLLECTION).clone());
         }
 
-        if !params.to.is_empty() {
+        if !params.to.is_empty() && params.from.is_empty() {
             log::debug!("SETTING TO: |{:#?}|", &params.to);
             query = query.bind::<Array<Text>, _>(params.to.clone());
             query = query.bind::<Array<Text>, _>(params.to.clone());
+        } else if !params.to.is_empty() && !params.from.is_empty() {
+            log::debug!("SETTING TO: |{:#?}|", &params.to);
+            log::debug!("SETTING FROM: |{:#?}|", &params.from);
+            query = query.bind::<Array<Text>, _>(params.to.clone());
+            query = query.bind::<Array<Text>, _>(params.to.clone());
+            query = query.bind::<Array<Text>, _>(params.from.clone());
         }
 
         let mut lowercase_hashtags: Vec<String> = vec![];
@@ -588,10 +627,13 @@ fn bind_params<'a>(
     }
 
     let id;
+    let as_id;
     if let Some(profile) = profile {
         id = profile.id;
+        as_id = profile.as_id.clone();
         query = query.bind::<Integer, _>(id);
         query = query.bind::<Integer, _>(id);
+        query = query.bind::<Text, _>(as_id);
     }
 
     query

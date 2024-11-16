@@ -1,4 +1,6 @@
-use crate::activity_pub::{retriever, ApActor, ApCollection, ApInstrument, ApNote, Outbox};
+use crate::activity_pub::{
+    retriever, ApActor, ApCollection, ApCollectionAmbiguated, ApInstrument, ApNote, Outbox,
+};
 use crate::db::Db;
 use crate::fairings::events::EventChannels;
 use crate::models::actors::Actor;
@@ -78,6 +80,7 @@ pub enum ApObject {
     Actor(ApActor),
     Collection(ApCollection),
     CollectionPage(ApCollectionPage),
+    CollectionAmbiguated(ApCollectionAmbiguated),
 
     // These members exist to catch unknown object types
     Identifier(Identifier),

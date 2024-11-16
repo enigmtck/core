@@ -5,6 +5,7 @@ use crate::activity_pub::ApAddress;
 use crate::db::Db;
 use crate::models::to_serde;
 use crate::schema::actors;
+use crate::MaybeMultiple;
 use anyhow::anyhow;
 use anyhow::Result;
 use chrono::DateTime;
@@ -48,7 +49,7 @@ impl TryFrom<ApActor> for NewActor {
         let as_public_key = to_serde(&Some(actor.public_key)).unwrap();
         let as_featured = actor.featured;
         let as_featured_tags = actor.featured_tags;
-        let as_url = to_serde(&actor.url.clone());
+        let as_url = (&actor.url.clone()).into();
         let ap_manually_approves_followers = actor.manually_approves_followers.unwrap_or_default();
         let as_published = actor.published.and_then(|x| {
             x.parse::<DateTime<chrono::FixedOffset>>()
@@ -60,7 +61,7 @@ impl TryFrom<ApActor> for NewActor {
         let as_endpoints = to_serde(&actor.endpoints).unwrap_or(json!({}));
         let as_icon = to_serde(&actor.icon).unwrap_or_else(|| json!([]));
         let as_image = to_serde(&actor.image).unwrap_or_else(|| json!({}));
-        let as_also_known_as = to_serde(&actor.also_known_as).unwrap_or_else(|| json!([]));
+        let as_also_known_as = actor.also_known_as.multiple().into();
         let as_discoverable = actor.discoverable.unwrap_or_default();
         let ap_capabilities = to_serde(&actor.capabilities).unwrap_or_else(|| json!({}));
 

@@ -18,49 +18,21 @@ pub struct OlmSession {
     pub uuid: String,
     pub session_data: String,
     pub session_hash: String,
-    pub encrypted_session_id: i32,
+    pub owner_as_id: String,
+    pub remote_as_id: String,
 }
 
-pub async fn create_olm_session(
-    conn: Option<&Db>,
+pub async fn create_or_update_olm_session(
+    conn: &Db,
     olm_session: NewOlmSession,
 ) -> Option<OlmSession> {
-    match conn {
-        Some(conn) => conn
-            .run(move |c| {
-                diesel::insert_into(olm_sessions::table)
-                    .values(&olm_session)
-                    .get_result::<OlmSession>(c)
-            })
-            .await
-            .ok(),
-        None => {
-            let mut pool = POOL.get().ok()?;
-            diesel::insert_into(olm_sessions::table)
-                .values(&olm_session)
-                .get_result::<OlmSession>(&mut pool)
-                .ok()
-        }
-    }
-}
-
-pub async fn update_olm_session_by_encrypted_session_id(
-    conn: &Db,
-    encrypted_session_id: i32,
-    session_data: String,
-    session_hash: String,
-) -> Option<OlmSession> {
-    log::debug!("UPDATING OLM SESSION\nencrypted_session_id: {encrypted_session_id}\nsession_data: {session_data}\nsession_hash: {session_hash}");
-
     conn.run(move |c| {
-        diesel::update(
-            olm_sessions::table.filter(olm_sessions::encrypted_session_id.eq(encrypted_session_id)),
-        )
-        .set((
-            olm_sessions::session_data.eq(session_data),
-            olm_sessions::session_hash.eq(session_hash),
-        ))
-        .get_result::<OlmSession>(c)
+        diesel::insert_into(olm_sessions::table)
+            .values(&olm_session)
+            .on_conflict(olm_sessions::uuid)
+            .do_update()
+            .set(&olm_session)
+            .get_result::<OlmSession>(c)
     })
     .await
     .ok()

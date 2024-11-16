@@ -175,8 +175,8 @@ pub struct ApActor {
     pub featured_tags: Option<String>,
 
     // BlueSky seems to use an array here (or the bridges do)
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub url: Option<MaybeMultiple<String>>,
+    #[serde(skip_serializing_if = "MaybeMultiple::is_none")]
+    pub url: MaybeMultiple<String>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
     pub manually_approves_followers: Option<bool>,
@@ -199,8 +199,8 @@ pub struct ApActor {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub image: Option<ApImage>,
 
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub also_known_as: Option<MaybeMultiple<String>>,
+    #[serde(skip_serializing_if = "MaybeMultiple::is_none")]
+    pub also_known_as: MaybeMultiple<String>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
     pub discoverable: Option<bool>,
@@ -233,7 +233,7 @@ impl From<ApActor> for ApActorTerse {
         let name = actor.name;
         let id = actor.id.unwrap_or_default().to_string();
         let preferred_username = actor.preferred_username;
-        let url = actor.url.unwrap_or_default();
+        let url = actor.url;
         let icon = actor.icon;
         let tag = actor.tag.unwrap_or_default();
 
@@ -319,7 +319,7 @@ impl Default for ApActor {
             public_key: ApPublicKey::default(),
             featured: None,
             featured_tags: None,
-            url: None,
+            url: MaybeMultiple::None,
             manually_approves_followers: None,
             published: None,
             tag: None,
@@ -327,7 +327,7 @@ impl Default for ApActor {
             endpoints: None,
             icon: None,
             image: None,
-            also_known_as: None,
+            also_known_as: MaybeMultiple::None,
             discoverable: None,
             capabilities: None,
             keys: None,
@@ -430,13 +430,13 @@ impl From<Actor> for ApActor {
         let published = actor.as_published.map(ActivityPub::time);
         let liked = actor.as_liked;
         let public_key = from_serde(actor.as_public_key).unwrap();
-        let url = from_serde_option(actor.as_url);
+        let url = actor.as_url.into();
         let icon = from_serde(actor.as_icon);
         let image = from_serde(actor.as_image);
         let discoverable = Some(actor.as_discoverable);
         let capabilities = from_serde(actor.ap_capabilities);
         let attachment = from_serde(actor.as_attachment);
-        let also_known_as = from_serde(actor.as_also_known_as);
+        let also_known_as = actor.as_also_known_as.into();
         let tag = from_serde(actor.as_tag);
         let endpoints = from_serde(actor.as_endpoints);
         let keys = actor.ek_keys;

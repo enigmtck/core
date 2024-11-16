@@ -23,6 +23,21 @@ pub trait Collectible {
     fn items(&self) -> Option<Vec<ActivityPub>>;
 }
 
+impl Cache for ApCollectionAmbiguated {
+    async fn cache(&self, conn: &Db) -> &Self {
+        match self {
+            ApCollectionAmbiguated::Collection(x) => {
+                x.cache(conn).await;
+            }
+            ApCollectionAmbiguated::Page(x) => {
+                x.cache(conn).await;
+            }
+        };
+
+        self
+    }
+}
+
 impl Cache for ApCollectionPage {
     async fn cache(&self, conn: &Db) -> &Self {
         let items = self.items().unwrap_or_default();
@@ -60,15 +75,39 @@ pub enum ApCollectionAmbiguated {
     Page(ApCollectionPage),
 }
 
+impl From<&ApCollection> for ApCollectionAmbiguated {
+    fn from(collection: &ApCollection) -> Self {
+        ApCollectionAmbiguated::Collection(collection.clone())
+    }
+}
+
 impl From<ApCollection> for ApCollectionAmbiguated {
     fn from(collection: ApCollection) -> Self {
         ApCollectionAmbiguated::Collection(collection)
     }
 }
 
+impl From<&ApCollectionPage> for ApCollectionAmbiguated {
+    fn from(collection: &ApCollectionPage) -> Self {
+        ApCollectionAmbiguated::Page(collection.clone())
+    }
+}
+
 impl From<ApCollectionPage> for ApCollectionAmbiguated {
     fn from(collection: ApCollectionPage) -> Self {
         ApCollectionAmbiguated::Page(collection)
+    }
+}
+
+impl Outbox for ApCollectionAmbiguated {
+    async fn outbox(
+        &self,
+        _conn: Db,
+        _events: EventChannels,
+        _profile: Actor,
+        _raw: Value,
+    ) -> Result<String, Status> {
+        Err(Status::ServiceUnavailable)
     }
 }
 
@@ -486,27 +525,27 @@ impl TryFrom<LeadersPage> for ApCollectionAmbiguated {
     }
 }
 
-pub type IdentifiedVaultItems = (Vec<VaultItem>, Actor);
+// pub type IdentifiedVaultItems = (Vec<VaultItem>, Actor);
 
-impl From<IdentifiedVaultItems> for ApCollection {
-    fn from((items, profile): IdentifiedVaultItems) -> Self {
-        ApCollection {
-            kind: ApCollectionType::OrderedCollection,
-            id: Some(format!(
-                "{}/ephemeral-collection/{}",
-                *crate::SERVER_URL,
-                uuid::Uuid::new_v4()
-            )),
-            total_items: Some(items.len() as i64),
-            first: None,
-            part_of: None,
-            ordered_items: Some(
-                items
-                    .into_iter()
-                    .map(|x| ActivityPub::Object(ApObject::Note((x, profile.clone()).into())))
-                    .collect::<Vec<ActivityPub>>(),
-            ),
-            ..Default::default()
-        }
-    }
-}
+// impl From<IdentifiedVaultItems> for ApCollection {
+//     fn from((items, profile): IdentifiedVaultItems) -> Self {
+//         ApCollection {
+//             kind: ApCollectionType::OrderedCollection,
+//             id: Some(format!(
+//                 "{}/ephemeral-collection/{}",
+//                 *crate::SERVER_URL,
+//                 uuid::Uuid::new_v4()
+//             )),
+//             total_items: Some(items.len() as i64),
+//             first: None,
+//             part_of: None,
+//             ordered_items: Some(
+//                 items
+//                     .into_iter()
+//                     .map(|x| ActivityPub::Object(ApObject::Note((x, profile.clone()).into())))
+//                     .collect::<Vec<ActivityPub>>(),
+//             ),
+//             ..Default::default()
+//         }
+//     }
+// }

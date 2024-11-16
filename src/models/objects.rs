@@ -37,7 +37,7 @@ cfg_if::cfg_if! {
 impl From<ApNoteType> for ObjectType {
     fn from(kind: ApNoteType) -> Self {
         match kind {
-            ApNoteType::EncryptedNote => ObjectType::Note,
+            ApNoteType::EncryptedNote => ObjectType::EncryptedNote,
             ApNoteType::Note => ObjectType::Note,
             ApNoteType::VaultNote => ObjectType::Note,
         }
@@ -129,6 +129,7 @@ impl From<ApNote> for NewObject {
             as_content_map: to_serde(&Some(clean_content_map)),
             as_attachment: to_serde(&note.attachment),
             ek_uuid: note.ephemeral.and_then(|x| x.internal_uuid),
+            ek_instrument: to_serde(&note.instrument),
             ..Default::default()
         }
     }

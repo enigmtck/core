@@ -41,6 +41,7 @@ diesel::table! {
         actor_id -> Nullable<Int4>,
         target_actor_id -> Nullable<Int4>,
         log -> Nullable<Jsonb>,
+        instrument -> Nullable<Jsonb>,
     }
 }
 
@@ -282,7 +283,8 @@ diesel::table! {
         uuid -> Varchar,
         session_data -> Varchar,
         session_hash -> Varchar,
-        encrypted_session_id -> Int4,
+        owner_as_id -> Text,
+        remote_as_id -> Text,
     }
 }
 
@@ -333,15 +335,14 @@ diesel::table! {
         created_at -> Timestamptz,
         updated_at -> Timestamptz,
         uuid -> Varchar,
-        profile_id -> Int4,
-        encrypted_data -> Varchar,
-        remote_actor -> Varchar,
-        outbound -> Bool,
+        owner_as_id -> Text,
+        activity_id -> Int4,
+        data -> Text,
     }
 }
 
 diesel::joinable!(olm_one_time_keys -> actors (profile_id));
-diesel::joinable!(olm_sessions -> encrypted_sessions (encrypted_session_id));
+diesel::joinable!(vault -> activities (activity_id));
 
 diesel::allow_tables_to_appear_in_same_query!(
     activities,

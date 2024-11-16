@@ -16,7 +16,7 @@ use crate::signing::{sign, Method, SignParams};
 use crate::webfinger::WebFinger;
 use crate::WEBFINGER_RE;
 
-use super::{ApCollection, ApCollectionPage, ApObject};
+use super::{ApCollection, ApCollectionAmbiguated, ApCollectionPage, ApObject};
 
 pub async fn get_remote_collection_page(
     conn: &Db,
@@ -35,11 +35,11 @@ pub async fn get_remote_collection(
     conn: &Db,
     profile: Option<Actor>,
     url: String,
-) -> Result<ApCollection> {
+) -> Result<ApCollectionAmbiguated> {
     let response = signed_get(guaranteed_actor(conn, profile).await, url, false).await?;
 
     let raw = response.text().await?;
-    let page: ApCollection = serde_json::from_str(&raw).map_err(anyhow::Error::msg)?;
+    let page: ApCollectionAmbiguated = serde_json::from_str(&raw).map_err(anyhow::Error::msg)?;
 
     Ok(page.cache(conn).await.clone())
 }

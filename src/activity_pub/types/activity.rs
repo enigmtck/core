@@ -1,7 +1,7 @@
 use crate::{
     activity_pub::{
-        ApAccept, ApAdd, ApAnnounce, ApBlock, ApCreate, ApDelete, ApInvite, ApJoin, ApLike, ApNote,
-        ApRemove, ApUndo, ApUpdate,
+        ApAccept, ApAdd, ApAnnounce, ApBlock, ApCreate, ApDelete, ApLike, ApNote, ApRemove, ApUndo,
+        ApUpdate,
     },
     models::{
         activities::{ActivityType, ExtendedActivity},
@@ -26,8 +26,8 @@ pub enum ApActivity {
     Follow(ApFollow),
     Announce(ApAnnounce),
     Create(ApCreate),
-    Invite(ApInvite),
-    Join(ApJoin),
+    //Invite(ApInvite),
+    //Join(ApJoin),
     Update(ApUpdate),
     Block(ApBlock),
     Add(ApAdd),
@@ -44,8 +44,8 @@ impl ApActivity {
             ApActivity::Undo(undo) => undo.id.clone(),
             ApActivity::Accept(accept) => accept.id.clone(),
             ApActivity::Create(create) => create.id.clone(),
-            ApActivity::Invite(invite) => invite.id.clone(),
-            ApActivity::Join(join) => join.id.clone(),
+            //ApActivity::Invite(invite) => invite.id.clone(),
+            //ApActivity::Join(join) => join.id.clone(),
             ApActivity::Update(update) => update.id.clone(),
             ApActivity::Block(block) => block.id.clone(),
             _ => None,

@@ -246,6 +246,7 @@ impl TryFrom<ApActivityTarget> for NewActivity {
                 ap_id: create
                     .id
                     .map_or(Some(get_activity_ap_id_from_uuid(uuid)), Some),
+                instrument: to_serde(&create.instrument),
                 ..Default::default()
             }
             .link_target(target)
@@ -448,6 +449,7 @@ fn target_to_main(coalesced: CoalescedActivity) -> Option<Activity> {
         actor_id: coalesced.recursive_actor_id,
         target_actor_id: coalesced.recursive_target_actor_id,
         log: None,
+        instrument: coalesced.recursive_instrument,
     })
 }
 
@@ -472,6 +474,7 @@ impl From<CoalescedActivity> for ExtendedActivity {
             actor_id: coalesced.actor_id,
             target_actor_id: coalesced.target_actor_id,
             log: coalesced.log.clone(),
+            instrument: coalesced.instrument.clone(),
         };
 
         let target_activity = target_to_main(coalesced.clone());
