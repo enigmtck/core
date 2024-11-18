@@ -3,7 +3,7 @@ use crate::models::actors::Actor;
 use crate::models::pg::activities::get_activities_coalesced;
 use crate::SERVER_URL;
 use crate::{
-    activity_pub::{ActivityPub, ApActivity, ApCollection, ApCollectionPage, ApObject},
+    activity_pub::{ActivityPub, ApActivity, ApCollection, ApObject},
     db::Db,
 };
 
@@ -49,7 +49,7 @@ pub async fn activities(
         .map(ActivityPub::from)
         .collect();
 
-    ApObject::CollectionPage(ApCollectionPage::from((activities, Some(base_url))))
+    ApObject::Collection(ApCollection::from((activities, Some(base_url))))
 }
 
 pub async fn inbox(

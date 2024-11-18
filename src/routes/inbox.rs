@@ -6,7 +6,7 @@ use rocket::{get, post};
 use serde_json::Value;
 
 use crate::activity_pub::{
-    retriever, ActivityPub, ApActivity, ApActor, ApCollectionPage, ApObject, Inbox,
+    retriever, ActivityPub, ApActivity, ApActor, ApCollection, ApObject, Inbox,
 };
 use crate::db::Db;
 use crate::fairings::access_control::Permitted;
@@ -272,8 +272,8 @@ pub async fn announcers_get(
         .map(ActivityPub::from)
         .collect();
 
-    Ok(ActivityJson(Json(ApObject::CollectionPage(
-        ApCollectionPage::from((actors, Some(base_url))),
+    Ok(ActivityJson(Json(ApObject::Collection(
+        ApCollection::from((actors, Some(base_url))),
     ))))
     // } else {
     //     Err(Status::Unauthorized)

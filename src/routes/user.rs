@@ -1,7 +1,5 @@
 use crate::{
-    activity_pub::{
-        ApActor, ApCollection, ApCollectionAmbiguated, ApCollectionType, FollowersPage, LeadersPage,
-    },
+    activity_pub::{ApActor, ApCollection, ApCollectionType, FollowersPage, LeadersPage},
     db::Db,
     fairings::signatures::Signed,
     models::{
@@ -77,7 +75,7 @@ pub async fn get_followers(
     conn: Db,
     username: String,
     page: Option<u32>,
-) -> Result<ActivityJson<ApCollectionAmbiguated>, Status> {
+) -> Result<ActivityJson<ApCollection>, Status> {
     let profile = get_actor_by_username(&conn, username)
         .await
         .ok_or(Status::NotFound)?;
@@ -117,7 +115,7 @@ pub async fn get_followers(
     );
 
     Ok(ActivityJson(Json(
-        ApCollectionAmbiguated::try_from(FollowersPage {
+        ApCollection::try_from(FollowersPage {
             page,
             profile,
             total_items,
@@ -137,7 +135,7 @@ pub async fn get_leaders(
     conn: Db,
     username: String,
     page: Option<u32>, // page starts at 1; must be adjusted to 0 for query
-) -> Result<ActivityJson<ApCollectionAmbiguated>, Status> {
+) -> Result<ActivityJson<ApCollection>, Status> {
     let profile = get_actor_by_username(&conn, username)
         .await
         .ok_or(Status::NotFound)?;
@@ -173,7 +171,7 @@ pub async fn get_leaders(
     );
 
     Ok(ActivityJson(Json(
-        ApCollectionAmbiguated::try_from(LeadersPage {
+        ApCollection::try_from(LeadersPage {
             page,
             profile,
             total_items,

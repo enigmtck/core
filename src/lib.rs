@@ -5,8 +5,8 @@ extern crate log;
 #[macro_use]
 extern crate rocket;
 
+use activity_pub::ApCollection;
 use activity_pub::{ApActivity, ApObject};
-use activity_pub::{ApCollection, ApCollectionPage};
 use anyhow::anyhow;
 use anyhow::Result;
 use db::Pool;
@@ -197,9 +197,6 @@ pub enum MaybeMultiple<T> {
     None,
 }
 
-// ----- I'd like to replace Option<MaybeMultiple> with MaybeMultiple in some
-// instances but haven't gotten it to work yet. Problems with serde::from always
-// crop up when I try.
 impl<T: PartialEq> MaybeMultiple<T> {
     fn is_none(&self) -> bool {
         *self == MaybeMultiple::None
@@ -255,7 +252,6 @@ impl<T: Serialize> From<&MaybeMultiple<T>> for Value {
         json!(object)
     }
 }
-// -----
 
 impl From<ApObject> for MaybeMultiple<ApObject> {
     fn from(data: ApObject) -> Self {
@@ -369,19 +365,7 @@ impl From<String> for MaybeReference<ApObject> {
     }
 }
 
-impl From<String> for MaybeReference<ApCollection> {
-    fn from(reference: String) -> Self {
-        MaybeReference::Reference(reference)
-    }
-}
-
-impl From<String> for MaybeReference<ApCollectionPage> {
-    fn from(reference: String) -> Self {
-        MaybeReference::Reference(reference)
-    }
-}
-
-impl From<String> for MaybeReference<Box<ApCollectionPage>> {
+impl From<String> for MaybeReference<Box<ApCollection>> {
     fn from(reference: String) -> Self {
         MaybeReference::Reference(reference)
     }

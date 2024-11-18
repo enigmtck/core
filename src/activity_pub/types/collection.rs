@@ -10,7 +10,6 @@ use crate::db::Db;
 use crate::fairings::events::EventChannels;
 use crate::helper::{get_followers_ap_id_from_username, get_following_ap_id_from_username};
 use crate::models::cache::Cache;
-use crate::models::vault::VaultItem;
 use crate::models::{actors::Actor, followers::Follower, leaders::Leader};
 use crate::MaybeReference;
 use anyhow::{anyhow, Result};
@@ -21,36 +20,6 @@ use uuid::Uuid;
 
 pub trait Collectible {
     fn items(&self) -> Option<Vec<ActivityPub>>;
-}
-
-impl Cache for ApCollectionAmbiguated {
-    async fn cache(&self, conn: &Db) -> &Self {
-        match self {
-            ApCollectionAmbiguated::Collection(x) => {
-                x.cache(conn).await;
-            }
-            ApCollectionAmbiguated::Page(x) => {
-                x.cache(conn).await;
-            }
-        };
-
-        self
-    }
-}
-
-impl Cache for ApCollectionPage {
-    async fn cache(&self, conn: &Db) -> &Self {
-        let items = self.items().unwrap_or_default();
-        for item in items {
-            if let ActivityPub::Activity(ApActivity::Create(create)) = item {
-                if let MaybeReference::Actual(ApObject::Note(note)) = create.object {
-                    note.cache(conn).await;
-                }
-            }
-        }
-
-        self
-    }
 }
 
 impl Cache for ApCollection {
@@ -68,49 +37,6 @@ impl Cache for ApCollection {
     }
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
-#[serde(untagged)]
-pub enum ApCollectionAmbiguated {
-    Collection(ApCollection),
-    Page(ApCollectionPage),
-}
-
-impl From<&ApCollection> for ApCollectionAmbiguated {
-    fn from(collection: &ApCollection) -> Self {
-        ApCollectionAmbiguated::Collection(collection.clone())
-    }
-}
-
-impl From<ApCollection> for ApCollectionAmbiguated {
-    fn from(collection: ApCollection) -> Self {
-        ApCollectionAmbiguated::Collection(collection)
-    }
-}
-
-impl From<&ApCollectionPage> for ApCollectionAmbiguated {
-    fn from(collection: &ApCollectionPage) -> Self {
-        ApCollectionAmbiguated::Page(collection.clone())
-    }
-}
-
-impl From<ApCollectionPage> for ApCollectionAmbiguated {
-    fn from(collection: ApCollectionPage) -> Self {
-        ApCollectionAmbiguated::Page(collection)
-    }
-}
-
-impl Outbox for ApCollectionAmbiguated {
-    async fn outbox(
-        &self,
-        _conn: Db,
-        _events: EventChannels,
-        _profile: Actor,
-        _raw: Value,
-    ) -> Result<String, Status> {
-        Err(Status::ServiceUnavailable)
-    }
-}
-
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub enum ApCollectionType {
     #[default]
@@ -118,91 +44,15 @@ pub enum ApCollectionType {
     Collection,
     #[serde(alias = "ordered_collection")]
     OrderedCollection,
-}
-
-impl fmt::Display for ApCollectionType {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        Debug::fmt(self, f)
-    }
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug, Default)]
-pub enum ApCollectionPageType {
-    #[default]
     #[serde(alias = "collection_page")]
     CollectionPage,
     #[serde(alias = "ordered_collection_page")]
     OrderedCollectionPage,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
-#[serde(rename_all = "camelCase")]
-pub struct ApCollectionPage {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[serde(rename = "@context")]
-    pub context: Option<ApContext>,
-    #[serde(rename = "type")]
-    pub kind: ApCollectionPageType,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub id: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub first: Option<MaybeReference<Box<ApCollectionPage>>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub last: Option<MaybeReference<Box<ApCollectionPage>>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub next: Option<MaybeReference<Box<ApCollectionPage>>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub prev: Option<MaybeReference<Box<ApCollectionPage>>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub part_of: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub total_items: Option<i64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    items: Option<Vec<ActivityPub>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    ordered_items: Option<Vec<ActivityPub>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub ephemeral: Option<Ephemeral>,
-}
-
-impl Collectible for ApCollectionPage {
-    fn items(&self) -> Option<Vec<ActivityPub>> {
-        self.items.clone().map_or(self.ordered_items.clone(), Some)
-    }
-}
-
-impl Outbox for ApCollectionPage {
-    async fn outbox(
-        &self,
-        _conn: Db,
-        _events: EventChannels,
-        _profile: Actor,
-        _raw: Value,
-    ) -> Result<String, Status> {
-        Err(Status::ServiceUnavailable)
-    }
-}
-
-impl Default for ApCollectionPage {
-    fn default() -> ApCollectionPage {
-        ApCollectionPage {
-            context: Some(ApContext::default()),
-            kind: ApCollectionPageType::default(),
-            id: Some(format!(
-                "https://{}/collections/{}",
-                *crate::SERVER_NAME,
-                Uuid::new_v4()
-            )),
-            total_items: None,
-            items: None,
-            ordered_items: None,
-            first: None,
-            last: None,
-            next: None,
-            prev: None,
-            part_of: None,
-            ephemeral: None,
-        }
+impl fmt::Display for ApCollectionType {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        Debug::fmt(self, f)
     }
 }
 
@@ -223,15 +73,15 @@ pub struct ApCollection {
     #[serde(skip_serializing_if = "Option::is_none")]
     ordered_items: Option<Vec<ActivityPub>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub first: Option<MaybeReference<ApCollectionPage>>,
+    pub first: Option<MaybeReference<Box<ApCollection>>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub last: Option<MaybeReference<ApCollectionPage>>,
+    pub last: Option<MaybeReference<Box<ApCollection>>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub next: Option<MaybeReference<ApCollectionPage>>,
+    pub next: Option<MaybeReference<Box<ApCollection>>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub prev: Option<MaybeReference<ApCollectionPage>>,
+    pub prev: Option<MaybeReference<Box<ApCollection>>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub current: Option<MaybeReference<ApCollectionPage>>,
+    pub current: Option<MaybeReference<Box<ApCollection>>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub part_of: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -321,12 +171,12 @@ impl From<ApCollectionParams> for ApCollection {
 }
 
 type ApCollectionPageParams = (Vec<ActivityPub>, Option<String>);
-impl From<ApCollectionPageParams> for ApCollectionPage {
+impl From<ApCollectionPageParams> for ApCollection {
     fn from((mut objects, base_url): ApCollectionPageParams) -> Self {
         objects.sort_by_key(|x| Reverse(x.timestamp()));
 
-        ApCollectionPage {
-            kind: ApCollectionPageType::OrderedCollectionPage,
+        ApCollection {
+            kind: ApCollectionType::OrderedCollectionPage,
             total_items: None,
             ordered_items: Some(objects.clone()),
             prev: base_url.clone().and_then(|y| {
@@ -404,7 +254,7 @@ pub struct FollowersPage {
     pub actors: Option<Vec<ApActorTerse>>,
 }
 
-impl TryFrom<FollowersPage> for ApCollectionAmbiguated {
+impl TryFrom<FollowersPage> for ApCollection {
     type Error = anyhow::Error;
 
     fn try_from(request: FollowersPage) -> Result<Self> {
@@ -422,8 +272,8 @@ impl TryFrom<FollowersPage> for ApCollectionAmbiguated {
         }
 
         match request.page {
-            Some(page) => Ok(ApCollectionPage {
-                kind: ApCollectionPageType::OrderedCollectionPage,
+            Some(page) => Ok(ApCollection {
+                kind: ApCollectionType::OrderedCollectionPage,
                 id: Some(format!("{id}?page={page}")),
                 total_items: Some(request.total_items),
                 first: Some(format!("{id}?page=1").into()),
@@ -441,8 +291,7 @@ impl TryFrom<FollowersPage> for ApCollectionAmbiguated {
                 ),
                 ephemeral: Some(request.actors.into()),
                 ..Default::default()
-            }
-            .into()),
+            }),
             None => Ok(ApCollection {
                 kind: ApCollectionType::OrderedCollection,
                 id: Some(id.clone()),
@@ -454,8 +303,7 @@ impl TryFrom<FollowersPage> for ApCollectionAmbiguated {
                 ordered_items: None,
                 ephemeral: None,
                 ..Default::default()
-            }
-            .into()),
+            }),
         }
     }
 }
@@ -469,7 +317,7 @@ pub struct LeadersPage {
     pub actors: Option<Vec<ApActorTerse>>,
 }
 
-impl TryFrom<LeadersPage> for ApCollectionAmbiguated {
+impl TryFrom<LeadersPage> for ApCollection {
     type Error = anyhow::Error;
 
     fn try_from(request: LeadersPage) -> Result<Self> {
@@ -487,8 +335,8 @@ impl TryFrom<LeadersPage> for ApCollectionAmbiguated {
         }
 
         match request.page {
-            Some(page) => Ok(ApCollectionPage {
-                kind: ApCollectionPageType::OrderedCollectionPage,
+            Some(page) => Ok(ApCollection {
+                kind: ApCollectionType::OrderedCollectionPage,
                 id: Some(format!("{id}?page={page}")),
                 total_items: Some(request.total_items),
                 first: Some(format!("{id}?page=1").into()),
@@ -506,8 +354,7 @@ impl TryFrom<LeadersPage> for ApCollectionAmbiguated {
                 ),
                 ephemeral: Some(request.actors.into()),
                 ..Default::default()
-            }
-            .into()),
+            }),
             None => Ok(ApCollection {
                 kind: ApCollectionType::OrderedCollection,
                 id: Some(id.clone()),
@@ -519,33 +366,7 @@ impl TryFrom<LeadersPage> for ApCollectionAmbiguated {
                 ordered_items: None,
                 ephemeral: None,
                 ..Default::default()
-            }
-            .into()),
+            }),
         }
     }
 }
-
-// pub type IdentifiedVaultItems = (Vec<VaultItem>, Actor);
-
-// impl From<IdentifiedVaultItems> for ApCollection {
-//     fn from((items, profile): IdentifiedVaultItems) -> Self {
-//         ApCollection {
-//             kind: ApCollectionType::OrderedCollection,
-//             id: Some(format!(
-//                 "{}/ephemeral-collection/{}",
-//                 *crate::SERVER_URL,
-//                 uuid::Uuid::new_v4()
-//             )),
-//             total_items: Some(items.len() as i64),
-//             first: None,
-//             part_of: None,
-//             ordered_items: Some(
-//                 items
-//                     .into_iter()
-//                     .map(|x| ActivityPub::Object(ApObject::Note((x, profile.clone()).into())))
-//                     .collect::<Vec<ActivityPub>>(),
-//             ),
-//             ..Default::default()
-//         }
-//     }
-// }

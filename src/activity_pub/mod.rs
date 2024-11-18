@@ -19,14 +19,11 @@ pub use types::add::{ApAdd, ApAddType};
 pub use types::announce::{ApAnnounce, ApAnnounceType};
 pub use types::block::{ApBlock, ApBlockType};
 pub use types::collection::{
-    ActorsPage, ApCollection, ApCollectionAmbiguated, ApCollectionPage, ApCollectionPageType,
-    ApCollectionType, Collectible, FollowersPage, LeadersPage,
+    ActorsPage, ApCollection, ApCollectionType, Collectible, FollowersPage, LeadersPage,
 };
 pub use types::create::{ApCreate, ApCreateType};
 pub use types::delete::{ApDelete, ApDeleteType, ApTombstone};
 pub use types::follow::{ApFollow, ApFollowType};
-//pub use types::invite::{ApInvite, ApInviteType};
-//pub use types::join::{ApJoin, ApJoinType};
 pub use types::like::{ApLike, ApLikeType};
 pub use types::note::{ApNote, ApNoteType, Metadata};
 pub use types::object::{
@@ -41,7 +38,6 @@ pub use types::attachment::{
 };
 
 pub use types::remove::{ApRemove, ApRemoveType};
-//pub use types::session::JoinData;
 pub use types::session::{ApInstrument, ApInstrumentType, ApSession};
 pub use types::undo::{ApUndo, ApUndoType};
 pub use types::update::{ApUpdate, ApUpdateType};

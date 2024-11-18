@@ -1,6 +1,4 @@
-use crate::activity_pub::{
-    retriever, ApActor, ApCollection, ApCollectionAmbiguated, ApInstrument, ApNote, Outbox,
-};
+use crate::activity_pub::{retriever, ApActor, ApCollection, ApInstrument, ApNote, Outbox};
 use crate::db::Db;
 use crate::fairings::events::EventChannels;
 use crate::models::actors::Actor;
@@ -18,7 +16,6 @@ use serde_json::{json, Value};
 use url::Url;
 
 use super::attachment::ApDocument;
-use super::collection::ApCollectionPage;
 use super::delete::ApTombstone;
 use super::question::ApQuestion;
 use super::session::ApSession;
@@ -79,8 +76,6 @@ pub enum ApObject {
     Question(ApQuestion),
     Actor(ApActor),
     Collection(ApCollection),
-    CollectionPage(ApCollectionPage),
-    CollectionAmbiguated(ApCollectionAmbiguated),
 
     // These members exist to catch unknown object types
     Identifier(Identifier),
@@ -156,22 +151,6 @@ impl Outbox for ApBasicContent {
         Err(Status::ServiceUnavailable)
     }
 }
-
-// impl Outbox for ApObject {
-//     async fn outbox(
-//         &self,
-//         conn: Db,
-//         faktory: FaktoryConnection,
-//         events: EventChannels,
-//         profile: Profile,
-//     ) -> Result<String, Status> {
-//         match self {
-//             ApObject::Note(object) => object.outbox(conn, faktory, events, profile).await,
-//             ApObject::Session(object) => object.outbox(conn, faktory, events, profile).await,
-//             _ => Err(Status::NoContent),
-//         }
-//     }
-// }
 
 impl ApObject {
     pub fn timestamp(&self) -> DateTime<Utc> {
