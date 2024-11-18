@@ -82,7 +82,8 @@ pub struct NewUser {
 pub async fn create_user(conn: Option<&Db>, user: NewUser) -> Result<Actor> {
     let key_pair = get_key_pair();
     let owner = get_ap_id_from_username(user.username.clone());
-    let server = crate::SERVER_URL.clone();
+    let server_url = crate::SERVER_URL.clone();
+    let server_name = crate::SERVER_NAME.clone();
     let avatar = crate::DEFAULT_AVATAR.clone();
     let password = pwhash::Password::from_slice(user.password.as_bytes())?;
     let username = user.username.clone();
@@ -127,9 +128,11 @@ pub async fn create_user(conn: Option<&Db>, user: NewUser) -> Result<Actor> {
         as_liked: Some(format!("{owner}/liked")),
         ek_keys: Some(format!("{owner}/keys")),
         as_published: Some(Utc::now()),
-        as_url: to_serde(&Some(MaybeMultiple::from(format!("{server}/@{username}")))),
+        as_url: to_serde(&Some(MaybeMultiple::from(format!(
+            "{server_url}/@{username}"
+        )))),
         as_endpoints: to_serde(&Some(ApEndpoint {
-            shared_inbox: format!("{server}/inbox"),
+            shared_inbox: format!("{server_url}/inbox"),
         }))
         .ok_or(anyhow!("failed to initialize endpoints"))?,
         as_discoverable: true,
@@ -143,13 +146,13 @@ pub async fn create_user(conn: Option<&Db>, user: NewUser) -> Result<Actor> {
         as_tag: json!([]),
         as_id: owner,
         as_icon: to_serde(&Some(ApImage {
-            url: format!("{server}/{avatar}"),
+            url: format!("{server_url}/{avatar}"),
             kind: ApImageType::Image,
             media_type: Some("image/png".to_string()),
         }))
         .ok_or(anyhow!("failed to initialize image"))?,
         as_image: json!("{}"),
-        ek_webfinger: Some(format!("@{username}@{server}")),
+        ek_webfinger: Some(format!("@{username}@{server_name}")),
         ek_avatar_filename: None,
         ek_banner_filename: None,
         ek_checked_at: Utc::now(),

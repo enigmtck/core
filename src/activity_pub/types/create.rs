@@ -96,7 +96,7 @@ impl Inbox for ApCreate {
     async fn inbox(&self, conn: Db, channels: EventChannels, raw: Value) -> Result<Status, Status> {
         if let Some(id) = self.id.clone() {
             if get_activity_by_ap_id(&conn, id).await.is_some() {
-                return Ok(Status::NotModified);
+                return Ok(Status::Accepted);
             }
         }
 

@@ -176,6 +176,7 @@ pub struct ApActor {
 
     // BlueSky seems to use an array here (or the bridges do)
     #[serde(skip_serializing_if = "MaybeMultiple::is_none")]
+    #[serde(default)]
     pub url: MaybeMultiple<String>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -200,6 +201,7 @@ pub struct ApActor {
     pub image: Option<ApImage>,
 
     #[serde(skip_serializing_if = "MaybeMultiple::is_none")]
+    #[serde(default)]
     pub also_known_as: MaybeMultiple<String>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
