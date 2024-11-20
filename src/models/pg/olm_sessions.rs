@@ -1,15 +1,26 @@
 use crate::db::Db;
 use crate::models::olm_sessions::NewOlmSession;
 use crate::schema::olm_sessions;
-use crate::POOL;
 use chrono::{DateTime, Utc};
 use diesel::prelude::*;
-use diesel::{AsChangeset, Identifiable, Queryable};
+use diesel::sql_query;
+use diesel::{AsChangeset, Identifiable, Queryable, QueryableByName, Selectable};
 use rocket_sync_db_pools::diesel;
 use serde::Serialize;
 
-#[derive(Identifiable, Queryable, AsChangeset, Serialize, Clone, Default, Debug)]
+#[derive(
+    Identifiable,
+    Queryable,
+    QueryableByName,
+    Selectable,
+    AsChangeset,
+    Serialize,
+    Clone,
+    Default,
+    Debug,
+)]
 #[diesel(table_name = olm_sessions)]
+#[diesel(check_for_backend(diesel::pg::Pg))]
 pub struct OlmSession {
     #[serde(skip_serializing)]
     pub id: i32,
@@ -19,52 +30,91 @@ pub struct OlmSession {
     pub session_data: String,
     pub session_hash: String,
     pub owner_as_id: String,
-    pub remote_as_id: String,
+    pub ap_conversation: String,
+    pub owner_id: i32,
 }
+
+// There's no good reason that this shouldn't work other than that Diesel is a fucking asshole.
+// pub async fn create_or_update_olm_session(
+//     conn: &Db,
+//     olm_session: NewOlmSession,
+//     mutation_of: Option<String>,
+// ) -> Option<OlmSession> {
+//     conn.run(move |c| {
+//         let mut query = diesel::insert_into(olm_sessions::table)
+//             .values(&olm_session)
+//             .on_conflict(olm_sessions::uuid)
+//             .do_update()
+//             .set(&olm_session)
+//             .filter(olm_sessions::owner_id.eq(excluded(olm_sessions::owner_id)));
+
+//         if let Some(mutation_of) = mutation_of {
+//             query = query.filter(
+//                 olm_sessions::owner_id
+//                     .eq(excluded(olm_sessions::owner_id))
+//                     .and(excluded(olm_sessions::session_hash).eq(mutation_of)),
+//             );
+//         } else {
+//             query = query.filter(olm_sessions::owner_id.eq(excluded(olm_sessions::owner_id)));
+//         }
+
+//         query.get_result::<OlmSession>(c)
+//     })
+//     .await
+//     .ok()
+// }
 
 pub async fn create_or_update_olm_session(
     conn: &Db,
     olm_session: NewOlmSession,
+    mutation_of: Option<String>,
 ) -> Option<OlmSession> {
     conn.run(move |c| {
-        diesel::insert_into(olm_sessions::table)
-            .values(&olm_session)
-            .on_conflict(olm_sessions::uuid)
-            .do_update()
-            .set(&olm_session)
-            .get_result::<OlmSession>(c)
+        let query = sql_query(
+            if mutation_of.is_some() {
+                    "INSERT INTO olm_sessions (uuid, session_data, session_hash, owner_as_id, ap_conversation, owner_id) 
+                     VALUES ($1, $2, $3, $4, $5, $6) 
+                     ON CONFLICT (uuid) DO UPDATE SET 
+                     session_data = $2, 
+                     session_hash = $3, 
+                     owner_as_id = $4, 
+                     ap_conversation = $5 
+                     WHERE olm_sessions.owner_id = excluded.owner_id AND excluded.session_hash = $7
+                     RETURNING *"
+            } else {
+                    "INSERT INTO olm_sessions (uuid, session_data, session_hash, owner_as_id, ap_conversation, owner_id) 
+                     VALUES ($1, $2, $3, $4, $5, $6) 
+                     ON CONFLICT (uuid) DO UPDATE SET 
+                     session_data = $2, 
+                     session_hash = $3, 
+                     owner_as_id = $4, 
+                     ap_conversation = $5 
+                     WHERE olm_sessions.owner_id = excluded.owner_id
+                     RETURNING *"
+            }
+        );
+
+        let result = match mutation_of {
+            Some(mutation) => query
+                .bind::<diesel::sql_types::Text, _>(olm_session.uuid)
+                .bind::<diesel::sql_types::Text, _>(olm_session.session_data)
+                .bind::<diesel::sql_types::Text, _>(olm_session.session_hash)
+                .bind::<diesel::sql_types::Text, _>(olm_session.owner_as_id)
+                .bind::<diesel::sql_types::Text, _>(olm_session.ap_conversation)
+                .bind::<diesel::sql_types::Integer, _>(olm_session.owner_id)
+                .bind::<diesel::sql_types::Text, _>(mutation)
+                .get_result::<OlmSession>(c),
+            None => query
+                .bind::<diesel::sql_types::Text, _>(olm_session.uuid)
+                .bind::<diesel::sql_types::Text, _>(olm_session.session_data)
+                .bind::<diesel::sql_types::Text, _>(olm_session.session_hash)
+                .bind::<diesel::sql_types::Text, _>(olm_session.owner_as_id)
+                .bind::<diesel::sql_types::Text, _>(olm_session.ap_conversation)
+                .bind::<diesel::sql_types::Integer, _>(olm_session.owner_id)
+                .get_result::<OlmSession>(c),
+        };
+
+        result.ok()
     })
     .await
-    .ok()
-}
-
-pub async fn update_olm_session(
-    conn: Option<&Db>,
-    uuid: String,
-    session_data: String,
-    session_hash: String,
-) -> Option<OlmSession> {
-    match conn {
-        Some(conn) => conn
-            .run(move |c| {
-                diesel::update(olm_sessions::table.filter(olm_sessions::uuid.eq(uuid)))
-                    .set((
-                        olm_sessions::session_data.eq(session_data),
-                        olm_sessions::session_hash.eq(session_hash),
-                    ))
-                    .get_result::<OlmSession>(c)
-            })
-            .await
-            .ok(),
-        None => {
-            let mut pool = POOL.get().ok()?;
-            diesel::update(olm_sessions::table.filter(olm_sessions::uuid.eq(uuid)))
-                .set((
-                    olm_sessions::session_data.eq(session_data),
-                    olm_sessions::session_hash.eq(session_hash),
-                ))
-                .get_result::<OlmSession>(&mut pool)
-                .ok()
-        }
-    }
 }

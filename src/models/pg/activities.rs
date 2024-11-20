@@ -496,11 +496,14 @@ fn build_main_query(
              v.data AS vault_data \
              FROM main m \
              LEFT JOIN vault v ON (v.activity_id = m.id \
-             AND m.actor = {}) \
+             AND (m.actor = {} OR m.ap_to @> {}) \
+             AND v.owner_as_id = {}) \
              ) ",
             param_gen(),
             param_gen(),
-            param_gen()
+            param_gen(),
+            param_gen(),
+            param_gen(),
         ));
     } else {
         query.push_str(
@@ -569,7 +572,7 @@ fn bind_params<'a>(
     params: QueryParams,
     profile: &Option<Actor>,
 ) -> BoxedSqlQuery<'a, diesel::pg::Pg, SqlQuery> {
-    use diesel::sql_types::{Array, Integer, Text, Timestamptz};
+    use diesel::sql_types::{Array, Integer, Jsonb, Text, Timestamptz};
     let mut query = query;
 
     if let Some(activity_as_id) = params.activity_as_id.clone() {
@@ -633,6 +636,8 @@ fn bind_params<'a>(
         as_id = profile.as_id.clone();
         query = query.bind::<Integer, _>(id);
         query = query.bind::<Integer, _>(id);
+        query = query.bind::<Text, _>(as_id.clone());
+        query = query.bind::<Jsonb, _>(json!(as_id.clone()));
         query = query.bind::<Text, _>(as_id);
     }
 

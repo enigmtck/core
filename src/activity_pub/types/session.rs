@@ -105,6 +105,10 @@ pub struct ApInstrument {
     pub url: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub mutation_of: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub conversation: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub activity: Option<String>,
 }
 
 impl ApInstrument {
@@ -141,6 +145,23 @@ impl Outbox for ApInstrument {
     }
 }
 
+impl ApInstrument {
+    pub fn from_actor_olm_account(actor: Actor) -> Self {
+        ApInstrument {
+            kind: ApInstrumentType::OlmAccount,
+            id: Some(format!("{}#olm-account", actor.as_id)),
+            content: actor.ek_olm_pickled_account,
+            hash: actor.ek_olm_pickled_account_hash,
+            uuid: None,
+            name: None,
+            url: None,
+            mutation_of: None,
+            conversation: None,
+            activity: None,
+        }
+    }
+}
+
 impl TryFrom<Actor> for ApInstrument {
     type Error = anyhow::Error;
 
@@ -158,6 +179,8 @@ impl TryFrom<Actor> for ApInstrument {
             name: None,
             url: None,
             mutation_of: None,
+            conversation: None,
+            activity: None,
         })
     }
 }
@@ -173,6 +196,8 @@ impl From<OlmSession> for ApInstrument {
             name: None,
             url: None,
             mutation_of: None,
+            conversation: None,
+            activity: None,
         }
     }
 }
@@ -188,6 +213,8 @@ impl From<OlmOneTimeKey> for ApInstrument {
             name: None,
             url: None,
             mutation_of: None,
+            conversation: None,
+            activity: None,
         }
     }
 }
@@ -218,6 +245,8 @@ impl TryFrom<CoalescedActivity> for ApInstrument {
             name: None,
             url: None,
             mutation_of: None,
+            conversation: None,
+            activity: None,
         })
     }
 }

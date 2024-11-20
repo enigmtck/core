@@ -265,6 +265,8 @@ fn rocket() -> Rocket<Build> {
                 user_activity_json,
                 announcers_get,
                 remote_keys_authenticated,
+                update_instruments,
+                olm_account_get,
             ],
         )
 }

@@ -1,3 +1,4 @@
+use super::actors::Actor;
 use crate::activity_pub::ApInstrument;
 use crate::db::Db;
 use crate::schema::olm_sessions;
@@ -12,7 +13,6 @@ cfg_if::cfg_if! {
     if #[cfg(feature = "pg")] {
         pub use crate::models::pg::olm_sessions::OlmSession;
         pub use crate::models::pg::olm_sessions::create_or_update_olm_session;
-        pub use crate::models::pg::olm_sessions::update_olm_session;
     } else if #[cfg(feature = "sqlite")] {
         pub use crate::models::sqlite::olm_sessions::OlmSession;
         pub use crate::models::sqlite::olm_sessions::create_olm_session;
@@ -28,29 +28,46 @@ pub struct NewOlmSession {
     pub session_data: String,
     pub session_hash: String,
     pub owner_as_id: String,
-    pub remote_as_id: String,
+    pub ap_conversation: String,
+    pub owner_id: i32,
 }
 
-type OlmSessionParams = (ApInstrument, String, String);
+pub struct OlmSessionParams {
+    pub uuid: Option<String>,
+    pub instrument: ApInstrument,
+    pub owner: Actor,
+}
+
 impl TryFrom<OlmSessionParams> for NewOlmSession {
     type Error = anyhow::Error;
 
     fn try_from(
-        (instrument, owner_as_id, remote_as_id): OlmSessionParams,
+        OlmSessionParams {
+            uuid,
+            instrument,
+            owner,
+        }: OlmSessionParams,
     ) -> Result<Self, Self::Error> {
         if !instrument.is_olm_session() {
             return Err(anyhow!("Instrument must be an OlmSession"));
         }
 
-        let uuid = Uuid::new_v4().to_string();
+        let uuid = uuid.unwrap_or(Uuid::new_v4().to_string());
         let session_data = instrument.content.unwrap();
         let session_hash = instrument.hash.unwrap();
+        let owner_as_id = owner.as_id;
+        let owner_id = owner.id;
+        let ap_conversation = instrument
+            .conversation
+            .ok_or_else(|| anyhow!("OlmSession must have a Conversation"))?;
+
         Ok(NewOlmSession {
             uuid,
             session_data,
             session_hash,
             owner_as_id,
-            remote_as_id,
+            ap_conversation,
+            owner_id,
         })
     }
 }

@@ -90,7 +90,7 @@ pub struct ApCollection {
 
 impl Collectible for ApCollection {
     fn items(&self) -> Option<Vec<ActivityPub>> {
-        self.items.clone().and_then(|_| self.ordered_items.clone())
+        self.items.clone().or(self.ordered_items.clone())
     }
 }
 

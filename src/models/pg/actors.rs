@@ -5,6 +5,7 @@ use anyhow::{anyhow, Result};
 use chrono::{DateTime, Duration, Utc};
 use diesel::prelude::*;
 use diesel::sql_query;
+use diesel::upsert::excluded;
 use diesel::{AsChangeset, Identifiable, Insertable, Queryable};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -330,9 +331,15 @@ pub async fn update_olm_account_by_username(
     username: String,
     account: String,
     account_hash: String,
-) -> Option<Actor> {
+    mutation_of: String,
+) -> Result<Actor> {
     conn.run(move |c| {
-        diesel::update(actors::table.filter(actors::ek_username.eq(username)))
+        diesel::update(actors::table)
+            .filter(
+                actors::ek_username
+                    .eq(username)
+                    .and(actors::ek_olm_pickled_account_hash.eq(mutation_of)),
+            )
             .set((
                 actors::ek_olm_pickled_account.eq(account),
                 actors::ek_olm_pickled_account_hash.eq(account_hash),
@@ -340,8 +347,48 @@ pub async fn update_olm_account_by_username(
             .get_result::<Actor>(c)
     })
     .await
-    .ok()
+    .map_err(anyhow::Error::msg)
 }
+
+// pub async fn new_update_olm_account_by_username(
+//     conn: &Db,
+//     username: String,
+//     account: String,
+//     account_hash: String,
+//     mutation_of: String,
+// ) -> Option<Actor> {
+//     conn.run(move |c| {
+//         let query = sql_query(
+//             if mutation_of.is_some() {
+//                 "UPDATE actors SET
+//                  ek_olm_pickled_account = $1,
+//                  ek_olm_pickled_account_hash = $2
+//                  WHERE ek_username = $3 AND excluded.ek_olm_pickled_account_hash = $4
+//                  RETURNING *"
+//             } else {
+//                 "UPDATE actors SET
+//                  ek_olm_pickled_account = $1,
+//                  ek_olm_pickled_account_hash = $2
+//                  WHERE ek_username = $3
+//                  RETURNING *"
+//             }
+//         );
+
+//         let result = match mutation_of {
+//             Some(mutation) => query
+//                 .bind::<diesel::sql_types::Text, _>(account)
+//                 .bind::<diesel::sql_types::Text, _>(account_hash)
+//                 .bind::<diesel::sql_types::Text, _>(username)
+//                 .bind::<diesel::sql_types::Text, _>(mutation_of)
+//                 .get_result::<OlmSession>(c),
+//             None => query
+//                 .bind::<diesel::sql_types::Text, _>(account)
+//                 .bind::<diesel::sql_types::Text, _>(account_hash)
+//                 .bind::<diesel::sql_types::Text, _>(username)
+//                 .get_result::<OlmSession>(c),
+//         }
+//     })
+// }
 
 pub async fn update_avatar_by_username(
     conn: &Db,

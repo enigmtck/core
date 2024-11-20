@@ -1,6 +1,7 @@
 use crate::db::Db;
 use crate::models::vault::NewVaultItem;
 use crate::schema::vault;
+use anyhow::Result;
 use chrono::{DateTime, Utc};
 use diesel::prelude::*;
 use diesel::{AsChangeset, Identifiable, Queryable};
@@ -20,12 +21,12 @@ pub struct VaultItem {
     pub data: String,
 }
 
-pub async fn create_vault_item(conn: &Db, vault_item: NewVaultItem) -> Option<VaultItem> {
+pub async fn create_vault_item(conn: &Db, vault_item: NewVaultItem) -> Result<VaultItem> {
     conn.run(move |c| {
         diesel::insert_into(vault::table)
             .values(&vault_item)
             .get_result::<VaultItem>(c)
     })
     .await
-    .ok()
+    .map_err(anyhow::Error::msg)
 }

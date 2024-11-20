@@ -3,25 +3,23 @@ use std::{collections::HashMap, fmt::Debug};
 
 use super::Ephemeral;
 use crate::{
-    activity_pub::ApActivity,
     activity_pub::{
-        ActivityPub, ApActor, ApAttachment, ApCollection, ApContext, ApImage, ApInstrument, ApTag,
-        Outbox,
+        ActivityPub, ApActivity, ApActor, ApAttachment, ApCollection, ApContext, ApImage,
+        ApInstrument, ApTag, Outbox,
     },
     db::Db,
     fairings::events::EventChannels,
-    helper::get_instrument_as_id_from_uuid,
     helper::{
-        get_conversation_ap_id_from_uuid, get_object_ap_id_from_uuid, get_object_url_from_uuid,
+        get_conversation_ap_id_from_uuid, get_instrument_as_id_from_uuid,
+        get_object_ap_id_from_uuid, get_object_url_from_uuid,
     },
-    models::activities::get_activity_by_ap_id,
     models::{
-        activities::{create_activity, NewActivity},
+        activities::{create_activity, get_activity_by_ap_id, Activity, NewActivity},
         actors::{get_actor, Actor},
         cache::{cache_content, Cache, Cacheable},
         from_serde, from_time,
         objects::{create_or_update_object, Object},
-        olm_sessions::create_or_update_olm_session,
+        olm_sessions::{create_or_update_olm_session, OlmSession, OlmSessionParams},
         pg::{
             coalesced_activity::CoalescedActivity, objects::ObjectType, vault::create_vault_item,
         },
@@ -232,85 +230,208 @@ impl ApNote {
         profile: Actor,
         raw: Value,
     ) -> Result<String, Status> {
-        // ApNote -> NewNote -> ApNote -> ApActivity
-        // UUID is set in NewNote
-
         if note.id.is_some() {
             return Err(Status::NotAcceptable);
         }
 
-        let mut is_public = false;
-        let mut followers_included = false;
-        let mut addresses_cc: Vec<ApAddress> = note.cc.clone().unwrap_or(vec![].into()).multiple();
-        let followers = ApActor::from(profile.clone()).followers;
+        async fn build_activity(
+            create: ApCreate,
+            conn: &Db,
+            object: &Object,
+            raw: Value,
+        ) -> Result<Activity, Status> {
+            let mut activity = NewActivity::try_from((create.into(), Some(object.into())))
+                .map_err(|e| {
+                    log::error!("Failed to build Activity: {e:#?}");
+                    Status::InternalServerError
+                })?
+                .link_actor(conn)
+                .await;
 
-        if let Some(followers) = followers {
-            // look for the public and followers group address aliases in the to vec
-            for to in note.to.multiple().iter() {
-                if to.is_public() {
-                    is_public = true;
-                    if to.to_string().to_lowercase() == followers.to_lowercase() {
-                        followers_included = true;
-                    }
-                }
-            }
+            activity.raw = Some(raw);
 
-            // look for the public and followers group address aliases in the cc vec
-            for cc in addresses_cc.iter() {
-                if cc.is_public() {
-                    is_public = true;
-                    if cc.to_string().to_lowercase() == followers.to_lowercase() {
-                        followers_included = true;
-                    }
-                }
-            }
-
-            // if the note is public and if it's not already included, add the sender's followers group
-            if is_public && !followers_included {
-                addresses_cc.push(followers.into());
-                note.cc = Some(MaybeMultiple::Multiple(addresses_cc));
-            }
+            create_activity(Some(conn), activity.clone())
+                .await
+                .map_err(|e| {
+                    log::error!("Failed to create Activity: {e:#?}");
+                    Status::InternalServerError
+                })
         }
 
-        let uuid = Uuid::new_v4().to_string();
-        note.ephemeral = Some(Ephemeral {
-            internal_uuid: Some(uuid.clone()),
-            ..Default::default()
-        });
-        note.id = Some(get_object_ap_id_from_uuid(uuid.clone()));
-        note.url = Some(get_object_url_from_uuid(uuid.clone()));
-        note.published = ActivityPub::time(Utc::now());
-        note.attributed_to = profile.as_id.clone().into();
-
-        if note.conversation.is_none() {
-            note.conversation = Some(get_conversation_ap_id_from_uuid(Uuid::new_v4().to_string()));
-        }
-
-        note.context = Some(ApContext::default());
-
-        // Setting the ID for the instruments here to use in the ApCreate further down.
-        // The UUID will be overwritten for the VaultItem when that is stored to the database.
-        let instruments = note
-            .instrument
-            .clone()
-            .map(|mut instrument| match &mut instrument {
-                MaybeMultiple::Single(inst) => {
-                    let uuid = Uuid::new_v4().to_string();
-                    inst.uuid = Some(uuid.clone());
-                    inst.id = Some(get_instrument_as_id_from_uuid(uuid));
-                    vec![inst.clone()]
-                }
-                MaybeMultiple::Multiple(insts) => {
-                    insts.iter_mut().for_each(|inst| {
-                        let uuid = Uuid::new_v4().to_string();
-                        inst.uuid = Some(uuid.clone());
-                        inst.id = Some(get_instrument_as_id_from_uuid(uuid))
-                    });
-                    insts.clone()
-                }
-                _ => vec![],
+        fn build_ap_create(object: &Object) -> Result<ApCreate, Status> {
+            ApCreate::try_from(ApObject::Note(ApNote::try_from(object.clone()).map_err(
+                |e| {
+                    log::error!("Failed to build ApNote: {e:#?}");
+                    Status::InternalServerError
+                },
+            )?))
+            .map_err(|e| {
+                log::error!("Failed to build ApCreate: {e:#?}");
+                Status::InternalServerError
             })
-            .unwrap_or_default();
+        }
+
+        fn prepare_note_metadata(note: &mut ApNote, profile: &Actor) {
+            let uuid = Uuid::new_v4().to_string();
+
+            note.ephemeral = Some(Ephemeral {
+                internal_uuid: Some(uuid.clone()),
+                ..Default::default()
+            });
+
+            note.id = Some(get_object_ap_id_from_uuid(uuid.clone()));
+            note.url = Some(get_object_url_from_uuid(uuid.clone()));
+            note.published = ActivityPub::time(Utc::now());
+            note.attributed_to = profile.as_id.clone().into();
+
+            if note.conversation.is_none() {
+                note.conversation =
+                    Some(get_conversation_ap_id_from_uuid(Uuid::new_v4().to_string()));
+            }
+
+            note.context = Some(ApContext::default());
+        }
+
+        fn process_note_visibility(note: &mut ApNote, profile: &Actor) {
+            let mut addresses_cc: Vec<ApAddress> =
+                note.cc.clone().unwrap_or(vec![].into()).multiple();
+            let followers = ApActor::from(profile.clone()).followers;
+
+            if let Some(followers) = followers {
+                let is_public = check_public_visibility(&note.to, &addresses_cc);
+                let followers_included =
+                    check_followers_inclusion(&note.to, &addresses_cc, &followers);
+
+                if is_public && !followers_included {
+                    addresses_cc.push(followers.into());
+                    note.cc = Some(MaybeMultiple::Multiple(addresses_cc.clone()));
+                }
+            }
+        }
+
+        fn check_public_visibility(
+            to_addresses: &MaybeMultiple<ApAddress>,
+            cc_addresses: &[ApAddress],
+        ) -> bool {
+            to_addresses.multiple().iter().any(|to| to.is_public())
+                || cc_addresses.iter().any(|cc| cc.is_public())
+        }
+
+        fn check_followers_inclusion(
+            to_addresses: &MaybeMultiple<ApAddress>,
+            cc_addresses: &[ApAddress],
+            followers: &str,
+        ) -> bool {
+            to_addresses.multiple().iter().any(|to| {
+                to.is_public() && to.to_string().to_lowercase() == followers.to_lowercase()
+            }) || cc_addresses.iter().any(|cc| {
+                cc.is_public() && cc.to_string().to_lowercase() == followers.to_lowercase()
+            })
+        }
+
+        async fn process_instruments(
+            note: ApNote,
+            conn: &Db,
+            profile: &Actor,
+        ) -> Result<Vec<ApInstrument>, Status> {
+            let instruments = note
+                .instrument
+                .clone()
+                .and_then(|mut instrument| match &mut instrument {
+                    MaybeMultiple::Single(inst) => {
+                        let uuid = Uuid::new_v4().to_string();
+                        let mut cloned_inst = inst.clone();
+                        cloned_inst.uuid = Some(uuid.clone());
+                        cloned_inst.id = Some(get_instrument_as_id_from_uuid(uuid));
+                        cloned_inst.conversation = note.conversation.clone();
+                        Some(vec![cloned_inst])
+                    }
+                    MaybeMultiple::Multiple(insts) => Some(
+                        insts
+                            .iter()
+                            .map(|inst| {
+                                let uuid = Uuid::new_v4().to_string();
+                                let mut cloned_inst = inst.clone();
+                                cloned_inst.uuid = Some(uuid.clone());
+                                cloned_inst.id = Some(get_instrument_as_id_from_uuid(uuid));
+                                cloned_inst.conversation = note.conversation.clone();
+                                cloned_inst
+                            })
+                            .collect::<Vec<_>>(),
+                    ),
+                    _ => None,
+                })
+                .unwrap_or_default();
+
+            // Process OLM sessions
+            for instrument in instruments.iter().filter(|inst| inst.is_olm_session()) {
+                create_or_update_olm_session(
+                    conn,
+                    OlmSessionParams {
+                        instrument: instrument.clone(),
+                        owner: profile.clone(),
+                        uuid: None,
+                    }
+                    .try_into()
+                    .unwrap(),
+                    None,
+                )
+                .await;
+            }
+
+            Ok(instruments)
+        }
+
+        async fn process_vault_items(
+            conn: &Db,
+            instruments: &[ApInstrument],
+            activity: &Activity,
+        ) -> Result<(), Status> {
+            for instrument in instruments
+                .iter()
+                .filter(|instrument| instrument.is_vault_item())
+            {
+                create_vault_item(
+                    conn,
+                    (
+                        instrument.content.clone().unwrap(),
+                        activity.actor.to_string(),
+                        activity.id,
+                    )
+                        .into(),
+                )
+                .await
+                .map_err(|e| {
+                    log::error!("Failed to create VaultItem: {e:#?}");
+                    Status::InternalServerError
+                })?;
+            }
+
+            Ok(())
+        }
+
+        async fn dispatch_activity(
+            conn: Db,
+            channels: &EventChannels,
+            activity: &Activity,
+        ) -> Result<(), Status> {
+            runner::run(
+                ApNote::send_note,
+                Some(conn),
+                Some(channels.clone()),
+                vec![activity.ap_id.clone().ok_or_else(|| {
+                    log::error!("Activity ap_id cannot be None");
+                    Status::InternalServerError
+                })?],
+            )
+            .await;
+            Ok(())
+        }
+
+        process_note_visibility(&mut note, &profile);
+        prepare_note_metadata(&mut note, &profile);
+
+        let instruments = process_instruments(note.clone(), &conn, &profile).await?;
 
         note.instrument = if instruments.is_empty() {
             None
@@ -318,82 +439,20 @@ impl ApNote {
             Some(instruments.clone().into())
         };
 
-        for instrument in instruments.clone() {
-            if instrument.is_olm_session() {
-                create_or_update_olm_session(
-                    &conn,
-                    (
-                        instrument.clone(),
-                        note.attributed_to.to_string(),
-                        note.to.single().unwrap().to_string(),
-                    )
-                        .try_into()
-                        .unwrap(),
-                )
-                .await;
-            };
-        }
-
-        let object = create_or_update_object(&conn, (note.clone(), profile).into())
+        let object = create_or_update_object(&conn, (note.clone(), profile.clone()).into())
             .await
             .map_err(|e| {
-                log::error!("FAILED TO CREATE OR UPDATE OBJECT: {e:#?}");
+                log::error!("Failed to create or update Object: {e:#?}");
                 Status::InternalServerError
             })?;
 
-        let create = ApCreate::try_from(ApObject::Note(ApNote::try_from(object.clone()).map_err(
-            |e| {
-                log::error!("FAILED TO BUILD AP_NOTE: {e:#?}");
-                Status::InternalServerError
-            },
-        )?))
-        .map_err(|e| {
-            log::error!("FAILED TO BUILD AP_CREATE: {e:#?}");
-            Status::InternalServerError
-        })?;
+        let create = build_ap_create(&object)?;
 
-        let mut activity = NewActivity::try_from((create.into(), Some(object.into())))
-            .map_err(|e| {
-                log::error!("FAILED TO BUILD ACTIVITY: {e:#?}");
-                Status::InternalServerError
-            })?
-            .link_actor(&conn)
-            .await;
+        let activity = build_activity(create, &conn, &object, raw).await?;
 
-        activity.raw = Some(raw);
+        process_vault_items(&conn, &instruments, &activity).await?;
+        dispatch_activity(conn, &channels, &activity).await?;
 
-        let activity = create_activity(Some(&conn), activity.clone())
-            .await
-            .map_err(|e| {
-                log::error!("FAILED TO CREATE ACTIVITY: {e:#?}");
-                Status::InternalServerError
-            })?;
-
-        for instrument in instruments.clone() {
-            if instrument.is_vault_item() {
-                create_vault_item(
-                    &conn,
-                    (
-                        instrument.content.unwrap(),
-                        note.attributed_to.to_string(),
-                        activity.id,
-                    )
-                        .into(),
-                )
-                .await;
-            }
-        }
-
-        runner::run(
-            ApNote::send_note,
-            Some(conn),
-            Some(channels),
-            vec![activity.ap_id.clone().ok_or_else(|| {
-                log::error!("ACTIVITY AP_ID CAN NOT BE NONE");
-                Status::InternalServerError
-            })?],
-        )
-        .await;
         Ok(activity.uuid)
     }
 
@@ -409,23 +468,23 @@ impl ApNote {
                 get_activity_by_ap_id(conn.ok_or(TaskError::TaskFailed)?, ap_id.clone())
                     .await
                     .ok_or_else(|| {
-                        log::error!("FAILED TO RETRIEVE ACTIVITY");
+                        log::error!("Failed to retrieve Activity");
                         TaskError::TaskFailed
                     })?;
 
             let profile_id = activity.actor_id.ok_or_else(|| {
-                log::error!("ACTIVITY ACTOR_ID CAN NOT BE NONE");
+                log::error!("Activity actor_id cannot be None");
                 TaskError::TaskFailed
             })?;
 
             let sender = get_actor(conn.unwrap(), profile_id).await.ok_or_else(|| {
-                log::error!("FAILED TO RETRIEVE SENDER ACTOR");
+                log::error!("Failed to retrieve sending Actor");
                 TaskError::TaskFailed
             })?;
 
             let note = ApNote::try_from(target_object.clone().ok_or(TaskError::TaskFailed)?)
                 .map_err(|e| {
-                    log::error!("FAILED TO BUILD ApNote: {e:#?}");
+                    log::error!("Failed to build ApNote: {e:#?}");
                     TaskError::TaskFailed
                 })?;
 
@@ -458,14 +517,10 @@ impl ApNote {
                                 )) {
                                     Some(activity)
                                 } else {
-                                    log::error!("FAILED TO BUILD ApActivity");
+                                    log::error!("Failed to build ApActivity");
                                     None
                                 }
                         }
-                        // NoteType::EncryptedNote => {
-                        //     handle_encrypted_note(&mut note, sender.clone())
-                        //         .map(ApActivity::Create(ApCreate::from))
-                        // }
                         _ => None,
                     };
                 } else if #[cfg(feature = "sqlite")] {
@@ -502,7 +557,7 @@ impl ApNote {
             .await;
 
             let activity = activity.ok_or_else(|| {
-                log::error!("ACTIVITY CANNOT BE NONE");
+                log::error!("Activity cannot be None");
                 TaskError::TaskFailed
             })?;
 
@@ -516,7 +571,7 @@ impl ApNote {
             // send_to_inboxes(conn.unwrap(), inboxes, sender, activity)
             //     .await
             //     .map_err(|e| {
-            //         log::error!("FAILED TO SEND ACTIVITY: {e:#?}");
+            //         log::error!("Failed to send ApActivity: {e:#?}");
             //         TaskError::TaskFailed
             //     })?;
         }

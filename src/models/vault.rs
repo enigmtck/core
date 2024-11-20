@@ -1,11 +1,15 @@
+use crate::activity_pub::ApInstrument;
 use crate::activity_pub::ApNote;
 use crate::db::Db;
 use crate::schema::vault;
 use crate::MaybeMultiple;
+use anyhow::anyhow;
 use diesel::prelude::*;
 use diesel::Insertable;
 use rocket_sync_db_pools::diesel;
 use serde::{Deserialize, Serialize};
+
+use super::actors::Actor;
 
 cfg_if::cfg_if! {
     if #[cfg(feature = "pg")] {
@@ -24,6 +28,37 @@ pub struct NewVaultItem {
     pub owner_as_id: String,
     pub activity_id: i32,
     pub data: String,
+}
+
+pub struct VaultItemParams {
+    pub instrument: ApInstrument,
+    pub owner: Actor,
+    pub activity_id: i32,
+}
+
+impl TryFrom<VaultItemParams> for NewVaultItem {
+    type Error = anyhow::Error;
+
+    fn try_from(
+        VaultItemParams {
+            instrument,
+            owner,
+            activity_id,
+        }: VaultItemParams,
+    ) -> Result<Self, Self::Error> {
+        if !instrument.is_vault_item() {
+            return Err(anyhow!("Instrument is not a VaultItem"));
+        }
+
+        Ok(NewVaultItem {
+            uuid: uuid::Uuid::new_v4().to_string(),
+            owner_as_id: owner.as_id,
+            data: instrument
+                .content
+                .ok_or_else(|| anyhow!("Instrument must have content"))?,
+            activity_id,
+        })
+    }
 }
 
 type EncryptedData = (String, String, i32);

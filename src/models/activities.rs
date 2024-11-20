@@ -8,6 +8,7 @@ use crate::routes::inbox::InboxView;
 use crate::schema::activities;
 use crate::{MaybeReference, POOL};
 use anyhow::anyhow;
+use anyhow::Result;
 use diesel::prelude::*;
 use std::fmt::{self, Debug};
 
@@ -127,6 +128,12 @@ pub enum ActivityTarget {
     Object(Object),
     Activity(Activity),
     Actor(Actor),
+}
+
+impl From<&Object> for ActivityTarget {
+    fn from(object: &Object) -> Self {
+        ActivityTarget::Object(object.clone())
+    }
 }
 
 impl From<Object> for ActivityTarget {
@@ -511,6 +518,17 @@ pub async fn get_activity_by_kind_actor_id_and_target_ap_id(
     .ok()?
     .first()
     .cloned()
+}
+
+pub async fn lookup_activity_id_by_as_id(conn: &Db, as_id: String) -> Result<i32> {
+    conn.run(move |c| {
+        activities::table
+            .filter(activities::ap_id.eq(as_id))
+            .select(activities::id)
+            .first::<i32>(c)
+            .map_err(anyhow::Error::msg)
+    })
+    .await
 }
 
 pub async fn get_activity(conn: Option<&Db>, id: i32) -> Option<ExtendedActivity> {

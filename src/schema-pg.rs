@@ -284,7 +284,8 @@ diesel::table! {
         session_data -> Varchar,
         session_hash -> Varchar,
         owner_as_id -> Text,
-        remote_as_id -> Text,
+        ap_conversation -> Text,
+        owner_id -> Int4,
     }
 }
 
