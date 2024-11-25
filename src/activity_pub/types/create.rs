@@ -16,8 +16,10 @@ use crate::{
         actors::Actor,
         from_serde, from_time,
         objects::{create_or_update_object, NewObject},
-        pg::coalesced_activity::CoalescedActivity,
-        pg::objects::ObjectType,
+        pg::{
+            activities::EncryptedActivity, coalesced_activity::CoalescedActivity,
+            objects::ObjectType,
+        },
     },
     runner, MaybeMultiple, MaybeReference,
 };
@@ -84,8 +86,9 @@ pub struct ApCreate {
     pub published: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub signature: Option<ApSignature>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub instrument: Option<MaybeMultiple<ApInstrument>>,
+    #[serde(skip_serializing_if = "MaybeMultiple::is_none")]
+    #[serde(default)]
+    pub instrument: MaybeMultiple<ApInstrument>,
 
     // These are ephemeral attributes to facilitate client operations
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -228,15 +231,10 @@ impl TryFrom<CoalescedActivity> for ApCreate {
             ..Default::default()
         });
 
-        let mut instrument: Option<MaybeMultiple<ApInstrument>> =
-            coalesced.instrument.clone().and_then(from_serde);
+        let mut instrument: MaybeMultiple<ApInstrument> = coalesced.instrument.clone().into();
 
-        if let Ok(vault_item) = ApInstrument::try_from(coalesced) {
-            if let Some(i) = instrument {
-                instrument = Some(i.extend(vec![vault_item]));
-            } else {
-                instrument = Some(MaybeMultiple::Single(vault_item));
-            }
+        if let Ok(instruments) = Vec::<ApInstrument>::try_from(coalesced) {
+            instrument = instrument.extend(instruments);
         }
 
         Ok(ApCreate {
@@ -255,6 +253,56 @@ impl TryFrom<CoalescedActivity> for ApCreate {
     }
 }
 
+impl TryFrom<EncryptedActivity> for ApCreate {
+    type Error = anyhow::Error;
+
+    fn try_from((activity, object, session): EncryptedActivity) -> Result<Self, Self::Error> {
+        let note = ApObject::Note(ApNote::try_from(object)?);
+
+        let ap_to = activity
+            .ap_to
+            .ok_or(anyhow!("Activity must have a 'to' field"))?;
+
+        let instrument: MaybeMultiple<ApInstrument> = activity.instrument.into();
+        let mut instrument = match instrument {
+            MaybeMultiple::Single(instrument) => {
+                if instrument.is_olm_identity_key() {
+                    vec![instrument].into()
+                } else {
+                    MaybeMultiple::None
+                }
+            }
+            MaybeMultiple::Multiple(instruments) => instruments
+                .into_iter()
+                .filter(|x| x.is_olm_identity_key())
+                .collect::<Vec<ApInstrument>>()
+                .into(),
+            _ => MaybeMultiple::None,
+        };
+
+        if let Some(session) = session {
+            instrument = instrument.extend(vec![session.into()]);
+        }
+
+        Ok(ApCreate {
+            context: Some(ApContext::default()),
+            kind: ApCreateType::default(),
+            actor: ApAddress::Address(activity.actor.clone()),
+            id: activity.ap_id,
+            object: note.into(),
+            to: from_serde(ap_to).unwrap(),
+            cc: activity.cc.and_then(from_serde),
+            signature: None,
+            published: Some(ActivityPub::time(from_time(activity.created_at).unwrap())),
+            ephemeral: Some(Ephemeral {
+                created_at: from_time(activity.created_at),
+                updated_at: from_time(activity.updated_at),
+                ..Default::default()
+            }),
+            instrument,
+        })
+    }
+}
 // I suspect that any uses of this have now been redirected to the CoalescedActivity above,
 // even if functions are still calling this impl. It would be good to remove this and clean
 // up the function chains.
@@ -275,23 +323,22 @@ impl TryFrom<ExtendedActivity> for ApCreate {
             .ap_to
             .ok_or(anyhow!("ACTIVITY DOES NOT HAVE A TO FIELD"))?;
 
-        let instrument: Option<MaybeMultiple<ApInstrument>> = activity
-            .instrument
-            .and_then(from_serde)
-            .map(|instrument: MaybeMultiple<ApInstrument>| match instrument {
-                MaybeMultiple::Single(instrument) => instrument
-                    .is_olm_identity_key()
-                    .then_some(vec![instrument].into()),
-                MaybeMultiple::Multiple(instruments) => Some(
-                    instruments
-                        .into_iter()
-                        .filter(|x| x.is_olm_identity_key())
-                        .collect::<Vec<ApInstrument>>()
-                        .into(),
-                ),
-                _ => None,
-            })
-            .unwrap_or_default();
+        let instrument: MaybeMultiple<ApInstrument> = activity.instrument.into();
+        let instrument = match instrument {
+            MaybeMultiple::Single(instrument) => {
+                if instrument.is_olm_identity_key() {
+                    vec![instrument].into()
+                } else {
+                    MaybeMultiple::None
+                }
+            }
+            MaybeMultiple::Multiple(instruments) => instruments
+                .into_iter()
+                .filter(|x| x.is_olm_identity_key())
+                .collect::<Vec<ApInstrument>>()
+                .into(),
+            _ => MaybeMultiple::None,
+        };
 
         Ok(ApCreate {
             context: Some(ApContext::default()),
@@ -350,23 +397,24 @@ impl TryFrom<ApObject> for ApCreate {
                 let published = Some(note.published);
                 let ephemeral = None;
 
-                let instrument: Option<MaybeMultiple<ApInstrument>> = note
-                    .instrument
-                    .clone()
-                    .map(|instrument: MaybeMultiple<ApInstrument>| match instrument {
-                        MaybeMultiple::Single(instrument) => instrument
-                            .is_olm_identity_key()
-                            .then_some(vec![instrument].into()),
-                        MaybeMultiple::Multiple(instruments) => Some(
-                            instruments
-                                .into_iter()
-                                .filter(|x| x.is_olm_identity_key())
-                                .collect::<Vec<ApInstrument>>()
-                                .into(),
-                        ),
-                        _ => None,
-                    })
-                    .unwrap_or_default();
+                let instrument: MaybeMultiple<ApInstrument> =
+                    note.instrument.map_or(MaybeMultiple::None, |x| x.into());
+
+                let instrument = match instrument {
+                    MaybeMultiple::Single(instrument) => {
+                        if instrument.is_olm_identity_key() {
+                            vec![instrument].into()
+                        } else {
+                            MaybeMultiple::None
+                        }
+                    }
+                    MaybeMultiple::Multiple(instruments) => instruments
+                        .into_iter()
+                        .filter(|x| x.is_olm_identity_key())
+                        .collect::<Vec<ApInstrument>>()
+                        .into(),
+                    _ => MaybeMultiple::None,
+                };
 
                 Ok(ApCreate {
                     context,

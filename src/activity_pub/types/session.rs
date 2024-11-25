@@ -219,35 +219,69 @@ impl From<OlmOneTimeKey> for ApInstrument {
     }
 }
 
-impl TryFrom<CoalescedActivity> for ApInstrument {
+impl TryFrom<CoalescedActivity> for Vec<ApInstrument> {
     type Error = anyhow::Error;
 
     fn try_from(coalesced: CoalescedActivity) -> Result<Self, Self::Error> {
-        Ok(Self {
-            kind: ApInstrumentType::VaultItem,
-            id: Some(get_instrument_as_id_from_uuid(
-                coalesced
-                    .vault_uuid
-                    .clone()
-                    .ok_or(anyhow!("VaultItem must have a UUID"))?,
-            )),
-            content: Some(
-                coalesced
-                    .vault_data
-                    .ok_or(anyhow!("VaultItem must have content"))?,
-            ),
-            uuid: Some(
-                coalesced
-                    .vault_uuid
-                    .ok_or(anyhow!("VaultItem must have a UUID"))?,
-            ),
-            hash: None,
-            name: None,
-            url: None,
-            mutation_of: None,
-            conversation: None,
-            activity: None,
-        })
+        let mut instruments: Vec<ApInstrument> = vec![];
+
+        if coalesced.vault_data.is_some() {
+            instruments.push(ApInstrument {
+                kind: ApInstrumentType::VaultItem,
+                id: Some(get_instrument_as_id_from_uuid(
+                    coalesced
+                        .vault_uuid
+                        .clone()
+                        .ok_or(anyhow!("VaultItem must have a UUID"))?,
+                )),
+                content: Some(
+                    coalesced
+                        .vault_data
+                        .ok_or(anyhow!("VaultItem must have content"))?,
+                ),
+                uuid: Some(
+                    coalesced
+                        .vault_uuid
+                        .ok_or(anyhow!("VaultItem must have a UUID"))?,
+                ),
+                hash: None,
+                name: None,
+                url: None,
+                mutation_of: None,
+                conversation: None,
+                activity: None,
+            });
+        }
+
+        if coalesced.olm_data.is_some() {
+            instruments.push(ApInstrument {
+                kind: ApInstrumentType::OlmSession,
+                id: Some(get_instrument_as_id_from_uuid(
+                    coalesced
+                        .olm_uuid
+                        .clone()
+                        .ok_or(anyhow!("OlmSession must have a UUID"))?,
+                )),
+                content: Some(
+                    coalesced
+                        .olm_data
+                        .ok_or(anyhow!("OlmSession must have Data"))?,
+                ),
+                uuid: Some(
+                    coalesced
+                        .olm_uuid
+                        .ok_or(anyhow!("OlmSession must have a UUID"))?,
+                ),
+                hash: None,
+                name: None,
+                url: None,
+                mutation_of: None,
+                conversation: None,
+                activity: None,
+            });
+        }
+
+        Ok(instruments)
     }
 }
 

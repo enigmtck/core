@@ -95,6 +95,7 @@ diesel::table! {
         ap_capabilities -> Jsonb,
         ap_manually_approves_followers -> Bool,
         ek_keys -> Nullable<Text>,
+        ek_last_decrypted_activity -> Timestamptz,
     }
 }
 

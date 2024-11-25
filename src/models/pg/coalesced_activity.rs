@@ -341,6 +341,9 @@ pub struct CoalescedActivity {
     #[diesel(sql_type = Nullable<Bool>)]
     pub actor_manually_approves_followers: Option<bool>,
 
+    #[diesel(sql_type = Nullable<Timestamptz>)]
+    pub actor_last_decrypted_activity: Option<DateTime<Utc>>,
+
     // Vault Fields
     #[diesel(sql_type = Nullable<Integer>)]
     pub vault_id: Option<i32>,
@@ -362,4 +365,29 @@ pub struct CoalescedActivity {
 
     #[diesel(sql_type = Nullable<Text>)]
     pub vault_data: Option<String>,
+
+    // Olm Session Fields
+    #[diesel(sql_type = Nullable<Text>)]
+    pub olm_data: Option<String>,
+
+    #[diesel(sql_type = Nullable<Text>)]
+    pub olm_hash: Option<String>,
+
+    #[diesel(sql_type = Nullable<Text>)]
+    pub olm_uuid: Option<String>,
+
+    #[diesel(sql_type = Nullable<Text>)]
+    pub olm_conversation: Option<String>,
+
+    #[diesel(sql_type = Nullable<Timestamptz>)]
+    pub olm_created_at: Option<DateTime<Utc>>,
+
+    #[diesel(sql_type = Nullable<Timestamptz>)]
+    pub olm_updated_at: Option<DateTime<Utc>>,
+
+    #[diesel(sql_type = Nullable<Text>)]
+    pub olm_owner: Option<String>,
+
+    #[diesel(sql_type = Nullable<Integer>)]
+    pub olm_owner_id: Option<i32>,
 }

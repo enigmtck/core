@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use crate::{
-    activity_pub::{ActivityPub, ApCollection, ApInstrument, ApObject, Collectible},
+    activity_pub::{ActivityPub, ApActivity, ApCollection, ApInstrument, ApObject, Collectible},
     db::Db,
     fairings::signatures::Signed,
     helper::get_uuid,
@@ -11,14 +11,65 @@ use crate::{
         olm_one_time_keys::{
             create_olm_one_time_key, get_next_otk_by_profile_id, get_otk_count_by_profile_id,
         },
-        olm_sessions::{create_or_update_olm_session, OlmSessionParams},
-        pg::actors::update_olm_account_by_username,
+        olm_sessions::{create_or_update_olm_session, get_olm_session_by_uuid, OlmSessionParams},
+        pg::{activities::get_encrypted_activities, actors::update_olm_account_by_username},
         vault::{create_vault_item, VaultItemParams},
     },
     routes::ActivityJson,
 };
 use rocket::{get, http::Status, post, serde::json::Error, serde::json::Json};
 use serde::{Deserialize, Serialize};
+
+#[get("/api/encrypted", format = "application/activity+json")]
+pub async fn encrypted_activities_get(
+    signed: Signed,
+    conn: Db,
+) -> Result<ActivityJson<ApObject>, Status> {
+    let profile = signed.profile().ok_or(Status::Unauthorized)?;
+
+    Ok(ActivityJson(Json(
+        ApCollection::from((
+            get_encrypted_activities(
+                &conn,
+                profile.ek_last_decrypted_activity,
+                50,
+                profile.as_id.into(),
+            )
+            .await
+            .map_err(|e| {
+                log::error!("Failed to get Encrypted Activities: {e:#?}");
+                Status::InternalServerError
+            })?
+            .into_iter()
+            .filter_map(|x| ApActivity::try_from(x).ok())
+            .collect::<Vec<ActivityPub>>(),
+            None,
+        ))
+        .into(),
+    )))
+}
+
+#[get(
+    "/api/instruments/olm-session?<id>",
+    format = "application/activity+json"
+)]
+pub async fn olm_session_get(
+    signed: Signed,
+    conn: Db,
+    id: String,
+) -> Result<ActivityJson<ApObject>, Status> {
+    let profile = signed.profile().ok_or(Status::Unauthorized)?;
+
+    let session = get_olm_session_by_uuid(&conn, get_uuid(id).ok_or(Status::NotFound)?)
+        .await
+        .map_err(|_| Status::NotFound)?;
+
+    if session.owner_id != profile.id {
+        return Err(Status::Unauthorized);
+    }
+
+    Ok(ActivityJson(Json(ApObject::Instrument(session.into()))))
+}
 
 #[get("/api/instruments/olm-account", format = "application/activity+json")]
 pub async fn olm_account_get(signed: Signed) -> Result<ActivityJson<ApObject>, Status> {

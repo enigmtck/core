@@ -5,7 +5,7 @@ use crate::{
     },
     models::{
         activities::{ActivityType, ExtendedActivity},
-        pg::coalesced_activity::CoalescedActivity,
+        pg::{activities::EncryptedActivity, coalesced_activity::CoalescedActivity},
     },
 };
 use anyhow::anyhow;
@@ -26,8 +26,6 @@ pub enum ApActivity {
     Follow(ApFollow),
     Announce(ApAnnounce),
     Create(ApCreate),
-    //Invite(ApInvite),
-    //Join(ApJoin),
     Update(ApUpdate),
     Block(ApBlock),
     Add(ApAdd),
@@ -44,8 +42,6 @@ impl ApActivity {
             ApActivity::Undo(undo) => undo.id.clone(),
             ApActivity::Accept(accept) => accept.id.clone(),
             ApActivity::Create(create) => create.id.clone(),
-            //ApActivity::Invite(invite) => invite.id.clone(),
-            //ApActivity::Join(join) => join.id.clone(),
             ApActivity::Update(update) => update.id.clone(),
             ApActivity::Block(block) => block.id.clone(),
             _ => None,
@@ -61,8 +57,24 @@ impl TryFrom<CoalescedActivity> for ApActivity {
             ActivityType::Create => ApCreate::try_from(coalesced).map(ApActivity::Create),
             ActivityType::Announce => ApAnnounce::try_from(coalesced).map(ApActivity::Announce),
             _ => {
-                log::error!("Failed to match implemented activity\n{coalesced:#?}");
-                Err(anyhow!("Failed to match implemented activity"))
+                log::error!("Failed to match implemented Activity\n{coalesced:#?}");
+                Err(anyhow!("Failed to match implemented Activity"))
+            }
+        }
+    }
+}
+
+impl TryFrom<EncryptedActivity> for ApActivity {
+    type Error = anyhow::Error;
+
+    fn try_from((activity, object, session): EncryptedActivity) -> Result<Self, Self::Error> {
+        match activity.kind {
+            ActivityType::Create => {
+                ApCreate::try_from((activity, object, session)).map(ApActivity::Create)
+            }
+            _ => {
+                log::error!("Failed to match implemented EncryptedActivity\n{activity:#?}");
+                Err(anyhow!("Failed to match implemented EncryptedActivity"))
             }
         }
     }

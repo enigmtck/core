@@ -172,8 +172,8 @@ impl From<ApCollectionParams> for ApCollection {
 
 type ApCollectionPageParams = (Vec<ActivityPub>, Option<String>);
 impl From<ApCollectionPageParams> for ApCollection {
-    fn from((mut objects, base_url): ApCollectionPageParams) -> Self {
-        objects.sort_by_key(|x| Reverse(x.timestamp()));
+    fn from((objects, base_url): ApCollectionPageParams) -> Self {
+        //objects.sort_by_key(|x| Reverse(x.timestamp()));
 
         ApCollection {
             kind: ApCollectionType::OrderedCollectionPage,

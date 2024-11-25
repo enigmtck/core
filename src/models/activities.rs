@@ -253,7 +253,7 @@ impl TryFrom<ApActivityTarget> for NewActivity {
                 ap_id: create
                     .id
                     .map_or(Some(get_activity_ap_id_from_uuid(uuid)), Some),
-                instrument: to_serde(&create.instrument),
+                instrument: (&create.instrument).into(),
                 ..Default::default()
             }
             .link_target(target)

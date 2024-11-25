@@ -267,6 +267,8 @@ fn rocket() -> Rocket<Build> {
                 remote_keys_authenticated,
                 update_instruments,
                 olm_account_get,
+                olm_session_get,
+                encrypted_activities_get,
             ],
         )
 }

@@ -87,7 +87,7 @@ fn build_verify_string(params: VerifyMapParams) -> VerifyParams {
         .collect::<Vec<String>>()
         .join("\n");
 
-    log::debug!("VERIFY STRING: {verify_string}");
+    //log::debug!("VERIFY STRING: {verify_string}");
 
     VerifyParams {
         verify_string,
@@ -175,17 +175,17 @@ pub async fn verify(
         Ok(VerificationType::Local(Box::from(profile)))
     } else if let Ok(actor) = get_actor_by_key_id(conn, key_id).await {
         let actor = ApActor::from(actor.clone());
-        log::debug!(
-            "Retrieved actor by key_id: {}",
-            actor
-                .id
-                .clone()
-                .map(|x| x.to_string())
-                .unwrap_or("No ID".to_string())
-        );
+        // log::debug!(
+        //     "Retrieved actor by key_id: {}",
+        //     actor
+        //         .id
+        //         .clone()
+        //         .map(|x| x.to_string())
+        //         .unwrap_or("No ID".to_string())
+        // );
 
-        log::debug!("signature_str: {signature_str}");
-        log::debug!("verify_string: {verify_string}");
+        //log::debug!("signature_str: {signature_str}");
+        //log::debug!("verify_string: {verify_string}");
         RsaPublicKey::from_public_key_pem(actor.clone().public_key.public_key_pem.trim_end())
             .map_err(|e| VerificationError::PublicKeyError(anyhow!(e)))
             .and_then(|pk| verify(&pk, &signature_str, &verify_string))?;
@@ -248,7 +248,7 @@ pub fn sign(params: SignParams) -> Result<SignResponse, SigningError> {
         let request_target = format_request_target(&params.method, &params.url);
         let date = httpdate::fmt_http_date(SystemTime::now());
 
-        log::debug!("SIGN {}, {host}, {request_target}, {date}", params.url);
+        //log::debug!("SIGN {}, {host}, {request_target}, {date}", params.url);
 
         let actor = ApActor::from(params.profile.clone());
         let private_key = RsaPrivateKey::from_pkcs8_pem(

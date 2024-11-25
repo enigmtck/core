@@ -2,7 +2,7 @@ use super::actors::Actor;
 use crate::activity_pub::ApInstrument;
 use crate::db::Db;
 use crate::schema::olm_sessions;
-use anyhow::anyhow;
+use anyhow::{anyhow, Result};
 use diesel::prelude::*;
 use diesel::{AsChangeset, Insertable};
 use rocket_sync_db_pools::diesel;
@@ -72,7 +72,7 @@ impl TryFrom<OlmSessionParams> for NewOlmSession {
     }
 }
 
-pub async fn get_olm_session_by_uuid(conn: &Db, uuid: String) -> Option<OlmSession> {
+pub async fn get_olm_session_by_uuid(conn: &Db, uuid: String) -> Result<OlmSession> {
     conn.run(move |c| {
         olm_sessions::table
             .filter(olm_sessions::uuid.eq(uuid))
@@ -80,5 +80,5 @@ pub async fn get_olm_session_by_uuid(conn: &Db, uuid: String) -> Option<OlmSessi
             .first::<OlmSession>(c)
     })
     .await
-    .ok()
+    .map_err(anyhow::Error::msg)
 }

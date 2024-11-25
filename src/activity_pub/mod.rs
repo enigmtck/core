@@ -56,6 +56,12 @@ impl FromIterator<ApObject> for Vec<ActivityPub> {
     }
 }
 
+impl FromIterator<ApActivity> for Vec<ActivityPub> {
+    fn from_iter<I: IntoIterator<Item = ApActivity>>(iter: I) -> Self {
+        iter.into_iter().map(ActivityPub::from).collect()
+    }
+}
+
 impl From<ApActivity> for ActivityPub {
     fn from(activity: ApActivity) -> Self {
         ActivityPub::Activity(activity)

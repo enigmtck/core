@@ -1,11 +1,11 @@
-use crate::activity_pub::PUBLIC_COLLECTION;
+use crate::activity_pub::{ApActivity, PUBLIC_COLLECTION};
 use crate::db::Db;
 use crate::helper::{get_activity_ap_id_from_uuid, get_ap_id_from_username};
 use crate::models::activities::{get_activity, ExtendedActivity};
 use crate::models::pg::parameter_generator;
-use crate::schema::{activities, actors};
+use crate::schema::{activities, actors, objects, olm_sessions, vault};
 use crate::POOL;
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use chrono::{DateTime, NaiveDateTime, Utc};
 use diesel::pg::Pg;
 use diesel::query_builder::{BoxedSqlQuery, SqlQuery};
@@ -17,6 +17,8 @@ use serde_json::{json, Value};
 
 use super::actors::Actor;
 use super::coalesced_activity::CoalescedActivity;
+use super::objects::{Object, ObjectType};
+use super::olm_sessions::OlmSession;
 use crate::models::activities::{TimelineFilters, TimelineView};
 
 #[derive(
@@ -265,6 +267,7 @@ fn query_initial_block() -> String {
      COALESCE(ta.as_discoverable, ta2.as_discoverable) AS actor_discoverable,\
      COALESCE(ta.ap_capabilities, ta2.ap_capabilities) AS actor_capabilities,\
      COALESCE(ta.ek_keys, ta2.ek_keys) AS actor_keys,\
+     COALESCE(ta.ek_last_decrypted_activity, ta2.ek_last_decrypted_activity) AS actor_last_decrypted_activity,\
      COALESCE(ta.ap_manually_approves_followers, ta2.ap_manually_approves_followers) AS actor_manually_approves_followers ".to_string()
 }
 
@@ -283,7 +286,8 @@ fn query_end_block(mut query: String) -> String {
          'icon', ac2.as_icon, 'preferredUsername', ac2.as_preferred_username)) AS object_attributed_to_profiles, \
          announced.object_announced, \
          liked.object_liked, \
-         vaulted.* \
+         vaulted.*, \
+         olm.* \
          FROM main m \
          LEFT JOIN actors ac2 ON (m.object_attributed_to ?| ARRAY[ac2.as_id]) \
          LEFT JOIN activities a \
@@ -292,6 +296,7 @@ fn query_end_block(mut query: String) -> String {
          LEFT JOIN announced ON m.id = announced.id \
          LEFT JOIN liked ON m.id = liked.id \
          LEFT JOIN vaulted ON m.id = vaulted.vault_activity_id \
+         LEFT JOIN olm ON olm.olm_conversation = m.object_conversation \
          GROUP BY m.id, m.created_at, m.updated_at, m.kind, m.uuid, m.actor, m.ap_to, m.cc,\
          m.target_activity_id, m.target_ap_id, m.revoked, m.ap_id, m.reply, m.instrument, m.recursive_created_at,\
          m.recursive_updated_at, m.recursive_kind, m.recursive_uuid, m.recursive_actor,\
@@ -312,10 +317,11 @@ fn query_end_block(mut query: String) -> String {
          m.actor_following, m.actor_liked, m.actor_public_key, m.actor_featured, m.actor_featured_tags, m.actor_url,\
          m.actor_published, m.actor_tag, m.actor_attachment, m.actor_endpoints, m.actor_icon, m.actor_image,\
          m.actor_also_known_as, m.actor_discoverable, m.actor_capabilities, m.actor_keys,\
-         m.actor_manually_approves_followers,\
+         m.actor_last_decrypted_activity, m.actor_manually_approves_followers,\
          announced.object_announced, liked.object_liked, vaulted.vault_id,\
          vaulted.vault_created_at, vaulted.vault_updated_at, vaulted.vault_uuid, vaulted.vault_owner_as_id,\
-         vaulted.vault_activity_id, vaulted.vault_data \
+         vaulted.vault_activity_id, vaulted.vault_data, olm.olm_data, olm.olm_hash, olm.olm_conversation,\
+         olm.olm_created_at, olm.olm_updated_at, olm.olm_owner, olm.olm_uuid, olm.olm_owner_id \
          ORDER BY m.created_at DESC");
     query
 }
@@ -497,8 +503,15 @@ fn build_main_query(
              FROM main m \
              LEFT JOIN vault v ON (v.activity_id = m.id \
              AND (m.actor = {} OR m.ap_to @> {}) \
-             AND v.owner_as_id = {}) \
+             AND v.owner_as_id = {})), \
+             olm AS (\
+             SELECT os.session_data AS olm_data, os.session_hash AS olm_hash, os.uuid AS olm_uuid, \
+             os.ap_conversation AS olm_conversation, os.created_at AS olm_created_at, \
+             os.updated_at AS olm_updated_at, os.owner_as_id AS olm_owner, os.owner_id AS olm_owner_id \
+             FROM main m \
+             LEFT JOIN olm_sessions os ON (os.ap_conversation = m.object_conversation AND os.owner_id = {}) \
              ) ",
+            param_gen(),
             param_gen(),
             param_gen(),
             param_gen(),
@@ -517,6 +530,10 @@ fn build_main_query(
              SELECT NULL AS vault_id, NULL AS vault_created_at, NULL AS vault_updated_at, \
              NULL AS vault_uuid, NULL AS vault_owner_as_id, NULL::INT AS vault_activity_id, \
              NULL AS vault_data \
+             FROM main m), \
+             olm AS (\
+             SELECT NULL AS olm_data, NULL AS olm_hash, NULL AS olm_uuid, NULL AS olm_conversation, \
+             NULL AS olm_created_at, NULL AS olm_updated_at, NULL AS olm_owner, NULL AS olm_owner_id \
              FROM main m) ",
         );
     }
@@ -639,6 +656,7 @@ fn bind_params<'a>(
         query = query.bind::<Text, _>(as_id.clone());
         query = query.bind::<Jsonb, _>(json!(as_id.clone()));
         query = query.bind::<Text, _>(as_id);
+        query = query.bind::<Integer, _>(id);
     }
 
     query
@@ -691,17 +709,11 @@ pub async fn get_announcers(
         }
 
         if let Some(min) = min {
-            let date: DateTime<Utc> = DateTime::from_naive_utc_and_offset(
-                NaiveDateTime::from_timestamp_micros(min).unwrap(),
-                Utc,
-            );
+            let date: DateTime<Utc> = DateTime::from_timestamp_micros(min).unwrap();
 
             query = query.filter(activities::created_at.gt(date));
         } else if let Some(max) = max {
-            let date: DateTime<Utc> = DateTime::from_naive_utc_and_offset(
-                NaiveDateTime::from_timestamp_micros(max).unwrap(),
-                Utc,
-            );
+            let date: DateTime<Utc> = DateTime::from_timestamp_micros(max).unwrap();
 
             query = query.filter(activities::created_at.lt(date));
         }
@@ -710,6 +722,59 @@ pub async fn get_announcers(
         query.get_results(c).unwrap_or(vec![])
     })
     .await
+}
+
+pub type EncryptedActivity = (Activity, Object, Option<OlmSession>);
+
+pub async fn get_encrypted_activities(
+    conn: &Db,
+    since: DateTime<Utc>,
+    limit: u8,
+    as_to: Value,
+) -> Result<Vec<EncryptedActivity>> {
+    let as_to_str = as_to
+        .clone()
+        .as_str()
+        .ok_or(anyhow!("Failed to convert Value to String"))?
+        .to_string();
+
+    conn.run(move |c| {
+        activities::table
+            .inner_join(objects::table.on(objects::id.nullable().eq(activities::target_object_id)))
+            .left_join(
+                vault::table.on(vault::activity_id
+                    .eq(activities::id)
+                    .and(vault::owner_as_id.eq(as_to_str.clone()))),
+            )
+            .left_join(
+                olm_sessions::table.on(olm_sessions::ap_conversation
+                    .nullable()
+                    .eq(objects::ap_conversation)
+                    .and(olm_sessions::owner_as_id.eq(as_to_str))),
+            )
+            .filter(
+                objects::as_type
+                    .eq(ObjectType::EncryptedNote)
+                    .and(activities::kind.eq(ActivityType::Create))
+                    .and(vault::activity_id.is_null())
+                    .and(activities::created_at.gt(since))
+                    .and(
+                        activities::ap_to
+                            .contains(as_to.clone())
+                            .or(activities::cc.contains(as_to)),
+                    ),
+            )
+            .select((
+                activities::all_columns,
+                objects::all_columns,
+                olm_sessions::all_columns.nullable(),
+            ))
+            .order(activities::created_at.asc())
+            .limit(limit.into())
+            .get_results(c)
+    })
+    .await
+    .map_err(anyhow::Error::msg)
 }
 
 pub async fn get_likers(
@@ -732,17 +797,11 @@ pub async fn get_likers(
         }
 
         if let Some(min) = min {
-            let date: DateTime<Utc> = DateTime::from_naive_utc_and_offset(
-                NaiveDateTime::from_timestamp_micros(min).unwrap(),
-                Utc,
-            );
+            let date: DateTime<Utc> = DateTime::from_timestamp_micros(min).unwrap();
 
             query = query.filter(activities::created_at.gt(date));
         } else if let Some(max) = max {
-            let date: DateTime<Utc> = DateTime::from_naive_utc_and_offset(
-                NaiveDateTime::from_timestamp_micros(max).unwrap(),
-                Utc,
-            );
+            let date: DateTime<Utc> = DateTime::from_timestamp_micros(max).unwrap();
 
             query = query.filter(activities::created_at.lt(date));
         }

@@ -5,7 +5,6 @@ use anyhow::{anyhow, Result};
 use chrono::{DateTime, Duration, Utc};
 use diesel::prelude::*;
 use diesel::sql_query;
-use diesel::upsert::excluded;
 use diesel::{AsChangeset, Identifiable, Insertable, Queryable};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -184,6 +183,7 @@ pub struct Actor {
     pub ap_capabilities: Value,
     pub ap_manually_approves_followers: bool,
     pub ek_keys: Option<String>,
+    pub ek_last_decrypted_activity: DateTime<Utc>,
 }
 
 impl TryFrom<CoalescedActivity> for Actor {
@@ -243,6 +243,9 @@ impl TryFrom<CoalescedActivity> for Actor {
             .actor_manually_approves_followers
             .ok_or(anyhow!("no manually_approves_followers"))?;
         let ek_keys = activity.actor_keys;
+        let ek_last_decrypted_activity = activity
+            .actor_last_decrypted_activity
+            .ok_or(anyhow!("no last_decrypted_activity"))?;
 
         Ok(Actor {
             id,
@@ -290,6 +293,7 @@ impl TryFrom<CoalescedActivity> for Actor {
             ap_capabilities,
             ek_keys,
             ap_manually_approves_followers,
+            ek_last_decrypted_activity,
         })
     }
 }

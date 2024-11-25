@@ -107,18 +107,16 @@ impl<'r> FromRequest<'r> for Signed {
             Outcome::Success(conn) => {
                 let method = request.method().to_string();
                 let host = request.host().expect("Host not found").to_string();
-                //let path = request.uri().to_string();
-                let path = request.uri().path().to_string(); // SHOULD BE
-                                                             // NEED TO ADJUST SIGNING IN WASM CLIENT TO MATCH (i.e., no paramaters)
+                let path = request.uri().path().to_string();
                 let path = path.trim_end_matches('&');
                 let request_target = format!("{} {}", method.to_lowercase(), path);
 
-                log::debug!("REQUEST TARGET: {request_target}");
+                //log::debug!("REQUEST TARGET: {request_target}");
 
                 let date = match get_header("date").or_else(|| get_header("enigmatick-date")) {
                     Some(val) => val,
                     None => {
-                        log::debug!("Header must include date for signature verification");
+                        //log::debug!("Header must include date for signature verification");
                         return Outcome::Success(Signed(false, VerificationType::None));
                     }
                 };
@@ -158,17 +156,17 @@ impl<'r> FromRequest<'r> for Signed {
                                 // the Fairing (i.e., it's not in the header), so we defer the verification
                                 // to the receiving route that decodes the whole request
                                 VerificationError::ActorNotFound(verify_map_params) => {
-                                    log::debug!(
-                                        "Signature verification deferred\n{:#?}",
-                                        verify_map_params.clone()
-                                    );
+                                    // log::debug!(
+                                    //     "Signature verification deferred\n{:#?}",
+                                    //     verify_map_params.clone()
+                                    // );
                                     Outcome::Success(Signed(
                                         false,
                                         VerificationType::Deferred(verify_map_params),
                                     ))
                                 }
                                 _ => {
-                                    log::debug!("Signature verification failed\n{e:#?}");
+                                    //log::debug!("Signature verification failed\n{e:#?}");
                                     Outcome::Error((
                                         Status::BadRequest,
                                         SignatureError::SignatureInvalid,
@@ -178,7 +176,7 @@ impl<'r> FromRequest<'r> for Signed {
                         }
                     }
                     _ => {
-                        log::debug!("Multiple signatures in header");
+                        //log::debug!("Multiple signatures in header");
                         Outcome::Error((Status::BadRequest, SignatureError::MultipleSignatures))
                     }
                 }
@@ -188,11 +186,11 @@ impl<'r> FromRequest<'r> for Signed {
                 // }
             }
             Outcome::Error(e) => {
-                log::error!("Unable to connect to database: {e:?}");
+                //log::error!("Unable to connect to database: {e:?}");
                 Outcome::Error((Status::InternalServerError, SignatureError::NoDbConnection))
             }
             _ => {
-                log::error!("Unknown error");
+                //log::error!("Unknown error");
                 Outcome::Error((Status::InternalServerError, SignatureError::Unknown))
             }
         }
