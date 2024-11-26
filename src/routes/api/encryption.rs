@@ -11,7 +11,10 @@ use crate::{
         olm_one_time_keys::{
             create_olm_one_time_key, get_next_otk_by_profile_id, get_otk_count_by_profile_id,
         },
-        olm_sessions::{create_or_update_olm_session, get_olm_session_by_uuid, OlmSessionParams},
+        olm_sessions::{
+            create_or_update_olm_session, get_olm_session_by_conversation_and_actor,
+            OlmSessionParams,
+        },
         pg::{activities::get_encrypted_activities, actors::update_olm_account_by_username},
         vault::{create_vault_item, VaultItemParams},
     },
@@ -19,6 +22,7 @@ use crate::{
 };
 use rocket::{get, http::Status, post, serde::json::Error, serde::json::Json};
 use serde::{Deserialize, Serialize};
+use urlencoding::decode;
 
 #[get("/api/encrypted", format = "application/activity+json")]
 pub async fn encrypted_activities_get(
@@ -50,19 +54,21 @@ pub async fn encrypted_activities_get(
 }
 
 #[get(
-    "/api/instruments/olm-session?<id>",
+    "/api/instruments/olm-session?<conversation>",
     format = "application/activity+json"
 )]
 pub async fn olm_session_get(
     signed: Signed,
     conn: Db,
-    id: String,
+    conversation: String,
 ) -> Result<ActivityJson<ApObject>, Status> {
     let profile = signed.profile().ok_or(Status::Unauthorized)?;
+    let conversation = decode(&conversation).map_err(|_| Status::UnprocessableEntity)?;
 
-    let session = get_olm_session_by_uuid(&conn, get_uuid(id).ok_or(Status::NotFound)?)
-        .await
-        .map_err(|_| Status::NotFound)?;
+    let session =
+        get_olm_session_by_conversation_and_actor(&conn, conversation.to_string(), profile.id)
+            .await
+            .map_err(|_| Status::NotFound)?;
 
     if session.owner_id != profile.id {
         return Err(Status::Unauthorized);

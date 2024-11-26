@@ -72,10 +72,18 @@ impl TryFrom<OlmSessionParams> for NewOlmSession {
     }
 }
 
-pub async fn get_olm_session_by_uuid(conn: &Db, uuid: String) -> Result<OlmSession> {
+pub async fn get_olm_session_by_conversation_and_actor(
+    conn: &Db,
+    conversation_as_id: String,
+    actor_id: i32,
+) -> Result<OlmSession> {
     conn.run(move |c| {
         olm_sessions::table
-            .filter(olm_sessions::uuid.eq(uuid))
+            .filter(
+                olm_sessions::ap_conversation
+                    .eq(conversation_as_id)
+                    .and(olm_sessions::owner_id.eq(actor_id)),
+            )
             .order(olm_sessions::updated_at.desc())
             .first::<OlmSession>(c)
     })

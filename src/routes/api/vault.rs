@@ -1,7 +1,6 @@
 use crate::activity_pub::{ApCollection, ApObject};
 use crate::db::Db;
 use crate::models::actors::get_actor_by_username;
-use crate::models::olm_sessions::get_olm_session_by_uuid;
 use crate::models::vault::create_vault_item;
 use base64::{engine::general_purpose, engine::Engine as _};
 use rocket::http::Status;
