@@ -146,18 +146,23 @@ vUg8QACIghqtjcoYnNKMk5unzO3qa0ckq/WihX18uwwbGN44Wm/8Kk6xgFQ7Cbl5q1DbNcPm6QlFnaJt
   "@context": "https://www.w3.org/ns/activitystreams",
   "published": "2024-11-24T23:23:14.252Z",
   "attachment": [],
-  "instrument": [
-    {
-      "id": "https://enigmatick.social/instruments/[some-uuid]",
-      "type": "OlmIdentityKey",
-      "content": "BYWSA8khG+V2A8YxLW5LngrjHzbP+6ZRtxQcHmXVHx4"
-    }
-  ],
   "attributedTo": "https://enigmatick.social/user/jdt"
 }
 ```
 
 The above example is from my database, but it's based on the raw JSON sent by the client (hence the IDs aren't set). I removed the extraneous data the client also sends (`OlmAccount`, `OlmSession`, and `VaultItem` instruments). Those are stripped by the server before sending to the recipient's server, but are captured on the local server for persistence. That is an implementation detail specific to Enigmatick.
+
+The `OlmIdentityKey` may be included in the `Create` activity sent to the recipient:
+
+```json
+"instrument": [
+  {
+    "id": "https://enigmatick.social/instruments/[some-uuid]",
+    "type": "OlmIdentityKey",
+    "content": "BYWSA8khG+V2A8YxLW5LngrjHzbP+6ZRtxQcHmXVHx4"
+  }
+]
+```
 
 I'm not committed to transferring the `OlmIdentityKey` in this exchange. It may be more powerful to require the receiver to retrieve that key from the source explicitly, in a similar manner to how ActivityPub uses HTTP signatures to validate `POST` messages. Initially, I used a type of `Note` and the presence of the `OlmIdentityKey` to signal to the client that decryption was required. But with the dedicated `EncryptedNote` type, that's no longer a concern.
 
