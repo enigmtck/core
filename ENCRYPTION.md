@@ -148,7 +148,7 @@ vUg8QACIghqtjcoYnNKMk5unzO3qa0ckq/WihX18uwwbGN44Wm/8Kk6xgFQ7Cbl5q1DbNcPm6QlFnaJt
   "attachment": [],
   "instrument": [
     {
-      "id": "https://enigmatick.social/instruments/[some-uuid],
+      "id": "https://enigmatick.social/instruments/[some-uuid]",
       "type": "OlmIdentityKey",
       "content": "BYWSA8khG+V2A8YxLW5LngrjHzbP+6ZRtxQcHmXVHx4"
     }
