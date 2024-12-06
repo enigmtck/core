@@ -65,8 +65,7 @@ Initial message to recipient initiating the session.
         "type": "EncryptedNote",
         "content": "{\"type\":0,\"body\":\"AwogZNVPkw0ZXxKnhDU0Tjf4NWX/2OvFTSx2IWxS1S1VK3gSINVvl3MHxmTBwyGVO+Bc8QqAP
 ARVDTsPoCuRrrcEn7hxGiAFhZIDySEb5XYDxjEtbkueCuMfNs/7plG3FBweZdUfHiJnBAogDJQPFOjpBU81Hk4xildg7kNyTwn5Ntotk22UOEJ
-vUg8QACIghqtjcoYnNKMk5unzO3qa0ckq/WihX18uwwbGN44Wm/8Kk6xgFQ7Cbl5q1DbNcPm6QlFnaJtyMveLLa7EzAJuUg\"}",
-        "@context": "https://www.w3.org/ns/activitystreams",
+4vUg8QACIghqtjcoYnNKMk5unzO3qa0ckq/WihX18uwwbGN44Wm/8Kk6xgFQ7Cbl5q1DbNcPm6QlFnaJtyMveLLa7EzAJuUg\"}",
         "published": "2024-11-24T23:23:14.252Z",
         "attachment": [],
         "attributedTo": "https://enigmatick.social/user/jdt"
@@ -106,7 +105,6 @@ Additional messages (in either direction) after the initial.
         "content": "{\"type\":0,\"body\":\"AwogZNVPkw0ZXxKnhDU0Tjf4NWX/2OvFTSx2IWxS1S1VK3gSINVvl3MHxmTBwyGVO+Bc8QqAP
 ARVDTsPoCuRrrcEn7hxGiAFhZIDySEb5XYDxjEtbkueCuMfNs/7plG3FBweZdUfHiJnBAogDJQPFOjpBU81Hk4xildg7kNyTwn5Ntotk22UOEJ
 vUg8QACIghqtjcoYnNKMk5unzO3qa0ckq/WihX18uwwbGN44Wm/8Kk6xgFQ7Cbl5q1DbNcPm6QlFnaJtyMveLLa7EzAJuUg\"}",
-        "@context": "https://www.w3.org/ns/activitystreams",
         "published": "2024-11-24T23:23:14.252Z",
         "attachment": [],
         "attributedTo": "https://enigmatick.social/user/jdt"
@@ -197,7 +195,6 @@ pub async fn add_one_time_keys(params: OtkUpdateParams) -> Option<String> {
         let url = format!("/api/user/{username}/otk");
 
         let data = serde_json::to_string(&params).unwrap();
-        log(&format!("{data:#?}"));
         send_post(url, data, "application/json".to_string()).await
     })
     .await
@@ -217,8 +214,6 @@ pub async fn encrypt_note(params: &mut SendParams) -> Result<()> {
     } else {
         create_olm_session(params).await?
     };
-
-    log(&format!("Olm Session\n{session:#?}"));
 
     params.set_vault_item(params.get_content().clone().try_into()?);
     params.set_content(
@@ -258,7 +253,6 @@ There is more happening than meets the eye (review the repository for details). 
         "content": "{\"type\":0,\"body\":\"AwogZNVPkw0ZXxKnhDU0Tjf4NWX/2OvFTSx2IWxS1S1VK3gSINVvl3MHxmTBwyGVO+Bc8QqAP
 ARVDTsPoCuRrrcEn7hxGiAFhZIDySEb5XYDxjEtbkueCuMfNs/7plG3FBweZdUfHiJnBAogDJQPFOjpBU81Hk4xildg7kNyTwn5Ntotk22UOEJ
 vUg8QACIghqtjcoYnNKMk5unzO3qa0ckq/WihX18uwwbGN44Wm/8Kk6xgFQ7Cbl5q1DbNcPm6QlFnaJtyMveLLa7EzAJuUg\"}",
-        "@context": "https://www.w3.org/ns/activitystreams",
         "published": "2024-11-24T23:23:14.252Z",
         "attachment": [],
         "attributedTo": "https://enigmatick.social/user/jdt"
