@@ -123,47 +123,108 @@ pub async fn encrypt_note(params: &mut SendParams) -> Result<()> {
 }
 ```
 
-There is more happening than meets the eye (review the repository for details). The end result is an `EncryptedNote` object that is passed to the recipient.
+There is more happening than meets the eye (review the repository for details). The end result is an `EncryptedNote` object wrapped in a `Create` activitiy that is passed to the recipient.
 
 ```json
 {
-  "cc": [],
-  "id": "https://enigmatick.social/objects/[some-uuid]",
-  "to": [
-    "https://enigmatick.social/user/clark"
-  ],
-  "tag": [
-    {
-      "href": "https://enigmatick.social/user/clark",
-      "name": "@clark@enigmatick.social",
-      "type": "Mention"
-    }
-  ],
-  "type": "EncryptedNote",
-  "content": "{\"type\":0,\"body\":\"AwogZNVPkw0ZXxKnhDU0Tjf4NWX/2OvFTSx2IWxS1S1VK3gSINVvl3MHxmTBwyGVO+Bc8QqAP
+    @context: ["https://www.w3.org/ns/activitystreams"],
+    type: "Create",
+    to: ["https://enigmatick.social/user/clark"],
+    actor: "https://enigmatick.social/user/jdt",
+    id: "https://enigmatick.social/activities/b680adf8-9408-482d-9387-6dfa7904df67",
+    object: {
+        "cc": [],
+        "id": "https://enigmatick.social/objects/[some-uuid]",
+        "to": [
+            "https://enigmatick.social/user/clark"
+        ],
+        "conversation": "https://enigmatick.social/conversations/195f61c3-7098-4736-a837-1fab29e42699",
+        "tag": [
+            {
+                "href": "https://enigmatick.social/user/clark",
+                "name": "@clark@enigmatick.social",
+                "type": "Mention"
+            }
+        ],
+        "type": "EncryptedNote",
+        "content": "{\"type\":0,\"body\":\"AwogZNVPkw0ZXxKnhDU0Tjf4NWX/2OvFTSx2IWxS1S1VK3gSINVvl3MHxmTBwyGVO+Bc8QqAP
 ARVDTsPoCuRrrcEn7hxGiAFhZIDySEb5XYDxjEtbkueCuMfNs/7plG3FBweZdUfHiJnBAogDJQPFOjpBU81Hk4xildg7kNyTwn5Ntotk22UOEJ
 vUg8QACIghqtjcoYnNKMk5unzO3qa0ckq/WihX18uwwbGN44Wm/8Kk6xgFQ7Cbl5q1DbNcPm6QlFnaJtyMveLLa7EzAJuUg\"}",
-  "@context": "https://www.w3.org/ns/activitystreams",
-  "published": "2024-11-24T23:23:14.252Z",
-  "attachment": [],
-  "attributedTo": "https://enigmatick.social/user/jdt"
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "published": "2024-11-24T23:23:14.252Z",
+        "attachment": [],
+        "attributedTo": "https://enigmatick.social/user/jdt"
+    },
+    instrument: [{
+        "id": "https://enigmatick.social/instruments/112b6598-a23a-48cd-aeb0-721ab363413d",
+        "type": "OlmIdentityKey",
+        "content": "BYWSA8khG+V2A8YxLW5LngrjHzbP+6ZRtxQcHmXVHx4"
+    }]
 }
 ```
 
 The above example is from my database, but it's based on the raw JSON sent by the client (hence the IDs aren't set). I removed the extraneous data the client also sends (`OlmAccount`, `OlmSession`, and `VaultItem` instruments). Those are stripped by the server before sending to the recipient's server, but are captured on the local server for persistence. That is an implementation detail specific to Enigmatick.
 
-The `OlmIdentityKey` may be included in the `Create` activity sent to the recipient:
+I'm not committed to transferring the `OlmIdentityKey` in this exchange. It may be more powerful to require the receiver to retrieve that key from the source explicitly, in a similar manner to how ActivityPub uses HTTP signatures to validate `POST` messages. Initially, I used a type of `Note` and the presence of the `OlmIdentityKey` to signal to the client that decryption was required. But with the dedicated `EncryptedNote` type, that's no longer a concern.
 
-```json
-"instrument": [
-  {
-    "id": "https://enigmatick.social/instruments/[some-uuid]",
-    "type": "OlmIdentityKey",
-    "content": "BYWSA8khG+V2A8YxLW5LngrjHzbP+6ZRtxQcHmXVHx4"
-  }
-]
+### Olm Session Acceptance
+
+A fully operational communications channel requires that both sides have an Olm session. When a message such as that illustrated above is received, the recipient can initiate their side of the encryption channel using the `OlmIdentityKey` provided (or by reaching out an retrieving it from the sender's server).
+
+Enigmatick uses this function to check if there is an existing Olm session or if one must be created.
+
+```rust
+fn transform_asymmetric_activity(
+    account: &mut Account,
+    sessions: &mut HashMap<String, String>,
+    create: ApCreate,
+    note: ApNote,
+) -> Option<Vec<ApInstrument>> {
+    find_session_instrument(&create)
+        .and_then(|instrument| {
+            use_session(instrument, sessions, create.clone(), &note)
+                .map(|instruments| instruments)
+            })
+        .or_else(|| {
+            find_identity_key_instrument(&create).and_then(|instrument| {
+                create_session(account, instrument, create.clone(), &note)
+                    .map(|(instruments, _message)| instruments)
+            })
+    })
+}
 ```
 
-I'm not committed to transferring the `OlmIdentityKey` in this exchange. It may be more powerful to require the receiver to retrieve that key from the source explicitly, in a similar manner to how ActivityPub uses HTTP signatures to validate `POST` messages. Initially, I used a type of `Note` and the presence of the `OlmIdentityKey` to signal to the client that decryption was required. But with the dedicated `EncryptedNote` type, that's no longer a concern.
+When the activity is provided to the client, instruments are attached as they exist. In this case, only the `OlmIdentityKey` would exist for the receiving user (the existing session belongs to the sending user). As such, the `create_session` function is called:
+
+```rust
+fn create_session(
+    account: &mut Account,
+    idk: ApInstrument,
+    create: ApCreate,
+    note: &ApNote,
+) -> Option<(Vec<ApInstrument>, String)> {
+    let identity_key = Curve25519PublicKey::from_base64(&idk.content.unwrap()).ok()?;
+
+    if let OlmMessage::PreKey(m) = serde_json::from_str(&note.content).ok()? {
+        let inbound = account.create_inbound_session(identity_key, &m).ok()?;
+
+        let message = String::from_utf8(inbound.plaintext).ok()?;
+
+        let mut session_instrument = ApInstrument::try_from(inbound.session).ok()?;
+        session_instrument.conversation = note.conversation.clone();
+
+        let mut vault_instrument = ApInstrument::try_from(message.clone()).ok()?;
+        vault_instrument.activity = create.id;
+
+        Some((vec![session_instrument, vault_instrument], message))
+    } else {
+        None
+    }
+}
+```
+
+In this function, a new Olm session is created and used to decrypt the message. A vaulted version of the message is encrypted to be saved on the server (so that it can be retrieved and read later; the Olm operations can generally not be repeated).
+
+The `OlmAccount`, `OlmSession`, and `VaultItem` records created in the above function will need to be sent to the server for update and storage (in the Enigmatick use-case; other clients may handle that differently).
 
 ...to be continued.
