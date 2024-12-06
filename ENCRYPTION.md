@@ -127,12 +127,12 @@ There is more happening than meets the eye (review the repository for details). 
 
 ```json
 {
-    @context: ["https://www.w3.org/ns/activitystreams"],
-    type: "Create",
-    to: ["https://enigmatick.social/user/clark"],
-    actor: "https://enigmatick.social/user/jdt",
-    id: "https://enigmatick.social/activities/b680adf8-9408-482d-9387-6dfa7904df67",
-    object: {
+    "@context": ["https://www.w3.org/ns/activitystreams"],
+    "type": "Create",
+    "to": ["https://enigmatick.social/user/clark"],
+    "actor": "https://enigmatick.social/user/jdt",
+    "id": "https://enigmatick.social/activities/b680adf8-9408-482d-9387-6dfa7904df67",
+    "object": {
         "cc": [],
         "id": "https://enigmatick.social/objects/[some-uuid]",
         "to": [
@@ -155,7 +155,7 @@ vUg8QACIghqtjcoYnNKMk5unzO3qa0ckq/WihX18uwwbGN44Wm/8Kk6xgFQ7Cbl5q1DbNcPm6QlFnaJt
         "attachment": [],
         "attributedTo": "https://enigmatick.social/user/jdt"
     },
-    instrument: [{
+    "instrument": [{
         "id": "https://enigmatick.social/instruments/112b6598-a23a-48cd-aeb0-721ab363413d",
         "type": "OlmIdentityKey",
         "content": "BYWSA8khG+V2A8YxLW5LngrjHzbP+6ZRtxQcHmXVHx4"
