@@ -2,11 +2,119 @@
 
 Enigmatick is an ActivityPub server designed as a testbed for implementing end-to-end encryption using the ActivityStreams vocabulary (to the extent reasonable). Some liberties have been taken in the current implementation to enable a server to identify and appropriately handle encrypted notes (`EncryptedNote` type) separately from plaintext notes (`Note` type). I've tried to keep those idiosyncrasies to a minimum and I'm open to adjusting the implementation to better align with the standard. In all cases where a change might make sense, please open an Issue on this repository.
 
+This document is a stream-of-consciousness dump of the technical details that have been swirling around in my head. I'll evolve it over time to be increasingly structured and useful.
+
 ## Overview
 
 I've integrated the [`vodozemac`](https://github.com/matrix-org/vodozemac) Rust library as the primary mechanism used to provide asymmetric encryption between ActivityPub participants. Design decisions have been made to accommodate the way that library operates.
 
 Additionally, symmetric encryption is handled by the [`orion`](https://github.com/orion-rs/orion) cryptographic suite. As I've built out this service, this library has somewhat lagged other options and is not as thoroughly vetted as I'd like; I may change this. Orion provides encryption of data stored on the server to facilitate client (browser) access and is not critical to the fundamental design of the cryptographic system described here.
+
+## ActivityPub Structures
+
+These are the fundamental communication mechanisms used to faclitate encrypted communication between actors in Enigmatick.
+
+### Server-to-Server
+
+Recipient `OlmOneTimeKey` and `OlmIdentityKey` retrieval by initiating sender.
+
+```json
+{
+  "@context": "https://www.w3.org/ns/activitystreams",
+  "type": "Collection",
+  "id": "https://enigmatick.social/user/clark/keys",
+  "totalItems": 2,
+  "items": [
+    {
+      "type": "OlmOneTimeKey",
+      "id": "https://enigmatick.social/instruments/da267575-3787-4df2-ac11-e734f9f32d38",
+      "content": "GVGzbKaznnKzgV5+/xRDfdx2lbMP0qBfcTaSV1+BATY"
+    },
+    {
+      "type": "OlmIdentityKey",
+      "id": "https://enigmatick.social/user/clark#identity-key",
+      "content": "7jImYabiufIUOE4QjCfabJT/h1OhoMLztxqzEBqyn0w"
+    }
+  ]
+}
+```
+
+Initial message to recipient initiating the session.
+
+```json
+{
+    "@context": ["https://www.w3.org/ns/activitystreams"],
+    "type": "Create",
+    "to": ["https://enigmatick.social/user/clark"],
+    "actor": "https://enigmatick.social/user/jdt",
+    "id": "https://enigmatick.social/activities/b680adf8-9408-482d-9387-6dfa7904df67",
+    "object": {
+        "cc": [],
+        "id": "https://enigmatick.social/objects/88cb00b5-5fec-49a2-a895-bca156ece754",
+        "to": [
+            "https://enigmatick.social/user/clark"
+        ],
+        "conversation": "https://enigmatick.social/conversations/195f61c3-7098-4736-a837-1fab29e42699",
+        "tag": [
+            {
+                "href": "https://enigmatick.social/user/clark",
+                "name": "@clark@enigmatick.social",
+                "type": "Mention"
+            }
+        ],
+        "type": "EncryptedNote",
+        "content": "{\"type\":0,\"body\":\"AwogZNVPkw0ZXxKnhDU0Tjf4NWX/2OvFTSx2IWxS1S1VK3gSINVvl3MHxmTBwyGVO+Bc8QqAP
+ARVDTsPoCuRrrcEn7hxGiAFhZIDySEb5XYDxjEtbkueCuMfNs/7plG3FBweZdUfHiJnBAogDJQPFOjpBU81Hk4xildg7kNyTwn5Ntotk22UOEJ
+vUg8QACIghqtjcoYnNKMk5unzO3qa0ckq/WihX18uwwbGN44Wm/8Kk6xgFQ7Cbl5q1DbNcPm6QlFnaJtyMveLLa7EzAJuUg\"}",
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "published": "2024-11-24T23:23:14.252Z",
+        "attachment": [],
+        "attributedTo": "https://enigmatick.social/user/jdt"
+    },
+    "instrument": [{
+        "id": "https://enigmatick.social/instruments/112b6598-a23a-48cd-aeb0-721ab363413d",
+        "type": "OlmIdentityKey",
+        "content": "BYWSA8khG+V2A8YxLW5LngrjHzbP+6ZRtxQcHmXVHx4"
+    }]
+}
+```
+
+Additional messages (in either direction) after the initial.
+
+```json
+{
+    "@context": ["https://www.w3.org/ns/activitystreams"],
+    "type": "Create",
+    "to": ["https://enigmatick.social/user/jdt"],
+    "actor": "https://enigmatick.social/user/clark",
+    "id": "https://enigmatick.social/activities/1bb8c2c6-1181-401f-b17d-c7b849b63b3d",
+    "object": {
+        "cc": [],
+        "id": "https://enigmatick.social/objects/0e9d572f-7e6f-4201-83a3-2d8137a90e62",
+        "to": [
+            "https://enigmatick.social/user/jdt"
+        ],
+        "conversation": "https://enigmatick.social/conversations/195f61c3-7098-4736-a837-1fab29e42699",
+        "tag": [
+            {
+                "href": "https://enigmatick.social/user/jdt",
+                "name": "@jdt@enigmatick.social",
+                "type": "Mention"
+            }
+        ],
+        "type": "EncryptedNote",
+        "content": "{\"type\":0,\"body\":\"AwogZNVPkw0ZXxKnhDU0Tjf4NWX/2OvFTSx2IWxS1S1VK3gSINVvl3MHxmTBwyGVO+Bc8QqAP
+ARVDTsPoCuRrrcEn7hxGiAFhZIDySEb5XYDxjEtbkueCuMfNs/7plG3FBweZdUfHiJnBAogDJQPFOjpBU81Hk4xildg7kNyTwn5Ntotk22UOEJ
+vUg8QACIghqtjcoYnNKMk5unzO3qa0ckq/WihX18uwwbGN44Wm/8Kk6xgFQ7Cbl5q1DbNcPm6QlFnaJtyMveLLa7EzAJuUg\"}",
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "published": "2024-11-24T23:23:14.252Z",
+        "attachment": [],
+        "attributedTo": "https://enigmatick.social/user/jdt"
+    }
+}
+```
+
+Encrypted sessions are tied to conversations. As such, there's no need to provide any link to a session or anything like that when sending messages between servers. The receiving server will know which session to retrieve based on the `to` and `conversation` field combined with the `EncryptedNote` type.
 
 ## System Design
 
@@ -227,4 +335,42 @@ In this function, a new Olm session is created and used to decrypt the message. 
 
 The `OlmAccount`, `OlmSession`, and `VaultItem` records created in the above function will need to be sent to the server for update and storage (in the Enigmatick use-case; other clients may handle that differently).
 
-...to be continued.
+### Established Olm Session Usage
+
+Once established, the Olm sessions can be called on to encrypt and decrypt messages without too much fuss. In Enigmatick, an established session is used when the ID of a session instrument is included with the activity.
+
+```rust
+fn use_session(
+    instrument: ApInstrument,
+    sessions: &mut HashMap<String, String>,
+    create: ApCreate,
+    note: &ApNote,
+) -> Option<Vec<ApInstrument>> {
+    let decrypted_instrument_content = &decrypt(None, instrument.content?).ok()?;
+    let pickled_string = sessions
+        .entry(instrument.id?)
+        .or_insert_with(|| decrypted_instrument_content.clone());
+
+    let pickle = serde_json::from_str::<SessionPickle>(pickled_string).ok()?;
+
+    let mut session = Session::from_pickle(pickle);
+
+    if let OlmMessage::Normal(m) = serde_json::from_str(&note.content).ok()? {
+        let bytes = session.decrypt(&m.into()).ok()?;
+        let message = String::from_utf8(bytes).ok()?;
+
+        let mut session_instrument = ApInstrument::try_from(session).ok()?;
+        session_instrument.conversation = note.conversation.clone();
+
+        let mut vault_instrument = ApInstrument::try_from(message.clone()).ok()?;
+        vault_instrument.activity = create.id;
+
+        Some(vec![session_instrument, vault_instrument])
+    } else {
+        None
+    }
+}
+```
+
+Again, the session is used only the first time that a message is decrypted. Once decrypted by the session, it is symmetrically re-encrypted as a `VaultItem` to be included with future retrievals.
+
