@@ -7,13 +7,14 @@ use crate::{
         activities::{ActivityType, ExtendedActivity},
         pg::{activities::EncryptedActivity, coalesced_activity::CoalescedActivity},
     },
+    MaybeReference,
 };
 use anyhow::anyhow;
 use enum_dispatch::enum_dispatch;
 use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
 
-use super::follow::ApFollow;
+use super::{follow::ApFollow, object::ApObject};
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[enum_dispatch]
@@ -45,6 +46,30 @@ impl ApActivity {
             ApActivity::Update(update) => update.id.clone(),
             ApActivity::Block(block) => block.id.clone(),
             _ => None,
+        }
+    }
+
+    pub fn formalize(&self) -> Self {
+        match self.clone() {
+            ApActivity::Announce(mut announce) => {
+                announce.ephemeral = None;
+                if let MaybeReference::Actual(ApObject::Note(ref mut note)) = announce.object {
+                    note.context = None;
+                    note.ephemeral = None;
+                    note.instrument = None;
+                }
+                announce.into()
+            }
+            ApActivity::Create(mut create) => {
+                create.ephemeral = None;
+                if let MaybeReference::Actual(ApObject::Note(ref mut note)) = create.object {
+                    note.context = None;
+                    note.ephemeral = None;
+                    note.instrument = None;
+                }
+                create.into()
+            }
+            _ => self.clone(),
         }
     }
 }

@@ -4,14 +4,10 @@ use crate::{
     fairings::events::EventChannels,
     helper::{get_instrument_as_id_from_uuid, get_session_as_id_from_uuid},
     models::{
-        actors::Actor,
-        encrypted_sessions::{create_encrypted_session, EncryptedSession, NewEncryptedSession},
-        olm_one_time_keys::OlmOneTimeKey,
-        olm_sessions::OlmSession,
+        actors::Actor, olm_one_time_keys::OlmOneTimeKey, olm_sessions::OlmSession,
         pg::coalesced_activity::CoalescedActivity,
-        //remote_encrypted_sessions::RemoteEncryptedSession,
     },
-    runner, MaybeMultiple,
+    MaybeMultiple,
 };
 use anyhow::{anyhow, Result};
 use rocket::http::Status;
@@ -40,9 +36,9 @@ pub struct ApSession {
 impl Outbox for ApSession {
     async fn outbox(
         &self,
-        conn: Db,
-        events: EventChannels,
-        profile: Actor,
+        _conn: Db,
+        _events: EventChannels,
+        _profile: Actor,
         _raw: Value,
     ) -> Result<String, Status> {
         //handle_session(conn, events, self.clone(), profile).await

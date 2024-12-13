@@ -398,7 +398,7 @@ impl TryFrom<ApObject> for ApCreate {
                 let ephemeral = None;
 
                 let instrument: MaybeMultiple<ApInstrument> =
-                    note.instrument.map_or(MaybeMultiple::None, |x| x.into());
+                    note.instrument.map_or(MaybeMultiple::None, |x| x);
 
                 let instrument = match instrument {
                     MaybeMultiple::Single(instrument) => {

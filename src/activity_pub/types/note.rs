@@ -17,13 +17,12 @@ use crate::{
         activities::{create_activity, get_activity_by_ap_id, Activity, NewActivity},
         actors::{get_actor, Actor},
         cache::{cache_content, Cache, Cacheable},
-        from_serde, from_time,
+        from_serde,
         objects::{create_or_update_object, Object},
-        olm_sessions::{create_or_update_olm_session, OlmSession, OlmSessionParams},
+        olm_sessions::{create_or_update_olm_session, OlmSessionParams},
         pg::{
             coalesced_activity::CoalescedActivity, objects::ObjectType, vault::create_vault_item,
         },
-        vault::VaultItem,
     },
     runner::{
         self,
@@ -292,43 +291,6 @@ impl ApNote {
             note.context = Some(ApContext::default());
         }
 
-        fn process_note_visibility(note: &mut ApNote, profile: &Actor) {
-            let mut addresses_cc: Vec<ApAddress> =
-                note.cc.clone().unwrap_or(vec![].into()).multiple();
-            let followers = ApActor::from(profile.clone()).followers;
-
-            if let Some(followers) = followers {
-                let is_public = check_public_visibility(&note.to, &addresses_cc);
-                let followers_included =
-                    check_followers_inclusion(&note.to, &addresses_cc, &followers);
-
-                if is_public && !followers_included {
-                    addresses_cc.push(followers.into());
-                    note.cc = Some(MaybeMultiple::Multiple(addresses_cc.clone()));
-                }
-            }
-        }
-
-        fn check_public_visibility(
-            to_addresses: &MaybeMultiple<ApAddress>,
-            cc_addresses: &[ApAddress],
-        ) -> bool {
-            to_addresses.multiple().iter().any(|to| to.is_public())
-                || cc_addresses.iter().any(|cc| cc.is_public())
-        }
-
-        fn check_followers_inclusion(
-            to_addresses: &MaybeMultiple<ApAddress>,
-            cc_addresses: &[ApAddress],
-            followers: &str,
-        ) -> bool {
-            to_addresses.multiple().iter().any(|to| {
-                to.is_public() && to.to_string().to_lowercase() == followers.to_lowercase()
-            }) || cc_addresses.iter().any(|cc| {
-                cc.is_public() && cc.to_string().to_lowercase() == followers.to_lowercase()
-            })
-        }
-
         async fn process_instruments(
             note: ApNote,
             conn: &Db,
@@ -428,7 +390,6 @@ impl ApNote {
             Ok(())
         }
 
-        process_note_visibility(&mut note, &profile);
         prepare_note_metadata(&mut note, &profile);
 
         let instruments = process_instruments(note.clone(), &conn, &profile).await?;
@@ -515,7 +476,7 @@ impl ApNote {
                                     target_object,
                                     target_actor
                                 )) {
-                                    Some(activity)
+                                    Some(activity.formalize())
                                 } else {
                                     log::error!("Failed to build ApActivity");
                                     None
@@ -534,7 +495,7 @@ impl ApNote {
                                 ),
                                 None,
                             )) {
-                                Some(activity)
+                                Some(activity.formalize())
                             } else {
                                 None
                             }
@@ -567,13 +528,12 @@ impl ApNote {
             log::debug!("SENDER\n{sender:#?}");
             log::debug!("INBOXES\n{inboxes:#?}");
 
-            log::debug!("SKIPPING SEND FOR DEBUG");
-            // send_to_inboxes(conn.unwrap(), inboxes, sender, activity)
-            //     .await
-            //     .map_err(|e| {
-            //         log::error!("Failed to send ApActivity: {e:#?}");
-            //         TaskError::TaskFailed
-            //     })?;
+            send_to_inboxes(conn.unwrap(), inboxes, sender, activity)
+                .await
+                .map_err(|e| {
+                    log::error!("Failed to send ApActivity: {e:#?}");
+                    TaskError::TaskFailed
+                })?;
         }
 
         Ok(())
@@ -808,35 +768,4 @@ impl TryFrom<Object> for ApNote {
             Err(anyhow!("ObjectType is not Note"))
         }
     }
-}
-
-async fn handle_encrypted_note(
-    conn: Db,
-    channels: EventChannels,
-    note: ApNote,
-    _profile: Actor,
-) -> Result<String, Status> {
-    // ApNote -> NewNote -> ApNote -> ApActivity
-    // UUID is set in NewNote
-
-    let object = create_or_update_object(&conn, note.into())
-        .await
-        .map_err(|e| {
-            log::error!("FAILED TO CREATE Object: {e:#?}");
-            Status::InternalServerError
-        })?;
-
-    let ek_uuid = object.ek_uuid.ok_or_else(|| {
-        log::error!("MISSING ed_uuid");
-        Status::InternalServerError
-    })?;
-
-    runner::run(
-        ApNote::send_note,
-        Some(conn),
-        Some(channels),
-        vec![ek_uuid.clone()],
-    )
-    .await;
-    Ok(ek_uuid)
 }

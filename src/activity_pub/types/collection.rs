@@ -1,5 +1,4 @@
 use core::fmt;
-use std::cmp::Reverse;
 use std::fmt::Debug;
 
 use super::Ephemeral;

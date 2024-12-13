@@ -481,13 +481,13 @@ fn build_main_query(
     if profile.is_some() {
         query.push_str(&format!(
             "announced AS (\
-             SELECT m.id, MAX(a.uuid) AS object_announced \
+             SELECT m.id, a.ap_id AS object_announced \
              FROM main m \
              LEFT JOIN activities a ON (a.target_ap_id = m.object_as_id \
              AND NOT a.revoked \
              AND a.kind = 'announce' \
              AND  a.actor_id = {}) \
-             GROUP BY m.id), \
+             GROUP BY m.id, a.ap_id), \
              liked AS (\
              SELECT m.id, a.ap_id AS object_liked \
              FROM main m \

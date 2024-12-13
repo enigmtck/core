@@ -60,6 +60,7 @@ pub struct ApBasicContent {
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(untagged)]
+#[allow(clippy::large_enum_variant)]
 pub enum ApTimelineObject {
     Note(ApNote),
     Question(ApQuestion),
@@ -68,6 +69,7 @@ pub enum ApTimelineObject {
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[enum_dispatch]
 #[serde(untagged)]
+#[allow(clippy::large_enum_variant)]
 pub enum ApObject {
     Tombstone(ApTombstone),
     Session(ApSession),
@@ -245,20 +247,25 @@ pub struct ApHashtag {
 impl From<Object> for Vec<ApHashtag> {
     fn from(object: Object) -> Self {
         match ApObject::try_from(object) {
-            Ok(ApObject::Note(note)) => note
-                .tag
-                .unwrap_or_default()
-                .iter()
-                .filter_map(|tag| {
-                    if let ApTag::HashTag(tag) = tag {
-                        Some(tag.clone())
-                    } else {
-                        None
-                    }
-                })
-                .collect(),
+            Ok(ApObject::Note(note)) => note.into(),
             _ => vec![],
         }
+    }
+}
+
+impl From<ApNote> for Vec<ApHashtag> {
+    fn from(note: ApNote) -> Self {
+        note.tag
+            .unwrap_or_default()
+            .iter()
+            .filter_map(|tag| {
+                if let ApTag::HashTag(tag) = tag {
+                    Some(tag.clone())
+                } else {
+                    None
+                }
+            })
+            .collect()
     }
 }
 

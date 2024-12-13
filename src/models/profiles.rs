@@ -22,6 +22,8 @@ pub struct Profile {
     pub olm_pickled_account_hash: Option<String>,
     pub olm_identity_key: Option<String>,
     pub summary_markdown: Option<String>,
+    pub followers: Option<String>,
+    pub following: Option<String>,
 }
 
 impl TryFrom<Actor> for Profile {
@@ -49,6 +51,8 @@ impl TryFrom<Actor> for Profile {
             olm_pickled_account: actor.ek_olm_pickled_account,
             olm_pickled_account_hash: actor.ek_olm_pickled_account_hash,
             olm_identity_key: actor.ek_olm_identity_key,
+            followers: actor.as_followers,
+            following: actor.as_following,
         })
     }
 }

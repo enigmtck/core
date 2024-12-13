@@ -125,6 +125,7 @@ pub struct NewObject {
     pub as_type: ObjectType,
     pub as_updated: Option<DateTime<Utc>>,
     pub as_url: Option<Value>,
+    pub ek_hashtags: Value,
     pub ek_instrument: Option<Value>,
     pub ek_metadata: Option<Value>,
     pub ek_profile_id: Option<i32>,

@@ -46,7 +46,8 @@ pub async fn send_announce_task(
                 .map_err(|e| {
                     log::error!("FAILED TO BUILD ApActivity: {e:#?}");
                     TaskError::TaskFailed
-                })?;
+                })?
+                .formalize();
 
         let inboxes: Vec<ApAddress> = get_inboxes(conn, activity.clone(), sender.clone()).await;
 

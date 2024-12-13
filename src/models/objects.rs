@@ -1,6 +1,8 @@
 use std::collections::HashMap;
 
-use crate::activity_pub::{ApAddress, ApNote, ApNoteType, ApObject, ApQuestion, ApQuestionType};
+use crate::activity_pub::{
+    ApAddress, ApHashtag, ApNote, ApNoteType, ApObject, ApQuestion, ApQuestionType,
+};
 use crate::db::Db;
 use crate::models::{to_serde, to_time};
 use crate::schema::objects;
@@ -9,6 +11,7 @@ use anyhow::{anyhow, Result};
 use chrono::{DateTime, Utc};
 use diesel::prelude::*;
 use maplit::{hashmap, hashset};
+use serde_json::json;
 
 use super::actors::Actor;
 use super::from_serde;
@@ -111,6 +114,14 @@ impl From<ApNote> for NewObject {
             content_map
         };
 
+        let hashtags: Vec<ApHashtag> = note.clone().into();
+        let ek_hashtags = to_serde::<Vec<String>>(&Some(
+            hashtags
+                .iter()
+                .map(|x| x.name.clone().to_lowercase())
+                .collect(),
+        ));
+
         NewObject {
             as_url: serde_json::to_value(note.clone().url).ok(),
             as_published: published,
@@ -130,6 +141,7 @@ impl From<ApNote> for NewObject {
             as_attachment: to_serde(&note.attachment),
             ek_uuid: note.ephemeral.and_then(|x| x.internal_uuid),
             ek_instrument: to_serde(&note.instrument),
+            ek_hashtags: ek_hashtags.unwrap_or(json!(vec![] as Vec<String>)),
             ..Default::default()
         }
     }

@@ -108,15 +108,15 @@ async fn remote_actor_authenticated_response(
 ) -> Result<Json<ApActor>, Status> {
     if let Some(profile) = signed.profile() {
         let ap_id = get_ap_id_from_webfinger(webfinger).await.ok_or_else(|| {
-            log::error!("FAILED TO GET AP_ID FROM WEBFINGER");
-            Status::InternalServerError
+            log::error!("Failed to get ActivityPub ID from Webfinger");
+            Status::NotFound
         })?;
 
         Ok(Json(
             get_actor(conn, ap_id, Some(profile), true)
                 .await
                 .map_err(|e| {
-                    log::error!("FAILED TO RETRIEVE ACTOR: {e:#?}");
+                    log::error!("Failed to retrieve Actor: {e:#?}");
                     Status::NotFound
                 })?,
         ))
