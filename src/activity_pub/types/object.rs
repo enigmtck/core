@@ -5,6 +5,7 @@ use crate::models::actors::Actor;
 use crate::models::cache::Cache;
 use crate::models::objects::Object;
 use crate::models::pg::objects::ObjectType;
+use crate::routes::ActivityJson;
 use crate::{Identifier, MaybeMultiple, OrdValue, IMAGE_MEDIA_RE};
 
 use anyhow::{anyhow, Error, Result};
@@ -15,6 +16,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use url::Url;
 
+use super::activity::ApActivity;
 use super::attachment::ApDocument;
 use super::delete::ApTombstone;
 use super::question::ApQuestion;
@@ -113,7 +115,7 @@ impl Outbox for String {
         _events: EventChannels,
         _profile: Actor,
         _raw: Value,
-    ) -> Result<String, Status> {
+    ) -> Result<ActivityJson<ApActivity>, Status> {
         Err(Status::ServiceUnavailable)
     }
 }
@@ -125,7 +127,7 @@ impl Outbox for Identifier {
         _events: EventChannels,
         _profile: Actor,
         _raw: Value,
-    ) -> Result<String, Status> {
+    ) -> Result<ActivityJson<ApActivity>, Status> {
         Err(Status::ServiceUnavailable)
     }
 }
@@ -137,7 +139,7 @@ impl Outbox for MaybeMultiple<Value> {
         _events: EventChannels,
         _profile: Actor,
         _raw: Value,
-    ) -> Result<String, Status> {
+    ) -> Result<ActivityJson<ApActivity>, Status> {
         Err(Status::ServiceUnavailable)
     }
 }
@@ -149,7 +151,7 @@ impl Outbox for ApBasicContent {
         _events: EventChannels,
         _profile: Actor,
         _raw: Value,
-    ) -> Result<String, Status> {
+    ) -> Result<ActivityJson<ApActivity>, Status> {
         Err(Status::ServiceUnavailable)
     }
 }

@@ -1,8 +1,18 @@
 use crate::{
     activity_pub::{
-        ApAccept, ApAdd, ApAnnounce, ApBlock, ApCreate, ApDelete, ApLike, ApNote, ApRemove, ApUndo,
+        ApAccept,
+        ApAdd,
+        ApAnnounce,
+        ApBlock,
+        ApCreate,
+        ApDelete,
+        ApLike,
+        ApNote,
+        //ApRemove,
+        ApUndo,
         ApUpdate,
     },
+    db::Db,
     models::{
         activities::{ActivityType, ExtendedActivity},
         pg::{activities::EncryptedActivity, coalesced_activity::CoalescedActivity},
@@ -30,7 +40,7 @@ pub enum ApActivity {
     Update(ApUpdate),
     Block(ApBlock),
     Add(ApAdd),
-    Remove(ApRemove),
+    //Remove(ApRemove),
 }
 
 impl ApActivity {
@@ -66,6 +76,18 @@ impl ApActivity {
                     note.context = None;
                     note.ephemeral = None;
                     note.instrument = None;
+                }
+                create.into()
+            }
+            _ => self.clone(),
+        }
+    }
+
+    pub async fn load_ephemeral(&self, conn: &Db) -> Self {
+        match self.clone() {
+            ApActivity::Create(mut create) => {
+                if let MaybeReference::Actual(ApObject::Note(ref mut note)) = create.object {
+                    note.load_ephemeral(conn).await;
                 }
                 create.into()
             }

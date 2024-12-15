@@ -1,4 +1,4 @@
-use crate::activity_pub::{ActivityPub, ApObject, Outbox};
+use crate::activity_pub::{ActivityPub, ApActivity, ApObject, Outbox};
 use crate::db::Db;
 use crate::fairings::events::EventChannels;
 use crate::fairings::signatures::Signed;
@@ -66,7 +66,7 @@ pub async fn outbox_post(
     events: EventChannels,
     _username: String,
     raw: Json<Value>,
-) -> Result<String, Status> {
+) -> Result<ActivityJson<ApActivity>, Status> {
     let actor = signed.profile().ok_or(Status::Unauthorized)?;
 
     log::debug!("POSTING TO OUTBOX\n{raw:#?}");

@@ -9,13 +9,14 @@ use crate::{
         actors::{create_or_update_actor, Actor, NewActor},
         objects::create_or_update_object,
     },
+    routes::ActivityJson,
     MaybeMultiple, MaybeReference,
 };
 use rocket::http::Status;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use super::signature::ApSignature;
+use super::{activity::ApActivity, signature::ApSignature};
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub enum ApUpdateType {
@@ -128,7 +129,7 @@ impl Outbox for ApUpdate {
         _events: EventChannels,
         _profile: Actor,
         _raw: Value,
-    ) -> Result<String, Status> {
+    ) -> Result<ActivityJson<ApActivity>, Status> {
         Err(Status::ServiceUnavailable)
     }
 }

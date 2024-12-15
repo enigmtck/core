@@ -1,12 +1,12 @@
-use crate::activity_pub::{ApActivity, PUBLIC_COLLECTION};
+use crate::activity_pub::PUBLIC_COLLECTION;
 use crate::db::Db;
-use crate::helper::{get_activity_ap_id_from_uuid, get_ap_id_from_username};
+use crate::helper::get_activity_ap_id_from_uuid;
 use crate::models::activities::{get_activity, ExtendedActivity};
 use crate::models::pg::parameter_generator;
 use crate::schema::{activities, actors, objects, olm_sessions, vault};
 use crate::POOL;
 use anyhow::{anyhow, Result};
-use chrono::{DateTime, NaiveDateTime, Utc};
+use chrono::{DateTime, Utc};
 use diesel::pg::Pg;
 use diesel::query_builder::{BoxedSqlQuery, SqlQuery};
 use diesel::sql_types::Nullable;
@@ -395,19 +395,11 @@ fn build_main_query(
         // Add date filtering to the subquery
         if let Some(min) = min {
             if min != 0 {
-                params.date = DateTime::from_naive_utc_and_offset(
-                    NaiveDateTime::from_timestamp_micros(min).unwrap(),
-                    Utc,
-                );
-
+                params.date = DateTime::from_timestamp_micros(min).unwrap();
                 query.push_str(&format!("AND a.created_at > {} ", param_gen()));
             }
         } else if let Some(max) = max {
-            params.date = DateTime::from_naive_utc_and_offset(
-                NaiveDateTime::from_timestamp_micros(max).unwrap(),
-                Utc,
-            );
-
+            params.date = DateTime::from_timestamp_micros(max).unwrap();
             query.push_str(&format!("AND a.created_at < {} ", param_gen()));
         }
 
@@ -444,6 +436,12 @@ fn build_main_query(
                             ));
                         }
                     }
+                }
+            } else {
+                params.to.extend((*PUBLIC_COLLECTION).clone());
+                if let Some(profile) = profile.clone() {
+                    params.to.extend(vec![profile.as_id.clone()]);
+                    params.from.extend(vec![profile.as_id]);
                 }
             }
 

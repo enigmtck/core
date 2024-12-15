@@ -4,6 +4,7 @@ mod types;
 use crate::db::Db;
 use crate::fairings::events::EventChannels;
 use crate::models::actors::Actor;
+use crate::routes::ActivityJson;
 use crate::{Identifier, MaybeMultiple};
 use chrono::{DateTime, Utc};
 use enum_dispatch::enum_dispatch;
@@ -37,13 +38,14 @@ pub use types::attachment::{
     ApAttachment, ApDocument, ApLink, ApProof, ApVerifiableIdentityStatement,
 };
 
-pub use types::remove::{ApRemove, ApRemoveType};
+//pub use types::remove::{ApRemove, ApRemoveType};
 pub use types::session::{ApInstrument, ApInstrumentType, ApSession};
 pub use types::undo::{ApUndo, ApUndoType};
 pub use types::update::{ApUpdate, ApUpdateType};
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(untagged)]
+#[allow(clippy::large_enum_variant)]
 pub enum ActivityPub {
     Activity(ApActivity),
     Actor(ApActor),
@@ -138,5 +140,5 @@ pub trait Outbox {
         events: EventChannels,
         profile: Actor,
         raw: Value,
-    ) -> Result<String, Status>;
+    ) -> Result<ActivityJson<ApActivity>, Status>;
 }

@@ -16,7 +16,6 @@ use crate::{
     routes::{
         api::{
             admin::*, authentication::*, encryption::*, image::*, profile::*, remote::*, stream::*,
-            vault::*,
         },
         inbox::*,
         instance::*,

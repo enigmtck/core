@@ -15,6 +15,7 @@ use crate::{
         followers::delete_follower_by_ap_id,
         leaders::delete_leader_by_ap_id_and_actor_id,
     },
+    routes::ActivityJson,
     runner::{self, get_inboxes, send_to_inboxes, TaskError},
     MaybeReference,
 };
@@ -84,7 +85,7 @@ impl Outbox for Box<ApUndo> {
         events: EventChannels,
         profile: Actor,
         raw: Value,
-    ) -> Result<String, Status> {
+    ) -> Result<ActivityJson<ApActivity>, Status> {
         ApUndo::outbox(conn, events, *self.clone(), profile, raw).await
     }
 }
@@ -167,7 +168,7 @@ impl ApUndo {
         undo: ApUndo,
         profile: Actor,
         raw: Value,
-    ) -> Result<String, Status> {
+    ) -> Result<ActivityJson<ApActivity>, Status> {
         let target_ap_id = match undo.object {
             MaybeReference::Actual(object) => object.as_id(),
             _ => None,
@@ -184,7 +185,7 @@ impl ApUndo {
         let mut undo = create_activity(
             Some(&conn),
             NewActivity::from((
-                activity,
+                activity.clone(),
                 ActivityType::Undo,
                 ApAddress::Address(profile.as_id),
             ))
@@ -207,7 +208,12 @@ impl ApUndo {
         )
         .await;
 
-        undo.ap_id.ok_or(Status::InternalServerError)
+        let activity: ApActivity = (undo, Some(activity), None, None).try_into().map_err(|e| {
+            log::error!("Failed to build ApActivity: {e:#?}");
+            Status::InternalServerError
+        })?;
+
+        Ok(activity.into())
     }
 
     async fn send_task(

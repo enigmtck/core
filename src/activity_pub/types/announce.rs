@@ -14,6 +14,7 @@ use crate::{
         objects::get_object_by_as_id,
         pg::coalesced_activity::CoalescedActivity,
     },
+    routes::ActivityJson,
     runner, MaybeMultiple, MaybeReference,
 };
 use anyhow::anyhow;
@@ -110,7 +111,7 @@ impl Outbox for ApAnnounce {
         events: EventChannels,
         profile: Actor,
         raw: Value,
-    ) -> Result<String, Status> {
+    ) -> Result<ActivityJson<ApActivity>, Status> {
         outbox(conn, events, self.clone(), profile, raw).await
     }
 }
@@ -121,14 +122,14 @@ async fn outbox(
     announce: ApAnnounce,
     _profile: Actor,
     raw: Value,
-) -> Result<String, Status> {
+) -> Result<ActivityJson<ApActivity>, Status> {
     if let MaybeReference::Reference(as_id) = announce.clone().object {
         let object = get_object_by_as_id(Some(&conn), as_id).await.map_err(|e| {
             log::error!("FAILED TO RETRIEVE Object: {e:#?}");
             Status::NotFound
         })?;
 
-        let mut activity = NewActivity::try_from((announce.into(), Some(object.into())))
+        let mut activity = NewActivity::try_from((announce.into(), Some(object.clone().into())))
             .map_err(|e| {
                 log::error!("FAILED TO BUILD Activity: {e:#?}");
                 Status::InternalServerError
@@ -150,7 +151,16 @@ async fn outbox(
             vec![activity.ap_id.clone().ok_or(Status::InternalServerError)?],
         )
         .await;
-        Ok(activity.ap_id.ok_or(Status::InternalServerError)?)
+
+        let activity: ApActivity =
+            (activity, None, Some(object), None)
+                .try_into()
+                .map_err(|e| {
+                    log::error!("Failed to build ApActivity: {e:#?}");
+                    Status::InternalServerError
+                })?;
+
+        Ok(activity.into())
     } else {
         log::error!("ANNOUNCE OBJECT IS NOT A REFERENCE");
         Err(Status::new(523))

@@ -15,7 +15,7 @@ use crate::{
     },
     models::{
         activities::{create_activity, get_activity_by_ap_id, Activity, NewActivity},
-        actors::{get_actor, Actor},
+        actors::{get_actor, get_actor_by_as_id, Actor},
         cache::{cache_content, Cache, Cacheable},
         from_serde,
         objects::{create_or_update_object, Object},
@@ -24,6 +24,7 @@ use crate::{
             coalesced_activity::CoalescedActivity, objects::ObjectType, vault::create_vault_item,
         },
     },
+    routes::ActivityJson,
     runner::{
         self,
         //encrypted::handle_encrypted_note,
@@ -228,7 +229,7 @@ impl ApNote {
         mut note: ApNote,
         profile: Actor,
         raw: Value,
-    ) -> Result<String, Status> {
+    ) -> Result<ActivityJson<ApActivity>, Status> {
         if note.id.is_some() {
             return Err(Status::NotAcceptable);
         }
@@ -412,9 +413,18 @@ impl ApNote {
         let activity = build_activity(create, &conn, &object, raw).await?;
 
         process_vault_items(&conn, &instruments, &activity).await?;
+
+        let ap_activity: ApActivity = (activity.clone(), None, Some(object), None)
+            .try_into()
+            .map_err(|e| {
+                log::error!("Failed to build ApActivity: {e:#?}");
+                Status::InternalServerError
+            })?;
+
+        let ap_activity = ap_activity.load_ephemeral(&conn).await;
         dispatch_activity(conn, &channels, &activity).await?;
 
-        Ok(activity.uuid)
+        Ok(ap_activity.into())
     }
 
     async fn send_note(
@@ -538,6 +548,14 @@ impl ApNote {
 
         Ok(())
     }
+
+    pub async fn load_ephemeral(&mut self, conn: &Db) {
+        if let Ok(actor) = get_actor_by_as_id(conn, self.attributed_to.to_string()).await {
+            let mut ephemeral = self.ephemeral.clone().unwrap_or_default();
+            ephemeral.attributed_to = Some(vec![actor.into()]);
+            self.ephemeral = Some(ephemeral);
+        }
+    }
 }
 
 impl Cache for ApNote {
@@ -579,7 +597,7 @@ impl Outbox for ApNote {
         events: EventChannels,
         profile: Actor,
         raw: Value,
-    ) -> Result<String, Status> {
+    ) -> Result<ActivityJson<ApActivity>, Status> {
         ApNote::outbox_note(conn, events, self.clone(), profile, raw).await
     }
 }
@@ -749,12 +767,10 @@ impl TryFrom<Object> for ApNote {
                 content: object.as_content.clone().ok_or(anyhow!("no content"))?,
                 replies: object.as_replies.clone().and_then(from_serde),
                 in_reply_to: object.as_in_reply_to.clone().and_then(from_serde),
-                attachment: match serde_json::from_value(
+                attachment: serde_json::from_value(
                     object.as_attachment.clone().unwrap_or_default(),
-                ) {
-                    Ok(x) => x,
-                    Err(_) => None,
-                },
+                )
+                .unwrap_or_default(),
                 conversation: object.ap_conversation.clone(),
                 ephemeral: Some(Ephemeral {
                     timestamp: Some(object.created_at),

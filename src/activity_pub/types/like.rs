@@ -6,14 +6,14 @@ use crate::{
     db::Db,
     fairings::events::EventChannels,
     models::{
-        activities::get_activity_by_ap_id,
-        activities::{create_activity, ActivityTarget, ExtendedActivity, NewActivity},
-        actors::get_actor,
-        actors::Actor,
+        activities::{
+            create_activity, get_activity_by_ap_id, ActivityTarget, ExtendedActivity, NewActivity,
+        },
+        actors::{get_actor, Actor},
         objects::get_object_by_as_id,
     },
-    runner,
-    runner::{get_inboxes, send_to_inboxes, TaskError},
+    routes::ActivityJson,
+    runner::{self, get_inboxes, send_to_inboxes, TaskError},
     MaybeMultiple, MaybeReference,
 };
 use anyhow::anyhow;
@@ -103,7 +103,7 @@ impl Outbox for Box<ApLike> {
         events: EventChannels,
         profile: Actor,
         raw: Value,
-    ) -> Result<String, Status> {
+    ) -> Result<ActivityJson<ApActivity>, Status> {
         ApLike::outbox(conn, events, *self.clone(), profile, raw).await
     }
 }
@@ -115,24 +115,25 @@ impl ApLike {
         like: ApLike,
         _profile: Actor,
         raw: Value,
-    ) -> Result<String, Status> {
+    ) -> Result<ActivityJson<ApActivity>, Status> {
         if let MaybeReference::Reference(as_id) = like.clone().object {
             let object = get_object_by_as_id(Some(&conn), as_id).await.map_err(|e| {
                 log::error!("FAILED TO RETRIEVE OBJECT: {e:#?}");
                 Status::NotFound
             })?;
 
-            let mut activity = NewActivity::try_from((Box::new(like).into(), Some(object.into())))
-                .map_err(|e| {
-                    log::error!("FAILED TO BUILD ACTIVITY: {e:#?}");
-                    Status::InternalServerError
-                })?
-                .link_actor(&conn)
-                .await;
+            let mut activity =
+                NewActivity::try_from((Box::new(like).into(), Some(object.clone().into())))
+                    .map_err(|e| {
+                        log::error!("FAILED TO BUILD ACTIVITY: {e:#?}");
+                        Status::InternalServerError
+                    })?
+                    .link_actor(&conn)
+                    .await;
 
             activity.raw = Some(raw.clone());
 
-            create_activity(Some(&conn), activity.clone())
+            let activity = create_activity(Some(&conn), activity.clone())
                 .await
                 .map_err(|e| {
                     log::error!("FAILED TO CREATE ACTIVITY: {e:#?}");
@@ -146,7 +147,16 @@ impl ApLike {
                 vec![activity.ap_id.clone().ok_or(Status::InternalServerError)?],
             )
             .await;
-            Ok(activity.ap_id.clone().ok_or(Status::InternalServerError)?)
+
+            let activity: ApActivity =
+                (activity, None, Some(object), None)
+                    .try_into()
+                    .map_err(|e| {
+                        log::error!("Failed to build ApActivity: {e:#?}");
+                        Status::InternalServerError
+                    })?;
+
+            Ok(activity.into())
         } else {
             log::error!("LIKE OBJECT IS NOT A REFERENCE");
             Err(Status::NoContent)

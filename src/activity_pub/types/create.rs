@@ -21,6 +21,7 @@ use crate::{
             objects::ObjectType,
         },
     },
+    routes::ActivityJson,
     runner, MaybeMultiple, MaybeReference,
 };
 use anyhow::{anyhow, Result};
@@ -190,7 +191,7 @@ impl Outbox for ApCreate {
         _events: EventChannels,
         _profile: Actor,
         _raw: Value,
-    ) -> Result<String, Status> {
+    ) -> Result<ActivityJson<ApActivity>, Status> {
         Err(Status::ServiceUnavailable)
     }
 }

@@ -15,6 +15,7 @@ use crate::{
         followers::{create_follower, NewFollower},
         from_serde,
     },
+    routes::ActivityJson,
     runner::{self, get_inboxes, send_to_inboxes, TaskError},
     MaybeMultiple, MaybeReference,
 };
@@ -115,7 +116,7 @@ impl Outbox for ApFollow {
         events: EventChannels,
         profile: Actor,
         raw: Value,
-    ) -> Result<String, Status> {
+    ) -> Result<ActivityJson<ApActivity>, Status> {
         ApFollow::outbox(conn, events, self.clone(), profile, raw).await
     }
 }
@@ -127,9 +128,9 @@ impl ApFollow {
         follow: ApFollow,
         profile: Actor,
         raw: Value,
-    ) -> Result<String, Status> {
+    ) -> Result<ActivityJson<ApActivity>, Status> {
         if let MaybeReference::Reference(as_id) = follow.object.clone() {
-            let activity = {
+            let (activity, actor) = {
                 if let Some(activity) = get_activity_by_kind_actor_id_and_target_ap_id(
                     &conn,
                     ActivityType::Follow,
@@ -138,29 +139,39 @@ impl ApFollow {
                 )
                 .await
                 {
-                    activity
+                    let actor = get_actor_by_as_id(&conn, as_id.clone())
+                        .await
+                        .map_err(|e| {
+                            log::error!("Failed to retrieve Actor: {e:#?}");
+                            Status::NotFound
+                        })?;
+                    (activity, actor)
                 } else {
                     let actor = get_actor_by_as_id(&conn, as_id).await.map_err(|e| {
-                        log::error!("FAILED TO RETRIEVE ACTOR: {e:#?}");
+                        log::error!("Failed to retrieve Actor: {e:#?}");
                         Status::NotFound
                     })?;
 
-                    let mut activity = NewActivity::try_from((follow.into(), Some(actor.into())))
-                        .map_err(|e| {
-                            log::error!("FAILED TO BUILD ACTIVITY: {e:#?}");
-                            Status::InternalServerError
-                        })?
-                        .link_actor(&conn)
-                        .await;
+                    let mut activity =
+                        NewActivity::try_from((follow.into(), Some(actor.clone().into())))
+                            .map_err(|e| {
+                                log::error!("Failed to build Activity: {e:#?}");
+                                Status::InternalServerError
+                            })?
+                            .link_actor(&conn)
+                            .await;
 
                     activity.raw = Some(raw);
 
-                    create_activity(Some(&conn), activity.clone())
-                        .await
-                        .map_err(|e| {
-                            log::error!("FAILED TO CREATE FOLLOW ACTIVITY: {e:#?}");
-                            Status::InternalServerError
-                        })?
+                    (
+                        create_activity(Some(&conn), activity.clone())
+                            .await
+                            .map_err(|e| {
+                                log::error!("Failed to create Follow activity: {e:#?}");
+                                Status::InternalServerError
+                            })?,
+                        actor,
+                    )
                 }
             };
 
@@ -172,9 +183,17 @@ impl ApFollow {
             )
             .await;
 
-            Ok(get_activity_ap_id_from_uuid(activity.uuid))
+            let activity: ApActivity =
+                (activity, None, None, Some(actor))
+                    .try_into()
+                    .map_err(|e| {
+                        log::error!("Failed to build ApActivity: {e:#?}");
+                        Status::InternalServerError
+                    })?;
+
+            Ok(activity.into())
         } else {
-            log::error!("FOLLOW OBJECT IS NOT A REFERENCE");
+            log::error!("Follow object is not a reference");
             Err(Status::BadRequest)
         }
     }

@@ -10,6 +10,7 @@ use crate::fairings::events::EventChannels;
 use crate::helper::{get_followers_ap_id_from_username, get_following_ap_id_from_username};
 use crate::models::cache::Cache;
 use crate::models::{actors::Actor, followers::Follower, leaders::Leader};
+use crate::routes::ActivityJson;
 use crate::MaybeReference;
 use anyhow::{anyhow, Result};
 use rocket::http::Status;
@@ -100,7 +101,7 @@ impl Outbox for ApCollection {
         _events: EventChannels,
         _profile: Actor,
         _raw: Value,
-    ) -> Result<String, Status> {
+    ) -> Result<ActivityJson<ApActivity>, Status> {
         Err(Status::ServiceUnavailable)
     }
 }

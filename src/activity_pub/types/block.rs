@@ -6,10 +6,13 @@ use crate::{
     db::Db,
     fairings::events::EventChannels,
     models::actors::Actor,
+    routes::ActivityJson,
 };
 use rocket::http::Status;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+
+use super::activity::ApActivity;
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub enum ApBlockType {
@@ -61,7 +64,7 @@ impl Outbox for ApBlock {
         _events: EventChannels,
         _profile: Actor,
         _raw: Value,
-    ) -> Result<String, Status> {
+    ) -> Result<ActivityJson<ApActivity>, Status> {
         Err(Status::ServiceUnavailable)
     }
 }

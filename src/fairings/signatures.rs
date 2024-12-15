@@ -111,12 +111,9 @@ impl<'r> FromRequest<'r> for Signed {
                 let path = path.trim_end_matches('&');
                 let request_target = format!("{} {}", method.to_lowercase(), path);
 
-                //log::debug!("REQUEST TARGET: {request_target}");
-
                 let date = match get_header("date").or_else(|| get_header("enigmatick-date")) {
                     Some(val) => val,
                     None => {
-                        //log::debug!("Header must include date for signature verification");
                         return Outcome::Success(Signed(false, VerificationType::None));
                     }
                 };
@@ -126,8 +123,6 @@ impl<'r> FromRequest<'r> for Signed {
                 let content_length = get_header("content-length");
                 let content_type = request.content_type().map(|x| x.to_string());
 
-                //if let Some(content_type) = request.content_type() {
-                //let content_type = content_type.to_string();
                 let signature_vec: Vec<_> = request.headers().get("signature").collect();
 
                 match signature_vec.len() {
@@ -156,17 +151,13 @@ impl<'r> FromRequest<'r> for Signed {
                                 // the Fairing (i.e., it's not in the header), so we defer the verification
                                 // to the receiving route that decodes the whole request
                                 VerificationError::ActorNotFound(verify_map_params) => {
-                                    // log::debug!(
-                                    //     "Signature verification deferred\n{:#?}",
-                                    //     verify_map_params.clone()
-                                    // );
                                     Outcome::Success(Signed(
                                         false,
                                         VerificationType::Deferred(verify_map_params),
                                     ))
                                 }
                                 _ => {
-                                    //log::debug!("Signature verification failed\n{e:#?}");
+                                    log::debug!("Signature verification failed\n{e:#?}");
                                     Outcome::Error((
                                         Status::BadRequest,
                                         SignatureError::SignatureInvalid,
@@ -176,21 +167,17 @@ impl<'r> FromRequest<'r> for Signed {
                         }
                     }
                     _ => {
-                        //log::debug!("Multiple signatures in header");
+                        log::debug!("Multiple signatures in header");
                         Outcome::Error((Status::BadRequest, SignatureError::MultipleSignatures))
                     }
                 }
-                // } else {
-                //     log::debug!("Content-Type required for signature verification");
-                //     Outcome::Success(Signed(false, VerificationType::None))
-                // }
             }
             Outcome::Error(e) => {
-                //log::error!("Unable to connect to database: {e:?}");
+                log::error!("Unable to connect to database: {e:?}");
                 Outcome::Error((Status::InternalServerError, SignatureError::NoDbConnection))
             }
             _ => {
-                //log::error!("Unknown error");
+                log::error!("Unknown error");
                 Outcome::Error((Status::InternalServerError, SignatureError::Unknown))
             }
         }

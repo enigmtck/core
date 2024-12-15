@@ -1,6 +1,7 @@
 use core::fmt;
 use std::fmt::Debug;
 
+use crate::routes::ActivityJson;
 use crate::runner::TaskError;
 use crate::{
     activity_pub::{ApActivity, ApAddress, ApContext, ApNote, ApObject, Inbox, Outbox},
@@ -193,7 +194,7 @@ impl Outbox for Box<ApDelete> {
         events: EventChannels,
         profile: Actor,
         raw: Value,
-    ) -> Result<String, Status> {
+    ) -> Result<ActivityJson<ApActivity>, Status> {
         ApDelete::outbox(conn, events, *self.clone(), profile, raw).await
     }
 }
@@ -226,7 +227,7 @@ impl Outbox for ApTombstone {
         _events: EventChannels,
         _profile: Actor,
         _raw: Value,
-    ) -> Result<String, Status> {
+    ) -> Result<ActivityJson<ApActivity>, Status> {
         Err(Status::ServiceUnavailable)
     }
 }
@@ -273,7 +274,7 @@ impl ApDelete {
         delete: ApDelete,
         _profile: Actor,
         raw: Value,
-    ) -> Result<String, Status> {
+    ) -> Result<ActivityJson<ApActivity>, Status> {
         if let MaybeReference::Reference(as_id) = delete.clone().object {
             if delete.id.is_some() {
                 return Err(Status::BadRequest);
@@ -285,7 +286,7 @@ impl ApDelete {
             })?;
 
             let mut activity =
-                NewActivity::try_from((Box::new(delete).into(), Some(object.into())))
+                NewActivity::try_from((Box::new(delete).into(), Some(object.clone().into())))
                     .map_err(|e| {
                         log::error!("Failed to build Delete activity: {e:#?}");
                         Status::InternalServerError
@@ -295,7 +296,7 @@ impl ApDelete {
 
             activity.raw = Some(raw);
 
-            create_activity(Some(&conn), activity.clone())
+            let activity = create_activity(Some(&conn), activity.clone())
                 .await
                 .map_err(|e| {
                     log::error!("Failed to create activity: {e:#?}");
@@ -312,7 +313,16 @@ impl ApDelete {
                 })?],
             )
             .await;
-            Ok(activity.ap_id.unwrap())
+
+            let activity: ApActivity =
+                (activity, None, Some(object), None)
+                    .try_into()
+                    .map_err(|e| {
+                        log::error!("Failed to build ApActivity: {e:#?}");
+                        Status::InternalServerError
+                    })?;
+
+            Ok(activity.into())
         } else {
             log::error!("Delete object is not a reference");
             Err(Status::NoContent)

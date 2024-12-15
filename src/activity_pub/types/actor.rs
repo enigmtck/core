@@ -1,6 +1,7 @@
 use core::fmt;
 use std::fmt::Debug;
 
+use super::activity::ApActivity;
 use super::Ephemeral;
 use crate::activity_pub::{
     ActivityPub, ApAttachment, ApContext, ApEndpoint, ApImage, ApTag, Outbox,
@@ -13,6 +14,7 @@ use crate::models::cache::{cache_content, Cache};
 use crate::models::followers::get_follower_count_by_actor_id;
 use crate::models::leaders::{get_leader_count_by_actor_id, Leader};
 use crate::models::{from_serde, from_serde_option};
+use crate::routes::ActivityJson;
 use crate::{MaybeMultiple, DOMAIN_RE};
 use lazy_static::lazy_static;
 use rocket::http::Status;
@@ -296,7 +298,7 @@ impl Outbox for ApActor {
         _events: EventChannels,
         _profile: Actor,
         _raw: Value,
-    ) -> Result<String, Status> {
+    ) -> Result<ActivityJson<ApActivity>, Status> {
         Err(Status::ServiceUnavailable)
     }
 }

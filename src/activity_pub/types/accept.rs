@@ -12,6 +12,7 @@ use crate::{
         actors::{get_actor_by_as_id, Actor},
         leaders::{create_leader, NewLeader},
     },
+    routes::ActivityJson,
     runner::{self, TaskError},
     MaybeReference,
 };
@@ -152,7 +153,7 @@ impl Outbox for Box<ApAccept> {
         _events: EventChannels,
         _profile: Actor,
         _raw: Value,
-    ) -> Result<String, Status> {
+    ) -> Result<ActivityJson<ApActivity>, Status> {
         Err(Status::ServiceUnavailable)
     }
 }

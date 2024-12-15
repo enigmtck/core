@@ -296,12 +296,13 @@ pub async fn conversation_get(
         log::error!("Failed to decode id: {e:#?}");
         Status::UnprocessableEntity
     })?;
+
     let limit = limit.unwrap_or(20);
     let server_url = &*SERVER_URL;
     let base_url = format!("{server_url}/api/conversation?id={id}&limit={limit}");
 
     let filters = TimelineFilters {
-        view: Some(TimelineView::Global),
+        view: None,
         hashtags: vec![],
         username: None,
         conversation: Some(decoded.to_string()),

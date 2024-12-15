@@ -12,6 +12,7 @@ use crate::{
         objects::Object,
         pg::coalesced_activity::CoalescedActivity,
     },
+    routes::ActivityJson,
     MaybeMultiple,
 };
 use anyhow::{anyhow, Result};
@@ -21,7 +22,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use super::{
-    actor::ApAddress, collection::ApCollectionType, note::ApNoteType, object::ApImage, Ephemeral,
+    activity::ApActivity, actor::ApAddress, collection::ApCollectionType, note::ApNoteType,
+    object::ApImage, Ephemeral,
 };
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default, Eq, PartialEq)]
@@ -184,7 +186,7 @@ impl Outbox for ApQuestion {
         _events: EventChannels,
         _profile: Actor,
         _raw: Value,
-    ) -> Result<String, Status> {
+    ) -> Result<ActivityJson<ApActivity>, Status> {
         Err(Status::NotImplemented)
     }
 }

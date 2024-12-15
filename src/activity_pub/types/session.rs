@@ -7,6 +7,7 @@ use crate::{
         actors::Actor, olm_one_time_keys::OlmOneTimeKey, olm_sessions::OlmSession,
         pg::coalesced_activity::CoalescedActivity,
     },
+    routes::ActivityJson,
     MaybeMultiple,
 };
 use anyhow::{anyhow, Result};
@@ -14,6 +15,8 @@ use rocket::http::Status;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use uuid::Uuid;
+
+use super::activity::ApActivity;
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
@@ -40,7 +43,7 @@ impl Outbox for ApSession {
         _events: EventChannels,
         _profile: Actor,
         _raw: Value,
-    ) -> Result<String, Status> {
+    ) -> Result<ActivityJson<ApActivity>, Status> {
         //handle_session(conn, events, self.clone(), profile).await
         Err(Status::NotImplemented)
     }
@@ -136,7 +139,7 @@ impl Outbox for ApInstrument {
         _events: EventChannels,
         _profile: Actor,
         _raw: Value,
-    ) -> Result<String, Status> {
+    ) -> Result<ActivityJson<ApActivity>, Status> {
         Err(Status::ServiceUnavailable)
     }
 }
