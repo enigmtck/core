@@ -127,7 +127,11 @@ pub async fn update_instruments(
                     })?,
                     instrument.clone().mutation_of,
                 )
-                .await;
+                .await
+                .map_err(|e| {
+                    log::error!("Failed to create or update OlmSession: {e:#?}");
+                    Status::InternalServerError
+                })?;
             }
             ActivityPub::Object(ApObject::Instrument(instrument)) if instrument.is_vault_item() => {
                 let activity_id = lookup_activity_id_by_as_id(

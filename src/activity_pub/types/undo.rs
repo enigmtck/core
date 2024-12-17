@@ -174,7 +174,7 @@ impl ApUndo {
             _ => None,
         };
 
-        let (activity, _target_activity, _target_object, _target_actor) =
+        let (activity, _target_activity, target_object, _target_actor) =
             get_activity_by_ap_id(&conn, target_ap_id.ok_or(Status::InternalServerError)?)
                 .await
                 .ok_or_else(|| {
@@ -208,10 +208,12 @@ impl ApUndo {
         )
         .await;
 
-        let activity: ApActivity = (undo, Some(activity), None, None).try_into().map_err(|e| {
-            log::error!("Failed to build ApActivity: {e:#?}");
-            Status::InternalServerError
-        })?;
+        let activity: ApActivity = (undo, Some(activity), target_object, None)
+            .try_into()
+            .map_err(|e| {
+                log::error!("Failed to build ApActivity: {e:#?}");
+                Status::InternalServerError
+            })?;
 
         Ok(activity.into())
     }

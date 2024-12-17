@@ -34,7 +34,7 @@ impl TryFrom<ApActor> for NewActor {
 
     fn try_from(actor: ApActor) -> Result<NewActor, Self::Error> {
         let ek_hashtags = to_serde(&Some(actor.get_hashtags())).unwrap_or_else(|| json!([]));
-        let ek_webfinger = actor.get_webfinger();
+        let ek_webfinger = None;
         let as_id = actor.id.clone().ok_or(anyhow!("no id"))?.to_string();
         let as_type = actor.kind.to_string().try_into()?;
         let as_context = to_serde(&actor.context.clone());

@@ -429,11 +429,11 @@ fn build_main_query(
                             params.direct = true;
                             params.to.extend(vec![profile.as_id.clone()]);
                             params.from.extend(vec![profile.as_id]);
-                            query.push_str(&format!(
-                                "AND NOT (a.ap_to ?| {} OR a.cc ?| {}) ",
-                                param_gen(),
-                                param_gen(),
-                            ));
+                            // query.push_str(&format!(
+                            //     "AND NOT (a.ap_to ?| {} OR a.cc ?| {}) ",
+                            //     param_gen(),
+                            //     param_gen(),
+                            // ));
                         }
                     }
                 }
@@ -616,9 +616,9 @@ fn bind_params<'a>(
         }
 
         if params.direct {
-            log::debug!("SETTING DIRECT");
-            query = query.bind::<Array<Text>, _>((*PUBLIC_COLLECTION).clone());
-            query = query.bind::<Array<Text>, _>((*PUBLIC_COLLECTION).clone());
+            //log::debug!("SETTING DIRECT");
+            //query = query.bind::<Array<Text>, _>((*PUBLIC_COLLECTION).clone());
+            //query = query.bind::<Array<Text>, _>((*PUBLIC_COLLECTION).clone());
         }
 
         if !params.to.is_empty() && params.from.is_empty() {

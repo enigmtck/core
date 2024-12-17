@@ -217,8 +217,8 @@ pub async fn shared_inbox_post(
 
     let activity = match serde_json::from_value::<ApActivity>(raw.clone()) {
         Ok(activity) => activity,
-        Err(_) => {
-            create_unprocessable(&conn, raw.into()).await;
+        Err(e) => {
+            create_unprocessable(&conn, (raw, Some(format!("{e:#?}"))).into()).await;
             return Err(Status::UnprocessableEntity);
         }
     };

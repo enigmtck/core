@@ -6,6 +6,7 @@ use crate::{
     db::Db,
     fairings::events::EventChannels,
     models::{
+        activities::{create_activity, ApActivityTarget, NewActivity},
         actors::{create_or_update_actor, Actor, NewActor},
         objects::create_or_update_object,
     },
@@ -43,6 +44,8 @@ pub struct ApUpdate {
     pub id: Option<String>,
     pub object: MaybeReference<ApObject>,
     pub signature: Option<ApSignature>,
+    #[serde(skip_serializing_if = "MaybeMultiple::is_none")]
+    #[serde(default)]
     pub to: MaybeMultiple<ApAddress>,
 }
 
@@ -53,17 +56,39 @@ impl Inbox for ApUpdate {
         _channels: EventChannels,
         raw: Value,
     ) -> Result<Status, Status> {
+        let activity: ApActivity = self.clone().into();
+
         match self.clone().object {
             MaybeReference::Actual(actual) => match actual {
                 ApObject::Actor(actor) => {
                     log::debug!("UPDATING ACTOR: {}", actor.clone().id.unwrap_or_default());
+                    let webfinger = actor.get_webfinger().await;
 
-                    if let Ok(new_remote_actor) = NewActor::try_from(actor.clone()) {
-                        if actor.clone().id.unwrap_or_default() == self.actor.clone()
-                            && create_or_update_actor(Some(&conn), new_remote_actor)
+                    if let Ok(mut new_remote_actor) = NewActor::try_from(actor.clone()) {
+                        new_remote_actor.ek_webfinger = webfinger;
+
+                        if actor.clone().id.unwrap_or_default() == self.actor.clone() {
+                            let actor = create_or_update_actor(Some(&conn), new_remote_actor)
                                 .await
-                                .is_ok()
-                        {
+                                .map_err(|e| {
+                                    log::error!("Failed to create or update Actor: {e:#?}");
+                                    Status::InternalServerError
+                                })?;
+
+                            let mut activity =
+                                NewActivity::try_from((activity, Some(actor.into()))).map_err(
+                                    |e| {
+                                        log::error!("Failed to build NewActivity: {e:#?}");
+                                        Status::InternalServerError
+                                    },
+                                )?;
+                            activity.raw = Some(raw);
+
+                            create_activity(Some(&conn), activity).await.map_err(|e| {
+                                log::error!("Failed to create Activity: {e:#?}");
+                                Status::InternalServerError
+                            })?;
+
                             Ok(Status::Accepted)
                         } else {
                             log::error!("FAILED TO HANDLE ACTIVITY\n{raw}");
@@ -78,9 +103,28 @@ impl Inbox for ApUpdate {
                     if let Some(id) = note.clone().id {
                         log::debug!("UPDATING NOTE: {}", id);
 
-                        if note.clone().attributed_to == self.actor.clone()
-                            && create_or_update_object(&conn, note.into()).await.is_ok()
-                        {
+                        if note.clone().attributed_to == self.actor.clone() {
+                            let object = create_or_update_object(&conn, note.into())
+                                .await
+                                .map_err(|e| {
+                                    log::error!("Failed to create or update Note: {e:#?}");
+                                    Status::InternalServerError
+                                })?;
+
+                            let mut activity =
+                                NewActivity::try_from((activity, Some(object.into()))).map_err(
+                                    |e| {
+                                        log::error!("Failed to build NewActivity: {e:#?}");
+                                        Status::InternalServerError
+                                    },
+                                )?;
+                            activity.raw = Some(raw);
+
+                            create_activity(Some(&conn), activity).await.map_err(|e| {
+                                log::error!("Failed to create Activity: {e:#?}");
+                                Status::InternalServerError
+                            })?;
+
                             Ok(Status::Accepted)
                         } else {
                             log::error!("FAILED TO HANDLE ACTIVITY\n{raw}");
@@ -96,11 +140,26 @@ impl Inbox for ApUpdate {
                     let id = question.clone().id;
                     log::debug!("UPDATING QUESTION: {id}");
 
-                    if question.clone().attributed_to == self.actor.clone()
-                        && create_or_update_object(&conn, question.into())
+                    if question.clone().attributed_to == self.actor.clone() {
+                        let object = create_or_update_object(&conn, question.into())
                             .await
-                            .is_ok()
-                    {
+                            .map_err(|e| {
+                                log::error!("Failed to create or update Question: {e:#?}");
+                                Status::InternalServerError
+                            })?;
+
+                        let mut activity = NewActivity::try_from((activity, Some(object.into())))
+                            .map_err(|e| {
+                            log::error!("Failed to build NewActivity: {e:#?}");
+                            Status::InternalServerError
+                        })?;
+                        activity.raw = Some(raw);
+
+                        create_activity(Some(&conn), activity).await.map_err(|e| {
+                            log::error!("Failed to create Activity: {e:#?}");
+                            Status::InternalServerError
+                        })?;
+
                         Ok(Status::Accepted)
                     } else {
                         log::error!("FAILED TO HANDLE ACTIVITY\n{raw}");

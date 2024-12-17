@@ -10,11 +10,22 @@ use serde_json::Value;
 #[diesel(table_name = unprocessable)]
 pub struct NewUnprocessable {
     pub raw: Value,
+    pub error: Option<String>,
 }
 
 impl From<Value> for NewUnprocessable {
     fn from(value: Value) -> Self {
-        NewUnprocessable { raw: value }
+        NewUnprocessable {
+            raw: value,
+            error: None,
+        }
+    }
+}
+
+pub type UnprocessableFields = (Value, Option<String>);
+impl From<UnprocessableFields> for NewUnprocessable {
+    fn from((raw, error): UnprocessableFields) -> Self {
+        NewUnprocessable { raw, error }
     }
 }
 
@@ -26,6 +37,7 @@ pub struct Unprocessable {
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
     pub raw: Value,
+    pub error: Option<String>,
 }
 
 pub async fn create_unprocessable(

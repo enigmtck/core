@@ -54,8 +54,11 @@ pub async fn get_actor(
         match resp.status() {
             StatusCode::ACCEPTED | StatusCode::OK => {
                 let actor = resp.json::<ApActor>().await.ok()?;
-                let new_remote_actor =
+                let webfinger = actor.get_webfinger().await;
+
+                let mut new_remote_actor =
                     NewActor::try_from(cache_actor(conn.unwrap(), &actor).await.clone()).ok()?;
+                new_remote_actor.ek_webfinger = webfinger;
 
                 let remote_actor = create_or_update_actor(conn, new_remote_actor).await.ok()?;
 

@@ -65,6 +65,8 @@ pub struct Ephemeral {
     pub internal_uuid: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub timestamp: Option<DateTime<Utc>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub webfinger: Option<String>,
 }
 
 impl From<Option<Vec<ApActorTerse>>> for Ephemeral {

@@ -51,8 +51,12 @@ lazy_static! {
         Regex::new(r#"<a href="(.+?)".*?>"#).expect("invalid anchor regex");
     pub static ref WEBFINGER_RE: Regex =
         Regex::new(r#"@(.+?)@(.+)"#).expect("invalid webfinger regex");
+    pub static ref WEBFINGER_ACCT_RE: Regex =
+        Regex::new(r#"acct:(.+?)@(.+)"#).expect("invalid webfinger acct regex");
     pub static ref LOCAL_RE: Regex =
         Regex::new(&format!(r#"\w+?://{}/(.+)"#, *SERVER_NAME)).expect("invalid local regex");
+    pub static ref DOMAIN_RE: Regex =
+        Regex::new(&format!(r#"https://([\w\.-]+)/?(.*)"#)).expect("invalid domain regex");
     pub static ref LOCAL_URL_RE: Regex = Regex::new(&format!(
         r#"^{}/(user|notes|session|collections|activities|objects|instruments)/(.+)$"#,
         *SERVER_URL
@@ -61,8 +65,6 @@ lazy_static! {
     pub static ref LOCAL_USER_KEY_ID_RE: Regex =
         Regex::new(&format!(r#"(\w+://{}/user/(.+?))#(.+)"#, *SERVER_NAME))
             .expect("invalid local user key id regex");
-    pub static ref DOMAIN_RE: Regex =
-        Regex::new(r#"https://(.+?)/.+"#).expect("invalid domain name regex");
     pub static ref ASSIGNMENT_RE: Regex =
         Regex::new(r#"(\w+)="(.+?)""#).expect("invalid assignment regex");
     pub static ref POOL: Pool = {

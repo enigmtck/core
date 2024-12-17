@@ -1,6 +1,8 @@
+use anyhow::Result;
+use reqwest::Client;
 use serde::{Deserialize, Serialize};
 
-use crate::models::actors::Actor;
+use crate::{models::actors::Actor, WEBFINGER_ACCT_RE};
 
 #[derive(Serialize, Deserialize, Clone, Default, Debug)]
 pub struct WebFingerLink {
@@ -21,6 +23,39 @@ pub struct WebFinger {
     pub links: Vec<WebFingerLink>,
 }
 
+impl WebFinger {
+    pub fn get_address(&self) -> Option<String> {
+        let captures = WEBFINGER_ACCT_RE.captures_iter(&self.subject).next()?;
+
+        let username = captures.get(1)?.as_str();
+        let domain = captures.get(2)?.as_str();
+
+        Some(format!("@{username}@{domain}"))
+    }
+
+    pub fn get_id(&self) -> Option<String> {
+        self.links
+            .iter()
+            .filter_map(|x| {
+                if x.kind == Some("application/activity+json".to_string())
+                || x.kind
+                    == Some(
+                        "application/ld+json; profile=\"https://www.w3.org/ns/activitystreams\""
+                            .to_string(),
+                    )
+            {
+                x.href.clone()
+            } else {
+                None
+            }
+            })
+            .take(1)
+            .next()
+    }
+}
+
+// This function is used in routes/webfinger.rs to create a struct for internal users.
+// It's not useful to get a WebFinger for a remote Actor.
 impl From<Actor> for WebFinger {
     fn from(profile: Actor) -> Self {
         let server_url = &*crate::SERVER_URL;
@@ -61,24 +96,27 @@ impl From<Actor> for WebFinger {
                     )),
                     ..Default::default()
                 },
-                // WebFingerLink {
-                //     rel: "self".to_string(),
-                //     kind: Option::from(
-                //         "application/ld+json; profile=\"https://www.w3.org/ns/activitystreams\""
-                //             .to_string(),
-                //     ),
-                //     href: Option::from(format!("{}/user/{}", server_url, profile.username)),
-                //     ..Default::default()
-                // },
-                // WebFingerLink {
-                //     rel: "http://ostatus.org/schema/1.0/subscribe".to_string(),
-                //     kind: Option::None,
-                //     href: Option::None,
-                //     template: Option::from(format!(
-                //         "{server_url}/authorize_interaction?uri={{uri}}"
-                //     )),
-                // },
             ],
         }
     }
+}
+
+pub async fn retrieve_webfinger(domain: String, username: String) -> Result<WebFinger> {
+    let url = format!("https://{domain}/.well-known/webfinger?resource=acct:{username}@{domain}");
+    let accept = "application/jrd+json";
+    let agent = "Enigmatick/0.1";
+
+    let response = Client::builder()
+        .user_agent(agent)
+        .build()
+        .unwrap()
+        .get(url)
+        .header("Accept", accept)
+        .send()
+        .await
+        .map_err(anyhow::Error::msg)?;
+
+    let json = response.json().await?;
+
+    serde_json::from_value(json).map_err(anyhow::Error::msg)
 }

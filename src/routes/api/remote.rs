@@ -24,13 +24,11 @@ pub async fn remote_id(blocks: BlockList, conn: Db, id: &str) -> Result<String, 
     if blocks.is_blocked(get_domain_from_url(id.clone())) {
         Err(Status::Forbidden)
     } else {
-        get_actor(&conn, id, None, true)
-            .await
-            .map(|actor| actor.get_webfinger().unwrap_or_default())
-            .map_err(|e| {
-                log::error!("FAILED TO RETRIEVE WEBFINGER: {e:#?}");
-                Status::NotFound
-            })
+        let actor = get_actor(&conn, id, None, true).await.map_err(|e| {
+            log::error!("Failed to retrieve Actor: {e:#?}");
+            Status::NotFound
+        })?;
+        actor.get_webfinger().await.ok_or(Status::NotFound)
     }
 }
 
@@ -56,13 +54,13 @@ pub async fn remote_id_authenticated(
             .await
             .ok_or(Status::NotFound)?;
 
-        get_actor(&conn, id, Some(profile), true)
+        let actor = get_actor(&conn, id, Some(profile), true)
             .await
-            .map(|actor| actor.get_webfinger().unwrap_or_default())
             .map_err(|e| {
-                log::error!("FAILED TO RETRIEVE WEBFINGER: {e:#?}");
+                log::error!("Failed to retrieve Actor: {e:#?}");
                 Status::NotFound
-            })
+            })?;
+        actor.get_webfinger().await.ok_or(Status::NotFound)
     } else {
         log::error!("BAD SIGNATURE");
         Err(Status::Unauthorized)
@@ -73,7 +71,7 @@ async fn remote_actor_response(conn: &Db, webfinger: String) -> Result<Json<ApAc
     if let Some(actor) = get_actor_by_webfinger(conn, webfinger.clone()).await {
         log::debug!("FOUND REMOTE ACTOR LOCALLY");
         Ok(Json(ApActor::from(actor)))
-    } else if let Some(ap_id) = get_ap_id_from_webfinger(webfinger).await {
+    } else if let Ok(ap_id) = get_ap_id_from_webfinger(webfinger).await {
         log::debug!("RETRIEVING ACTOR WEBFINGER FROM REMOTE OR LOCAL PROFILE");
         if let Ok(actor) = get_actor(conn, ap_id, None, true).await {
             Ok(Json(actor))
@@ -101,34 +99,30 @@ pub async fn remote_actor(
     }
 }
 
-async fn remote_actor_authenticated_response(
-    signed: Signed,
-    conn: &Db,
-    webfinger: String,
-) -> Result<Json<ApActor>, Status> {
-    if let Some(profile) = signed.profile() {
-        let ap_id = get_ap_id_from_webfinger(webfinger).await.ok_or_else(|| {
-            log::error!("Failed to get ActivityPub ID from Webfinger");
-            Status::NotFound
-        })?;
-
-        Ok(Json(
-            get_actor(conn, ap_id, Some(profile), true)
-                .await
-                .map_err(|e| {
-                    log::error!("Failed to retrieve Actor: {e:#?}");
-                    Status::NotFound
-                })?,
-        ))
-    } else {
-        Err(Status::Unauthorized)
-    }
-}
+// async fn remote_actor_authenticated_response(
+//     signed: Signed,
+//     conn: &Db,
+//     webfinger: String,
+// ) -> Result<Json<ApActor>, Status> {
+//     if signed.local() {
+//         Ok(Json(
+//             get_actor_by_webfinger(conn, webfinger)
+//                 .await
+//                 .ok_or_else(|| {
+//                     log::error!("Failed to retrieve Actor");
+//                     Status::NotFound
+//                 })?
+//                 .into(),
+//         ))
+//     } else {
+//         Err(Status::Unauthorized)
+//     }
+// }
 
 #[get("/api/user/<_username>/remote/actor?<webfinger>")]
 pub async fn remote_actor_authenticated(
     blocks: BlockList,
-    signed: Signed,
+    //signed: Signed,
     conn: Db,
     _username: &str,
     webfinger: &str,
@@ -136,7 +130,7 @@ pub async fn remote_actor_authenticated(
     if blocks.is_blocked(get_domain_from_webfinger(webfinger.to_string())) {
         Err(Status::Forbidden)
     } else {
-        remote_actor_authenticated_response(signed, &conn, webfinger.to_string()).await
+        remote_actor_response(&conn, webfinger.to_string()).await
     }
 }
 
@@ -206,9 +200,7 @@ pub async fn remote_followers_authenticated(
     if blocks.is_blocked(get_domain_from_webfinger(webfinger.to_string())) {
         Err(Status::Forbidden)
     } else if let Some(profile) = signed.profile() {
-        if let Ok(Json(actor)) =
-            remote_actor_authenticated_response(signed, &conn, webfinger.to_string()).await
-        {
+        if let Ok(Json(actor)) = remote_actor_response(&conn, webfinger.to_string()).await {
             let followers = actor.followers.ok_or(Status::InternalServerError)?;
             if let Some(page) = page {
                 let url = urlencoding::decode(page).map_err(|e| {
@@ -307,9 +299,7 @@ pub async fn remote_following_authenticated(
     if blocks.is_blocked(get_domain_from_webfinger(webfinger.to_string())) {
         Err(Status::Forbidden)
     } else if let Some(profile) = signed.profile() {
-        if let Ok(Json(actor)) =
-            remote_actor_authenticated_response(signed, &conn, webfinger.to_string()).await
-        {
+        if let Ok(Json(actor)) = remote_actor_response(&conn, webfinger.to_string()).await {
             let following = actor.following.ok_or(Status::InternalServerError)?;
             if let Some(page) = page {
                 let url = urlencoding::decode(page).map_err(|e| {
@@ -454,8 +444,7 @@ pub async fn remote_keys_authenticated(
     if blocks.is_blocked(get_domain_from_webfinger(webfinger.to_string())) {
         Err(Status::Forbidden)
     } else if let Some(profile) = signed.profile() {
-        let Json(actor) =
-            remote_actor_authenticated_response(signed, &conn, webfinger.to_string()).await?;
+        let Json(actor) = remote_actor_response(&conn, webfinger.to_string()).await?;
 
         let keys = actor.keys.ok_or_else(|| {
             log::error!("Actor must have a Keys collection");

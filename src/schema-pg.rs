@@ -328,6 +328,7 @@ diesel::table! {
         created_at -> Timestamptz,
         updated_at -> Timestamptz,
         raw -> Jsonb,
+        error -> Nullable<Text>,
     }
 }
 

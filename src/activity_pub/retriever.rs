@@ -44,8 +44,8 @@ pub async fn get_remote_collection(
     Ok(page.cache(conn).await.clone())
 }
 
-pub async fn get_ap_id_from_webfinger(acct: String) -> Option<String> {
-    let webfinger = get_remote_webfinger(acct).await.ok()?;
+pub async fn get_ap_id_from_webfinger(acct: String) -> Result<String> {
+    let webfinger = get_remote_webfinger(acct).await?;
 
     webfinger
         .links
@@ -65,6 +65,7 @@ pub async fn get_ap_id_from_webfinger(acct: String) -> Option<String> {
         })
         .take(1)
         .next()
+        .ok_or(anyhow!("Failed to find usable link"))
 }
 
 async fn get_remote_webfinger(handle: String) -> Result<WebFinger> {
@@ -172,7 +173,11 @@ pub async fn process_remote_actor_retrieval(
 
     let text = response.text().await?;
     let actor = serde_json::from_str::<ApActor>(&text)?;
-    let actor = NewActor::try_from(actor.cache(conn).await.clone()).map_err(anyhow::Error::msg)?;
+    let webfinger = actor.get_webfinger().await;
+    let mut actor =
+        NewActor::try_from(actor.cache(conn).await.clone()).map_err(anyhow::Error::msg)?;
+    actor.ek_webfinger = webfinger;
+
     let actor = create_or_update_actor(Some(conn), actor)
         .await
         .context("FAILED TO CREATE OR UPDATE ACTOR")?;

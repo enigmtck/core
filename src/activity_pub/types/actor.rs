@@ -15,6 +15,7 @@ use crate::models::followers::get_follower_count_by_actor_id;
 use crate::models::leaders::{get_leader_count_by_actor_id, Leader};
 use crate::models::{from_serde, from_serde_option};
 use crate::routes::ActivityJson;
+use crate::webfinger::retrieve_webfinger;
 use crate::{MaybeMultiple, DOMAIN_RE};
 use lazy_static::lazy_static;
 use rocket::http::Status;
@@ -356,10 +357,14 @@ impl ApActor {
         self.clone()
     }
 
-    pub fn get_webfinger(&self) -> Option<String> {
+    pub async fn get_webfinger(&self) -> Option<String> {
         let id = self.id.clone()?.to_string();
-        let server_name = DOMAIN_RE.captures(&id)?.get(1)?.as_str();
-        Some(format!("@{}@{}", self.preferred_username, server_name))
+        let domain = DOMAIN_RE.captures(&id)?.get(1)?.as_str().to_string();
+        let username = self.preferred_username.clone();
+
+        let webfinger = retrieve_webfinger(domain, username).await.ok()?;
+
+        webfinger.get_address()
     }
 
     pub fn get_hashtags(&self) -> Vec<String> {

@@ -1,6 +1,6 @@
 use crate::activity_pub::{
     ApAcceptType, ApActivity, ApAddress, ApAnnounceType, ApCreateType, ApDeleteType, ApFollowType,
-    ApLikeType, ApUndoType,
+    ApLikeType, ApObject, ApUndoType, ApUpdateType,
 };
 use crate::db::Db;
 use crate::helper::get_activity_ap_id_from_uuid;
@@ -115,6 +115,12 @@ impl From<ApAcceptType> for ActivityType {
 impl From<ApUndoType> for ActivityType {
     fn from(_: ApUndoType) -> Self {
         ActivityType::Undo
+    }
+}
+
+impl From<ApUpdateType> for ActivityType {
+    fn from(_: ApUpdateType) -> Self {
+        ActivityType::Update
     }
 }
 
@@ -321,6 +327,48 @@ impl TryFrom<ApActivityTarget> for NewActivity {
                     Err(anyhow!("ACCEPT OBJECT NOT AN ACTUAL"))
                 }
             }
+            ApActivity::Update(update) => match update.object {
+                MaybeReference::Actual(ApObject::Actor(actor)) => Ok(NewActivity {
+                    kind: to_kind(update.kind.into()),
+                    uuid: uuid.clone(),
+                    actor: update.actor.to_string(),
+                    target_ap_id: actor.id.map(|x| x.to_string()),
+                    revoked: false,
+                    ap_id: update
+                        .id
+                        .map_or(Some(get_activity_ap_id_from_uuid(uuid)), Some),
+                    ..Default::default()
+                }
+                .link_target(target)
+                .clone()),
+                MaybeReference::Actual(ApObject::Note(object)) => Ok(NewActivity {
+                    kind: to_kind(update.kind.into()),
+                    uuid: uuid.clone(),
+                    actor: update.actor.to_string(),
+                    target_ap_id: object.id.map(|x| x.to_string()),
+                    revoked: false,
+                    ap_id: update
+                        .id
+                        .map_or(Some(get_activity_ap_id_from_uuid(uuid)), Some),
+                    ..Default::default()
+                }
+                .link_target(target)
+                .clone()),
+                MaybeReference::Actual(ApObject::Question(object)) => Ok(NewActivity {
+                    kind: to_kind(update.kind.into()),
+                    uuid: uuid.clone(),
+                    actor: update.actor.to_string(),
+                    target_ap_id: Some(object.id),
+                    revoked: false,
+                    ap_id: update
+                        .id
+                        .map_or(Some(get_activity_ap_id_from_uuid(uuid)), Some),
+                    ..Default::default()
+                }
+                .link_target(target)
+                .clone()),
+                _ => Err(anyhow!("UPDATE OBJECT NOT IMPLEMENTED")),
+            },
             ApActivity::Undo(undo) => match undo.object {
                 MaybeReference::Actual(ApActivity::Follow(follow)) => Ok(NewActivity {
                     kind: to_kind(undo.kind.into()),
