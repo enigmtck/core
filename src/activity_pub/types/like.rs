@@ -43,8 +43,9 @@ pub struct ApLike {
     #[serde(rename = "type")]
     pub kind: ApLikeType,
     pub actor: ApAddress,
-    #[serde(skip_serializing)]
-    pub to: Option<MaybeMultiple<ApAddress>>,
+    #[serde(skip_serializing_if = "MaybeMultiple::is_none")]
+    #[serde(default)]
+    pub to: MaybeMultiple<ApAddress>,
     pub id: Option<String>,
     pub object: MaybeReference<ApObject>,
 }
@@ -226,7 +227,7 @@ impl TryFrom<ExtendedActivity> for ApLike {
             kind: ApLikeType::default(),
             actor: activity.actor.into(),
             id: activity.ap_id,
-            to: Some(MaybeMultiple::Single(ApAddress::Address(id))),
+            to: MaybeMultiple::Single(ApAddress::Address(id)),
             object,
         })
     }

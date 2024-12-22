@@ -24,7 +24,6 @@ use self::{actor::get_actor, user::get_follower_inboxes};
 pub mod actor;
 pub mod announce;
 pub mod cache;
-//pub mod encrypted;
 pub mod note;
 pub mod question;
 pub mod user;
@@ -188,13 +187,13 @@ pub async fn get_inboxes(conn: Option<&Db>, activity: ApActivity, sender: Actor)
     let mut inboxes = HashSet::<ApAddress>::new();
 
     let (to, cc) = match activity {
-        ApActivity::Create(activity) => (Some(activity.to), activity.cc),
-        ApActivity::Delete(activity) => (Some(activity.to), activity.cc),
-        ApActivity::Announce(activity) => (Some(activity.to), activity.cc),
-        ApActivity::Like(activity) => (activity.to, None),
+        ApActivity::Create(activity) => (activity.to.option(), activity.cc.option()),
+        ApActivity::Delete(activity) => (activity.to.option(), activity.cc.option()),
+        ApActivity::Announce(activity) => (activity.to.option(), activity.cc.option()),
+        ApActivity::Like(activity) => (activity.to.option(), None),
         ApActivity::Follow(activity) => {
             if let MaybeReference::Reference(id) = activity.object {
-                (Some(MaybeMultiple::Single(ApAddress::Address(id))), None)
+                (Some(vec![ApAddress::Address(id)]), None)
             } else {
                 (None, None)
             }
@@ -204,19 +203,15 @@ pub async fn get_inboxes(conn: Option<&Db>, activity: ApActivity, sender: Actor)
                 match target_activity {
                     ApActivity::Follow(follow) => {
                         if let MaybeReference::Reference(target) = follow.object {
-                            (
-                                Some(MaybeMultiple::Single(ApAddress::Address(target))),
-                                None,
-                            )
+                            (Some(vec![ApAddress::Address(target)]), None)
                         } else {
                             (None, None)
                         }
                     }
-                    ApActivity::Like(like) => (like.to, None),
-                    ApActivity::Announce(announce) => (
-                        announce.cc,
-                        Some(MaybeMultiple::Single(ApAddress::get_public())),
-                    ),
+                    ApActivity::Like(like) => (like.to.option(), None),
+                    ApActivity::Announce(announce) => {
+                        (announce.cc.option(), Some(vec![ApAddress::get_public()]))
+                    }
                     _ => (None, None),
                 }
             } else {
@@ -227,24 +222,16 @@ pub async fn get_inboxes(conn: Option<&Db>, activity: ApActivity, sender: Actor)
     };
 
     let consolidated = match (to, cc) {
-        (Some(to), Some(MaybeMultiple::Multiple(cc))) => to.extend(cc),
-        (Some(to), Some(MaybeMultiple::Single(cc))) => to.extend(vec![cc]),
-        (Some(to), Some(MaybeMultiple::None)) => to,
-        (Some(to), None) => to,
-        (None, Some(cc)) => cc,
-        (None, None) => MaybeMultiple::None,
+        (Some(to), Some(cc)) => Some(vec![to, cc].concat()),
+        (Some(to), None) => Some(to),
+        (None, Some(cc)) => Some(cc),
+        (None, None) => None,
     };
 
-    match consolidated {
-        MaybeMultiple::Single(to) => {
-            handle_recipients(conn, &mut inboxes, &sender, &to).await;
+    if let Some(consolidated) = consolidated {
+        for address in consolidated.iter() {
+            handle_recipients(conn, &mut inboxes, &sender, address).await;
         }
-        MaybeMultiple::Multiple(to) => {
-            for address in to.iter() {
-                handle_recipients(conn, &mut inboxes, &sender, address).await;
-            }
-        }
-        MaybeMultiple::None => {}
     }
 
     inboxes.into_iter().collect()

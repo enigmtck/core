@@ -129,7 +129,7 @@ impl From<ApNote> for NewObject {
             as_id: note.id.clone().unwrap(),
             as_attributed_to: to_serde(&Some(note.attributed_to.to_string())),
             as_to: to_serde(&Some(note.to)),
-            as_cc: to_serde(&note.cc),
+            as_cc: to_serde(&note.cc.option()),
             as_replies: to_serde(&note.replies),
             as_tag: to_serde(&note.tag),
             as_content: Some(ammonia.clean(&note.content).to_string()),

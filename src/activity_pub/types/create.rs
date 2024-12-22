@@ -78,8 +78,9 @@ pub struct ApCreate {
     pub kind: ApCreateType,
     pub actor: ApAddress,
     pub to: MaybeMultiple<ApAddress>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub cc: Option<MaybeMultiple<ApAddress>>,
+    #[serde(skip_serializing_if = "MaybeMultiple::is_none")]
+    #[serde(default)]
+    pub cc: MaybeMultiple<ApAddress>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub id: Option<String>,
     pub object: MaybeReference<ApObject>,
@@ -223,7 +224,7 @@ impl TryFrom<CoalescedActivity> for ApCreate {
             .clone()
             .and_then(from_serde)
             .ok_or_else(|| anyhow::anyhow!("ap_to is None"))?;
-        let cc = coalesced.clone().cc.and_then(from_serde);
+        let cc = coalesced.clone().cc.into();
         let signature = None;
         let published = Some(ActivityPub::time(from_time(coalesced.created_at).unwrap()));
         let ephemeral = Some(Ephemeral {
@@ -292,7 +293,7 @@ impl TryFrom<EncryptedActivity> for ApCreate {
             id: activity.ap_id,
             object: note.into(),
             to: from_serde(ap_to).unwrap(),
-            cc: activity.cc.and_then(from_serde),
+            cc: activity.cc.into(),
             signature: None,
             published: Some(ActivityPub::time(from_time(activity.created_at).unwrap())),
             ephemeral: Some(Ephemeral {
@@ -348,7 +349,7 @@ impl TryFrom<ExtendedActivity> for ApCreate {
             id: activity.ap_id,
             object: note.into(),
             to: from_serde(ap_to).unwrap(),
-            cc: activity.cc.and_then(from_serde),
+            cc: activity.cc.into(),
             signature: None,
             published: Some(ActivityPub::time(from_time(activity.created_at).unwrap())),
             ephemeral: Some(Ephemeral {

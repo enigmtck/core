@@ -63,7 +63,9 @@ pub struct ApAnnounce {
     pub actor: ApAddress,
     pub id: Option<String>,
     pub to: MaybeMultiple<ApAddress>,
-    pub cc: Option<MaybeMultiple<ApAddress>>,
+    #[serde(skip_serializing_if = "MaybeMultiple::is_none")]
+    #[serde(default)]
+    pub cc: MaybeMultiple<ApAddress>,
     pub published: String,
     pub object: MaybeReference<ApObject>,
 
@@ -206,7 +208,7 @@ impl TryFrom<CoalescedActivity> for ApAnnounce {
             .clone()
             .and_then(from_serde)
             .ok_or(anyhow!("ap_to is None"))?;
-        let cc = coalesced.clone().cc.and_then(from_serde);
+        let cc = coalesced.clone().cc.into();
         let published = ActivityPub::time(from_time(coalesced.created_at).unwrap());
         let ephemeral = Some(Ephemeral {
             created_at: from_time(coalesced.created_at),
@@ -250,7 +252,7 @@ impl TryFrom<ExtendedActivity> for ApAnnounce {
                     activity.uuid
                 )),
                 to: from_serde(ap_to).unwrap(),
-                cc: activity.cc.and_then(from_serde),
+                cc: activity.cc.into(),
                 published: ActivityPub::time(from_time(activity.created_at).unwrap()),
                 object,
                 ephemeral: Some(Ephemeral {

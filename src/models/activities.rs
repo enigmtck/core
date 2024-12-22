@@ -254,7 +254,7 @@ impl TryFrom<ApActivityTarget> for NewActivity {
                 uuid: uuid.clone(),
                 actor: create.actor.to_string(),
                 ap_to: to_serde(&Some(create.to)),
-                cc: to_serde(&create.cc),
+                cc: to_serde(&create.cc.option()),
                 revoked: false,
                 ap_id: create
                     .id
@@ -269,7 +269,7 @@ impl TryFrom<ApActivityTarget> for NewActivity {
                 uuid: uuid.clone(),
                 actor: delete.actor.to_string(),
                 ap_to: to_serde(&Some(delete.to)),
-                cc: to_serde(&delete.cc),
+                cc: (&delete.cc).into(),
                 target_ap_id: delete.object.reference(),
                 revoked: false,
                 ap_id: delete
@@ -284,7 +284,7 @@ impl TryFrom<ApActivityTarget> for NewActivity {
                 uuid: uuid.clone(),
                 actor: announce.actor.to_string(),
                 ap_to: to_serde(&Some(announce.to)),
-                cc: to_serde(&announce.cc),
+                cc: (&announce.cc).into(),
                 target_ap_id: announce.object.reference(),
                 revoked: false,
                 ap_id: announce

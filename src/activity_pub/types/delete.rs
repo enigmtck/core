@@ -17,11 +17,7 @@ use crate::{
         Tombstone,
     },
     runner,
-    runner::{
-        //encrypted::handle_encrypted_note,
-        get_inboxes,
-        send_to_inboxes,
-    },
+    runner::{get_inboxes, send_to_inboxes},
     MaybeMultiple, MaybeReference,
 };
 use anyhow::anyhow;
@@ -56,8 +52,12 @@ pub struct ApDelete {
     pub id: Option<String>,
     pub object: MaybeReference<ApObject>,
     pub signature: Option<ApSignature>,
+    #[serde(skip_serializing_if = "MaybeMultiple::is_none")]
+    #[serde(default)]
     pub to: MaybeMultiple<ApAddress>,
-    pub cc: Option<MaybeMultiple<ApAddress>>,
+    #[serde(skip_serializing_if = "MaybeMultiple::is_none")]
+    #[serde(default)]
+    pub cc: MaybeMultiple<ApAddress>,
 }
 
 impl Inbox for Box<ApDelete> {

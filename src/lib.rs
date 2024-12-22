@@ -310,6 +310,14 @@ impl<T: Clone> MaybeMultiple<T> {
             MaybeMultiple::None => additional.clone().into(),
         }
     }
+
+    pub fn option(&self) -> Option<Vec<T>> {
+        match self {
+            MaybeMultiple::Multiple(v) => Some(v.clone()),
+            MaybeMultiple::Single(s) => Some(vec![s.clone()]),
+            MaybeMultiple::None => None,
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]

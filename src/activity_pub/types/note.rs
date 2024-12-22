@@ -174,8 +174,9 @@ pub struct ApNote {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub url: Option<String>,
     pub published: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub cc: Option<MaybeMultiple<ApAddress>>,
+    #[serde(skip_serializing_if = "MaybeMultiple::is_none")]
+    #[serde(default)]
+    pub cc: MaybeMultiple<ApAddress>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub replies: Option<ApCollection>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -613,7 +614,7 @@ impl Default for ApNote {
             to: MaybeMultiple::Multiple(vec![]),
             url: None,
             published: ActivityPub::time(Utc::now()),
-            cc: None,
+            cc: MaybeMultiple::None,
             replies: None,
             attachment: None,
             in_reply_to: None,
@@ -693,7 +694,7 @@ impl TryFrom<CoalescedActivity> for ApNote {
             .object_to
             .and_then(from_serde)
             .ok_or_else(|| anyhow::anyhow!("object_to is None"))?;
-        let cc = coalesced.object_cc.and_then(from_serde);
+        let cc: MaybeMultiple<ApAddress> = coalesced.object_cc.into();
         let tag = coalesced.object_tag.and_then(from_serde);
         let attributed_to = coalesced
             .object_attributed_to
@@ -758,7 +759,7 @@ impl TryFrom<Object> for ApNote {
                     .clone()
                     .and_then(from_serde)
                     .unwrap_or(vec![].into()),
-                cc: object.as_cc.clone().and_then(from_serde),
+                cc: object.as_cc.clone().into(),
                 tag: object.as_tag.clone().and_then(from_serde),
                 attributed_to: from_serde(
                     object.as_attributed_to.ok_or(anyhow!("no attributed_to"))?,
