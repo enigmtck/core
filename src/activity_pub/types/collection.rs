@@ -173,8 +173,6 @@ impl From<ApCollectionParams> for ApCollection {
 type ApCollectionPageParams = (Vec<ActivityPub>, Option<String>);
 impl From<ApCollectionPageParams> for ApCollection {
     fn from((objects, base_url): ApCollectionPageParams) -> Self {
-        //objects.sort_by_key(|x| Reverse(x.timestamp()));
-
         ApCollection {
             kind: ApCollectionType::OrderedCollectionPage,
             total_items: None,

@@ -321,8 +321,7 @@ fn query_end_block(mut query: String) -> String {
          announced.object_announced, liked.object_liked, vaulted.vault_id,\
          vaulted.vault_created_at, vaulted.vault_updated_at, vaulted.vault_uuid, vaulted.vault_owner_as_id,\
          vaulted.vault_activity_id, vaulted.vault_data, olm.olm_data, olm.olm_hash, olm.olm_conversation,\
-         olm.olm_created_at, olm.olm_updated_at, olm.olm_owner, olm.olm_uuid, olm.olm_owner_id \
-         ORDER BY m.created_at DESC");
+         olm.olm_created_at, olm.olm_updated_at, olm.olm_owner, olm.olm_uuid, olm.olm_owner_id ");
     query
 }
 
@@ -466,7 +465,7 @@ fn build_main_query(
             }
         }
 
-        if min.is_some() && min.unwrap() == 0 {
+        if (min.is_some() && min.unwrap() == 0) || params.conversation.clone().is_some() {
             query.push_str(&format!("ORDER BY created_at ASC LIMIT {}), ", param_gen()));
         } else {
             query.push_str(&format!(
@@ -536,7 +535,13 @@ fn build_main_query(
         );
     }
 
-    let query = query_end_block(query);
+    let mut query = query_end_block(query);
+
+    if params.conversation.is_some() {
+        query.push_str("ORDER BY m.created_at ASC");
+    } else {
+        query.push_str("ORDER BY m.created_at DESC");
+    }
 
     params.query = Some(query);
 
