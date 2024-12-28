@@ -9,17 +9,16 @@ use crate::{
     db::Db,
     fairings::events::EventChannels,
     models::{
+        activities::EncryptedActivity,
         activities::{
             create_activity, get_activity_by_ap_id, ActivityTarget, ActivityType, ExtendedActivity,
             NewActivity,
         },
         actors::Actor,
-        from_serde, from_time,
+        coalesced_activity::CoalescedActivity,
+        from_serde,
+        objects::ObjectType,
         objects::{create_or_update_object, NewObject},
-        pg::{
-            activities::EncryptedActivity, coalesced_activity::CoalescedActivity,
-            objects::ObjectType,
-        },
     },
     routes::ActivityJson,
     runner, MaybeMultiple, MaybeReference,
@@ -128,7 +127,7 @@ impl Inbox for ApCreate {
                 if create_activity((&conn).into(), activity).await.is_ok() {
                     runner::run(
                         runner::note::object_task,
-                        Some(conn),
+                        conn,
                         Some(channels),
                         vec![object.as_id],
                     )
@@ -162,7 +161,7 @@ impl Inbox for ApCreate {
                 if create_activity((&conn).into(), activity).await.is_ok() {
                     runner::run(
                         runner::note::object_task,
-                        Some(conn),
+                        conn,
                         Some(channels),
                         vec![object.as_id],
                     )
@@ -226,10 +225,10 @@ impl TryFrom<CoalescedActivity> for ApCreate {
             .ok_or_else(|| anyhow::anyhow!("ap_to is None"))?;
         let cc = coalesced.clone().cc.into();
         let signature = None;
-        let published = Some(ActivityPub::time(from_time(coalesced.created_at).unwrap()));
+        let published = Some(ActivityPub::time(coalesced.created_at));
         let ephemeral = Some(Ephemeral {
-            created_at: from_time(coalesced.created_at),
-            updated_at: from_time(coalesced.updated_at),
+            created_at: Some(coalesced.created_at),
+            updated_at: Some(coalesced.updated_at),
             ..Default::default()
         });
 
@@ -295,10 +294,10 @@ impl TryFrom<EncryptedActivity> for ApCreate {
             to: from_serde(ap_to).unwrap(),
             cc: activity.cc.into(),
             signature: None,
-            published: Some(ActivityPub::time(from_time(activity.created_at).unwrap())),
+            published: Some(ActivityPub::time(activity.created_at)),
             ephemeral: Some(Ephemeral {
-                created_at: from_time(activity.created_at),
-                updated_at: from_time(activity.updated_at),
+                created_at: Some(activity.created_at),
+                updated_at: Some(activity.updated_at),
                 ..Default::default()
             }),
             instrument,
@@ -351,10 +350,10 @@ impl TryFrom<ExtendedActivity> for ApCreate {
             to: from_serde(ap_to).unwrap(),
             cc: activity.cc.into(),
             signature: None,
-            published: Some(ActivityPub::time(from_time(activity.created_at).unwrap())),
+            published: Some(ActivityPub::time(activity.created_at)),
             ephemeral: Some(Ephemeral {
-                created_at: from_time(activity.created_at),
-                updated_at: from_time(activity.updated_at),
+                created_at: Some(activity.created_at),
+                updated_at: Some(activity.updated_at),
                 ..Default::default()
             }),
             instrument,

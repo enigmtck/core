@@ -31,14 +31,12 @@ pub async fn get_follower_inboxes(conn: &Db, profile: Actor) -> Vec<ApAddress> {
 }
 
 pub async fn send_profile_update_task(
-    conn: Option<Db>,
+    conn: Db,
     _channels: Option<EventChannels>,
     uuids: Vec<String>,
 ) -> Result<(), TaskError> {
-    let conn = conn.as_ref();
-
     for uuid in uuids {
-        let profile = get_actor_by_uuid(conn.unwrap(), uuid)
+        let profile = get_actor_by_uuid(&conn, uuid)
             .await
             .ok_or(TaskError::TaskFailed)?;
 
@@ -48,8 +46,8 @@ pub async fn send_profile_update_task(
         })?;
 
         send_to_inboxes(
-            conn.unwrap(),
-            get_follower_inboxes(conn.unwrap(), profile.clone()).await,
+            &conn,
+            get_follower_inboxes(&conn, profile.clone()).await,
             profile,
             ApActivity::Update(update),
         )

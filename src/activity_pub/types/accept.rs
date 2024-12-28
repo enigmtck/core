@@ -85,7 +85,7 @@ impl Inbox for Box<ApAccept> {
 
         runner::run(
             ApAccept::process,
-            Some(conn),
+            conn,
             Some(channels),
             vec![accept.ap_id.clone().ok_or(Status::InternalServerError)?],
         )
@@ -101,17 +101,14 @@ impl Inbox for Box<ApAccept> {
 
 impl ApAccept {
     async fn process(
-        conn: Option<Db>,
+        conn: Db,
         _channels: Option<EventChannels>,
         as_ids: Vec<String>,
     ) -> Result<(), TaskError> {
-        let conn = conn.as_ref();
-
         for as_id in as_ids {
-            let (accept, follow, target_object, target_actor) =
-                get_activity_by_ap_id(conn.ok_or(TaskError::TaskFailed)?, as_id)
-                    .await
-                    .ok_or(TaskError::TaskFailed)?;
+            let (accept, follow, target_object, target_actor) = get_activity_by_ap_id(&conn, as_id)
+                .await
+                .ok_or(TaskError::TaskFailed)?;
 
             let accept = ApAccept::try_from((accept, follow.clone(), target_object, target_actor))
                 .map_err(|e| {
@@ -121,7 +118,7 @@ impl ApAccept {
 
             let follow = follow.ok_or(TaskError::TaskFailed)?;
 
-            let profile = get_actor_by_as_id(conn.unwrap(), follow.actor.to_string())
+            let profile = get_actor_by_as_id(&conn, follow.actor.to_string())
                 .await
                 .map_err(|e| {
                     log::error!("FAILED TO RETRIEVE ACTOR: {e:#?}");
@@ -135,7 +132,7 @@ impl ApAccept {
                 })?
                 .link(profile);
 
-            let leader = create_leader(conn, leader.clone())
+            let leader = create_leader(Some(&conn), leader.clone())
                 .await
                 .ok_or(TaskError::TaskFailed)?;
 

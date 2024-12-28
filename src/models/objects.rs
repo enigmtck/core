@@ -1,39 +1,263 @@
-use std::collections::HashMap;
-
+use super::actors::Actor;
+use super::coalesced_activity::CoalescedActivity;
+use super::from_serde;
 use crate::activity_pub::{
     ApAddress, ApHashtag, ApNote, ApNoteType, ApObject, ApQuestion, ApQuestionType,
 };
 use crate::db::Db;
-use crate::models::{to_serde, to_time};
 use crate::schema::objects;
 use crate::{MaybeMultiple, POOL};
 use anyhow::{anyhow, Result};
 use chrono::{DateTime, Utc};
+use convert_case::{Case, Casing};
 use diesel::prelude::*;
+use diesel::{AsChangeset, Identifiable, Insertable, Queryable};
 use maplit::{hashmap, hashset};
+use serde::{Deserialize, Serialize};
 use serde_json::json;
+use serde_json::Value;
+use std::collections::HashMap;
+use std::fmt::{self, Debug};
 
-use super::actors::Actor;
-use super::from_serde;
+#[derive(
+    diesel_derive_enum::DbEnum, Debug, Serialize, Deserialize, Default, Clone, Eq, PartialEq,
+)]
+#[ExistingTypePath = "crate::schema::sql_types::ObjectType"]
+pub enum ObjectType {
+    Article,
+    Audio,
+    Document,
+    Event,
+    Image,
+    #[default]
+    Note,
+    Page,
+    Place,
+    Profile,
+    Question,
+    Relationship,
+    Tombstone,
+    Video,
+    EncryptedNote,
+}
 
-cfg_if::cfg_if! {
-    if #[cfg(feature = "pg")] {
-        use crate::models::pg::objects::ObjectType;
-        // pub fn to_kind(kind: ApNoteType) -> NoteType {
-        //     kind.into()
-        // }
+impl fmt::Display for ObjectType {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        Debug::fmt(self, f)
+    }
+}
 
-        pub use crate::models::pg::objects::NewObject;
-        pub use crate::models::pg::objects::Object;
-        pub use crate::models::pg::objects::create_or_update_object;
-    } else if #[cfg(feature = "sqlite")] {
-        // pub fn to_kind(kind: ApNoteType) -> String {
-        //     kind.to_string().to_lowercase()
-        // }
+impl ObjectType {
+    pub fn is_note(&self) -> bool {
+        matches!(self, ObjectType::Note)
+    }
 
-        // pub use crate::models::sqlite::remote_notes::NewRemoteNote;
-        // pub use crate::models::sqlite::remote_notes::RemoteNote;
-        // pub use crate::models::sqlite::remote_notes::create_or_update_remote_note;
+    pub fn is_encrypted_note(&self) -> bool {
+        matches!(self, ObjectType::EncryptedNote)
+    }
+
+    pub fn is_question(&self) -> bool {
+        matches!(self, ObjectType::Question)
+    }
+
+    pub fn is_article(&self) -> bool {
+        matches!(self, ObjectType::Article)
+    }
+}
+
+impl TryFrom<String> for ObjectType {
+    type Error = anyhow::Error;
+
+    fn try_from(object: String) -> Result<Self, Self::Error> {
+        match object.to_case(Case::Snake).as_str() {
+            "article" => Ok(ObjectType::Article),
+            "audio" => Ok(ObjectType::Audio),
+            "document" => Ok(ObjectType::Document),
+            "event" => Ok(ObjectType::Event),
+            "image" => Ok(ObjectType::Image),
+            "note" => Ok(ObjectType::Note),
+            "page" => Ok(ObjectType::Page),
+            "place" => Ok(ObjectType::Place),
+            "profile" => Ok(ObjectType::Profile),
+            "question" => Ok(ObjectType::Question),
+            "relationship" => Ok(ObjectType::Relationship),
+            "tombstone" => Ok(ObjectType::Tombstone),
+            "video" => Ok(ObjectType::Video),
+            "encrypted_note" => Ok(ObjectType::EncryptedNote),
+            _ => Err(anyhow!("unimplemented ObjectType")),
+        }
+    }
+}
+
+impl From<ObjectType> for String {
+    fn from(object: ObjectType) -> Self {
+        format!("{object}").to_case(Case::Snake)
+    }
+}
+
+#[derive(Serialize, Deserialize, Insertable, Default, Debug, AsChangeset, Clone)]
+#[diesel(table_name = objects)]
+pub struct NewObject {
+    pub ap_conversation: Option<String>,
+    pub ap_sensitive: Option<bool>,
+    pub ap_signature: Option<Value>,
+    pub ap_voters_count: Option<i32>,
+    pub as_any_of: Option<Value>,
+    pub as_attachment: Option<Value>,
+    pub as_attributed_to: Option<Value>,
+    pub as_audience: Option<Value>,
+    pub as_bcc: Option<Value>,
+    pub as_bto: Option<Value>,
+    pub as_cc: Option<Value>,
+    pub as_closed: Option<Value>,
+    pub as_content: Option<String>,
+    pub as_content_map: Option<Value>,
+    pub as_context: Option<Value>,
+    pub as_deleted: Option<DateTime<Utc>>,
+    pub as_describes: Option<Value>,
+    pub as_duration: Option<String>,
+    pub as_end_time: Option<DateTime<Utc>>,
+    pub as_former_type: Option<String>,
+    pub as_generator: Option<Value>,
+    pub as_icon: Option<Value>,
+    pub as_id: String,
+    pub as_image: Option<Value>,
+    pub as_in_reply_to: Option<Value>,
+    pub as_location: Option<Value>,
+    pub as_media_type: Option<String>,
+    pub as_name: Option<String>,
+    pub as_name_map: Option<Value>,
+    pub as_one_of: Option<Value>,
+    pub as_preview: Option<Value>,
+    pub as_published: Option<DateTime<Utc>>,
+    pub as_replies: Option<Value>,
+    pub as_start_time: Option<DateTime<Utc>>,
+    pub as_summary: Option<String>,
+    pub as_summary_map: Option<Value>,
+    pub as_tag: Option<Value>,
+    pub as_to: Option<Value>,
+
+    #[cfg(feature = "pg")]
+    pub as_type: ObjectType,
+
+    #[cfg(feature = "sqlite")]
+    pub as_type: String,
+
+    pub as_updated: Option<DateTime<Utc>>,
+    pub as_url: Option<Value>,
+    pub ek_hashtags: Value,
+    pub ek_instrument: Option<Value>,
+    pub ek_metadata: Option<Value>,
+    pub ek_profile_id: Option<i32>,
+    pub ek_uuid: Option<String>,
+}
+
+#[derive(Identifiable, Queryable, AsChangeset, Serialize, Deserialize, Clone, Default, Debug)]
+#[diesel(table_name = objects)]
+pub struct Object {
+    #[serde(skip_serializing)]
+    pub id: i32,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+    pub ap_conversation: Option<String>,
+    pub ap_sensitive: Option<bool>,
+    pub ap_signature: Option<Value>,
+    pub ap_voters_count: Option<i32>,
+    pub as_any_of: Option<Value>,
+    pub as_attachment: Option<Value>,
+    pub as_attributed_to: Option<Value>,
+    pub as_audience: Option<Value>,
+    pub as_bcc: Option<Value>,
+    pub as_bto: Option<Value>,
+    pub as_cc: Option<Value>,
+    pub as_closed: Option<Value>,
+    pub as_content: Option<String>,
+    pub as_content_map: Option<Value>,
+    pub as_context: Option<Value>,
+    pub as_deleted: Option<DateTime<Utc>>,
+    pub as_describes: Option<Value>,
+    pub as_duration: Option<String>,
+    pub as_end_time: Option<DateTime<Utc>>,
+    pub as_former_type: Option<String>,
+    pub as_generator: Option<Value>,
+    pub as_icon: Option<Value>,
+    pub as_id: String,
+    pub as_image: Option<Value>,
+    pub as_in_reply_to: Option<Value>,
+    pub as_location: Option<Value>,
+    pub as_media_type: Option<String>,
+    pub as_name: Option<String>,
+    pub as_name_map: Option<Value>,
+    pub as_one_of: Option<Value>,
+    pub as_preview: Option<Value>,
+    pub as_published: Option<DateTime<Utc>>,
+    pub as_replies: Option<Value>,
+    pub as_start_time: Option<DateTime<Utc>>,
+    pub as_summary: Option<String>,
+    pub as_summary_map: Option<Value>,
+    pub as_tag: Option<Value>,
+    pub as_to: Option<Value>,
+
+    #[cfg(feature = "pg")]
+    pub as_type: ObjectType,
+
+    #[cfg(feature = "sqlite")]
+    pub as_type: String,
+
+    pub as_updated: Option<DateTime<Utc>>,
+    pub as_url: Option<Value>,
+    pub ek_hashtags: Value,
+    pub ek_instrument: Option<Value>,
+    pub ek_metadata: Option<Value>,
+    pub ek_profile_id: Option<i32>,
+    pub ek_uuid: Option<String>,
+}
+
+impl Object {
+    pub fn attributed_to(&self) -> Vec<String> {
+        if let Some(attributed_to) = self.clone().as_attributed_to {
+            serde_json::from_value(attributed_to).unwrap_or_default()
+        } else {
+            vec![]
+        }
+    }
+}
+
+impl TryFrom<CoalescedActivity> for Object {
+    type Error = anyhow::Error;
+
+    fn try_from(activity: CoalescedActivity) -> Result<Self, Self::Error> {
+        Ok(Object {
+            id: activity.target_object_id.unwrap_or(-1),
+            created_at: activity
+                .object_created_at
+                .ok_or(anyhow!("no object created_at"))?,
+            updated_at: activity
+                .object_updated_at
+                .ok_or(anyhow!("no object updated_at"))?,
+            ek_uuid: activity.object_uuid,
+            as_type: activity.object_type.ok_or(anyhow!("no object type"))?,
+            as_published: activity.object_published,
+            as_id: activity.object_as_id.ok_or(anyhow!("no object as_id"))?,
+            as_url: activity.object_url,
+            as_to: activity.object_to,
+            as_cc: activity.object_cc,
+            as_tag: activity.object_tag,
+            as_attributed_to: activity.object_attributed_to,
+            as_in_reply_to: activity.object_in_reply_to,
+            as_content: activity.object_content,
+            ap_conversation: activity.object_conversation,
+            as_attachment: activity.object_attachment,
+            as_summary: activity.object_summary,
+            as_end_time: activity.object_end_time,
+            as_one_of: activity.object_one_of,
+            as_any_of: activity.object_any_of,
+            ap_voters_count: activity.object_voters_count,
+            ap_sensitive: activity.object_sensitive,
+            ek_metadata: activity.object_metadata,
+            ek_profile_id: activity.object_profile_id,
+            ..Default::default()
+        })
     }
 }
 
@@ -115,33 +339,31 @@ impl From<ApNote> for NewObject {
         };
 
         let hashtags: Vec<ApHashtag> = note.clone().into();
-        let ek_hashtags = to_serde::<Vec<String>>(&Some(
-            hashtags
-                .iter()
-                .map(|x| x.name.clone().to_lowercase())
-                .collect(),
-        ));
+        let ek_hashtags = json!(hashtags
+            .iter()
+            .map(|x| x.name.clone().to_lowercase())
+            .collect::<Vec<String>>());
 
         NewObject {
-            as_url: serde_json::to_value(note.clone().url).ok(),
+            as_url: Some(json!(note.clone().url)),
             as_published: published,
             as_type: note.clone().kind.into(),
-            as_id: note.id.clone().unwrap(),
-            as_attributed_to: to_serde(&Some(note.attributed_to.to_string())),
-            as_to: to_serde(&Some(note.to)),
-            as_cc: to_serde(&note.cc.option()),
-            as_replies: to_serde(&note.replies),
-            as_tag: to_serde(&note.tag),
+            as_id: note.id.clone().expect("note id should not be None"),
+            as_attributed_to: Some(json!(note.attributed_to)),
+            as_to: note.to.into(),
+            as_cc: note.cc.into(),
+            as_replies: note.replies.map(|x| json!(x)),
+            as_tag: note.tag.map(|x| json!(x)),
             as_content: Some(ammonia.clean(&note.content).to_string()),
             as_summary: note.summary.map(|x| ammonia.clean(&x).to_string()),
             ap_sensitive: note.sensitive,
-            as_in_reply_to: to_serde(&note.in_reply_to),
+            as_in_reply_to: note.in_reply_to.map(|x| json!(x)),
             ap_conversation: note.conversation,
-            as_content_map: to_serde(&Some(clean_content_map)),
-            as_attachment: to_serde(&note.attachment),
+            as_content_map: Some(json!(clean_content_map)),
+            as_attachment: note.attachment.map(|x| json!(x)),
             ek_uuid: note.ephemeral.and_then(|x| x.internal_uuid),
-            ek_instrument: to_serde(&note.instrument),
-            ek_hashtags: ek_hashtags.unwrap_or(json!(vec![] as Vec<String>)),
+            ek_instrument: note.instrument.map(|x| json!(x)),
+            ek_hashtags,
             ..Default::default()
         }
     }
@@ -152,23 +374,23 @@ impl From<ApQuestion> for NewObject {
         NewObject {
             as_type: question.kind.into(),
             as_id: question.id,
-            as_to: to_serde(&Some(question.to)),
-            as_cc: to_serde(&question.cc),
-            as_end_time: question.end_time.map(to_time),
-            as_published: question.published.map(to_time),
-            as_one_of: to_serde(&question.one_of),
-            as_any_of: to_serde(&question.any_of),
+            as_to: question.to.into(),
+            as_cc: question.cc.into(),
+            as_end_time: question.end_time,
+            as_published: question.published,
+            as_one_of: question.one_of.map(|x| json!(x)),
+            as_any_of: question.any_of.map(|x| json!(x)),
             as_content: question.content,
-            as_content_map: to_serde(&question.content_map),
+            as_content_map: question.content_map.map(|x| json!(x)),
             as_summary: question.summary,
             ap_voters_count: question.voters_count,
-            as_url: to_serde(&question.url),
+            as_url: question.url.map(|x| json!(x)),
             ap_conversation: question.conversation,
-            as_tag: to_serde(&question.tag),
-            as_attachment: to_serde(&question.attachment),
+            as_tag: question.tag.map(|x| json!(x)),
+            as_attachment: question.attachment.map(|x| json!(x)),
             ap_sensitive: question.sensitive,
-            as_in_reply_to: to_serde(&question.in_reply_to),
-            as_attributed_to: to_serde(&Some(question.attributed_to.to_string())),
+            as_in_reply_to: question.in_reply_to.map(|x| json!(x)),
+            as_attributed_to: Some(json!(question.attributed_to.to_string())),
             ..Default::default()
         }
     }
@@ -194,6 +416,39 @@ impl Object {
 
         false
     }
+}
+
+pub async fn create_or_update_object(conn: &Db, object: NewObject) -> Result<Object> {
+    conn.run(move |c| {
+        diesel::insert_into(objects::table)
+            .values(&object)
+            .on_conflict(objects::as_id)
+            .do_update()
+            .set(&object)
+            .get_result(c)
+    })
+    .await
+    .map_err(anyhow::Error::msg)
+}
+
+pub async fn update_metadata(conn: &Db, id: i32, metadata: Value) -> Result<Object> {
+    conn.run(move |c| {
+        diesel::update(objects::table.filter(objects::id.eq(id)))
+            .set(objects::ek_metadata.eq(Some(metadata)))
+            .get_result::<Object>(c)
+    })
+    .await
+    .map_err(anyhow::Error::msg)
+}
+
+pub async fn update_hashtags(conn: &Db, id: i32, hashtags: Value) -> Result<Object> {
+    conn.run(move |c| {
+        diesel::update(objects::table.filter(objects::id.eq(id)))
+            .set(objects::ek_hashtags.eq(hashtags))
+            .get_result::<Object>(c)
+    })
+    .await
+    .map_err(anyhow::Error::msg)
 }
 
 pub async fn get_object(conn: Option<&Db>, id: i32) -> Result<Object> {

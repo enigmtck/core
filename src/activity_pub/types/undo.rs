@@ -151,7 +151,7 @@ impl ApUndo {
             ApActivity::Announce(_) => {
                 runner::run(
                     runner::announce::remote_undo_announce_task,
-                    Some(conn),
+                    conn,
                     Some(channels),
                     vec![target_ap_id.clone()],
                 )
@@ -202,7 +202,7 @@ impl ApUndo {
 
         runner::run(
             ApUndo::send_task,
-            Some(conn),
+            conn,
             Some(channels),
             vec![undo.ap_id.clone().ok_or(Status::InternalServerError)?],
         )
@@ -219,21 +219,19 @@ impl ApUndo {
     }
 
     async fn send_task(
-        conn: Option<Db>,
+        conn: Db,
         _channels: Option<EventChannels>,
         ap_ids: Vec<String>,
     ) -> Result<(), TaskError> {
-        let conn = conn.as_ref();
-
         for ap_id in ap_ids {
             let (activity, target_activity, target_object, target_actor) =
-                get_activity_by_ap_id(conn.ok_or(TaskError::TaskFailed)?, ap_id.clone())
+                get_activity_by_ap_id(&conn, ap_id.clone())
                     .await
                     .ok_or(TaskError::TaskFailed)?;
 
             let profile_id = activity.actor_id.ok_or(TaskError::TaskFailed)?;
 
-            let sender = get_actor(conn.unwrap(), profile_id)
+            let sender = get_actor(&conn, profile_id)
                 .await
                 .ok_or(TaskError::TaskFailed)?;
 
@@ -249,9 +247,9 @@ impl ApUndo {
             })?;
 
             let inboxes: Vec<ApAddress> =
-                get_inboxes(conn, ap_activity.clone(), sender.clone()).await;
+                get_inboxes(&conn, ap_activity.clone(), sender.clone()).await;
 
-            send_to_inboxes(conn.unwrap(), inboxes, sender, ap_activity.clone())
+            send_to_inboxes(&conn, inboxes, sender, ap_activity.clone())
                 .await
                 .map_err(|e| {
                     log::error!("FAILED TO SEND TO INBOXES: {e:#?}");
@@ -277,8 +275,8 @@ impl ApUndo {
                     log::debug!("FOLLOW IDENTIFIER: {identifier:#?}");
                     let profile_id = activity.actor_id.ok_or(TaskError::TaskFailed)?;
                     if let MaybeReference::Reference(ap_id) = follow.object {
-                        if delete_leader_by_ap_id_and_actor_id(conn, ap_id, profile_id).await
-                            && revoke_activity_by_uuid(conn, identifier.identifier)
+                        if delete_leader_by_ap_id_and_actor_id(Some(&conn), ap_id, profile_id).await
+                            && revoke_activity_by_uuid(Some(&conn), identifier.identifier)
                                 .await
                                 .is_ok()
                         {
@@ -292,7 +290,7 @@ impl ApUndo {
                     let identifier = get_local_identifier(id).ok_or(TaskError::TaskFailed)?;
                     log::debug!("LIKE IDENTIFIER: {identifier:#?}");
                     if identifier.kind == LocalIdentifierType::Activity {
-                        revoke_activity_by_uuid(conn, identifier.identifier)
+                        revoke_activity_by_uuid(Some(&conn), identifier.identifier)
                             .await
                             .map_err(|e| {
                                 log::error!("LIKE REVOCATION FAILED: {e:#?}");
@@ -307,7 +305,7 @@ impl ApUndo {
                     let identifier = get_local_identifier(id).ok_or(TaskError::TaskFailed)?;
                     log::debug!("ANNOUNCE IDENTIFIER: {identifier:#?}");
                     if identifier.kind == LocalIdentifierType::Activity {
-                        revoke_activity_by_uuid(conn, identifier.identifier)
+                        revoke_activity_by_uuid(Some(&conn), identifier.identifier)
                             .await
                             .map_err(|e| {
                                 log::error!("ANNOUNCE REVOCATION FAILED: {e:#?}");

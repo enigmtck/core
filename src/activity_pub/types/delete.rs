@@ -305,7 +305,7 @@ impl ApDelete {
 
             runner::run(
                 ApDelete::send_task,
-                Some(conn),
+                conn,
                 Some(channels),
                 vec![activity.ap_id.clone().ok_or_else(|| {
                     log::error!("Activity must have an ID");
@@ -330,27 +330,23 @@ impl ApDelete {
     }
 
     async fn send_task(
-        conn: Option<Db>,
+        conn: Db,
         _channels: Option<EventChannels>,
         ap_ids: Vec<String>,
     ) -> Result<(), TaskError> {
-        let conn = conn.as_ref();
-
         for ap_id in ap_ids {
             let (activity, target_activity, target_object, target_actor) =
-                get_activity_by_ap_id(conn.ok_or(TaskError::TaskFailed)?, ap_id)
-                    .await
-                    .ok_or_else(|| {
-                        log::error!("Failed to retrieve activity");
-                        TaskError::TaskFailed
-                    })?;
+                get_activity_by_ap_id(&conn, ap_id).await.ok_or_else(|| {
+                    log::error!("Failed to retrieve activity");
+                    TaskError::TaskFailed
+                })?;
 
             let profile_id = activity.actor_id.ok_or_else(|| {
                 log::error!("actor_id can not be None");
                 TaskError::TaskFailed
             })?;
 
-            let sender = get_actor(conn.unwrap(), profile_id).await.ok_or_else(|| {
+            let sender = get_actor(&conn, profile_id).await.ok_or_else(|| {
                 log::error!("Failed to retrieve Actor");
                 TaskError::TaskFailed
             })?;
@@ -367,16 +363,17 @@ impl ApDelete {
                         TaskError::TaskFailed
                     })?;
 
-            let inboxes: Vec<ApAddress> = get_inboxes(conn, activity.clone(), sender.clone()).await;
+            let inboxes: Vec<ApAddress> =
+                get_inboxes(&conn, activity.clone(), sender.clone()).await;
 
-            send_to_inboxes(conn.unwrap(), inboxes, sender, activity.clone())
+            send_to_inboxes(&conn, inboxes, sender, activity.clone())
                 .await
                 .map_err(|e| {
                     log::error!("Failed to send to inboxes: {e:#?}");
                     TaskError::TaskFailed
                 })?;
 
-            tombstone_object_by_uuid(conn.unwrap(), object.ek_uuid.ok_or(TaskError::TaskFailed)?)
+            tombstone_object_by_uuid(&conn, object.ek_uuid.ok_or(TaskError::TaskFailed)?)
                 .await
                 .map_err(|e| {
                     log::error!("Failed to delete Objects: {e:#?}");

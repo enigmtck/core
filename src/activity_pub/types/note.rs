@@ -17,12 +17,12 @@ use crate::{
         activities::{create_activity, get_activity_by_ap_id, Activity, NewActivity},
         actors::{get_actor, get_actor_by_as_id, Actor},
         cache::{cache_content, Cache, Cacheable},
+        coalesced_activity::CoalescedActivity,
         from_serde,
+        objects::ObjectType,
         objects::{create_or_update_object, Object},
         olm_sessions::{create_or_update_olm_session, OlmSessionParams},
-        pg::{
-            coalesced_activity::CoalescedActivity, objects::ObjectType, vault::create_vault_item,
-        },
+        vault::create_vault_item,
     },
     routes::ActivityJson,
     runner::{
@@ -59,6 +59,12 @@ pub enum ApNoteType {
 impl fmt::Display for ApNoteType {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         Debug::fmt(self, f)
+    }
+}
+
+impl From<ApNoteType> for String {
+    fn from(kind: ApNoteType) -> String {
+        format!("{kind:#?}")
     }
 }
 
@@ -340,7 +346,11 @@ impl ApNote {
                     .unwrap(),
                     None,
                 )
-                .await;
+                .await
+                .map_err(|e| {
+                    log::error!("Failed to create or update OlmSession: {e:#?}");
+                    Status::InternalServerError
+                })?;
             }
 
             Ok(instruments)
@@ -381,7 +391,7 @@ impl ApNote {
         ) -> Result<(), Status> {
             runner::run(
                 ApNote::send_note,
-                Some(conn),
+                conn,
                 Some(channels.clone()),
                 vec![activity.ap_id.clone().ok_or_else(|| {
                     log::error!("Activity ap_id cannot be None");
@@ -429,15 +439,13 @@ impl ApNote {
     }
 
     async fn send_note(
-        conn: Option<Db>,
+        conn: Db,
         _channels: Option<EventChannels>,
         ap_ids: Vec<String>,
     ) -> Result<(), TaskError> {
-        let conn = conn.as_ref();
-
         for ap_id in ap_ids {
             let (activity, target_activity, target_object, target_actor) =
-                get_activity_by_ap_id(conn.ok_or(TaskError::TaskFailed)?, ap_id.clone())
+                get_activity_by_ap_id(&conn, ap_id.clone())
                     .await
                     .ok_or_else(|| {
                         log::error!("Failed to retrieve Activity");
@@ -449,7 +457,7 @@ impl ApNote {
                 TaskError::TaskFailed
             })?;
 
-            let sender = get_actor(conn.unwrap(), profile_id).await.ok_or_else(|| {
+            let sender = get_actor(&conn, profile_id).await.ok_or_else(|| {
                 log::error!("Failed to retrieve sending Actor");
                 TaskError::TaskFailed
             })?;
@@ -467,11 +475,9 @@ impl ApNote {
             if let Some(attachments) = note.clone().attachment {
                 for attachment in attachments {
                     if let ApAttachment::Document(document) = attachment {
-                        let _ = cache_content(
-                            conn.unwrap(),
-                            Cacheable::try_from(ApImage::try_from(document)),
-                        )
-                        .await;
+                        let _ =
+                            cache_content(&conn, Cacheable::try_from(ApImage::try_from(document)))
+                                .await;
                     }
                 }
             }
@@ -522,7 +528,7 @@ impl ApNote {
             }
 
             let _ = runner::actor::get_actor(
-                conn,
+                Some(&conn),
                 sender.clone(),
                 note.clone().attributed_to.to_string(),
             )
@@ -533,13 +539,14 @@ impl ApNote {
                 TaskError::TaskFailed
             })?;
 
-            let inboxes: Vec<ApAddress> = get_inboxes(conn, activity.clone(), sender.clone()).await;
+            let inboxes: Vec<ApAddress> =
+                get_inboxes(&conn, activity.clone(), sender.clone()).await;
 
             log::debug!("SENDING ACTIVITY\n{activity:#?}");
             log::debug!("SENDER\n{sender:#?}");
             log::debug!("INBOXES\n{inboxes:#?}");
 
-            send_to_inboxes(conn.unwrap(), inboxes, sender, activity)
+            send_to_inboxes(&conn, inboxes, sender, activity)
                 .await
                 .map_err(|e| {
                     log::error!("Failed to send ApActivity: {e:#?}");
@@ -628,38 +635,6 @@ impl Default for ApNote {
         }
     }
 }
-
-// type IdentifiedVaultItem = (VaultItem, Actor);
-
-// impl From<IdentifiedVaultItem> for ApNote {
-//     fn from((vault, profile): IdentifiedVaultItem) -> Self {
-//         ApNote {
-//             kind: ApNoteType::VaultNote,
-//             attributed_to: {
-//                 if vault.outbound {
-//                     ApAddress::Address(profile.clone().as_id)
-//                 } else {
-//                     ApAddress::Address(vault.clone().remote_actor)
-//                 }
-//             },
-//             to: {
-//                 if vault.outbound {
-//                     MaybeMultiple::Multiple(vec![ApAddress::Address(vault.remote_actor)])
-//                 } else {
-//                     MaybeMultiple::Multiple(vec![ApAddress::Address(profile.as_id)])
-//                 }
-//             },
-//             id: Some(format!(
-//                 "https://{}/vault/{}",
-//                 *crate::SERVER_NAME,
-//                 vault.uuid
-//             )),
-//             content: vault.encrypted_data,
-//             published: ActivityPub::time(from_time(vault.created_at).unwrap()),
-//             ..Default::default()
-//         }
-//     }
-// }
 
 impl From<ApActor> for ApNote {
     fn from(actor: ApActor) -> Self {

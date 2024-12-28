@@ -143,7 +143,7 @@ impl ApLike {
 
             runner::run(
                 ApLike::send_task,
-                Some(conn),
+                conn,
                 Some(channels),
                 vec![activity.ap_id.clone().ok_or(Status::InternalServerError)?],
             )
@@ -165,21 +165,19 @@ impl ApLike {
     }
 
     async fn send_task(
-        conn: Option<Db>,
+        conn: Db,
         _channels: Option<EventChannels>,
         ap_ids: Vec<String>,
     ) -> Result<(), TaskError> {
-        let conn = conn.as_ref();
-
         for ap_id in ap_ids {
             let (activity, target_activity, target_object, target_actor) =
-                get_activity_by_ap_id(conn.ok_or(TaskError::TaskFailed)?, ap_id.clone())
+                get_activity_by_ap_id(&conn, ap_id.clone())
                     .await
                     .ok_or(TaskError::TaskFailed)?;
 
             let profile_id = activity.actor_id.ok_or(TaskError::TaskFailed)?;
 
-            let sender = get_actor(conn.unwrap(), profile_id)
+            let sender = get_actor(&conn, profile_id)
                 .await
                 .ok_or(TaskError::TaskFailed)?;
 
@@ -190,9 +188,10 @@ impl ApLike {
                         TaskError::TaskFailed
                     })?;
 
-            let inboxes: Vec<ApAddress> = get_inboxes(conn, activity.clone(), sender.clone()).await;
+            let inboxes: Vec<ApAddress> =
+                get_inboxes(&conn, activity.clone(), sender.clone()).await;
 
-            send_to_inboxes(conn.unwrap(), inboxes, sender, activity.clone())
+            send_to_inboxes(&conn, inboxes, sender, activity.clone())
                 .await
                 .map_err(|e| {
                     log::error!("FAILED TO SEND TO INBOXES: {e:#?}");

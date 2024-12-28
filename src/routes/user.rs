@@ -1,12 +1,11 @@
 use crate::{
-    activity_pub::{ApActor, ApCollection, ApCollectionType, FollowersPage, LeadersPage},
+    activity_pub::{ApActor, ApCollection, FollowersPage, LeadersPage},
     db::Db,
     fairings::signatures::Signed,
     models::{
         actors::get_actor_by_username, followers::get_follower_count_by_actor_id,
         followers::get_followers_by_actor_id, leaders::get_leader_count_by_actor_id,
-        leaders::get_leaders_by_actor_id, olm_one_time_keys::get_otk_count_by_profile_id,
-        OffsetPaging,
+        leaders::get_leaders_by_actor_id, OffsetPaging,
     },
 };
 use rocket::{get, http::Status, response::Redirect, serde::json::Json};
@@ -28,7 +27,9 @@ pub async fn person_activity_json(
     match get_actor_by_username(&conn, username).await {
         Some(profile) => {
             let actor = if signed.local() {
-                ApActor::from(profile).load_ephemeral(&conn).await
+                ApActor::from(profile)
+                    .load_ephemeral(&conn, signed.profile())
+                    .await
             } else {
                 ApActor::from(profile)
             };
@@ -48,7 +49,9 @@ pub async fn person_ld_json(
     match get_actor_by_username(&conn, username).await {
         Some(profile) => {
             let actor = if signed.local() {
-                ApActor::from(profile).load_ephemeral(&conn).await
+                ApActor::from(profile)
+                    .load_ephemeral(&conn, signed.profile())
+                    .await
             } else {
                 ApActor::from(profile)
             };

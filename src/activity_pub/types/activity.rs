@@ -14,8 +14,9 @@ use crate::{
     },
     db::Db,
     models::{
+        activities::EncryptedActivity,
         activities::{ActivityType, ExtendedActivity},
-        pg::{activities::EncryptedActivity, coalesced_activity::CoalescedActivity},
+        coalesced_activity::CoalescedActivity,
     },
     MaybeReference,
 };

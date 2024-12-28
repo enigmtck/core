@@ -1,24 +1,27 @@
 use crate::activity_pub::ApInstrument;
-use crate::activity_pub::ApNote;
 use crate::db::Db;
 use crate::schema::vault;
-use crate::MaybeMultiple;
-use anyhow::anyhow;
+use anyhow::{anyhow, Result};
+use chrono::{DateTime, Utc};
 use diesel::prelude::*;
 use diesel::Insertable;
+use diesel::{AsChangeset, Identifiable, Queryable};
 use rocket_sync_db_pools::diesel;
 use serde::{Deserialize, Serialize};
 
 use super::actors::Actor;
 
-cfg_if::cfg_if! {
-    if #[cfg(feature = "pg")] {
-        pub use crate::models::pg::vault::VaultItem;
-        pub use crate::models::pg::vault::create_vault_item;
-    } else if #[cfg(feature = "sqlite")] {
-        pub use crate::models::sqlite::vault::VaultItem;
-        pub use crate::models::sqlite::vault::create_vault_item;
-    }
+#[derive(Identifiable, Queryable, AsChangeset, Serialize, Clone, Default, Debug)]
+#[diesel(table_name = vault)]
+pub struct VaultItem {
+    #[serde(skip_serializing)]
+    pub id: i32,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+    pub uuid: String,
+    pub owner_as_id: String,
+    pub activity_id: i32,
+    pub data: String,
 }
 
 #[derive(Serialize, Deserialize, Insertable, Default, Debug, Clone)]
@@ -71,6 +74,16 @@ impl From<EncryptedData> for NewVaultItem {
             uuid: uuid::Uuid::new_v4().to_string(),
         }
     }
+}
+
+pub async fn create_vault_item(conn: &Db, vault_item: NewVaultItem) -> Result<VaultItem> {
+    conn.run(move |c| {
+        diesel::insert_into(vault::table)
+            .values(&vault_item)
+            .get_result::<VaultItem>(c)
+    })
+    .await
+    .map_err(anyhow::Error::msg)
 }
 
 pub async fn get_vault_items_by_owner_as_id(

@@ -8,9 +8,9 @@ use crate::{
     models::{
         actors::Actor,
         cache::{cache_content, Cache},
-        from_serde, from_time,
+        coalesced_activity::CoalescedActivity,
+        from_serde,
         objects::Object,
-        pg::coalesced_activity::CoalescedActivity,
     },
     routes::ActivityJson,
     MaybeMultiple,
@@ -50,6 +50,12 @@ impl TryFrom<String> for ApQuestionType {
     }
 }
 
+impl From<ApQuestionType> for String {
+    fn from(kind: ApQuestionType) -> String {
+        format!("{kind:#?}")
+    }
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct QuestionCollection {
@@ -83,8 +89,9 @@ pub struct ApQuestion {
     pub attributed_to: ApAddress,
     pub to: MaybeMultiple<ApAddress>,
 
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub cc: Option<MaybeMultiple<ApAddress>>,
+    #[serde(skip_serializing_if = "MaybeMultiple::is_none")]
+    #[serde(default)]
+    pub cc: MaybeMultiple<ApAddress>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
     pub end_time: Option<DateTime<Utc>>,
@@ -213,7 +220,7 @@ impl TryFrom<CoalescedActivity> for ApQuestion {
             .object_to
             .and_then(from_serde)
             .ok_or_else(|| anyhow::anyhow!("object_to is None"))?;
-        let cc = coalesced.object_cc.and_then(from_serde);
+        let cc: MaybeMultiple<ApAddress> = coalesced.object_cc.into();
         let tag = coalesced.object_tag.and_then(from_serde);
         let attributed_to = coalesced
             .object_attributed_to
@@ -265,9 +272,9 @@ impl TryFrom<Object> for ApQuestion {
                 .ok_or(anyhow!("failed to convert from Value"))?,
             to: from_serde(object.as_to.ok_or(anyhow!("as_to is None"))?)
                 .ok_or(anyhow!("failed to deserialize as_to"))?,
-            cc: object.as_cc.clone().and_then(from_serde),
-            end_time: object.as_end_time.and_then(from_time),
-            published: object.as_published.and_then(from_time),
+            cc: object.as_cc.into(),
+            end_time: object.as_end_time,
+            published: object.as_published,
             one_of: object.as_one_of.and_then(from_serde),
             any_of: object.as_any_of.and_then(from_serde),
             content: object.as_content,
@@ -281,8 +288,8 @@ impl TryFrom<Object> for ApQuestion {
             sensitive: object.ap_sensitive,
             in_reply_to: object.as_in_reply_to.and_then(from_serde),
             ephemeral: Some(Ephemeral {
-                created_at: from_time(object.created_at),
-                updated_at: from_time(object.updated_at),
+                created_at: Some(object.created_at),
+                updated_at: Some(object.updated_at),
                 ..Default::default()
             }),
             ..Default::default()

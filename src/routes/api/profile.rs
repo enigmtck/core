@@ -4,7 +4,7 @@ use crate::{
     fairings::events::EventChannels,
     models::{
         actors::{get_actor_by_username, Actor},
-        pg::actors::{
+        actors::{
             update_avatar_by_username, update_banner_by_username, update_summary_by_username,
         },
     },
@@ -61,7 +61,7 @@ pub async fn update_summary(
 
     runner::run(
         runner::user::send_profile_update_task,
-        Some(conn),
+        conn,
         Some(channels),
         vec![profile.ek_uuid.clone().ok_or(Status::NoContent)?],
     )
@@ -239,12 +239,15 @@ pub async fn upload_banner(
 
 #[get("/api/user/<username>", format = "application/activity+json", rank = 2)]
 pub async fn user_activity_json(
+    signed: Signed,
     conn: Db,
     username: String,
 ) -> Result<ActivityJson<ApActor>, Status> {
     match get_actor_by_username(&conn, username).await {
         Some(profile) => Ok(ActivityJson(Json(
-            ApActor::from(profile).load_ephemeral(&conn).await,
+            ApActor::from(profile)
+                .load_ephemeral(&conn, signed.profile())
+                .await,
         ))),
         None => Err(Status::NotFound),
     }

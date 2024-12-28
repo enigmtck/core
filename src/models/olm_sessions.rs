@@ -3,22 +3,38 @@ use crate::activity_pub::ApInstrument;
 use crate::db::Db;
 use crate::schema::olm_sessions;
 use anyhow::{anyhow, Result};
+use chrono::{DateTime, Utc};
 use diesel::prelude::*;
-use diesel::{AsChangeset, Insertable};
+use diesel::upsert::excluded;
+use diesel::{AsChangeset, Identifiable, Queryable, QueryableByName, Selectable};
 use rocket_sync_db_pools::diesel;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-cfg_if::cfg_if! {
-    if #[cfg(feature = "pg")] {
-        pub use crate::models::pg::olm_sessions::OlmSession;
-        pub use crate::models::pg::olm_sessions::create_or_update_olm_session;
-    } else if #[cfg(feature = "sqlite")] {
-        pub use crate::models::sqlite::olm_sessions::OlmSession;
-        pub use crate::models::sqlite::olm_sessions::create_olm_session;
-        pub use crate::models::sqlite::olm_sessions::update_olm_session_by_encrypted_session_id;
-        pub use crate::models::sqlite::olm_sessions::update_olm_session;
-    }
+#[derive(
+    Identifiable,
+    Queryable,
+    QueryableByName,
+    Selectable,
+    AsChangeset,
+    Serialize,
+    Clone,
+    Default,
+    Debug,
+)]
+#[diesel(table_name = olm_sessions)]
+#[diesel(check_for_backend(diesel::pg::Pg))]
+pub struct OlmSession {
+    #[serde(skip_serializing)]
+    pub id: i32,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+    pub uuid: String,
+    pub session_data: String,
+    pub session_hash: String,
+    pub owner_as_id: String,
+    pub ap_conversation: String,
+    pub owner_id: i32,
 }
 
 #[derive(Serialize, Deserialize, Insertable, Default, Debug, Clone, AsChangeset)]
@@ -70,6 +86,31 @@ impl TryFrom<OlmSessionParams> for NewOlmSession {
             owner_id,
         })
     }
+}
+
+pub async fn create_or_update_olm_session(
+    conn: &Db,
+    olm_session: NewOlmSession,
+    mutation_of: Option<String>,
+) -> Result<OlmSession> {
+    use diesel::query_dsl::methods::FilterDsl;
+    conn.run(move |c| {
+        let query = diesel::insert_into(olm_sessions::table)
+            .values(&olm_session)
+            .on_conflict((olm_sessions::ap_conversation, olm_sessions::owner_as_id))
+            .do_update()
+            .set(&olm_session);
+
+        if let Some(mutation_of) = mutation_of {
+            query
+                .filter(excluded(olm_sessions::session_hash).eq(mutation_of))
+                .get_result::<OlmSession>(c)
+        } else {
+            query.get_result::<OlmSession>(c)
+        }
+    })
+    .await
+    .map_err(anyhow::Error::msg)
 }
 
 pub async fn get_olm_session_by_conversation_and_actor(

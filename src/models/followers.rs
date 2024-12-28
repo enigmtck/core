@@ -5,23 +5,14 @@ use crate::helper::{get_local_identifier, LocalIdentifierType};
 use crate::schema::{actors, followers};
 use crate::{MaybeReference, POOL};
 use anyhow::Result;
+use chrono::{DateTime, Utc};
 use diesel::prelude::*;
-
 use diesel::Insertable;
+use diesel::{AsChangeset, Identifiable, Queryable};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use super::actors::Actor;
-
-cfg_if::cfg_if! {
-    if #[cfg(feature = "pg")] {
-        pub use crate::models::pg::followers::Follower;
-        pub use crate::models::pg::followers::create_follower;
-    } else if #[cfg(feature = "sqlite")] {
-        pub use crate::models::sqlite::followers::Follower;
-        pub use crate::models::sqlite::followers::create_follower;
-    }
-}
 
 #[derive(Serialize, Deserialize, Insertable, Default, Debug, Clone)]
 #[diesel(table_name = followers)]
@@ -63,6 +54,20 @@ impl TryFrom<ApFollow> for NewFollower {
     }
 }
 
+#[derive(Identifiable, Queryable, AsChangeset, Serialize, Clone, Default, Debug)]
+#[diesel(table_name = followers)]
+pub struct Follower {
+    #[serde(skip_serializing)]
+    pub id: i32,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+    pub ap_id: String,
+    pub actor: String,
+    pub followed_ap_id: String,
+    pub uuid: String,
+    pub actor_id: i32,
+}
+
 impl NewFollower {
     pub fn link(&mut self, actor: Actor) -> Self {
         if let Some(id) = get_local_identifier(self.followed_ap_id.clone()) {
@@ -81,6 +86,26 @@ impl NewFollower {
             }
         } else {
             self.clone()
+        }
+    }
+}
+
+pub async fn create_follower(conn: Option<&Db>, follower: NewFollower) -> Option<Follower> {
+    match conn {
+        Some(conn) => conn
+            .run(move |c| {
+                diesel::insert_into(followers::table)
+                    .values(&follower)
+                    .get_result::<Follower>(c)
+            })
+            .await
+            .ok(),
+        None => {
+            let mut pool = POOL.get().ok()?;
+            diesel::insert_into(followers::table)
+                .values(&follower)
+                .get_result::<Follower>(&mut pool)
+                .ok()
         }
     }
 }

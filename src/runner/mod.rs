@@ -14,7 +14,7 @@ use crate::{
     activity_pub::{ApActivity, ApActor, ApAddress},
     db::Db,
     fairings::events::EventChannels,
-    models::{activities::add_log_by_as_id, actors::Actor},
+    models::{activities::add_log_by_as_id, actors::Actor, instances::get_instance_inboxes},
     signing::{Method, SignParams},
     MaybeMultiple, MaybeReference,
 };
@@ -66,6 +66,119 @@ fn request_builder_to_info(request: &Request) -> RequestInfo {
     }
 }
 
+#[derive(Clone, Serialize)]
+struct LogMessage {
+    pub code: Option<i32>,
+    pub request: Option<RequestInfo>,
+    pub response: Option<String>,
+}
+
+use tokio::task::JoinHandle;
+
+async fn process_inbox(
+    inbox: ApAddress,
+    body: String,
+    profile: Actor,
+    client: Client,
+) -> LogMessage {
+    let url = match Url::parse(&inbox.to_string()) {
+        Ok(url) => url,
+        Err(e) => {
+            return LogMessage {
+                code: Some(-1),
+                request: None,
+                response: Some(e.to_string()),
+            }
+        }
+    };
+
+    let signature = match crate::signing::sign(SignParams {
+        profile: profile.clone(),
+        url,
+        body: Some(body.clone()),
+        method: Method::Post,
+    }) {
+        Ok(sig) => sig,
+        Err(e) => {
+            return LogMessage {
+                code: Some(-1),
+                request: None,
+                response: Some(e.to_string()),
+            }
+        }
+    };
+
+    let request = client
+        .post(inbox.to_string())
+        .timeout(std::time::Duration::new(5, 0))
+        .header("Date", signature.date)
+        .header("Digest", signature.digest.unwrap())
+        .header("Signature", &signature.signature)
+        .header("Content-Type", "application/activity+json")
+        .body(body)
+        .build()
+        .unwrap();
+
+    let client_info = request_builder_to_info(&request);
+
+    match client.execute(request).await {
+        Ok(resp) => {
+            let code = resp.status().as_u16();
+            LogMessage {
+                code: Some(code.into()),
+                request: Some(client_info),
+                response: resp.text().await.ok(),
+            }
+        }
+        Err(e) => {
+            log::error!("Failed to send to inbox: {inbox}");
+            LogMessage {
+                code: Some(-1),
+                request: Some(client_info),
+                response: Some(e.to_string()),
+            }
+        }
+    }
+}
+
+async fn process_all_inboxes(
+    inboxes: Vec<ApAddress>,
+    body: String,
+    profile: Actor,
+    conn: &Db,
+    as_id: String,
+) -> Result<(), anyhow::Error> {
+    let client = Client::builder()
+        .user_agent("Enigmatick/0.1")
+        .build()
+        .unwrap();
+
+    let handles: Vec<JoinHandle<LogMessage>> = inboxes
+        .into_iter()
+        .map(|inbox| {
+            let client = client.clone();
+            let body = body.clone();
+            let profile = profile.clone();
+
+            tokio::spawn(process_inbox(inbox, body, profile, client))
+        })
+        .collect();
+
+    let mut logs = Vec::new();
+    for handle in handles {
+        if let Ok(log) = handle.await {
+            logs.push(log);
+        }
+    }
+
+    if !logs.is_empty() {
+        let logs = serde_json::to_value(&logs)?;
+        add_log_by_as_id(conn, as_id, logs).await?;
+    }
+
+    Ok(())
+}
+
 pub async fn send_to_inboxes(
     conn: &Db,
     inboxes: Vec<ApAddress>,
@@ -79,87 +192,81 @@ pub async fn send_to_inboxes(
 
     let body = serde_json::to_string(&message).map_err(anyhow::Error::msg)?;
 
-    #[derive(Clone, Serialize)]
-    struct LogMessage {
-        pub code: Option<i32>,
-        pub request: Option<RequestInfo>,
-        pub response: Option<String>,
-    }
+    process_all_inboxes(inboxes, body, profile, conn, as_id).await?;
+    // let mut logs: Vec<LogMessage> = vec![];
 
-    let mut logs: Vec<LogMessage> = vec![];
+    // for inbox in inboxes {
+    //     let url = Url::parse(&inbox.clone().to_string());
 
-    for inbox in inboxes {
-        let url = Url::parse(&inbox.clone().to_string());
+    //     if url.is_err() {
+    //         continue;
+    //     }
 
-        if url.is_err() {
-            continue;
-        }
+    //     let url = url.map_err(anyhow::Error::msg)?;
 
-        let url = url.map_err(anyhow::Error::msg)?;
+    //     let signature = crate::signing::sign(SignParams {
+    //         profile: profile.clone(),
+    //         url,
+    //         body: Some(body.clone()),
+    //         method: Method::Post,
+    //     });
 
-        let signature = crate::signing::sign(SignParams {
-            profile: profile.clone(),
-            url,
-            body: Some(body.clone()),
-            method: Method::Post,
-        });
+    //     if signature.is_err() {
+    //         continue;
+    //     }
 
-        if signature.is_err() {
-            continue;
-        }
+    //     let signature = signature.map_err(anyhow::Error::msg)?;
 
-        let signature = signature.map_err(anyhow::Error::msg)?;
+    //     let client = Client::builder()
+    //         .user_agent("Enigmatick/0.1")
+    //         .build()
+    //         .unwrap();
 
-        let client = Client::builder()
-            .user_agent("Enigmatick/0.1")
-            .build()
-            .unwrap();
+    //     let request = client
+    //         .post(inbox.clone().to_string())
+    //         .timeout(std::time::Duration::new(5, 0))
+    //         .header("Date", signature.date)
+    //         .header("Digest", signature.digest.unwrap())
+    //         .header("Signature", &signature.signature)
+    //         .header("Content-Type", "application/activity+json")
+    //         .body(body.clone())
+    //         .build()
+    //         .unwrap();
 
-        let request = client
-            .post(inbox.clone().to_string())
-            .timeout(std::time::Duration::new(5, 0))
-            .header("Date", signature.date)
-            .header("Digest", signature.digest.unwrap())
-            .header("Signature", &signature.signature)
-            .header("Content-Type", "application/activity+json")
-            .body(body.clone())
-            .build()
-            .unwrap();
+    //     let client_info = request_builder_to_info(&request);
 
-        let client_info = request_builder_to_info(&request);
+    //     match client.execute(request).await {
+    //         Ok(resp) => {
+    //             let code = resp.status().as_u16();
 
-        match client.execute(request).await {
-            Ok(resp) => {
-                let code = resp.status().as_u16();
+    //             logs.push(LogMessage {
+    //                 code: Some(code.into()),
+    //                 request: Some(client_info),
+    //                 response: resp.text().await.ok(),
+    //             });
+    //         }
+    //         Err(e) => {
+    //             log::error!("FAILED TO SEND TO INBOX: {}", inbox.clone().to_string());
 
-                logs.push(LogMessage {
-                    code: Some(code.into()),
-                    request: Some(client_info),
-                    response: resp.text().await.ok(),
-                });
-            }
-            Err(e) => {
-                log::error!("FAILED TO SEND TO INBOX: {}", inbox.clone().to_string());
+    //             logs.push(LogMessage {
+    //                 code: Some(-1),
+    //                 request: Some(client_info),
+    //                 response: Some(e.to_string()),
+    //             });
+    //         }
+    //     }
+    // }
 
-                logs.push(LogMessage {
-                    code: Some(-1),
-                    request: Some(client_info),
-                    response: Some(e.to_string()),
-                });
-            }
-        }
-    }
-
-    if !logs.is_empty() {
-        let logs = serde_json::to_value(&logs).unwrap();
-        add_log_by_as_id(conn, as_id.clone(), logs).await?;
-    }
+    // if !logs.is_empty() {
+    //     let logs = serde_json::to_value(&logs).unwrap();
+    //     add_log_by_as_id(conn, as_id.clone(), logs).await?;
+    // }
 
     Ok(())
 }
 
 async fn handle_recipients(
-    conn: Option<&Db>,
+    conn: &Db,
     inboxes: &mut HashSet<ApAddress>,
     sender: &Actor,
     address: &ApAddress,
@@ -167,23 +274,24 @@ async fn handle_recipients(
     let actor = ApActor::from(sender.clone());
 
     if address.is_public() {
-        inboxes.extend(get_follower_inboxes(conn.unwrap(), sender.clone()).await);
+        inboxes.extend(get_instance_inboxes(conn).await.into_iter());
+        //inboxes.extend(get_follower_inboxes(conn, sender.clone()).await);
         // instead of the above, consider sending to shared inboxes of known instances
         // the duplicate code is temporary because some operations (e.g., Delete) do not have
         // the followers in cc, so until there's logic to send more broadly to all instances,
         // this will need to suffice
     } else if let Some(followers) = actor.followers {
         if address.to_string() == followers {
-            inboxes.extend(get_follower_inboxes(conn.unwrap(), sender.clone()).await);
+            inboxes.extend(get_follower_inboxes(conn, sender.clone()).await);
         } else if let Some((actor, _)) =
-            get_actor(conn, sender.clone(), address.clone().to_string()).await
+            get_actor(Some(conn), sender.clone(), address.clone().to_string()).await
         {
             inboxes.insert(ApAddress::Address(actor.as_inbox));
         }
     }
 }
 
-pub async fn get_inboxes(conn: Option<&Db>, activity: ApActivity, sender: Actor) -> Vec<ApAddress> {
+pub async fn get_inboxes(conn: &Db, activity: ApActivity, sender: Actor) -> Vec<ApAddress> {
     let mut inboxes = HashSet::<ApAddress>::new();
 
     let (to, cc) = match activity {
@@ -250,13 +358,9 @@ impl fmt::Display for TaskError {
 
 impl Error for TaskError {}
 
-pub async fn run<Fut, F>(
-    f: F,
-    conn: Option<Db>,
-    channels: Option<EventChannels>,
-    params: Vec<String>,
-) where
-    F: Fn(Option<Db>, Option<EventChannels>, Vec<String>) -> Fut,
+pub async fn run<Fut, F>(f: F, conn: Db, channels: Option<EventChannels>, params: Vec<String>)
+where
+    F: Fn(Db, Option<EventChannels>, Vec<String>) -> Fut,
     Fut: Future<Output = Result<(), TaskError>> + Send + 'static,
 {
     tokio::spawn(f(conn, channels, params));

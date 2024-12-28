@@ -1,531 +1,263 @@
-// @generated automatically by Diesel CLI.
-
 diesel::table! {
     activities (id) {
         id -> Integer,
-        created_at -> Timestamp,
-        updated_at -> Timestamp,
-        profile_id -> Nullable<Integer>,
+        created_at -> TimestamptzSqlite,
+        updated_at -> TimestamptzSqlite,
         kind -> Text,
         uuid -> Text,
         actor -> Text,
-        ap_to -> Nullable<Text>,
-        cc -> Nullable<Text>,
-        target_note_id -> Nullable<Integer>,
-        target_remote_note_id -> Nullable<Integer>,
-        target_profile_id -> Nullable<Integer>,
+        ap_to -> Nullable<Jsonb>,
+        cc -> Nullable<Jsonb>,
         target_activity_id -> Nullable<Integer>,
         target_ap_id -> Nullable<Text>,
-        target_remote_actor_id -> Nullable<Integer>,
         revoked -> Bool,
         ap_id -> Nullable<Text>,
-        target_remote_question_id -> Nullable<Integer>,
+        reply -> Bool,
+        raw -> Nullable<Jsonb>,
+        target_object_id -> Nullable<Integer>,
+        actor_id -> Nullable<Integer>,
+        target_actor_id -> Nullable<Integer>,
+        log -> Nullable<Jsonb>,
+        instrument -> Nullable<Jsonb>,
     }
 }
 
 diesel::table! {
-    activities_cc (id) {
-        id -> Integer,
-        created_at -> Timestamp,
-        updated_at -> Timestamp,
-        activity_id -> Integer,
-        ap_id -> Text,
-    }
-}
-
-diesel::table! {
-    activities_to (id) {
-        id -> Integer,
-        created_at -> Timestamp,
-        updated_at -> Timestamp,
-        activity_id -> Integer,
-        ap_id -> Text,
-    }
-}
-
-diesel::table! {
-    announces (id) {
-        id -> Integer,
-        created_at -> Timestamp,
-        updated_at -> Timestamp,
-        profile_id -> Nullable<Integer>,
-        uuid -> Text,
-        actor -> Text,
-        ap_to -> Text,
-        cc -> Nullable<Text>,
-        object_ap_id -> Text,
+    actors (id) {
+        id -> Int4,
+        created_at -> TimestamptzSqlite,
+        updated_at -> TimestamptzSqlite,
+        ek_uuid -> Nullable<Text>,
+        ek_username -> Nullable<Text>,
+        ek_summary_markdown -> Nullable<Text>,
+        ek_avatar_filename -> Nullable<Text>,
+        ek_banner_filename -> Nullable<Text>,
+        ek_private_key -> Nullable<Text>,
+        ek_password -> Nullable<Text>,
+        ek_client_public_key -> Nullable<Text>,
+        ek_client_private_key -> Nullable<Text>,
+        ek_salt -> Nullable<Text>,
+        ek_olm_pickled_account -> Nullable<Text>,
+        ek_olm_pickled_account_hash -> Nullable<Text>,
+        ek_olm_identity_key -> Nullable<Text>,
+        ek_webfinger -> Nullable<Text>,
+        ek_checked_at -> TimestamptzSqlite,
+        ek_hashtags -> Jsonb,
+        as_type -> Text,
+        as_context -> Nullable<Jsonb>,
+        as_id -> Text,
+        as_name -> Nullable<Text>,
+        as_preferred_username -> Nullable<Text>,
+        as_summary -> Nullable<Text>,
+        as_inbox -> Text,
+        as_outbox -> Text,
+        as_followers -> Nullable<Text>,
+        as_following -> Nullable<Text>,
+        as_liked -> Nullable<Text>,
+        as_public_key -> Jsonb,
+        as_featured -> Nullable<Text>,
+        as_featured_tags -> Nullable<Text>,
+        as_url -> Nullable<Jsonb>,
+        as_published -> Nullable<TimestamptzSqlite>,
+        as_tag -> Jsonb,
+        as_attachment -> Jsonb,
+        as_endpoints -> Jsonb,
+        as_icon -> Jsonb,
+        as_image -> Jsonb,
+        as_also_known_as -> Jsonb,
+        as_discoverable -> Bool,
+        ap_capabilities -> Jsonb,
+        ap_manually_approves_followers -> Bool,
+        ek_keys -> Nullable<Text>,
+        ek_last_decrypted_activity -> TimestamptzSqlite,
     }
 }
 
 diesel::table! {
     cache (id) {
-        id -> Integer,
-        created_at -> Timestamp,
-        updated_at -> Timestamp,
+        id -> Int4,
+        created_at -> TimestamptzSqlite,
+        updated_at -> TimestamptzSqlite,
         uuid -> Text,
         url -> Text,
         media_type -> Nullable<Text>,
-        height -> Nullable<Integer>,
-        width -> Nullable<Integer>,
+        height -> Nullable<Int4>,
+        width -> Nullable<Int4>,
         blurhash -> Nullable<Text>,
     }
 }
 
 diesel::table! {
-    encrypted_sessions (id) {
-        id -> Integer,
-        created_at -> Timestamp,
-        updated_at -> Timestamp,
-        profile_id -> Integer,
-        ap_to -> Text,
-        attributed_to -> Text,
-        instrument -> Text,
-        reference -> Nullable<Text>,
-        uuid -> Text,
-    }
-}
-
-diesel::table! {
     followers (id) {
-        id -> Integer,
-        created_at -> Timestamp,
-        updated_at -> Timestamp,
-        profile_id -> Integer,
+        id -> Int4,
+        created_at -> TimestamptzSqlite,
+        updated_at -> TimestamptzSqlite,
         ap_id -> Text,
         actor -> Text,
         followed_ap_id -> Text,
         uuid -> Text,
-    }
-}
-
-diesel::table! {
-    follows (id) {
-        id -> Integer,
-        created_at -> Timestamp,
-        updated_at -> Timestamp,
-        uuid -> Text,
-        profile_id -> Nullable<Integer>,
-        ap_object -> Text,
-        actor -> Text,
-    }
-}
-
-diesel::table! {
-    hashtag_trend (id) {
-        id -> Integer,
-        created_at -> Timestamp,
-        updated_at -> Timestamp,
-        period -> Integer,
-        hashtag -> Text,
-        update_count -> Integer,
+        actor_id -> Int4,
     }
 }
 
 diesel::table! {
     instances (id) {
-        id -> Integer,
-        created_at -> Timestamp,
-        updated_at -> Timestamp,
+        id -> Int4,
+        created_at -> TimestamptzSqlite,
+        updated_at -> TimestamptzSqlite,
         domain_name -> Text,
-        json -> Nullable<Text>,
+        json -> Nullable<Jsonb>,
         blocked -> Bool,
-        last_message_at -> Timestamp,
+        last_message_at -> TimestamptzSqlite,
+        shared_inbox -> Nullable<Text>,
     }
 }
 
 diesel::table! {
     leaders (id) {
-        id -> Integer,
-        created_at -> Timestamp,
-        updated_at -> Timestamp,
-        profile_id -> Integer,
+        id -> Int4,
+        created_at -> TimestamptzSqlite,
+        updated_at -> TimestamptzSqlite,
         actor -> Text,
         leader_ap_id -> Text,
         uuid -> Text,
         accept_ap_id -> Nullable<Text>,
         accepted -> Nullable<Bool>,
         follow_ap_id -> Nullable<Text>,
-    }
-}
-
-diesel::table! {
-    likes (id) {
-        id -> Integer,
-        created_at -> Timestamp,
-        updated_at -> Timestamp,
-        uuid -> Text,
-        profile_id -> Nullable<Integer>,
-        ap_to -> Text,
-        actor -> Text,
-        object_ap_id -> Text,
-    }
-}
-
-diesel::table! {
-    note_hashtags (id) {
-        id -> Integer,
-        created_at -> Timestamp,
-        updated_at -> Timestamp,
-        hashtag -> Text,
-        note_id -> Integer,
-    }
-}
-
-diesel::table! {
-    notes (id) {
-        id -> Integer,
-        created_at -> Timestamp,
-        updated_at -> Timestamp,
-        uuid -> Text,
-        profile_id -> Integer,
-        kind -> Text,
-        ap_to -> Text,
-        cc -> Nullable<Text>,
-        tag -> Nullable<Text>,
-        attributed_to -> Text,
-        in_reply_to -> Nullable<Text>,
-        content -> Text,
-        conversation -> Nullable<Text>,
-        attachment -> Nullable<Text>,
-        instrument -> Nullable<Text>,
-        ap_id -> Nullable<Text>,
+        actor_id -> Int4,
     }
 }
 
 diesel::table! {
     notifications (id) {
-        id -> Integer,
-        created_at -> Timestamp,
-        updated_at -> Timestamp,
+        id -> Int4,
+        created_at -> TimestamptzSqlite,
+        updated_at -> TimestamptzSqlite,
         uuid -> Text,
         kind -> Text,
-        profile_id -> Integer,
-        activity_id -> Integer,
+        profile_id -> Int4,
+        activity_id -> Int4,
+    }
+}
+
+diesel::table! {
+    objects (id) {
+        id -> Int4,
+        created_at -> TimestamptzSqlite,
+        updated_at -> TimestamptzSqlite,
+        ap_conversation -> Nullable<Text>,
+        ap_sensitive -> Nullable<Bool>,
+        ap_signature -> Nullable<Jsonb>,
+        ap_voters_count -> Nullable<Int4>,
+        as_any_of -> Nullable<Jsonb>,
+        as_attachment -> Nullable<Jsonb>,
+        as_attributed_to -> Nullable<Jsonb>,
+        as_audience -> Nullable<Jsonb>,
+        as_bcc -> Nullable<Jsonb>,
+        as_bto -> Nullable<Jsonb>,
+        as_cc -> Nullable<Jsonb>,
+        as_closed -> Nullable<Jsonb>,
+        as_content -> Nullable<Text>,
+        as_content_map -> Nullable<Jsonb>,
+        as_context -> Nullable<Jsonb>,
+        as_deleted -> Nullable<TimestamptzSqlite>,
+        as_describes -> Nullable<Jsonb>,
+        as_duration -> Nullable<Text>,
+        as_end_time -> Nullable<TimestamptzSqlite>,
+        as_former_type -> Nullable<Text>,
+        as_generator -> Nullable<Jsonb>,
+        as_icon -> Nullable<Jsonb>,
+        as_id -> Text,
+        as_image -> Nullable<Jsonb>,
+        as_in_reply_to -> Nullable<Jsonb>,
+        as_location -> Nullable<Jsonb>,
+        as_media_type -> Nullable<Text>,
+        as_name -> Nullable<Text>,
+        as_name_map -> Nullable<Jsonb>,
+        as_one_of -> Nullable<Jsonb>,
+        as_preview -> Nullable<Jsonb>,
+        as_published -> Nullable<TimestamptzSqlite>,
+        as_replies -> Nullable<Jsonb>,
+        as_start_time -> Nullable<TimestamptzSqlite>,
+        as_summary -> Nullable<Text>,
+        as_summary_map -> Nullable<Jsonb>,
+        as_tag -> Nullable<Jsonb>,
+        as_to -> Nullable<Jsonb>,
+        as_type -> Text,
+        as_updated -> Nullable<TimestamptzSqlite>,
+        as_url -> Nullable<Jsonb>,
+        ek_hashtags -> Jsonb,
+        ek_instrument -> Nullable<Jsonb>,
+        ek_metadata -> Nullable<Jsonb>,
+        ek_profile_id -> Nullable<Int4>,
+        ek_uuid -> Nullable<Text>,
     }
 }
 
 diesel::table! {
     olm_one_time_keys (id) {
-        id -> Integer,
-        created_at -> Timestamp,
-        updated_at -> Timestamp,
+        id -> Int4,
+        created_at -> TimestamptzSqlite,
+        updated_at -> TimestamptzSqlite,
         uuid -> Text,
-        profile_id -> Integer,
-        olm_id -> Integer,
+        profile_id -> Int4,
+        olm_id -> Int4,
         key_data -> Text,
         distributed -> Bool,
+        assignee -> Nullable<Text>,
     }
 }
 
 diesel::table! {
     olm_sessions (id) {
-        id -> Integer,
-        created_at -> Timestamp,
-        updated_at -> Timestamp,
+        id -> Int4,
+        created_at -> TimestamptzSqlite,
+        updated_at -> TimestamptzSqlite,
         uuid -> Text,
         session_data -> Text,
         session_hash -> Text,
-        encrypted_session_id -> Integer,
+        owner_as_id -> Text,
+        ap_conversation -> Text,
+        owner_id -> Int4,
     }
 }
 
 diesel::table! {
-    processing_queue (id) {
-        id -> Integer,
-        created_at -> Timestamp,
-        updated_at -> Timestamp,
-        ap_id -> Text,
-        ap_to -> Text,
-        cc -> Nullable<Text>,
-        attributed_to -> Text,
-        kind -> Text,
-        ap_object -> Text,
-        processed -> Bool,
-        profile_id -> Integer,
-    }
-}
-
-diesel::table! {
-    profile_hashtags (id) {
-        id -> Integer,
-        created_at -> Timestamp,
-        updated_at -> Timestamp,
-        hashtag -> Text,
-        profile_id -> Integer,
-    }
-}
-
-diesel::table! {
-    profiles (id) {
-        id -> Integer,
-        created_at -> Timestamp,
-        updated_at -> Timestamp,
-        uuid -> Text,
-        username -> Text,
-        display_name -> Text,
-        summary -> Nullable<Text>,
-        public_key -> Text,
-        private_key -> Text,
-        password -> Nullable<Text>,
-        client_public_key -> Nullable<Text>,
-        avatar_filename -> Nullable<Text>,
-        banner_filename -> Nullable<Text>,
-        salt -> Nullable<Text>,
-        client_private_key -> Nullable<Text>,
-        olm_pickled_account -> Nullable<Text>,
-        olm_pickled_account_hash -> Nullable<Text>,
-        olm_identity_key -> Nullable<Text>,
-        summary_markdown -> Nullable<Text>,
-    }
-}
-
-diesel::table! {
-    remote_actor_hashtags (id) {
-        id -> Integer,
-        created_at -> Timestamp,
-        updated_at -> Timestamp,
-        hashtag -> Text,
-        remote_actor_id -> Integer,
-    }
-}
-
-diesel::table! {
-    remote_actors (id) {
-        id -> Integer,
-        created_at -> Timestamp,
-        updated_at -> Timestamp,
-        context -> Text,
-        kind -> Text,
-        ap_id -> Text,
-        name -> Text,
-        preferred_username -> Nullable<Text>,
-        summary -> Nullable<Text>,
-        inbox -> Text,
-        outbox -> Text,
-        followers -> Nullable<Text>,
-        following -> Nullable<Text>,
-        liked -> Nullable<Text>,
-        public_key -> Text,
-        featured -> Nullable<Text>,
-        featured_tags -> Nullable<Text>,
-        url -> Nullable<Text>,
-        manually_approves_followers -> Nullable<Bool>,
-        published -> Nullable<Text>,
-        tag -> Nullable<Text>,
-        attachment -> Nullable<Text>,
-        endpoints -> Nullable<Text>,
-        icon -> Nullable<Text>,
-        image -> Nullable<Text>,
-        also_known_as -> Nullable<Text>,
-        discoverable -> Nullable<Bool>,
-        capabilities -> Nullable<Text>,
-        checked_at -> Timestamp,
-        webfinger -> Nullable<Text>,
-    }
-}
-
-diesel::table! {
-    remote_encrypted_sessions (id) {
-        id -> Integer,
-        created_at -> Timestamp,
-        updated_at -> Timestamp,
-        profile_id -> Integer,
-        actor -> Text,
-        kind -> Text,
-        ap_id -> Text,
-        ap_to -> Text,
-        attributed_to -> Text,
-        instrument -> Text,
-        reference -> Nullable<Text>,
-    }
-}
-
-diesel::table! {
-    remote_note_hashtags (id) {
-        id -> Integer,
-        created_at -> Timestamp,
-        updated_at -> Timestamp,
-        hashtag -> Text,
-        remote_note_id -> Integer,
-    }
-}
-
-diesel::table! {
-    remote_notes (id) {
-        id -> Integer,
-        created_at -> Timestamp,
-        updated_at -> Timestamp,
-        kind -> Text,
-        ap_id -> Text,
-        published -> Nullable<Text>,
-        url -> Nullable<Text>,
-        ap_to -> Nullable<Text>,
-        cc -> Nullable<Text>,
-        tag -> Nullable<Text>,
-        attributed_to -> Text,
-        content -> Text,
-        attachment -> Nullable<Text>,
-        replies -> Nullable<Text>,
-        in_reply_to -> Nullable<Text>,
-        signature -> Nullable<Text>,
-        summary -> Nullable<Text>,
-        ap_sensitive -> Nullable<Bool>,
-        atom_uri -> Nullable<Text>,
-        in_reply_to_atom_uri -> Nullable<Text>,
-        conversation -> Nullable<Text>,
-        content_map -> Nullable<Text>,
-    }
-}
-
-diesel::table! {
-    remote_questions (id) {
-        id -> Integer,
-        created_at -> Timestamp,
-        updated_at -> Timestamp,
-        kind -> Text,
-        ap_id -> Text,
-        ap_to -> Nullable<Text>,
-        cc -> Nullable<Text>,
-        end_time -> Nullable<Timestamp>,
-        published -> Nullable<Timestamp>,
-        one_of -> Nullable<Text>,
-        any_of -> Nullable<Text>,
-        content -> Nullable<Text>,
-        content_map -> Nullable<Text>,
-        summary -> Nullable<Text>,
-        voters_count -> Nullable<Integer>,
-        url -> Nullable<Text>,
-        conversation -> Nullable<Text>,
-        tag -> Nullable<Text>,
-        attachment -> Nullable<Text>,
-        ap_sensitive -> Nullable<Bool>,
-        in_reply_to -> Nullable<Text>,
-        attributed_to -> Text,
-    }
-}
-
-diesel::table! {
-    timeline (id) {
-        id -> Integer,
-        created_at -> Timestamp,
-        updated_at -> Timestamp,
-        tag -> Nullable<Text>,
-        attributed_to -> Text,
-        ap_id -> Text,
-        kind -> Text,
-        url -> Nullable<Text>,
-        published -> Nullable<Text>,
-        replies -> Nullable<Text>,
-        in_reply_to -> Nullable<Text>,
-        content -> Nullable<Text>,
-        ap_public -> Bool,
-        summary -> Nullable<Text>,
-        ap_sensitive -> Nullable<Bool>,
-        atom_uri -> Nullable<Text>,
-        in_reply_to_atom_uri -> Nullable<Text>,
-        conversation -> Nullable<Text>,
-        content_map -> Nullable<Text>,
-        attachment -> Nullable<Text>,
-        ap_object -> Nullable<Text>,
-        metadata -> Nullable<Text>,
-        end_time -> Nullable<Timestamp>,
-        one_of -> Nullable<Text>,
-        any_of -> Nullable<Text>,
-        voters_count -> Nullable<Integer>,
-    }
-}
-
-diesel::table! {
-    timeline_cc (id) {
-        id -> Integer,
-        created_at -> Timestamp,
-        updated_at -> Timestamp,
-        timeline_id -> Integer,
-        ap_id -> Text,
-    }
-}
-
-diesel::table! {
-    timeline_hashtags (id) {
-        id -> Integer,
-        created_at -> Timestamp,
-        updated_at -> Timestamp,
-        hashtag -> Text,
-        timeline_id -> Integer,
-    }
-}
-
-diesel::table! {
-    timeline_to (id) {
-        id -> Integer,
-        created_at -> Timestamp,
-        updated_at -> Timestamp,
-        timeline_id -> Integer,
-        ap_id -> Text,
+    unprocessable (id) {
+        id -> Int4,
+        created_at -> TimestamptzSqlite,
+        updated_at -> TimestamptzSqlite,
+        raw -> Jsonb,
+        error -> Nullable<Text>,
     }
 }
 
 diesel::table! {
     vault (id) {
-        id -> Integer,
-        created_at -> Timestamp,
-        updated_at -> Timestamp,
+        id -> Int4,
+        created_at -> TimestamptzSqlite,
+        updated_at -> TimestamptzSqlite,
         uuid -> Text,
-        profile_id -> Integer,
-        encrypted_data -> Text,
-        remote_actor -> Text,
-        outbound -> Bool,
+        owner_as_id -> Text,
+        activity_id -> Int4,
+        data -> Text,
     }
 }
 
-diesel::joinable!(activities_cc -> activities (activity_id));
-diesel::joinable!(activities_to -> activities (activity_id));
-diesel::joinable!(encrypted_sessions -> profiles (profile_id));
-diesel::joinable!(followers -> profiles (profile_id));
-diesel::joinable!(leaders -> profiles (profile_id));
-diesel::joinable!(note_hashtags -> remote_notes (note_id));
-diesel::joinable!(notes -> profiles (profile_id));
-diesel::joinable!(olm_one_time_keys -> profiles (profile_id));
-diesel::joinable!(olm_sessions -> encrypted_sessions (encrypted_session_id));
-diesel::joinable!(profile_hashtags -> profiles (profile_id));
-diesel::joinable!(remote_actor_hashtags -> remote_actors (remote_actor_id));
-diesel::joinable!(remote_encrypted_sessions -> profiles (profile_id));
-diesel::joinable!(remote_note_hashtags -> remote_notes (remote_note_id));
-diesel::joinable!(timeline_cc -> timeline (timeline_id));
-diesel::joinable!(timeline_hashtags -> timeline (timeline_id));
-diesel::joinable!(timeline_to -> timeline (timeline_id));
-diesel::joinable!(vault -> profiles (profile_id));
+diesel::joinable!(olm_one_time_keys -> actors (profile_id));
+diesel::joinable!(vault -> activities (activity_id));
 
 diesel::allow_tables_to_appear_in_same_query!(
     activities,
-    activities_cc,
-    activities_to,
-    announces,
+    actors,
     cache,
-    encrypted_sessions,
     followers,
-    follows,
-    hashtag_trend,
     instances,
     leaders,
-    likes,
-    note_hashtags,
-    notes,
     notifications,
+    objects,
     olm_one_time_keys,
     olm_sessions,
-    processing_queue,
-    profile_hashtags,
-    profiles,
-    remote_actor_hashtags,
-    remote_actors,
-    remote_encrypted_sessions,
-    remote_note_hashtags,
-    remote_notes,
-    remote_questions,
-    timeline,
-    timeline_cc,
-    timeline_hashtags,
-    timeline_to,
+    unprocessable,
     vault,
 );

@@ -6,8 +6,10 @@ use crate::{
     fairings::signatures::Signed,
     helper::get_uuid,
     models::{
+        activities::get_encrypted_activities,
         activities::lookup_activity_id_by_as_id,
         actors::get_actor_by_username,
+        actors::update_olm_account_by_username,
         olm_one_time_keys::{
             create_olm_one_time_key, get_next_otk_by_profile_id, get_otk_count_by_profile_id,
         },
@@ -15,7 +17,6 @@ use crate::{
             create_or_update_olm_session, get_olm_session_by_conversation_and_actor,
             OlmSessionParams,
         },
-        pg::{activities::get_encrypted_activities, actors::update_olm_account_by_username},
         vault::{create_vault_item, VaultItemParams},
     },
     routes::ActivityJson,

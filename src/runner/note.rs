@@ -7,11 +7,11 @@ use crate::activity_pub::{ApHashtag, Metadata};
 use crate::fairings::events::EventChannels;
 use crate::models::actors::{guaranteed_actor, Actor};
 use crate::models::cache::Cache;
+use crate::models::objects;
 use crate::models::objects::{create_or_update_object, get_object_by_as_id, Object};
-use crate::models::pg::objects;
-use crate::models::to_serde;
 use crate::{activity_pub::ApObject, db::Db, signing::Method};
 use crate::{runner, ANCHOR_RE};
+use serde_json::json;
 
 use super::TaskError;
 
@@ -103,14 +103,13 @@ pub async fn handle_object(
     }
 
     let hashtags: Vec<ApHashtag> = object.clone().into();
-    let hashtags = to_serde::<Vec<String>>(&Some(
-        hashtags
+
+    if !hashtags.is_empty() {
+        let hashtags = json!(hashtags
             .iter()
             .map(|x| x.name.clone().to_lowercase())
-            .collect(),
-    ));
+            .collect::<Vec<String>>());
 
-    if let Some(hashtags) = hashtags {
         object = objects::update_hashtags(conn, object.id, hashtags)
             .await
             .unwrap_or(object);
@@ -167,21 +166,19 @@ pub async fn handle_object(
 // }
 
 pub async fn object_task(
-    conn: Option<Db>,
+    conn: Db,
     channels: Option<EventChannels>,
     ap_ids: Vec<String>,
 ) -> Result<(), TaskError> {
-    let conn = conn.as_ref();
-
     let ap_id = ap_ids.first().unwrap().clone();
 
-    if let Ok(object) = get_object_by_as_id(conn, ap_id).await {
+    if let Ok(object) = get_object_by_as_id(Some(&conn), ap_id).await {
         cfg_if::cfg_if! {
             if #[cfg(feature = "pg")] {
-                use crate::models::pg::objects::ObjectType;
+                use crate::models::objects::ObjectType;
 
                 if object.as_type == ObjectType::Note {
-                    let _ = handle_object(conn.unwrap(), channels, object.clone(), None).await;
+                    let _ = handle_object(&conn, channels, object.clone(), None).await;
                 }
             }
             // else if #[cfg(feature = "sqlite")] {

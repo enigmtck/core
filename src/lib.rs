@@ -1,4 +1,3 @@
-#![feature(async_closure)]
 #![allow(async_fn_in_trait)]
 extern crate diesel;
 extern crate log;
@@ -56,7 +55,7 @@ lazy_static! {
     pub static ref LOCAL_RE: Regex =
         Regex::new(&format!(r#"\w+?://{}/(.+)"#, *SERVER_NAME)).expect("invalid local regex");
     pub static ref DOMAIN_RE: Regex =
-        Regex::new(&format!(r#"https://([\w\.-]+)/?(.*)"#)).expect("invalid domain regex");
+        Regex::new(r#"https://([\w\.-]+)/?(.*)"#).expect("invalid domain regex");
     pub static ref LOCAL_URL_RE: Regex = Regex::new(&format!(
         r#"^{}/(user|notes|session|collections|activities|objects|instruments)/(.+)$"#,
         *SERVER_URL
@@ -248,8 +247,23 @@ impl<T: Serialize> From<&MaybeMultiple<T>> for Option<Value> {
     }
 }
 
+impl<T: Serialize> From<MaybeMultiple<T>> for Option<Value> {
+    fn from(object: MaybeMultiple<T>) -> Self {
+        match object {
+            MaybeMultiple::None => None,
+            _ => Some(json!(object)),
+        }
+    }
+}
+
 impl<T: Serialize> From<&MaybeMultiple<T>> for Value {
     fn from(object: &MaybeMultiple<T>) -> Self {
+        json!(object)
+    }
+}
+
+impl<T: Serialize> From<MaybeMultiple<T>> for Value {
+    fn from(object: MaybeMultiple<T>) -> Self {
         json!(object)
     }
 }
@@ -273,6 +287,19 @@ impl<T> From<Vec<T>> for MaybeMultiple<T> {
 }
 
 impl<T: Clone> MaybeMultiple<T> {
+    pub fn map<U, F>(self, mut f: F) -> MaybeMultiple<U>
+    where
+        F: FnMut(T) -> U,
+    {
+        match self {
+            MaybeMultiple::Multiple(vec) => {
+                MaybeMultiple::Multiple(vec.into_iter().map(f).collect())
+            }
+            MaybeMultiple::Single(val) => MaybeMultiple::Single(f(val)),
+            MaybeMultiple::None => MaybeMultiple::None,
+        }
+    }
+
     pub fn single(&self) -> Result<T> {
         match self {
             MaybeMultiple::Multiple(s) => {

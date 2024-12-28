@@ -4,7 +4,7 @@ use crate::fairings::events::EventChannels;
 use crate::models::actors::Actor;
 use crate::models::cache::Cache;
 use crate::models::objects::Object;
-use crate::models::pg::objects::ObjectType;
+use crate::models::objects::ObjectType;
 use crate::routes::ActivityJson;
 use crate::{Identifier, MaybeMultiple, OrdValue, IMAGE_MEDIA_RE};
 

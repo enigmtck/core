@@ -5,8 +5,8 @@ use serde::Deserialize;
 use crate::admin::{self, verify_and_generate_password};
 use crate::db::Db;
 use crate::fairings::signatures::Signed;
+use crate::models::actors::update_password_by_username;
 use crate::models::actors::Actor;
-use crate::models::pg::actors::update_password_by_username;
 use crate::models::profiles::Profile;
 
 #[derive(Deserialize, Debug, Clone)]

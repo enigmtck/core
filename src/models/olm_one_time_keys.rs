@@ -1,20 +1,26 @@
 use crate::db::Db;
 use crate::schema::olm_one_time_keys;
 use anyhow::Result;
+use chrono::{DateTime, Utc};
 use diesel::prelude::*;
 use diesel::Insertable;
+use diesel::{AsChangeset, Identifiable, Queryable};
 use rocket_sync_db_pools::diesel;
 use serde::{Deserialize, Serialize};
 
-cfg_if::cfg_if! {
-    if #[cfg(feature = "pg")] {
-        pub use crate::models::pg::olm_one_time_keys::OlmOneTimeKey;
-        pub use crate::models::pg::olm_one_time_keys::create_olm_one_time_key;
-    } else if #[cfg(feature = "sqlite")] {
-        pub use crate::models::sqlite::olm_one_time_keys::OlmOneTimeKey;
-        pub use crate::models::sqlite::olm_one_time_keys::create_olm_one_time_key;
-        pub use crate::models::sqlite::olm_one_time_keys::get_olm_one_time_key_by_profile_id;
-    }
+#[derive(Identifiable, Queryable, AsChangeset, Serialize, Clone, Default, Debug)]
+#[diesel(table_name = olm_one_time_keys)]
+pub struct OlmOneTimeKey {
+    #[serde(skip_serializing)]
+    pub id: i32,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+    pub uuid: String,
+    pub profile_id: i32,
+    pub olm_id: i32,
+    pub key_data: String,
+    pub distributed: bool,
+    pub assignee: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Insertable, Default, Debug, Clone)]
@@ -42,6 +48,19 @@ impl From<KeyTuple> for NewOlmOneTimeKey {
             assignee: None,
         }
     }
+}
+
+pub async fn create_olm_one_time_key(
+    conn: &Db,
+    olm_one_time_key: NewOlmOneTimeKey,
+) -> Option<OlmOneTimeKey> {
+    conn.run(move |c| {
+        diesel::insert_into(olm_one_time_keys::table)
+            .values(&olm_one_time_key)
+            .get_result::<OlmOneTimeKey>(c)
+    })
+    .await
+    .ok()
 }
 
 pub async fn get_olm_one_time_keys_by_profile_id(

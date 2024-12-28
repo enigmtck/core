@@ -10,9 +10,9 @@ use crate::{
     models::{
         activities::{create_activity, ActivityType, ExtendedActivity, NewActivity},
         actors::Actor,
-        from_serde, from_time,
+        coalesced_activity::CoalescedActivity,
+        from_serde,
         objects::get_object_by_as_id,
-        pg::coalesced_activity::CoalescedActivity,
     },
     routes::ActivityJson,
     runner, MaybeMultiple, MaybeReference,
@@ -89,7 +89,7 @@ impl Inbox for ApAnnounce {
         {
             runner::run(
                 runner::announce::remote_announce_task,
-                Some(conn),
+                conn,
                 Some(channels),
                 vec![activity.ap_id.clone().ok_or(Status::BadRequest)?],
             )
@@ -148,7 +148,7 @@ async fn outbox(
 
         runner::run(
             runner::announce::send_announce_task,
-            Some(conn),
+            conn,
             Some(channels),
             vec![activity.ap_id.clone().ok_or(Status::InternalServerError)?],
         )
@@ -209,10 +209,10 @@ impl TryFrom<CoalescedActivity> for ApAnnounce {
             .and_then(from_serde)
             .ok_or(anyhow!("ap_to is None"))?;
         let cc = coalesced.clone().cc.into();
-        let published = ActivityPub::time(from_time(coalesced.created_at).unwrap());
+        let published = ActivityPub::time(coalesced.created_at);
         let ephemeral = Some(Ephemeral {
-            created_at: from_time(coalesced.created_at),
-            updated_at: from_time(coalesced.updated_at),
+            created_at: Some(coalesced.created_at),
+            updated_at: Some(coalesced.updated_at),
             ..Default::default()
         });
 
@@ -253,11 +253,11 @@ impl TryFrom<ExtendedActivity> for ApAnnounce {
                 )),
                 to: from_serde(ap_to).unwrap(),
                 cc: activity.cc.into(),
-                published: ActivityPub::time(from_time(activity.created_at).unwrap()),
+                published: ActivityPub::time(activity.created_at),
                 object,
                 ephemeral: Some(Ephemeral {
-                    created_at: from_time(activity.created_at),
-                    updated_at: from_time(activity.updated_at),
+                    created_at: Some(activity.created_at),
+                    updated_at: Some(activity.updated_at),
                     ..Default::default()
                 }),
             })

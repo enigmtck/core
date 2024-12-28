@@ -1,4 +1,0 @@
-ALTER TABLE timeline ADD COLUMN end_time TIMESTAMP;
-ALTER TABLE timeline ADD COLUMN one_of TEXT;
-ALTER TABLE timeline ADD COLUMN any_of TEXT;
-ALTER TABLE timeline ADD COLUMN voters_count INTEGER;

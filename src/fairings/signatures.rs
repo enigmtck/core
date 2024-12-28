@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use crate::{
     activity_pub::ApActor,
     db::Db,
-    models::{actors::Actor, instances::create_or_update_instance},
+    models::{actors::get_actor_by_key_id, actors::Actor, instances::create_or_update_instance},
     signing::{verify, VerificationError, VerificationType, VerifyMapParams},
     ASSIGNMENT_RE, DOMAIN_RE,
 };
@@ -79,12 +79,24 @@ async fn update_instance(conn: &Db, signature: String) {
         .get("keyId")
         .expect("keyId not found in signature_map");
 
+    // It might be better to derive the domain_name from the webfinger stored
+    // on the Actor. But I'm not sure how that would work when the actor doesn't
+    // exist yet, so maybe not.
     let domain_name = DOMAIN_RE
         .captures(key_id)
         .expect("Unable to locate domain name")[1]
         .to_string();
 
-    if let Err(e) = create_or_update_instance(Some(conn), domain_name.into()).await {
+    let shared_inbox = get_actor_by_key_id(conn, key_id.clone())
+        .await
+        .ok()
+        .and_then(|actor| {
+            ApActor::from(actor)
+                .endpoints
+                .map(|endpoints| endpoints.shared_inbox)
+        });
+
+    if let Err(e) = create_or_update_instance(conn, (domain_name, shared_inbox).into()).await {
         log::error!("Instance update error: {e}");
     }
 }

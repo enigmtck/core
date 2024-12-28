@@ -1,4 +1,4 @@
-use anyhow::{anyhow, Result};
+use anyhow::Result;
 use chrono::Utc;
 use orion::pwhash;
 use rsa::{
@@ -18,7 +18,6 @@ use crate::models::actors::{
 };
 use crate::models::cache::Cache;
 use crate::models::profiles::Profile;
-use crate::models::to_serde;
 use crate::MaybeMultiple;
 
 struct KeyPair {
@@ -104,15 +103,14 @@ pub async fn create_user(conn: Option<&Db>, user: NewUser) -> Result<Actor> {
                 .unwrap()
                 .to_string(),
         ),
-        as_public_key: to_serde(&Some(ApPublicKey {
+        as_public_key: json!(ApPublicKey {
             id: format!("{owner}#main-key"),
             owner: owner.clone(),
             public_key_pem: key_pair
                 .public_key
                 .to_public_key_pem(LineEnding::default())
                 .unwrap(),
-        }))
-        .ok_or(anyhow!("failed to initialize public key"))?,
+        }),
         ek_password: Some(hash.unprotected_as_encoded().to_string()),
         ek_client_public_key: user.client_public_key,
         ek_client_private_key: user.client_private_key,
@@ -128,29 +126,26 @@ pub async fn create_user(conn: Option<&Db>, user: NewUser) -> Result<Actor> {
         as_liked: Some(format!("{owner}/liked")),
         ek_keys: Some(format!("{owner}/keys")),
         as_published: Some(Utc::now()),
-        as_url: to_serde(&Some(MaybeMultiple::from(format!(
+        as_url: Some(json!(MaybeMultiple::from(format!(
             "{server_url}/@{username}"
         )))),
-        as_endpoints: to_serde(&Some(ApEndpoint {
+        as_endpoints: json!(ApEndpoint {
             shared_inbox: format!("{server_url}/inbox"),
-        }))
-        .ok_or(anyhow!("failed to initialize endpoints"))?,
+        }),
         as_discoverable: true,
         ap_manually_approves_followers: false,
-        ap_capabilities: to_serde(&Some(ApCapabilities {
+        ap_capabilities: json!(ApCapabilities {
             accepts_chat_messages: Some(false),
             enigmatick_encryption: Some(true),
-        }))
-        .ok_or(anyhow!("failed to initialize capabilities"))?,
+        }),
         as_also_known_as: json!([]),
         as_tag: json!([]),
         as_id: owner,
-        as_icon: to_serde(&Some(ApImage {
+        as_icon: json!(ApImage {
             url: format!("{server_url}/{avatar}"),
             kind: ApImageType::Image,
             media_type: Some("image/png".to_string()),
-        }))
-        .ok_or(anyhow!("failed to initialize image"))?,
+        }),
         as_image: json!("{}"),
         ek_webfinger: Some(format!("@{username}@{server_name}")),
         ek_avatar_filename: None,
@@ -159,7 +154,7 @@ pub async fn create_user(conn: Option<&Db>, user: NewUser) -> Result<Actor> {
         ek_hashtags: json!([]),
         as_type: ActorType::Person,
         as_attachment: json!([]),
-        as_context: to_serde(&Some(ApContext::default())),
+        as_context: Some(json!(ApContext::default())),
         as_featured: None,
         as_featured_tags: None,
     };

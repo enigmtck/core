@@ -12,7 +12,9 @@ use crate::models::actors::ActorType;
 use crate::models::actors::{get_actor_by_as_id, Actor};
 use crate::models::cache::{cache_content, Cache};
 use crate::models::followers::get_follower_count_by_actor_id;
-use crate::models::leaders::{get_leader_count_by_actor_id, Leader};
+use crate::models::leaders::{
+    get_leader_by_actor_id_and_ap_id, get_leader_count_by_actor_id, Leader,
+};
 use crate::models::{from_serde, from_serde_option};
 use crate::routes::ActivityJson;
 use crate::webfinger::retrieve_webfinger;
@@ -342,13 +344,26 @@ impl Default for ApActor {
 }
 
 impl ApActor {
-    pub async fn load_ephemeral(&mut self, conn: &Db) -> Self {
+    pub async fn load_ephemeral(&mut self, conn: &Db, requester: Option<Actor>) -> Self {
         if let Some(ap_id) = self.id.clone() {
             if let Ok(profile) = get_actor_by_as_id(conn, ap_id.to_string()).await {
                 self.ephemeral = Some(Ephemeral {
                     followers: get_follower_count_by_actor_id(conn, profile.id).await.ok(),
                     leaders: get_leader_count_by_actor_id(conn, profile.id).await.ok(),
                     summary_markdown: profile.ek_summary_markdown,
+                    following: {
+                        if let Some(requester) = requester {
+                            if let Some(id) = self.id.clone() {
+                                get_leader_by_actor_id_and_ap_id(conn, requester.id, id.to_string())
+                                    .await
+                                    .and_then(|x| x.accepted)
+                            } else {
+                                None
+                            }
+                        } else {
+                            None
+                        }
+                    },
                     ..Default::default()
                 });
             }

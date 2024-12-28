@@ -4,8 +4,8 @@ use crate::{
     fairings::events::EventChannels,
     helper::{get_instrument_as_id_from_uuid, get_session_as_id_from_uuid},
     models::{
-        actors::Actor, olm_one_time_keys::OlmOneTimeKey, olm_sessions::OlmSession,
-        pg::coalesced_activity::CoalescedActivity,
+        actors::Actor, coalesced_activity::CoalescedActivity, olm_one_time_keys::OlmOneTimeKey,
+        olm_sessions::OlmSession,
     },
     routes::ActivityJson,
     MaybeMultiple,

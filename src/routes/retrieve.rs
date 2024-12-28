@@ -1,6 +1,6 @@
+use crate::models::activities::get_activities_coalesced;
 use crate::models::activities::{get_outbox_count_by_actor_id, TimelineFilters};
 use crate::models::actors::Actor;
-use crate::models::pg::activities::get_activities_coalesced;
 use crate::SERVER_URL;
 use crate::{
     activity_pub::{ActivityPub, ApActivity, ApCollection, ApObject},

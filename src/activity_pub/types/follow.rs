@@ -95,7 +95,7 @@ impl Inbox for ApFollow {
 
         runner::run(
             ApFollow::process,
-            Some(conn),
+            conn,
             Some(channels),
             vec![activity.ap_id.ok_or(Status::InternalServerError)?],
         )
@@ -177,7 +177,7 @@ impl ApFollow {
 
             runner::run(
                 ApFollow::send,
-                Some(conn),
+                conn,
                 Some(channels),
                 vec![activity.uuid.clone()],
             )
@@ -199,26 +199,19 @@ impl ApFollow {
     }
 
     async fn send(
-        conn: Option<Db>,
+        conn: Db,
         _channels: Option<EventChannels>,
         ap_ids: Vec<String>,
     ) -> Result<(), TaskError> {
-        let conn = conn.as_ref();
-
         for ap_id in ap_ids {
-            let (activity, target_activity, target_object, target_actor) = get_activity_by_ap_id(
-                conn.ok_or(TaskError::TaskFailed)?,
-                get_activity_ap_id_from_uuid(ap_id.clone()),
-            )
-            .await
-            .ok_or(TaskError::TaskFailed)?;
+            let (activity, target_activity, target_object, target_actor) =
+                get_activity_by_ap_id(&conn, get_activity_ap_id_from_uuid(ap_id.clone()))
+                    .await
+                    .ok_or(TaskError::TaskFailed)?;
 
-            let sender = get_actor(
-                conn.unwrap(),
-                activity.actor_id.ok_or(TaskError::TaskFailed)?,
-            )
-            .await
-            .ok_or(TaskError::TaskFailed)?;
+            let sender = get_actor(&conn, activity.actor_id.ok_or(TaskError::TaskFailed)?)
+                .await
+                .ok_or(TaskError::TaskFailed)?;
 
             let activity =
                 ApActivity::try_from((activity, target_activity, target_object, target_actor))
@@ -227,9 +220,10 @@ impl ApFollow {
                         TaskError::TaskFailed
                     })?;
 
-            let inboxes: Vec<ApAddress> = get_inboxes(conn, activity.clone(), sender.clone()).await;
+            let inboxes: Vec<ApAddress> =
+                get_inboxes(&conn, activity.clone(), sender.clone()).await;
 
-            send_to_inboxes(conn.unwrap(), inboxes, sender, activity.clone())
+            send_to_inboxes(&conn, inboxes, sender, activity.clone())
                 .await
                 .map_err(|e| {
                     log::error!("FAILED TO SEND TO INBOXES: {e:#?}");
@@ -240,18 +234,16 @@ impl ApFollow {
     }
 
     async fn process(
-        conn: Option<Db>,
+        conn: Db,
         _channels: Option<EventChannels>,
         ap_ids: Vec<String>,
     ) -> Result<(), TaskError> {
         log::debug!("PROCESSING INCOMING FOLLOW REQUEST");
 
-        let conn = conn.as_ref();
-
         for ap_id in ap_ids {
             log::debug!("AS_ID: {ap_id}");
 
-            let extended_follow = get_activity_by_ap_id(conn.ok_or(TaskError::TaskFailed)?, ap_id)
+            let extended_follow = get_activity_by_ap_id(&conn, ap_id)
                 .await
                 .ok_or(TaskError::TaskFailed)?;
 
@@ -264,14 +256,14 @@ impl ApFollow {
                 TaskError::TaskFailed
             })?;
 
-            let accept_actor = get_actor_by_as_id(conn.unwrap(), accept.actor.clone().to_string())
+            let accept_actor = get_actor_by_as_id(&conn, accept.actor.clone().to_string())
                 .await
                 .map_err(|e| {
                     log::error!("FAILED TO RETRIEVE ACTOR: {e:#?}");
                     TaskError::TaskFailed
                 })?;
 
-            let follow_actor = get_actor_by_as_id(conn.unwrap(), follow.actor.clone().to_string())
+            let follow_actor = get_actor_by_as_id(&conn, follow.actor.clone().to_string())
                 .await
                 .map_err(|e| {
                     log::error!("FAILED TO RETRIEVE ACTOR: {e:#?}");
@@ -279,7 +271,7 @@ impl ApFollow {
                 })?;
 
             send_to_inboxes(
-                conn.unwrap(),
+                &conn,
                 vec![follow_actor.as_inbox.clone().into()],
                 accept_actor.clone(),
                 ApActivity::Accept(Box::new(accept)),
@@ -297,7 +289,7 @@ impl ApFollow {
                 })?
                 .link(accept_actor.clone());
 
-            if create_follower(conn, follower).await.is_some() {
+            if create_follower(Some(&conn), follower).await.is_some() {
                 log::info!("FOLLOWER CREATED");
             }
         }

@@ -172,6 +172,7 @@ diesel::table! {
         json -> Nullable<Jsonb>,
         blocked -> Bool,
         last_message_at -> Timestamptz,
+        shared_inbox -> Nullable<Text>,
     }
 }
 
@@ -295,6 +296,7 @@ diesel::table! {
         id -> Int4,
         created_at -> Timestamptz,
         updated_at -> Timestamptz,
+        profile_id -> Int4,
         ap_id -> Varchar,
         ap_to -> Jsonb,
         cc -> Nullable<Jsonb>,
@@ -302,7 +304,6 @@ diesel::table! {
         kind -> Varchar,
         ap_object -> Jsonb,
         processed -> Bool,
-        profile_id -> Int4,
     }
 }
 
