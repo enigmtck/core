@@ -2,25 +2,16 @@ use core::fmt;
 use std::fmt::Debug;
 
 use crate::{
-    activity_pub::{
-        ActivityPub, ApActivity, ApAddress, ApContext, ApNote, ApObject, Inbox, Outbox, Temporal,
-    },
-    db::Db,
-    fairings::events::EventChannels,
+    activity_pub::{ActivityPub, ApAddress, ApContext, ApNote, ApObject, Temporal},
     models::{
-        activities::{create_activity, ActivityType, ExtendedActivity, NewActivity},
-        actors::Actor,
+        activities::{ActivityType, ExtendedActivity},
         coalesced_activity::CoalescedActivity,
-        objects::get_object_by_as_id,
     },
-    routes::ActivityJson,
-    runner, MaybeMultiple, MaybeReference,
+    MaybeMultiple, MaybeReference,
 };
 use anyhow::anyhow;
 use chrono::{DateTime, Utc};
-use rocket::http::Status;
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 
 use super::question::ApQuestion;
 use super::Ephemeral;
@@ -70,102 +61,6 @@ pub struct ApAnnounce {
 
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ephemeral: Option<Ephemeral>,
-}
-
-impl Inbox for ApAnnounce {
-    async fn inbox(&self, conn: Db, channels: EventChannels, raw: Value) -> Result<Status, Status> {
-        let mut activity = NewActivity::try_from((ApActivity::Announce(self.clone()), None))
-            .map_err(|e| {
-                log::error!("FAILED TO BUILD ACTIVITY: {e:#?}");
-                Status::InternalServerError
-            })?;
-
-        activity.raw = Some(raw.clone());
-
-        if create_activity((&conn).into(), activity.clone())
-            .await
-            .is_ok()
-        {
-            runner::run(
-                runner::announce::remote_announce_task,
-                conn,
-                Some(channels),
-                vec![activity.ap_id.clone().ok_or(Status::BadRequest)?],
-            )
-            .await;
-            Ok(Status::Accepted)
-        } else {
-            log::error!("FAILED TO CREATE ACTIVITY\n{raw}");
-            Err(Status::new(521))
-        }
-    }
-
-    fn actor(&self) -> ApAddress {
-        self.actor.clone()
-    }
-}
-
-impl Outbox for ApAnnounce {
-    async fn outbox(
-        &self,
-        conn: Db,
-        events: EventChannels,
-        profile: Actor,
-        raw: Value,
-    ) -> Result<ActivityJson<ApActivity>, Status> {
-        outbox(conn, events, self.clone(), profile, raw).await
-    }
-}
-
-async fn outbox(
-    conn: Db,
-    channels: EventChannels,
-    announce: ApAnnounce,
-    _profile: Actor,
-    raw: Value,
-) -> Result<ActivityJson<ApActivity>, Status> {
-    if let MaybeReference::Reference(as_id) = announce.clone().object {
-        let object = get_object_by_as_id(Some(&conn), as_id).await.map_err(|e| {
-            log::error!("FAILED TO RETRIEVE Object: {e:#?}");
-            Status::NotFound
-        })?;
-
-        let mut activity = NewActivity::try_from((announce.into(), Some(object.clone().into())))
-            .map_err(|e| {
-                log::error!("FAILED TO BUILD Activity: {e:#?}");
-                Status::InternalServerError
-            })?
-            .link_actor(&conn)
-            .await;
-
-        activity.raw = Some(raw);
-
-        let activity = create_activity(Some(&conn), activity).await.map_err(|e| {
-            log::error!("FAILED TO CREATE Activity: {e:#?}");
-            Status::InternalServerError
-        })?;
-
-        runner::run(
-            runner::announce::send_announce_task,
-            conn,
-            Some(channels),
-            vec![activity.ap_id.clone().ok_or(Status::InternalServerError)?],
-        )
-        .await;
-
-        let activity: ApActivity =
-            (activity, None, Some(object), None)
-                .try_into()
-                .map_err(|e| {
-                    log::error!("Failed to build ApActivity: {e:#?}");
-                    Status::InternalServerError
-                })?;
-
-        Ok(activity.into())
-    } else {
-        log::error!("ANNOUNCE OBJECT IS NOT A REFERENCE");
-        Err(Status::new(523))
-    }
 }
 
 impl Temporal for ApAnnounce {

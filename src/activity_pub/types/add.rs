@@ -2,18 +2,10 @@ use core::fmt;
 use std::fmt::Debug;
 
 use crate::{
-    activity_pub::{ApAddress, ApContext, ApObject, Inbox, Outbox},
-    db::Db,
-    fairings::events::EventChannels,
-    models::actors::Actor,
-    routes::ActivityJson,
+    activity_pub::{ApAddress, ApContext, ApObject},
     MaybeReference,
 };
-use rocket::http::Status;
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
-
-use super::activity::ApActivity;
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub enum ApAddType {
@@ -39,33 +31,4 @@ pub struct ApAdd {
     pub actor: ApAddress,
     pub target: Option<String>,
     pub object: MaybeReference<ApObject>,
-}
-
-impl Inbox for ApAdd {
-    async fn inbox(
-        &self,
-        _conn: Db,
-        _channels: EventChannels,
-        raw: Value,
-    ) -> Result<Status, Status> {
-        log::warn!("ADD ACTIVITY NOT YET IMPLEMENTED");
-        log::error!("{raw}");
-        Err(Status::NoContent)
-    }
-
-    fn actor(&self) -> ApAddress {
-        self.actor.clone()
-    }
-}
-
-impl Outbox for ApAdd {
-    async fn outbox(
-        &self,
-        _conn: Db,
-        _events: EventChannels,
-        _profile: Actor,
-        _raw: Value,
-    ) -> Result<ActivityJson<ApActivity>, Status> {
-        Err(Status::ServiceUnavailable)
-    }
 }

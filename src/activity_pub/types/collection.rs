@@ -3,19 +3,15 @@ use std::fmt::Debug;
 
 use super::Ephemeral;
 use crate::activity_pub::{
-    ActivityPub, ApActivity, ApActor, ApActorTerse, ApContext, ApInstrument, ApObject, Outbox,
+    ActivityPub, ApActivity, ApActor, ApActorTerse, ApContext, ApInstrument, ApObject,
 };
 use crate::db::Db;
-use crate::fairings::events::EventChannels;
 use crate::helper::{get_followers_ap_id_from_username, get_following_ap_id_from_username};
 use crate::models::cache::Cache;
 use crate::models::{actors::Actor, followers::Follower, leaders::Leader};
-use crate::routes::ActivityJson;
 use crate::MaybeReference;
 use anyhow::{anyhow, Result};
-use rocket::http::Status;
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 use uuid::Uuid;
 
 pub trait Collectible {
@@ -91,18 +87,6 @@ pub struct ApCollection {
 impl Collectible for ApCollection {
     fn items(&self) -> Option<Vec<ActivityPub>> {
         self.items.clone().or(self.ordered_items.clone())
-    }
-}
-
-impl Outbox for ApCollection {
-    async fn outbox(
-        &self,
-        _conn: Db,
-        _events: EventChannels,
-        _profile: Actor,
-        _raw: Value,
-    ) -> Result<ActivityJson<ApActivity>, Status> {
-        Err(Status::ServiceUnavailable)
     }
 }
 

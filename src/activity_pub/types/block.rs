@@ -1,18 +1,8 @@
 use core::fmt;
 use std::fmt::Debug;
 
-use crate::{
-    activity_pub::{ApAddress, ApContext, Inbox, Outbox},
-    db::Db,
-    fairings::events::EventChannels,
-    models::actors::Actor,
-    routes::ActivityJson,
-};
-use rocket::http::Status;
+use crate::activity_pub::{ApAddress, ApContext};
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
-
-use super::activity::ApActivity;
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub enum ApBlockType {
@@ -38,33 +28,4 @@ pub struct ApBlock {
     pub actor: ApAddress,
     pub id: Option<String>,
     pub object: String,
-}
-
-impl Inbox for ApBlock {
-    async fn inbox(
-        &self,
-        _conn: Db,
-        _channels: EventChannels,
-        raw: Value,
-    ) -> Result<Status, Status> {
-        log::warn!("BLOCK ACTIVITY NOT YET IMPLEMENTED");
-        log::error!("FAILED TO CREATE ACTIVITY\n{raw}");
-        Err(Status::NoContent)
-    }
-
-    fn actor(&self) -> ApAddress {
-        self.actor.clone()
-    }
-}
-
-impl Outbox for ApBlock {
-    async fn outbox(
-        &self,
-        _conn: Db,
-        _events: EventChannels,
-        _profile: Actor,
-        _raw: Value,
-    ) -> Result<ActivityJson<ApActivity>, Status> {
-        Err(Status::ServiceUnavailable)
-    }
 }

@@ -1,30 +1,13 @@
 use core::fmt;
 use std::fmt::Debug;
 
-use crate::routes::ActivityJson;
-use crate::runner::TaskError;
 use crate::{
-    activity_pub::{ApActivity, ApAddress, ApContext, ApNote, ApObject, Inbox, Outbox},
-    db::Db,
-    fairings::events::EventChannels,
-    models::{
-        activities::get_activity_by_ap_id,
-        activities::{
-            create_activity, revoke_activities_by_object_as_id, ActivityTarget, NewActivity,
-        },
-        actors::{get_actor, get_actor_by_as_id, tombstone_actor_by_as_id, Actor},
-        coalesced_activity::CoalescedActivity,
-        objects::{get_object_by_as_id, tombstone_object_by_as_id, tombstone_object_by_uuid},
-        Tombstone,
-    },
-    runner,
-    runner::{get_inboxes, send_to_inboxes},
+    activity_pub::{ApAddress, ApContext, ApNote, ApObject},
+    models::coalesced_activity::CoalescedActivity,
     MaybeMultiple, MaybeReference,
 };
 use anyhow::anyhow;
-use rocket::http::Status;
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 
 use super::signature::ApSignature;
 
@@ -61,163 +44,6 @@ pub struct ApDelete {
     pub cc: MaybeMultiple<ApAddress>,
 }
 
-impl Inbox for Box<ApDelete> {
-    async fn inbox(
-        &self,
-        conn: Db,
-        _channels: EventChannels,
-        raw: Value,
-    ) -> Result<Status, Status> {
-        log::debug!("Delete Message received by Inbox\n{raw:#?}");
-
-        let tombstone = match self.object.clone() {
-            MaybeReference::Actual(actual) => match actual {
-                ApObject::Tombstone(tombstone) => Ok(async {
-                    match get_actor_by_as_id(&conn, tombstone.id.clone()).await.ok() {
-                        Some(actor) => Some(Tombstone::Actor(actor)),
-                        None => get_object_by_as_id(Some(&conn), tombstone.id.clone())
-                            .await
-                            .ok()
-                            .map(Tombstone::Object),
-                    }
-                }
-                .await
-                .ok_or_else(|| {
-                    log::debug!("Failed to identify Tombstone: {}", tombstone.id);
-                    Status::NotFound
-                })?),
-                ApObject::Identifier(obj) => Ok(async {
-                    match get_actor_by_as_id(&conn, obj.id.clone()).await.ok() {
-                        Some(actor) => Some(Tombstone::Actor(actor)),
-                        None => get_object_by_as_id(Some(&conn), obj.id.clone())
-                            .await
-                            .ok()
-                            .map(Tombstone::Object),
-                    }
-                }
-                .await
-                .ok_or_else(|| {
-                    log::debug!("Failed to determine Identifier: {}", obj.id);
-                    Status::NotFound
-                })?),
-                _ => {
-                    log::error!("Failed to identify Delete Object: {:#?}", self.object);
-                    Err(Status::NoContent)
-                }
-            },
-            MaybeReference::Reference(ap_id) => Ok(async {
-                match get_actor_by_as_id(&conn, ap_id.clone()).await.ok() {
-                    Some(actor) => Some(Tombstone::Actor(actor)),
-                    None => get_object_by_as_id(Some(&conn), ap_id.clone())
-                        .await
-                        .ok()
-                        .map(Tombstone::Object),
-                }
-            }
-            .await
-            .ok_or_else(|| {
-                log::debug!("Failed to identify Tombstone");
-                Status::NotFound
-            })?),
-            _ => {
-                log::debug!("Not implemented: MaybeReference not Actual or Reference");
-                Err(Status::NotImplemented)
-            }
-        };
-
-        log::debug!("Tombstone\n{tombstone:#?}");
-        let tombstone = tombstone.clone()?;
-
-        let mut activity = match tombstone.clone() {
-            Tombstone::Actor(actor) => NewActivity::try_from((
-                ApActivity::Delete(self.clone()),
-                Some(ActivityTarget::from(actor.clone())),
-            ))
-            .map_err(|e| {
-                log::error!("Failed to build Activity: {e:#?}");
-                Status::InternalServerError
-            })?,
-            Tombstone::Object(object) => NewActivity::try_from((
-                ApActivity::Delete(self.clone()),
-                Some(ActivityTarget::from(object.clone())),
-            ))
-            .map_err(|e| {
-                log::error!("Failed to build Activity: {e:#?}");
-                Status::InternalServerError
-            })?,
-        };
-
-        activity.raw = Some(raw);
-
-        let activity = create_activity(Some(&conn), activity).await.map_err(|e| {
-            log::error!("Failed to create Activity: {e:#?}");
-            Status::InternalServerError
-        })?;
-
-        log::debug!("Tombstone Activity\n{activity:#?}");
-
-        match tombstone {
-            Tombstone::Actor(actor) => {
-                log::debug!("Setting Actor to Tombstone");
-                if self.actor.to_string() == actor.as_id {
-                    log::debug!("Running database updates");
-                    tombstone_actor_by_as_id(&conn, actor.as_id)
-                        .await
-                        .map_err(|e| {
-                            log::error!("Failed to delete Actor: {e:#?}");
-                            Status::InternalServerError
-                        })?;
-                }
-            }
-            Tombstone::Object(object) => {
-                log::debug!("Setting Object to Tombstone");
-                if let Some(attributed_to) = object.as_attributed_to {
-                    let attributed_to: MaybeMultiple<ApAddress> = attributed_to.into();
-                    let attributed_to = attributed_to.single().map_err(|e| {
-                        log::error!("{e}");
-                        Status::InternalServerError
-                    })?;
-
-                    if self.actor.to_string() == attributed_to.clone().to_string() {
-                        log::debug!("Running database updates");
-                        tombstone_object_by_as_id(&conn, object.as_id.clone())
-                            .await
-                            .map_err(|e| {
-                                log::error!("Failed to delete Object: {e:#?}");
-                                Status::InternalServerError
-                            })?;
-
-                        revoke_activities_by_object_as_id(&conn, object.as_id)
-                            .await
-                            .map_err(|e| {
-                                log::error!("Failed to revoke Activities: {e:#?}");
-                                Status::InternalServerError
-                            })?;
-                    }
-                }
-            }
-        }
-
-        Ok(Status::Accepted)
-    }
-
-    fn actor(&self) -> ApAddress {
-        self.actor.clone()
-    }
-}
-
-impl Outbox for Box<ApDelete> {
-    async fn outbox(
-        &self,
-        conn: Db,
-        events: EventChannels,
-        profile: Actor,
-        raw: Value,
-    ) -> Result<ActivityJson<ApActivity>, Status> {
-        ApDelete::outbox(conn, events, *self.clone(), profile, raw).await
-    }
-}
-
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub enum ApTombstoneType {
     #[default]
@@ -237,18 +63,6 @@ pub struct ApTombstone {
     pub kind: ApTombstoneType,
     pub id: String,
     pub atom_uri: Option<String>,
-}
-
-impl Outbox for ApTombstone {
-    async fn outbox(
-        &self,
-        _conn: Db,
-        _events: EventChannels,
-        _profile: Actor,
-        _raw: Value,
-    ) -> Result<ActivityJson<ApActivity>, Status> {
-        Err(Status::ServiceUnavailable)
-    }
 }
 
 impl TryFrom<ApNote> for ApTombstone {
@@ -307,123 +121,5 @@ impl TryFrom<CoalescedActivity> for ApDelete {
                 .into(),
             signature: None,
         })
-    }
-}
-
-impl ApDelete {
-    async fn outbox(
-        conn: Db,
-        channels: EventChannels,
-        delete: ApDelete,
-        _profile: Actor,
-        raw: Value,
-    ) -> Result<ActivityJson<ApActivity>, Status> {
-        if let MaybeReference::Reference(as_id) = delete.clone().object {
-            if delete.id.is_some() {
-                return Err(Status::BadRequest);
-            }
-
-            let object = get_object_by_as_id(Some(&conn), as_id).await.map_err(|e| {
-                log::error!("Target object for deletion not found: {e:#?}");
-                Status::NotFound
-            })?;
-
-            let mut activity =
-                NewActivity::try_from((Box::new(delete).into(), Some(object.clone().into())))
-                    .map_err(|e| {
-                        log::error!("Failed to build Delete activity: {e:#?}");
-                        Status::InternalServerError
-                    })?
-                    .link_actor(&conn)
-                    .await;
-
-            activity.raw = Some(raw);
-
-            let activity = create_activity(Some(&conn), activity.clone())
-                .await
-                .map_err(|e| {
-                    log::error!("Failed to create activity: {e:#?}");
-                    Status::InternalServerError
-                })?;
-
-            runner::run(
-                ApDelete::send_task,
-                conn,
-                Some(channels),
-                vec![activity.ap_id.clone().ok_or_else(|| {
-                    log::error!("Activity must have an ID");
-                    Status::InternalServerError
-                })?],
-            )
-            .await;
-
-            let activity: ApActivity =
-                (activity, None, Some(object), None)
-                    .try_into()
-                    .map_err(|e| {
-                        log::error!("Failed to build ApActivity: {e:#?}");
-                        Status::InternalServerError
-                    })?;
-
-            Ok(activity.into())
-        } else {
-            log::error!("Delete object is not a reference");
-            Err(Status::NoContent)
-        }
-    }
-
-    async fn send_task(
-        conn: Db,
-        _channels: Option<EventChannels>,
-        ap_ids: Vec<String>,
-    ) -> Result<(), TaskError> {
-        for ap_id in ap_ids {
-            let (activity, target_activity, target_object, target_actor) =
-                get_activity_by_ap_id(&conn, ap_id).await.ok_or_else(|| {
-                    log::error!("Failed to retrieve activity");
-                    TaskError::TaskFailed
-                })?;
-
-            let profile_id = activity.actor_id.ok_or_else(|| {
-                log::error!("actor_id can not be None");
-                TaskError::TaskFailed
-            })?;
-
-            let sender = get_actor(&conn, profile_id).await.ok_or_else(|| {
-                log::error!("Failed to retrieve Actor");
-                TaskError::TaskFailed
-            })?;
-
-            let object = target_object.clone().ok_or_else(|| {
-                log::error!("target_object can not be None");
-                TaskError::TaskFailed
-            })?;
-
-            let activity =
-                ApActivity::try_from((activity, target_activity, target_object, target_actor))
-                    .map_err(|e| {
-                        log::error!("Failed to build ApActivity: {e:#?}");
-                        TaskError::TaskFailed
-                    })?;
-
-            let inboxes: Vec<ApAddress> =
-                get_inboxes(&conn, activity.clone(), sender.clone()).await;
-
-            send_to_inboxes(&conn, inboxes, sender, activity.clone())
-                .await
-                .map_err(|e| {
-                    log::error!("Failed to send to inboxes: {e:#?}");
-                    TaskError::TaskFailed
-                })?;
-
-            tombstone_object_by_uuid(&conn, object.ek_uuid.ok_or(TaskError::TaskFailed)?)
-                .await
-                .map_err(|e| {
-                    log::error!("Failed to delete Objects: {e:#?}");
-                    TaskError::TaskFailed
-                })?;
-        }
-
-        Ok(())
     }
 }

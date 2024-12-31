@@ -1,17 +1,40 @@
-use crate::activity_pub::{ActivityPub, ApActivity, ApObject, Outbox};
+use crate::activity_pub::{ActivityPub, ApActivity, ApObject};
 use crate::db::Db;
 use crate::fairings::events::EventChannels;
 use crate::fairings::signatures::Signed;
 use crate::models::activities::{TimelineFilters, TimelineView};
 use crate::models::actors::get_actor_by_username;
 use crate::models::unprocessable::create_unprocessable;
+use crate::routes::Outbox;
 use crate::SERVER_URL;
 use rocket::{get, http::Status, post, serde::json::Json, serde::json::Value};
 
 use super::{retrieve, ActivityJson};
 
+// Activities
 pub mod accept;
+pub mod add;
+pub mod announce;
+pub mod block;
+pub mod create;
+pub mod delete;
+pub mod follow;
+pub mod like;
+pub mod undo;
+pub mod update;
+
+// Objects
 pub mod actor;
+pub mod basic;
+pub mod collection;
+pub mod complex;
+pub mod identifier;
+pub mod instrument;
+pub mod note;
+pub mod plain;
+pub mod question;
+pub mod session;
+pub mod tombstone;
 
 #[get("/user/<username>/outbox?<limit>&<min>&<max>&<page>")]
 pub async fn outbox_get(
@@ -66,7 +89,7 @@ pub async fn outbox_get(
 pub async fn outbox_post(
     signed: Signed,
     conn: Db,
-    events: EventChannels,
+    _events: EventChannels,
     _username: String,
     raw: Json<Value>,
 ) -> Result<ActivityJson<ApActivity>, Status> {
@@ -77,8 +100,8 @@ pub async fn outbox_post(
 
     if let Ok(object) = serde_json::from_value::<ActivityPub>(raw.clone()) {
         match object {
-            ActivityPub::Activity(activity) => activity.outbox(conn, events, actor, raw).await,
-            ActivityPub::Object(object) => object.outbox(conn, events, actor, raw).await,
+            ActivityPub::Activity(activity) => activity.outbox(conn, actor, raw).await,
+            ActivityPub::Object(object) => object.outbox(conn, actor, raw).await,
             _ => Err(Status::NotImplemented),
         }
     } else {

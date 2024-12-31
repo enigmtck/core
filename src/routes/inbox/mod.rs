@@ -1,13 +1,12 @@
 use std::fmt::Display;
 
+use super::Inbox;
 use rocket::http::Status;
 use rocket::serde::json::Json;
 use rocket::{get, post};
 use serde_json::Value;
 
-use crate::activity_pub::{
-    retriever, ActivityPub, ApActivity, ApActor, ApCollection, ApObject, Inbox,
-};
+use crate::activity_pub::{retriever, ActivityPub, ApActivity, ApActor, ApCollection, ApObject};
 use crate::db::Db;
 use crate::fairings::access_control::Permitted;
 use crate::fairings::events::EventChannels;
@@ -24,6 +23,15 @@ use urlencoding::encode;
 use super::{retrieve, ActivityJson};
 
 pub mod accept;
+pub mod add;
+pub mod announce;
+pub mod block;
+pub mod create;
+pub mod delete;
+pub mod follow;
+pub mod like;
+pub mod undo;
+pub mod update;
 
 #[derive(FromFormField, Eq, PartialEq, Debug, Clone)]
 pub enum InboxView {
@@ -188,14 +196,14 @@ pub async fn shared_inbox_get(
 #[post("/unsafe-inbox", data = "<raw>")]
 pub async fn unsafe_inbox_post(
     conn: Db,
-    channels: EventChannels,
+    _channels: EventChannels,
     raw: Json<Value>,
 ) -> Result<Status, Status> {
     log::debug!("Posting to unsafe inbox\n{raw:#?}");
     let raw = raw.into_inner();
 
     if let Ok(activity) = ApActivity::try_from(raw.clone()) {
-        activity.inbox(conn, channels, raw).await
+        activity.inbox(conn, raw).await
     } else {
         create_unprocessable(&conn, raw.into()).await;
         Err(Status::UnprocessableEntity)
@@ -207,7 +215,7 @@ pub async fn shared_inbox_post(
     permitted: Permitted,
     signed: Signed,
     conn: Db,
-    channels: EventChannels,
+    _channels: EventChannels,
     raw: Json<Value>,
 ) -> Result<Status, Status> {
     if !permitted.is_permitted() {
@@ -239,7 +247,7 @@ pub async fn shared_inbox_post(
     };
 
     if is_authorized {
-        activity.inbox(conn, channels, raw).await
+        activity.inbox(conn, raw).await
     } else {
         log::debug!("Request was not authorized");
         Err(Status::Unauthorized)

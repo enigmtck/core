@@ -15,8 +15,7 @@ use crate::{
     db::Db,
     fairings::events::EventChannels,
     models::{activities::add_log_by_as_id, actors::Actor, instances::get_instance_inboxes},
-    signing::{Method, SignParams},
-    MaybeMultiple, MaybeReference,
+    signing::{Method, SignParams}, MaybeReference,
 };
 
 use self::{actor::get_actor, user::get_follower_inboxes};

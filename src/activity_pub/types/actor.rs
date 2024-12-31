@@ -1,21 +1,11 @@
 use core::fmt;
 use std::fmt::Debug;
 
-use super::activity::ApActivity;
 use super::Ephemeral;
 use crate::activity_pub::{ApAttachment, ApContext, ApEndpoint, ApImage, ApTag};
-use crate::db::Db;
-use crate::fairings::events::EventChannels;
-use crate::models::actors::ActorType;
-use crate::models::actors::{get_actor_by_as_id, Actor};
-use crate::models::followers::get_follower_count_by_actor_id;
-use crate::models::leaders::{get_leader_by_actor_id_and_ap_id, get_leader_count_by_actor_id};
-use crate::routes::ActivityJson;
-use crate::webfinger::retrieve_webfinger;
-use crate::{MaybeMultiple, DOMAIN_RE};
+use crate::MaybeMultiple;
 use anyhow::{self, Result};
 use lazy_static::lazy_static;
-use rocket::http::Status;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use serde_with::serde_as;
@@ -129,19 +119,6 @@ pub enum ApActorType {
 impl fmt::Display for ApActorType {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         Debug::fmt(self, f)
-    }
-}
-
-impl From<ActorType> for ApActorType {
-    fn from(t: ActorType) -> Self {
-        match t {
-            ActorType::Application => ApActorType::Application,
-            ActorType::Group => ApActorType::Group,
-            ActorType::Organization => ApActorType::Organization,
-            ActorType::Person => ApActorType::Person,
-            ActorType::Service => ApActorType::Service,
-            ActorType::Tombstone => ApActorType::Tombstone,
-        }
     }
 }
 
@@ -280,62 +257,6 @@ impl Default for ApActor {
             capabilities: None,
             keys: None,
             ephemeral: None,
-        }
-    }
-}
-
-impl ApActor {
-    pub async fn load_ephemeral(&mut self, conn: &Db, requester: Option<Actor>) -> Self {
-        if let Some(ap_id) = self.id.clone() {
-            if let Ok(profile) = get_actor_by_as_id(conn, ap_id.to_string()).await {
-                self.ephemeral = Some(Ephemeral {
-                    followers: get_follower_count_by_actor_id(conn, profile.id).await.ok(),
-                    leaders: get_leader_count_by_actor_id(conn, profile.id).await.ok(),
-                    summary_markdown: profile.ek_summary_markdown,
-                    following: {
-                        if let Some(requester) = requester {
-                            if let Some(id) = self.id.clone() {
-                                get_leader_by_actor_id_and_ap_id(conn, requester.id, id.to_string())
-                                    .await
-                                    .and_then(|x| x.accepted)
-                            } else {
-                                None
-                            }
-                        } else {
-                            None
-                        }
-                    },
-                    ..Default::default()
-                });
-            }
-        }
-
-        self.clone()
-    }
-
-    pub async fn get_webfinger(&self) -> Option<String> {
-        let id = self.id.clone()?.to_string();
-        let domain = DOMAIN_RE.captures(&id)?.get(1)?.as_str().to_string();
-        let username = self.preferred_username.clone();
-
-        let webfinger = retrieve_webfinger(domain, username).await.ok()?;
-
-        webfinger.get_address()
-    }
-
-    pub fn get_hashtags(&self) -> Vec<String> {
-        if let MaybeMultiple::Multiple(tags) = self.tag.clone() {
-            tags.iter()
-                .filter_map(|tag| {
-                    if let ApTag::HashTag(hashtag) = tag {
-                        Some(hashtag.name.clone().to_lowercase())
-                    } else {
-                        None
-                    }
-                })
-                .collect()
-        } else {
-            vec![]
         }
     }
 }

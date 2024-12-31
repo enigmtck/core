@@ -2,28 +2,22 @@ use core::fmt;
 use std::{collections::HashMap, fmt::Debug};
 
 use crate::{
-    activity_pub::{ApAttachment, ApContext, ApTag, Outbox},
+    activity_pub::{ApAttachment, ApContext, ApTag},
     db::Db,
-    fairings::events::EventChannels,
     models::{
-        actors::Actor,
         cache::{cache_content, Cache},
         coalesced_activity::CoalescedActivity,
         from_serde,
         objects::Object,
     },
-    routes::ActivityJson,
     MaybeMultiple,
 };
 use anyhow::{anyhow, Result};
 use chrono::{DateTime, Utc};
-use rocket::http::Status;
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 
 use super::{
-    activity::ApActivity, actor::ApAddress, collection::ApCollectionType, note::ApNoteType,
-    object::ApImage, Ephemeral,
+    actor::ApAddress, collection::ApCollectionType, note::ApNoteType, object::ApImage, Ephemeral,
 };
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default, Eq, PartialEq)]
@@ -190,18 +184,6 @@ impl Cache for ApQuestion {
         }
 
         self
-    }
-}
-
-impl Outbox for ApQuestion {
-    async fn outbox(
-        &self,
-        _conn: Db,
-        _events: EventChannels,
-        _profile: Actor,
-        _raw: Value,
-    ) -> Result<ActivityJson<ApActivity>, Status> {
-        Err(Status::NotImplemented)
     }
 }
 

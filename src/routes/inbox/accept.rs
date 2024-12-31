@@ -1,6 +1,7 @@
+use super::Inbox;
 use crate::activity_pub::ApAccept;
 use crate::{
-    activity_pub::{ApActivity, ApAddress, Inbox},
+    activity_pub::{ApActivity, ApAddress},
     db::Db,
     fairings::events::EventChannels,
     models::{
@@ -16,7 +17,7 @@ use serde_json::Value;
 
 impl Inbox for Box<ApAccept> {
     #[allow(unused_variables)]
-    async fn inbox(&self, conn: Db, channels: EventChannels, raw: Value) -> Result<Status, Status> {
+    async fn inbox(&self, conn: Db, raw: Value) -> Result<Status, Status> {
         let follow_as_id = match self.clone().object {
             MaybeReference::Reference(reference) => Some(reference),
             MaybeReference::Actual(ApActivity::Follow(actual)) => actual.id,
@@ -53,7 +54,7 @@ impl Inbox for Box<ApAccept> {
         runner::run(
             ApAccept::process,
             conn,
-            Some(channels),
+            None,
             vec![accept.ap_id.clone().ok_or(Status::InternalServerError)?],
         )
         .await;

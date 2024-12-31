@@ -2,7 +2,6 @@ pub mod retriever;
 mod types;
 
 use crate::db::Db;
-use crate::fairings::events::EventChannels;
 use crate::models::actors::Actor;
 use crate::routes::ActivityJson;
 use crate::{Identifier, MaybeMultiple};
@@ -125,21 +124,4 @@ pub trait Temporal {
     fn published(&self) -> String;
     fn created_at(&self) -> Option<DateTime<Utc>>;
     fn updated_at(&self) -> Option<DateTime<Utc>>;
-}
-
-#[enum_dispatch(ApActivity)]
-pub trait Inbox {
-    async fn inbox(&self, conn: Db, channels: EventChannels, raw: Value) -> Result<Status, Status>;
-    fn actor(&self) -> ApAddress;
-}
-
-#[enum_dispatch(ApActivity, ApObject)]
-pub trait Outbox {
-    async fn outbox(
-        &self,
-        conn: Db,
-        events: EventChannels,
-        profile: Actor,
-        raw: Value,
-    ) -> Result<ActivityJson<ApActivity>, Status>;
 }

@@ -1,22 +1,18 @@
-use crate::activity_pub::{retriever, ApActor, ApCollection, ApInstrument, ApNote, Outbox};
+use crate::activity_pub::{retriever, ApActor, ApCollection, ApInstrument, ApNote};
 use crate::db::Db;
-use crate::fairings::events::EventChannels;
-use crate::models::actors::Actor;
 use crate::models::cache::Cache;
 use crate::models::objects::Object;
 use crate::models::objects::ObjectType;
-use crate::routes::ActivityJson;
 use crate::{Identifier, MaybeMultiple, OrdValue, IMAGE_MEDIA_RE};
 
 use anyhow::{anyhow, Error, Result};
 use chrono::{DateTime, Utc};
 use enum_dispatch::enum_dispatch;
-use rocket::http::{ContentType, Status};
+use rocket::http::ContentType;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use url::Url;
 
-use super::activity::ApActivity;
 use super::attachment::ApDocument;
 use super::delete::ApTombstone;
 use super::question::ApQuestion;
@@ -113,54 +109,6 @@ impl TryFrom<Object> for ApObject {
             ObjectType::Note => Ok(ApObject::Note(object.try_into()?)),
             _ => Err(anyhow!("unimplemented Object -> ApObject conversion")),
         }
-    }
-}
-
-impl Outbox for String {
-    async fn outbox(
-        &self,
-        _conn: Db,
-        _events: EventChannels,
-        _profile: Actor,
-        _raw: Value,
-    ) -> Result<ActivityJson<ApActivity>, Status> {
-        Err(Status::ServiceUnavailable)
-    }
-}
-
-impl Outbox for Identifier {
-    async fn outbox(
-        &self,
-        _conn: Db,
-        _events: EventChannels,
-        _profile: Actor,
-        _raw: Value,
-    ) -> Result<ActivityJson<ApActivity>, Status> {
-        Err(Status::ServiceUnavailable)
-    }
-}
-
-impl Outbox for MaybeMultiple<Value> {
-    async fn outbox(
-        &self,
-        _conn: Db,
-        _events: EventChannels,
-        _profile: Actor,
-        _raw: Value,
-    ) -> Result<ActivityJson<ApActivity>, Status> {
-        Err(Status::ServiceUnavailable)
-    }
-}
-
-impl Outbox for ApBasicContent {
-    async fn outbox(
-        &self,
-        _conn: Db,
-        _events: EventChannels,
-        _profile: Actor,
-        _raw: Value,
-    ) -> Result<ActivityJson<ApActivity>, Status> {
-        Err(Status::ServiceUnavailable)
     }
 }
 

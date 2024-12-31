@@ -7,19 +7,14 @@ use crate::{
         ApCreate,
         ApDelete,
         ApLike,
-        ApNote,
         //ApRemove,
         ApUndo,
         ApUpdate,
     },
     db::Db,
-    models::{
-        activities::EncryptedActivity,
-        activities::{ActivityType, ExtendedActivity},
-    },
     MaybeReference,
 };
-use anyhow::{anyhow, Result};
+use anyhow::Result;
 use enum_dispatch::enum_dispatch;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;

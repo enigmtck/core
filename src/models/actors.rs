@@ -1,9 +1,11 @@
 use std::collections::HashSet;
 
 use crate::activity_pub::ApAddress;
-use crate::activity_pub::{ActivityPub, ApActor, ApActorTerse, ApContext, Ephemeral};
+use crate::activity_pub::{ActivityPub, ApActor, ApActorTerse, ApActorType, ApContext, Ephemeral};
 use crate::db::Db;
+use crate::models::followers::get_follower_count_by_actor_id;
 use crate::models::leaders::Leader;
+use crate::models::leaders::{get_leader_by_actor_id_and_ap_id, get_leader_count_by_actor_id};
 use crate::schema::actors;
 use crate::POOL;
 use anyhow::{anyhow, Result};
@@ -66,6 +68,19 @@ impl ActorType {
     }
 }
 
+impl From<ActorType> for ApActorType {
+    fn from(t: ActorType) -> Self {
+        match t {
+            ActorType::Application => ApActorType::Application,
+            ActorType::Group => ApActorType::Group,
+            ActorType::Organization => ApActorType::Organization,
+            ActorType::Person => ApActorType::Person,
+            ActorType::Service => ApActorType::Service,
+            ActorType::Tombstone => ApActorType::Tombstone,
+        }
+    }
+}
+
 impl TryFrom<String> for ActorType {
     type Error = anyhow::Error;
 
@@ -84,6 +99,36 @@ impl TryFrom<String> for ActorType {
 impl From<ActorType> for String {
     fn from(actor: ActorType) -> Self {
         format!("{actor}").to_case(Case::Snake)
+    }
+}
+
+impl ApActor {
+    pub async fn load_ephemeral(&mut self, conn: &Db, requester: Option<Actor>) -> Self {
+        if let Some(ap_id) = self.id.clone() {
+            if let Ok(profile) = get_actor_by_as_id(conn, ap_id.to_string()).await {
+                self.ephemeral = Some(Ephemeral {
+                    followers: get_follower_count_by_actor_id(conn, profile.id).await.ok(),
+                    leaders: get_leader_count_by_actor_id(conn, profile.id).await.ok(),
+                    summary_markdown: profile.ek_summary_markdown,
+                    following: {
+                        if let Some(requester) = requester {
+                            if let Some(id) = self.id.clone() {
+                                get_leader_by_actor_id_and_ap_id(conn, requester.id, id.to_string())
+                                    .await
+                                    .and_then(|x| x.accepted)
+                            } else {
+                                None
+                            }
+                        } else {
+                            None
+                        }
+                    },
+                    ..Default::default()
+                });
+            }
+        }
+
+        self.clone()
     }
 }
 

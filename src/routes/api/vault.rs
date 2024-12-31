@@ -1,14 +1,6 @@
-use crate::activity_pub::{ApCollection, ApObject};
-use crate::db::Db;
-use crate::models::actors::get_actor_by_username;
-use crate::models::vault::create_vault_item;
-use base64::{engine::general_purpose, engine::Engine as _};
-use rocket::http::Status;
-use rocket::serde::json::Json;
-use rocket::{get, post};
 use serde::{Deserialize, Serialize};
 
-use crate::{fairings::signatures::Signed, models::vault::VaultItem};
+use crate::models::vault::VaultItem;
 
 #[derive(Deserialize, Debug, Clone)]
 pub struct SessionUpdate {

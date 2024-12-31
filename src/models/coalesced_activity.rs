@@ -1,7 +1,5 @@
 use crate::activity_pub::{ApActivity, ApAnnounce, ApCreate, ApDelete, ApFollow, ApLike};
 use crate::models::activities::ActivityType;
-use crate::models::actors::ActorType;
-use crate::models::objects::ObjectType;
 use crate::schema::sql_types::{
     ActivityType as SqlActivityType, ActorType as SqlActorType, ObjectType as SqlObjectType,
 };
