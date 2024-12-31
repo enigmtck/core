@@ -1,6 +1,5 @@
 use super::actors::Actor;
 use super::coalesced_activity::CoalescedActivity;
-use super::from_serde;
 use crate::activity_pub::{
     ApAddress, ApHashtag, ApNote, ApNoteType, ApObject, ApQuestion, ApQuestionType,
 };
@@ -353,14 +352,14 @@ impl From<ApNote> for NewObject {
             as_to: note.to.into(),
             as_cc: note.cc.into(),
             as_replies: note.replies.map(|x| json!(x)),
-            as_tag: note.tag.map(|x| json!(x)),
+            as_tag: note.tag.into(),
             as_content: Some(ammonia.clean(&note.content).to_string()),
             as_summary: note.summary.map(|x| ammonia.clean(&x).to_string()),
             ap_sensitive: note.sensitive,
             as_in_reply_to: note.in_reply_to.map(|x| json!(x)),
             ap_conversation: note.conversation,
             as_content_map: Some(json!(clean_content_map)),
-            as_attachment: note.attachment.map(|x| json!(x)),
+            as_attachment: note.attachment.into(),
             ek_uuid: note.ephemeral.and_then(|x| x.internal_uuid),
             ek_instrument: note.instrument.map(|x| json!(x)),
             ek_hashtags,
@@ -378,16 +377,16 @@ impl From<ApQuestion> for NewObject {
             as_cc: question.cc.into(),
             as_end_time: question.end_time,
             as_published: question.published,
-            as_one_of: question.one_of.map(|x| json!(x)),
-            as_any_of: question.any_of.map(|x| json!(x)),
+            as_one_of: question.one_of.into(),
+            as_any_of: question.any_of.into(),
             as_content: question.content,
             as_content_map: question.content_map.map(|x| json!(x)),
             as_summary: question.summary,
             ap_voters_count: question.voters_count,
             as_url: question.url.map(|x| json!(x)),
             ap_conversation: question.conversation,
-            as_tag: question.tag.map(|x| json!(x)),
-            as_attachment: question.attachment.map(|x| json!(x)),
+            as_tag: question.tag.into(),
+            as_attachment: question.attachment.into(),
             ap_sensitive: question.sensitive,
             as_in_reply_to: question.in_reply_to.map(|x| json!(x)),
             as_attributed_to: Some(json!(question.attributed_to.to_string())),
@@ -398,19 +397,19 @@ impl From<ApQuestion> for NewObject {
 
 impl Object {
     pub fn is_public(&self) -> bool {
-        if let Some(to) = from_serde::<MaybeMultiple<ApAddress>>(self.as_to.clone().into()) {
-            for address in to.multiple() {
-                if address.is_public() {
-                    return true;
-                }
+        let as_to: MaybeMultiple<ApAddress> = self.as_to.clone().into();
+
+        for address in as_to.multiple() {
+            if address.is_public() {
+                return true;
             }
         }
 
-        if let Some(cc) = from_serde::<MaybeMultiple<ApAddress>>(self.as_cc.clone().into()) {
-            for address in cc.multiple() {
-                if address.is_public() {
-                    return true;
-                }
+        let as_cc: MaybeMultiple<ApAddress> = self.as_cc.clone().into();
+
+        for address in as_cc.multiple() {
+            if address.is_public() {
+                return true;
             }
         }
 

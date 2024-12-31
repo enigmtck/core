@@ -16,13 +16,13 @@ use crate::{
     models::{
         activities::EncryptedActivity,
         activities::{ActivityType, ExtendedActivity},
-        coalesced_activity::CoalescedActivity,
     },
     MaybeReference,
 };
-use anyhow::anyhow;
+use anyhow::{anyhow, Result};
 use enum_dispatch::enum_dispatch;
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use std::fmt::Debug;
 
 use super::{follow::ApFollow, object::ApObject};
@@ -97,81 +97,10 @@ impl ApActivity {
     }
 }
 
-impl TryFrom<CoalescedActivity> for ApActivity {
+impl TryFrom<Value> for ApActivity {
     type Error = anyhow::Error;
 
-    fn try_from(coalesced: CoalescedActivity) -> Result<Self, Self::Error> {
-        match coalesced.kind {
-            ActivityType::Create => ApCreate::try_from(coalesced).map(ApActivity::Create),
-            ActivityType::Announce => ApAnnounce::try_from(coalesced).map(ApActivity::Announce),
-            _ => {
-                log::error!("Failed to match implemented Activity\n{coalesced:#?}");
-                Err(anyhow!("Failed to match implemented Activity"))
-            }
-        }
-    }
-}
-
-impl TryFrom<EncryptedActivity> for ApActivity {
-    type Error = anyhow::Error;
-
-    fn try_from((activity, object, session): EncryptedActivity) -> Result<Self, Self::Error> {
-        match activity.kind {
-            ActivityType::Create => {
-                ApCreate::try_from((activity, object, session)).map(ApActivity::Create)
-            }
-            _ => {
-                log::error!("Failed to match implemented EncryptedActivity\n{activity:#?}");
-                Err(anyhow!("Failed to match implemented EncryptedActivity"))
-            }
-        }
-    }
-}
-
-impl TryFrom<ExtendedActivity> for ApActivity {
-    type Error = anyhow::Error;
-
-    fn try_from(
-        (activity, target_activity, target_object, target_actor): ExtendedActivity,
-    ) -> Result<Self, Self::Error> {
-        match activity.kind {
-            ActivityType::Create => {
-                ApCreate::try_from((activity, target_activity, target_object, target_actor))
-                    .map(ApActivity::Create)
-            }
-            ActivityType::Announce => {
-                ApAnnounce::try_from((activity, target_activity, target_object, target_actor))
-                    .map(ApActivity::Announce)
-            }
-            ActivityType::Like => {
-                ApLike::try_from((activity, target_activity, target_object, target_actor))
-                    .map(|activity| ApActivity::Like(Box::new(activity)))
-            }
-            ActivityType::Delete => {
-                let note = ApNote::try_from(target_object.unwrap())?;
-                ApDelete::try_from(note).map(|mut delete| {
-                    delete.id = activity.ap_id;
-                    ApActivity::Delete(Box::new(delete))
-                })
-            }
-            ActivityType::Follow => {
-                ApFollow::try_from((activity, target_activity, target_object, target_actor))
-                    .map(ApActivity::Follow)
-            }
-            ActivityType::Undo => {
-                ApUndo::try_from((activity, target_activity, target_object, target_actor))
-                    .map(|undo| ApActivity::Undo(Box::new(undo)))
-            }
-            ActivityType::Accept => {
-                ApAccept::try_from((activity, target_activity, target_object, target_actor))
-                    .map(|accept| ApActivity::Accept(Box::new(accept)))
-            }
-            _ => {
-                log::error!(
-                    "Failed to match implemented activity in TryFrom for ApActivity\nACTIVITY: {activity:#?}\nTARGET_ACTIVITY: {target_activity:#?}\nTARGET_OBJECT: {target_object:#?}\nTARGET_ACTOR {target_actor:#?}"
-                );
-                Err(anyhow!("Failed to match implemented activity"))
-            }
-        }
+    fn try_from(value: Value) -> Result<ApActivity> {
+        serde_json::from_value(value).map_err(anyhow::Error::msg)
     }
 }

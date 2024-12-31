@@ -1,8 +1,9 @@
 use std::collections::HashSet;
 
-use crate::activity_pub::ApActor;
 use crate::activity_pub::ApAddress;
+use crate::activity_pub::{ActivityPub, ApActor, ApActorTerse, ApContext, Ephemeral};
 use crate::db::Db;
+use crate::models::leaders::Leader;
 use crate::schema::actors;
 use crate::POOL;
 use anyhow::{anyhow, Result};
@@ -209,6 +210,146 @@ pub struct Actor {
     pub ek_last_decrypted_activity: DateTime<Utc>,
 }
 
+impl From<Actor> for ApActorTerse {
+    fn from(actor: Actor) -> Self {
+        let name = actor.as_name;
+        let id = actor.as_id;
+        let preferred_username = actor.as_preferred_username.unwrap_or_default();
+        let url = actor.as_url.into();
+        let icon = actor.as_icon.try_into().ok();
+        let tag = actor.as_tag.into();
+
+        ApActorTerse {
+            name,
+            id,
+            preferred_username,
+            url,
+            icon,
+            tag,
+        }
+    }
+}
+
+impl FromIterator<Actor> for Vec<ApActor> {
+    fn from_iter<I: IntoIterator<Item = Actor>>(iter: I) -> Self {
+        iter.into_iter().map(ApActor::from).collect()
+    }
+}
+
+impl FromIterator<Actor> for Vec<ApActorTerse> {
+    fn from_iter<I: IntoIterator<Item = Actor>>(iter: I) -> Self {
+        iter.into_iter().map(ApActorTerse::from).collect()
+    }
+}
+
+type ExtendedActor = (Actor, Option<Leader>);
+
+impl From<ExtendedActor> for ApActor {
+    fn from((actor, leader): ExtendedActor) -> Self {
+        let mut actor = ApActor::from(actor);
+
+        actor.ephemeral = Some(Ephemeral {
+            following: leader.clone().and_then(|x| x.accepted),
+            leader_as_id: leader
+                .clone()
+                .and_then(|x| format!("{}/leader/{}", *crate::SERVER_URL, x.uuid).into()),
+            follow_activity_as_id: leader.and_then(|x| x.follow_ap_id),
+            ..Default::default()
+        });
+
+        actor
+    }
+}
+
+impl From<Actor> for ApActor {
+    fn from(actor: Actor) -> Self {
+        let context = actor.as_context.and_then(|x| ApContext::try_from(x).ok());
+        let name = actor.as_name;
+        let summary = actor.as_summary;
+        let id = Some(actor.as_id.into());
+        let kind = actor.as_type.into();
+        let preferred_username = actor.as_preferred_username.unwrap_or_default();
+        let inbox = actor.as_inbox;
+        let outbox = actor.as_outbox;
+        let followers = actor.as_followers;
+        let following = actor.as_following;
+        let featured = actor.as_featured;
+        let featured_tags = actor.as_featured_tags;
+        let manually_approves_followers = Some(actor.ap_manually_approves_followers);
+        let published = actor.as_published.map(ActivityPub::time);
+        let liked = actor.as_liked;
+        let public_key = actor
+            .as_public_key
+            .try_into()
+            .ok()
+            .expect("actor must have a public key");
+        let url = actor.as_url.into();
+        let icon = actor.as_icon.try_into().ok();
+        let image = actor.as_image.try_into().ok();
+        let discoverable = Some(actor.as_discoverable);
+        let capabilities = actor.ap_capabilities.try_into().ok();
+        let attachment = actor.as_attachment.try_into().unwrap_or_default();
+        let also_known_as = actor.as_also_known_as.into();
+        let tag = actor.as_tag.try_into().unwrap_or_default();
+        let endpoints = actor.as_endpoints.try_into().ok();
+        let keys = actor.ek_keys;
+
+        ApActor {
+            context,
+            name,
+            summary,
+            id,
+            kind,
+            preferred_username,
+            inbox,
+            outbox,
+            followers,
+            following,
+            subscribers: None,
+            featured,
+            featured_tags,
+            manually_approves_followers,
+            published,
+            liked,
+            public_key,
+            url,
+            icon,
+            image,
+            discoverable,
+            capabilities,
+            attachment,
+            also_known_as,
+            tag,
+            endpoints,
+            keys,
+            ephemeral: None,
+        }
+    }
+}
+
+impl From<&Actor> for ApActor {
+    fn from(actor: &Actor) -> ApActor {
+        ApActor::from(actor.clone())
+    }
+}
+
+type ActorAndLeader = (ApActor, Option<Leader>);
+
+impl From<ActorAndLeader> for ApActor {
+    fn from((mut actor, leader): ActorAndLeader) -> Self {
+        actor.ephemeral = Some(Ephemeral {
+            following: leader.clone().and_then(|x| x.accepted),
+            leader_as_id: leader
+                .clone()
+                .and_then(|x| format!("{}/leader/{}", *crate::SERVER_URL, x.uuid).into()),
+            follow_activity_as_id: leader.and_then(|x| x.follow_ap_id),
+            ..Default::default()
+        });
+
+        actor
+    }
+}
+
 impl TryFrom<CoalescedActivity> for Actor {
     type Error = anyhow::Error;
 
@@ -354,8 +495,8 @@ impl TryFrom<ApActor> for NewActor {
                 .ok()
                 .map(|dt| dt.with_timezone(&Utc))
         });
-        let as_tag = actor.tag.map_or(json!([]), |x| json!(x));
-        let as_attachment = actor.attachment.map_or(json!({}), |x| json!(x));
+        let as_tag = actor.tag.into();
+        let as_attachment = actor.attachment.into();
         let as_endpoints = actor.endpoints.map_or(json!({}), |x| json!(x));
         let as_icon = actor.icon.map_or(json!({}), |x| json!(x));
         let as_image = actor.image.map_or(json!({}), |x| json!(x));

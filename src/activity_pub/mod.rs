@@ -31,6 +31,7 @@ pub use types::object::{
     ApBasicContent, ApBasicContentType, ApContext, ApEndpoint, ApHashtag, ApImage, ApImageType,
     ApObject, ApTag, ApTimelineObject,
 };
+pub use types::Ephemeral;
 
 pub use types::question::{ApQuestion, ApQuestionType};
 

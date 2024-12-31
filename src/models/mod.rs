@@ -17,7 +17,7 @@ pub mod unprocessable;
 pub mod vault;
 use serde_json::Value;
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub enum Tombstone {
     Actor(Actor),
     Object(Object),
@@ -31,10 +31,6 @@ pub fn parameter_generator() -> impl FnMut() -> String {
         param
     }
 }
-
-// pub fn to_serde<T: Serialize>(object: &Option<T>) -> Option<Value> {
-//     object.as_ref().map(|x| json!(x))
-// }
 
 pub fn from_serde<T: serde::de::DeserializeOwned>(object: Value) -> Option<T> {
     serde_json::from_value(object).ok()

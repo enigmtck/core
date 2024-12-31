@@ -10,6 +10,7 @@ use crate::{
             create_activity, get_activity_by_ap_id, ActivityTarget, ExtendedActivity, NewActivity,
         },
         actors::{get_actor, Actor},
+        coalesced_activity::CoalescedActivity,
         objects::get_object_by_as_id,
     },
     routes::ActivityJson,
@@ -228,6 +229,28 @@ impl TryFrom<ExtendedActivity> for ApLike {
             id: activity.ap_id,
             to: MaybeMultiple::Single(ApAddress::Address(id)),
             object,
+        })
+    }
+}
+
+impl TryFrom<CoalescedActivity> for ApLike {
+    type Error = anyhow::Error;
+
+    fn try_from(activity: CoalescedActivity) -> Result<Self, Self::Error> {
+        if !activity.kind.is_like() {
+            return Err(anyhow!("Not a Like Activity"));
+        }
+
+        Ok(ApLike {
+            context: Some(ApContext::default()),
+            kind: ApLikeType::default(),
+            actor: activity.actor.into(),
+            id: activity.ap_id,
+            to: activity.ap_to.into(),
+            object: activity
+                .object_as_id
+                .ok_or(anyhow!("no object_as_id"))?
+                .into(),
         })
     }
 }

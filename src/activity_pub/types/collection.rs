@@ -37,7 +37,7 @@ impl Cache for ApCollection {
     }
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, Default)]
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq, Eq)]
 pub enum ApCollectionType {
     #[default]
     #[serde(alias = "collection")]

@@ -1,15 +1,33 @@
+use crate::activity_pub::{ApActivity, ApAnnounce, ApCreate, ApDelete, ApFollow, ApLike};
 use crate::models::activities::ActivityType;
 use crate::models::actors::ActorType;
 use crate::models::objects::ObjectType;
 use crate::schema::sql_types::{
     ActivityType as SqlActivityType, ActorType as SqlActorType, ObjectType as SqlObjectType,
 };
+use anyhow::anyhow;
 use chrono::{DateTime, Utc};
 use diesel::prelude::*;
 use diesel::sql_types::{Bool, Integer, Jsonb, Nullable, Text, Timestamptz};
 use diesel::Queryable;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+
+#[cfg(feature = "pg")]
+mod db_types {
+    pub type DbObjectType = crate::models::objects::ObjectType;
+    pub type DbActivityType = crate::models::activities::ActivityType;
+    pub type DbActorType = crate::models::actors::ActorType;
+}
+
+#[cfg(feature = "sqlite")]
+mod db_types {
+    pub type DbObjectType = String;
+    pub type DbActivityType = String;
+    pub type DbActorType = String;
+}
+
+use db_types::*;
 
 #[derive(Queryable, Serialize, Deserialize, Clone, Default, Debug, QueryableByName)]
 pub struct CoalescedActivity {
@@ -23,9 +41,12 @@ pub struct CoalescedActivity {
     #[diesel(sql_type = Timestamptz)]
     pub updated_at: DateTime<Utc>,
 
-    #[diesel(sql_type = SqlActivityType)]
-    pub kind: ActivityType,
+    #[cfg_attr(feature = "pg", diesel(sql_type = SqlActivityType))]
+    #[cfg_attr(feature = "sqlite", diesel(sql_type = Text))]
+    pub kind: DbActivityType,
 
+    //#[diesel(sql_type = SqlActivityType)]
+    //pub kind: ActivityType,
     #[diesel(sql_type = Text)]
     pub uuid: String,
 
@@ -78,9 +99,12 @@ pub struct CoalescedActivity {
     #[diesel(sql_type = Nullable<Timestamptz>)]
     pub recursive_updated_at: Option<DateTime<Utc>>,
 
-    #[diesel(sql_type = Nullable<SqlActivityType>)]
-    pub recursive_kind: Option<ActivityType>,
+    #[cfg_attr(feature = "pg", diesel(sql_type = Nullable<SqlActivityType>))]
+    #[cfg_attr(feature = "sqlite", diesel(sql_type = Nullable<Text>))]
+    pub recursive_kind: Option<DbActivityType>,
 
+    //#[diesel(sql_type = Nullable<SqlActivityType>)]
+    //pub recursive_kind: Option<ActivityType>,
     #[diesel(sql_type = Nullable<Text>)]
     pub recursive_uuid: Option<String>,
 
@@ -130,9 +154,12 @@ pub struct CoalescedActivity {
     #[diesel(sql_type = Nullable<Text>)]
     pub object_uuid: Option<String>,
 
-    #[diesel(sql_type = Nullable<SqlObjectType>)]
-    pub object_type: Option<ObjectType>,
+    #[cfg_attr(feature = "pg", diesel(sql_type = Nullable<SqlObjectType>))]
+    #[cfg_attr(feature = "sqlite", diesel(sql_type = Nullable<Text>))]
+    pub object_type: Option<DbObjectType>,
 
+    //#[diesel(sql_type = Nullable<SqlObjectType>)]
+    //pub object_type: Option<ObjectType>,
     #[diesel(sql_type = Nullable<Timestamptz>)]
     pub object_published: Option<DateTime<Utc>>,
 
@@ -263,9 +290,12 @@ pub struct CoalescedActivity {
     #[diesel(sql_type = Nullable<Jsonb>)]
     pub actor_hashtags: Option<Value>,
 
-    #[diesel(sql_type = Nullable<SqlActorType>)]
-    pub actor_type: Option<ActorType>,
+    #[cfg_attr(feature = "pg", diesel(sql_type = Nullable<SqlActorType>))]
+    #[cfg_attr(feature = "sqlite", diesel(sql_type = Nullable<Text>))]
+    pub actor_type: Option<DbActorType>,
 
+    //#[diesel(sql_type = Nullable<SqlActorType>)]
+    //pub actor_type: Option<ActorType>,
     #[diesel(sql_type = Nullable<Jsonb>)]
     pub actor_context: Option<Value>,
 
@@ -390,4 +420,24 @@ pub struct CoalescedActivity {
 
     #[diesel(sql_type = Nullable<Integer>)]
     pub olm_owner_id: Option<i32>,
+}
+
+impl TryFrom<CoalescedActivity> for ApActivity {
+    type Error = anyhow::Error;
+
+    fn try_from(coalesced: CoalescedActivity) -> Result<Self, Self::Error> {
+        match coalesced.kind {
+            ActivityType::Create => ApCreate::try_from(coalesced).map(ApActivity::Create),
+            ActivityType::Announce => ApAnnounce::try_from(coalesced).map(ApActivity::Announce),
+            ActivityType::Like => ApLike::try_from(coalesced).map(|x| ApActivity::Like(x.into())),
+            ActivityType::Delete => {
+                ApDelete::try_from(coalesced).map(|x| ApActivity::Delete(x.into()))
+            }
+            ActivityType::Follow => ApFollow::try_from(coalesced).map(ApActivity::Follow),
+            _ => {
+                log::error!("Failed to match implemented Activity\n{coalesced:#?}");
+                Err(anyhow!("Failed to match implemented Activity"))
+            }
+        }
+    }
 }

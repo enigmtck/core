@@ -11,7 +11,6 @@ use crate::{
         activities::{create_activity, ActivityType, ExtendedActivity, NewActivity},
         actors::Actor,
         coalesced_activity::CoalescedActivity,
-        from_serde,
         objects::get_object_by_as_id,
     },
     routes::ActivityJson,
@@ -203,11 +202,7 @@ impl TryFrom<CoalescedActivity> for ApAnnounce {
         let actor = ApAddress::Address(coalesced.actor.clone());
         let id = coalesced.ap_id.clone();
         let context = Some(ApContext::default());
-        let to = coalesced
-            .ap_to
-            .clone()
-            .and_then(from_serde)
-            .ok_or(anyhow!("ap_to is None"))?;
+        let to = coalesced.clone().ap_to.into();
         let cc = coalesced.clone().cc.into();
         let published = ActivityPub::time(coalesced.created_at);
         let ephemeral = Some(Ephemeral {
@@ -237,21 +232,19 @@ impl TryFrom<ExtendedActivity> for ApAnnounce {
         (activity, _target_activity, target_object, _target_actor): ExtendedActivity,
     ) -> Result<Self, Self::Error> {
         if activity.kind.to_string().to_lowercase().as_str() == "announce" {
-            let ap_to = activity.ap_to.ok_or(anyhow!("ap_to is None"))?;
-
             let object = target_object.ok_or(anyhow!("INVALID ACTIVITY TYPE"))?;
             let object = MaybeReference::Actual(ApObject::Note(ApNote::try_from(object)?));
 
             Ok(ApAnnounce {
                 context: Some(ApContext::default()),
                 kind: ApAnnounceType::default(),
-                actor: activity.actor.into(),
+                actor: activity.clone().actor.into(),
                 id: Some(format!(
                     "{}/activities/{}",
                     *crate::SERVER_URL,
                     activity.uuid
                 )),
-                to: from_serde(ap_to).unwrap(),
+                to: activity.clone().ap_to.into(),
                 cc: activity.cc.into(),
                 published: ActivityPub::time(activity.created_at),
                 object,

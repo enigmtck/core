@@ -95,6 +95,7 @@ pub async fn handle_object(
     mut object: Object,
     _announcer: Option<String>,
 ) -> anyhow::Result<Object> {
+    log::debug!("Entering handle_object");
     let metadata = metadata_object(&object);
 
     if !metadata.is_empty() {
@@ -115,10 +116,16 @@ pub async fn handle_object(
             .unwrap_or(object);
     }
 
+    // SOMETHING HERE MAY BE FAILING - LOG AND INVESTIGATE WHY CACHING ISN'T WORKING
+
+    log::debug!("Converting Object to ApObject");
     let ap_object: ApObject = object.clone().try_into()?;
+
+    log::debug!("Retrieving Actor");
     let profile = guaranteed_actor(conn, None);
 
     if let ApObject::Note(note) = ap_object {
+        log::debug!("Found ApNote as Object");
         let _ = runner::actor::get_actor(Some(conn), profile.await, note.attributed_to.to_string())
             .await;
 
@@ -126,12 +133,14 @@ pub async fn handle_object(
         //     note.ephemeral_announces = Some(vec![announcer]);
         // }
 
+        log::debug!("Caching note");
         note.cache(conn).await;
 
         if let Some(mut channels) = channels {
             channels.send(None, serde_json::to_string(&note.clone()).unwrap());
         }
 
+        log::debug!("Exiting handle_object");
         Ok(object)
     } else {
         Err(anyhow!("ApObject is not a Note"))

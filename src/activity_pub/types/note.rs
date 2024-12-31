@@ -171,7 +171,9 @@ pub struct ApNote {
     #[serde(rename = "@context")]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub context: Option<ApContext>,
-    pub tag: Option<Vec<ApTag>>,
+    #[serde(skip_serializing_if = "MaybeMultiple::is_none")]
+    #[serde(default)]
+    pub tag: MaybeMultiple<ApTag>,
     pub attributed_to: ApAddress,
     pub id: Option<String>,
     #[serde(rename = "type")]
@@ -185,8 +187,9 @@ pub struct ApNote {
     pub cc: MaybeMultiple<ApAddress>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub replies: Option<ApCollection>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub attachment: Option<Vec<ApAttachment>>,
+    #[serde(skip_serializing_if = "MaybeMultiple::is_none")]
+    #[serde(default)]
+    pub attachment: MaybeMultiple<ApAttachment>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub in_reply_to: Option<String>,
     pub content: String,
@@ -225,10 +228,10 @@ impl ApNote {
         self
     }
 
-    pub fn tag(mut self, tag: ApTag) -> Self {
-        self.tag.as_mut().expect("unwrap failed").push(tag);
-        self
-    }
+    // pub fn tag(mut self, tag: ApTag) -> Self {
+    //     self.tag.as_mut().expect("unwrap failed").push(tag);
+    //     self
+    // }
 
     async fn outbox_note(
         conn: Db,
@@ -472,7 +475,7 @@ impl ApNote {
             // that's already on the server seems weird, but I think it's a better choice than trying
             // to handle the URLs for local images differently.
             //let ap_note: ApNote = note.clone().into();
-            if let Some(attachments) = note.clone().attachment {
+            if let MaybeMultiple::Multiple(attachments) = note.clone().attachment {
                 for attachment in attachments {
                     if let ApAttachment::Document(document) = attachment {
                         let _ =
@@ -568,16 +571,16 @@ impl ApNote {
 
 impl Cache for ApNote {
     async fn cache(&self, conn: &Db) -> &Self {
-        if let Some(attachments) = self.attachment.clone() {
-            for attachment in attachments {
-                cache_content(conn, attachment.clone().try_into()).await;
-            }
+        log::debug!("Checking for attachments");
+        for attachment in self.attachment.multiple() {
+            log::debug!("Attachment\n{attachment:#?}");
+            cache_content(conn, attachment.clone().try_into()).await;
         }
 
-        if let Some(tags) = self.tag.clone() {
-            for tag in tags {
-                cache_content(conn, tag.clone().try_into()).await;
-            }
+        log::debug!("Checking for tags");
+        for tag in self.tag.multiple() {
+            log::debug!("Tag\n{tag:#?}");
+            cache_content(conn, tag.clone().try_into()).await;
         }
 
         if let Some(ephemeral) = self.ephemeral.clone() {
@@ -614,7 +617,7 @@ impl Default for ApNote {
     fn default() -> ApNote {
         ApNote {
             context: Some(ApContext::default()),
-            tag: None,
+            tag: MaybeMultiple::None,
             attributed_to: ApAddress::default(),
             id: None,
             kind: ApNoteType::Note,
@@ -623,7 +626,7 @@ impl Default for ApNote {
             published: ActivityPub::time(Utc::now()),
             cc: MaybeMultiple::None,
             replies: None,
-            attachment: None,
+            attachment: MaybeMultiple::None,
             in_reply_to: None,
             content: String::new(),
             summary: None,
@@ -639,7 +642,7 @@ impl Default for ApNote {
 impl From<ApActor> for ApNote {
     fn from(actor: ApActor) -> Self {
         ApNote {
-            tag: Some(vec![]),
+            tag: MaybeMultiple::Multiple(vec![]),
             attributed_to: actor.id.unwrap(),
             id: None,
             kind: ApNoteType::Note,
@@ -670,7 +673,7 @@ impl TryFrom<CoalescedActivity> for ApNote {
             .and_then(from_serde)
             .ok_or_else(|| anyhow::anyhow!("object_to is None"))?;
         let cc: MaybeMultiple<ApAddress> = coalesced.object_cc.into();
-        let tag = coalesced.object_tag.and_then(from_serde);
+        let tag = coalesced.object_tag.into();
         let attributed_to = coalesced
             .object_attributed_to
             .and_then(from_serde)
@@ -680,7 +683,7 @@ impl TryFrom<CoalescedActivity> for ApNote {
             .object_content
             .ok_or_else(|| anyhow::anyhow!("object_content is None"))?;
         let conversation = coalesced.object_conversation;
-        let attachment = coalesced.object_attachment.and_then(from_serde);
+        let attachment = coalesced.object_attachment.into();
         let summary = coalesced.object_summary;
         let sensitive = coalesced.object_sensitive;
         let published = coalesced
@@ -735,7 +738,7 @@ impl TryFrom<Object> for ApNote {
                     .and_then(from_serde)
                     .unwrap_or(vec![].into()),
                 cc: object.as_cc.clone().into(),
-                tag: object.as_tag.clone().and_then(from_serde),
+                tag: object.as_tag.clone().into(),
                 attributed_to: from_serde(
                     object.as_attributed_to.ok_or(anyhow!("no attributed_to"))?,
                 )
@@ -743,10 +746,7 @@ impl TryFrom<Object> for ApNote {
                 content: object.as_content.clone().ok_or(anyhow!("no content"))?,
                 replies: object.as_replies.clone().and_then(from_serde),
                 in_reply_to: object.as_in_reply_to.clone().and_then(from_serde),
-                attachment: serde_json::from_value(
-                    object.as_attachment.clone().unwrap_or_default(),
-                )
-                .unwrap_or_default(),
+                attachment: object.as_attachment.clone().into(),
                 conversation: object.ap_conversation.clone(),
                 ephemeral: Some(Ephemeral {
                     timestamp: Some(object.created_at),

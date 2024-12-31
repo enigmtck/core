@@ -13,6 +13,7 @@ use crate::{
             create_activity, revoke_activities_by_object_as_id, ActivityTarget, NewActivity,
         },
         actors::{get_actor, get_actor_by_as_id, tombstone_actor_by_as_id, Actor},
+        coalesced_activity::CoalescedActivity,
         objects::{get_object_by_as_id, tombstone_object_by_as_id, tombstone_object_by_uuid},
         Tombstone,
     },
@@ -67,6 +68,8 @@ impl Inbox for Box<ApDelete> {
         _channels: EventChannels,
         raw: Value,
     ) -> Result<Status, Status> {
+        log::debug!("Delete Message received by Inbox\n{raw:#?}");
+
         let tombstone = match self.object.clone() {
             MaybeReference::Actual(actual) => match actual {
                 ApObject::Tombstone(tombstone) => Ok(async {
@@ -80,7 +83,7 @@ impl Inbox for Box<ApDelete> {
                 }
                 .await
                 .ok_or_else(|| {
-                    log::error!("Failed to identify Tombstone: {}", tombstone.id);
+                    log::debug!("Failed to identify Tombstone: {}", tombstone.id);
                     Status::NotFound
                 })?),
                 ApObject::Identifier(obj) => Ok(async {
@@ -94,11 +97,11 @@ impl Inbox for Box<ApDelete> {
                 }
                 .await
                 .ok_or_else(|| {
-                    log::error!("Failed to determine Identifier: {}", obj.id);
+                    log::debug!("Failed to determine Identifier: {}", obj.id);
                     Status::NotFound
                 })?),
                 _ => {
-                    log::debug!("Failed to identify Delete Object: {:#?}", self.object);
+                    log::error!("Failed to identify Delete Object: {:#?}", self.object);
                     Err(Status::NoContent)
                 }
             },
@@ -113,12 +116,16 @@ impl Inbox for Box<ApDelete> {
             }
             .await
             .ok_or_else(|| {
-                log::error!("Failed to identify Tombstone");
+                log::debug!("Failed to identify Tombstone");
                 Status::NotFound
             })?),
-            _ => Err(Status::NotImplemented),
+            _ => {
+                log::debug!("Not implemented: MaybeReference not Actual or Reference");
+                Err(Status::NotImplemented)
+            }
         };
 
+        log::debug!("Tombstone\n{tombstone:#?}");
         let tombstone = tombstone.clone()?;
 
         let mut activity = match tombstone.clone() {
@@ -142,14 +149,18 @@ impl Inbox for Box<ApDelete> {
 
         activity.raw = Some(raw);
 
-        create_activity(Some(&conn), activity).await.map_err(|e| {
+        let activity = create_activity(Some(&conn), activity).await.map_err(|e| {
             log::error!("Failed to create Activity: {e:#?}");
             Status::InternalServerError
         })?;
 
+        log::debug!("Tombstone Activity\n{activity:#?}");
+
         match tombstone {
             Tombstone::Actor(actor) => {
+                log::debug!("Setting Actor to Tombstone");
                 if self.actor.to_string() == actor.as_id {
+                    log::debug!("Running database updates");
                     tombstone_actor_by_as_id(&conn, actor.as_id)
                         .await
                         .map_err(|e| {
@@ -159,8 +170,16 @@ impl Inbox for Box<ApDelete> {
                 }
             }
             Tombstone::Object(object) => {
-                if let Some(attributed_to) = object.attributed_to().first() {
-                    if self.actor.to_string() == attributed_to.clone() {
+                log::debug!("Setting Object to Tombstone");
+                if let Some(attributed_to) = object.as_attributed_to {
+                    let attributed_to: MaybeMultiple<ApAddress> = attributed_to.into();
+                    let attributed_to = attributed_to.single().map_err(|e| {
+                        log::error!("{e}");
+                        Status::InternalServerError
+                    })?;
+
+                    if self.actor.to_string() == attributed_to.clone().to_string() {
+                        log::debug!("Running database updates");
                         tombstone_object_by_as_id(&conn, object.as_id.clone())
                             .await
                             .map_err(|e| {
@@ -263,6 +282,30 @@ impl TryFrom<ApNote> for ApDelete {
             signature: None,
             to: note.to,
             cc: note.cc,
+        })
+    }
+}
+
+impl TryFrom<CoalescedActivity> for ApDelete {
+    type Error = anyhow::Error;
+
+    fn try_from(activity: CoalescedActivity) -> Result<Self, Self::Error> {
+        if !activity.kind.is_delete() {
+            return Err(anyhow!("Not a Delete Activity"));
+        }
+
+        Ok(ApDelete {
+            context: Some(ApContext::default()),
+            kind: ApDeleteType::default(),
+            actor: activity.actor.into(),
+            id: activity.ap_id,
+            to: activity.ap_to.into(),
+            cc: activity.cc.into(),
+            object: activity
+                .object_as_id
+                .ok_or(anyhow!("no object_as_id"))?
+                .into(),
+            signature: None,
         })
     }
 }

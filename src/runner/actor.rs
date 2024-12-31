@@ -11,10 +11,11 @@ use crate::{
     activity_pub::{retriever::signed_get, ApActor},
     models::leaders::Leader,
     runner::cache::cache_content,
+    MaybeMultiple,
 };
 
 async fn cache_actor(conn: &Db, actor: &ApActor) -> ApActor {
-    if let Some(tags) = actor.tag.clone() {
+    if let MaybeMultiple::Multiple(tags) = actor.tag.clone() {
         for tag in tags {
             let _ = cache_content(conn, tag.try_into()).await;
         }

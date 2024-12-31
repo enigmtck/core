@@ -16,7 +16,6 @@ use crate::{
         },
         actors::Actor,
         coalesced_activity::CoalescedActivity,
-        from_serde,
         objects::ObjectType,
         objects::{create_or_update_object, NewObject},
     },
@@ -218,12 +217,8 @@ impl TryFrom<CoalescedActivity> for ApCreate {
         let actor = ApAddress::Address(coalesced.actor.clone());
         let id = coalesced.ap_id.clone();
         let context = Some(ApContext::default());
-        let to = coalesced
-            .ap_to
-            .clone()
-            .and_then(from_serde)
-            .ok_or_else(|| anyhow::anyhow!("ap_to is None"))?;
-        let cc = coalesced.clone().cc.into();
+        let to = coalesced.ap_to.clone().into();
+        let cc = coalesced.cc.clone().into();
         let signature = None;
         let published = Some(ActivityPub::time(coalesced.created_at));
         let ephemeral = Some(Ephemeral {
@@ -260,10 +255,6 @@ impl TryFrom<EncryptedActivity> for ApCreate {
     fn try_from((activity, object, session): EncryptedActivity) -> Result<Self, Self::Error> {
         let note = ApObject::Note(ApNote::try_from(object)?);
 
-        let ap_to = activity
-            .ap_to
-            .ok_or(anyhow!("Activity must have a 'to' field"))?;
-
         let instrument: MaybeMultiple<ApInstrument> = activity.instrument.into();
         let mut instrument = match instrument {
             MaybeMultiple::Single(instrument) => {
@@ -291,7 +282,7 @@ impl TryFrom<EncryptedActivity> for ApCreate {
             actor: ApAddress::Address(activity.actor.clone()),
             id: activity.ap_id,
             object: note.into(),
-            to: from_serde(ap_to).unwrap(),
+            to: activity.ap_to.clone().into(),
             cc: activity.cc.into(),
             signature: None,
             published: Some(ActivityPub::time(activity.created_at)),
@@ -320,10 +311,6 @@ impl TryFrom<ExtendedActivity> for ApCreate {
             }
         };
 
-        let ap_to = activity
-            .ap_to
-            .ok_or(anyhow!("ACTIVITY DOES NOT HAVE A TO FIELD"))?;
-
         let instrument: MaybeMultiple<ApInstrument> = activity.instrument.into();
         let instrument = match instrument {
             MaybeMultiple::Single(instrument) => {
@@ -347,7 +334,7 @@ impl TryFrom<ExtendedActivity> for ApCreate {
             actor: ApAddress::Address(activity.actor.clone()),
             id: activity.ap_id,
             object: note.into(),
-            to: from_serde(ap_to).unwrap(),
+            to: activity.ap_to.clone().into(),
             cc: activity.cc.into(),
             signature: None,
             published: Some(ActivityPub::time(activity.created_at)),

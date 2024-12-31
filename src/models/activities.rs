@@ -1,7 +1,8 @@
 use crate::activity_pub::PUBLIC_COLLECTION;
 use crate::activity_pub::{
-    ApAcceptType, ApActivity, ApAddress, ApAnnounceType, ApCreateType, ApDeleteType, ApFollowType,
-    ApLikeType, ApObject, ApUndoType, ApUpdateType,
+    ApAccept, ApAcceptType, ApActivity, ApAddress, ApAnnounce, ApAnnounceType, ApContext, ApCreate,
+    ApCreateType, ApDelete, ApDeleteType, ApFollow, ApFollowType, ApLike, ApLikeType, ApNote,
+    ApObject, ApUndo, ApUndoType, ApUpdateType,
 };
 use crate::db::Db;
 use crate::helper::get_activity_ap_id_from_uuid;
@@ -612,6 +613,84 @@ impl From<UndoActivity> for NewActivity {
 }
 
 pub type ExtendedActivity = (Activity, Option<Activity>, Option<Object>, Option<Actor>);
+
+impl TryFrom<ExtendedActivity> for ApActivity {
+    type Error = anyhow::Error;
+
+    fn try_from(
+        (activity, target_activity, target_object, target_actor): ExtendedActivity,
+    ) -> Result<Self, Self::Error> {
+        match activity.kind {
+            ActivityType::Create => {
+                ApCreate::try_from((activity, target_activity, target_object, target_actor))
+                    .map(ApActivity::Create)
+            }
+            ActivityType::Announce => {
+                ApAnnounce::try_from((activity, target_activity, target_object, target_actor))
+                    .map(ApActivity::Announce)
+            }
+            ActivityType::Like => {
+                ApLike::try_from((activity, target_activity, target_object, target_actor))
+                    .map(|activity| ApActivity::Like(Box::new(activity)))
+            }
+            ActivityType::Delete => {
+                let note = ApNote::try_from(target_object.unwrap())?;
+                ApDelete::try_from(note).map(|mut delete| {
+                    delete.id = activity.ap_id;
+                    ApActivity::Delete(Box::new(delete))
+                })
+            }
+            ActivityType::Follow => {
+                ApFollow::try_from((activity, target_activity, target_object, target_actor))
+                    .map(ApActivity::Follow)
+            }
+            ActivityType::Undo => {
+                ApUndo::try_from((activity, target_activity, target_object, target_actor))
+                    .map(|undo| ApActivity::Undo(Box::new(undo)))
+            }
+            ActivityType::Accept => {
+                ApAccept::try_from((activity, target_activity, target_object, target_actor))
+                    .map(|accept| ApActivity::Accept(Box::new(accept)))
+            }
+            _ => {
+                log::error!(
+                    "Failed to match implemented activity in TryFrom for ApActivity\nACTIVITY: {activity:#?}\nTARGET_ACTIVITY: {target_activity:#?}\nTARGET_OBJECT: {target_object:#?}\nTARGET_ACTOR {target_actor:#?}"
+                );
+                Err(anyhow!("Failed to match implemented activity"))
+            }
+        }
+    }
+}
+
+impl TryFrom<ExtendedActivity> for ApAccept {
+    type Error = anyhow::Error;
+
+    fn try_from(
+        (activity, target_activity, _target_object, _target_actor): ExtendedActivity,
+    ) -> Result<Self, Self::Error> {
+        let follow = ApActivity::try_from((
+            target_activity.ok_or(anyhow!("TARGET_ACTIVITY CANNOT BE NONE"))?,
+            None,
+            None,
+            None,
+        ))?;
+
+        if let ApActivity::Follow(follow) = follow {
+            Ok(ApAccept {
+                context: Some(ApContext::default()),
+                kind: ApAcceptType::default(),
+                actor: activity.actor.clone().into(),
+                id: Some(activity.ap_id.ok_or(anyhow!("ACCEPT MUST HAVE AN AP_ID"))?),
+                object: MaybeReference::Actual(ApActivity::Follow(follow)),
+            })
+        } else {
+            log::error!(
+                "FAILED TO MATCH IMPLEMENTED ACCEPT IN TryFrom FOR ApAccept\n{activity:#?}"
+            );
+            Err(anyhow!("FAILED TO MATCH IMPLEMENTED ACCEPT"))
+        }
+    }
+}
 
 fn target_to_main(coalesced: CoalescedActivity) -> Option<Activity> {
     Some(Activity {
@@ -1235,6 +1314,22 @@ pub async fn get_announcers(
 
 pub type EncryptedActivity = (Activity, Object, Option<OlmSession>);
 
+impl TryFrom<EncryptedActivity> for ApActivity {
+    type Error = anyhow::Error;
+
+    fn try_from((activity, object, session): EncryptedActivity) -> Result<Self, Self::Error> {
+        match activity.kind {
+            ActivityType::Create => {
+                ApCreate::try_from((activity, object, session)).map(ApActivity::Create)
+            }
+            _ => {
+                log::error!("Failed to match implemented EncryptedActivity\n{activity:#?}");
+                Err(anyhow!("Failed to match implemented EncryptedActivity"))
+            }
+        }
+    }
+}
+
 pub async fn get_encrypted_activities(
     conn: &Db,
     since: DateTime<Utc>,
@@ -1321,7 +1416,7 @@ pub async fn get_likers(
     .await
 }
 
-pub async fn revoke_activities_by_object_as_id(conn: &Db, as_id: String) -> Result<Activity> {
+pub async fn revoke_activities_by_object_as_id(conn: &Db, as_id: String) -> Result<Vec<Activity>> {
     conn.run(move |c| {
         diesel::update(
             activities::table.filter(
@@ -1333,7 +1428,7 @@ pub async fn revoke_activities_by_object_as_id(conn: &Db, as_id: String) -> Resu
             ),
         )
         .set(activities::revoked.eq(true))
-        .get_result::<Activity>(c)
+        .get_results::<Activity>(c)
         .map_err(anyhow::Error::msg)
     })
     .await

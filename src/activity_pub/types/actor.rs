@@ -3,22 +3,17 @@ use std::fmt::Debug;
 
 use super::activity::ApActivity;
 use super::Ephemeral;
-use crate::activity_pub::{
-    ActivityPub, ApAttachment, ApContext, ApEndpoint, ApImage, ApTag, Outbox,
-};
+use crate::activity_pub::{ApAttachment, ApContext, ApEndpoint, ApImage, ApTag};
 use crate::db::Db;
 use crate::fairings::events::EventChannels;
 use crate::models::actors::ActorType;
 use crate::models::actors::{get_actor_by_as_id, Actor};
-use crate::models::cache::{cache_content, Cache};
 use crate::models::followers::get_follower_count_by_actor_id;
-use crate::models::leaders::{
-    get_leader_by_actor_id_and_ap_id, get_leader_count_by_actor_id, Leader,
-};
-use crate::models::{from_serde, from_serde_option};
+use crate::models::leaders::{get_leader_by_actor_id_and_ap_id, get_leader_count_by_actor_id};
 use crate::routes::ActivityJson;
 use crate::webfinger::retrieve_webfinger;
 use crate::{MaybeMultiple, DOMAIN_RE};
+use anyhow::{self, Result};
 use lazy_static::lazy_static;
 use rocket::http::Status;
 use serde::{Deserialize, Serialize};
@@ -73,12 +68,11 @@ impl From<String> for ApAddress {
     }
 }
 
-impl TryFrom<serde_json::Value> for ApAddress {
-    type Error = String;
+impl TryFrom<Value> for ApAddress {
+    type Error = anyhow::Error;
 
-    fn try_from(address: serde_json::Value) -> Result<Self, Self::Error> {
-        serde_json::from_value(address)
-            .map_err(|e| format!("FAILED TO CONVERT TO ApAddress: {e:#?}"))?
+    fn try_from(value: Value) -> Result<Self> {
+        serde_json::from_value(value).map_err(anyhow::Error::msg)
     }
 }
 
@@ -90,11 +84,27 @@ pub struct ApPublicKey {
     pub public_key_pem: String,
 }
 
+impl TryFrom<Value> for ApPublicKey {
+    type Error = anyhow::Error;
+
+    fn try_from(value: Value) -> Result<Self> {
+        serde_json::from_value(value).map_err(anyhow::Error::msg)
+    }
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug, Default, Hash, PartialEq, Eq, PartialOrd, Ord)]
 #[serde(rename_all = "camelCase")]
 pub struct ApCapabilities {
     pub accepts_chat_messages: Option<bool>,
     pub enigmatick_encryption: Option<bool>,
+}
+
+impl TryFrom<Value> for ApCapabilities {
+    type Error = anyhow::Error;
+
+    fn try_from(value: Value) -> Result<Self> {
+        serde_json::from_value(value).map_err(anyhow::Error::msg)
+    }
 }
 
 #[derive(Serialize, PartialEq, Eq, Deserialize, Clone, Debug, Default, Hash, Ord, PartialOrd)]
@@ -190,11 +200,13 @@ pub struct ApActor {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub published: Option<String>,
 
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub tag: Option<Vec<ApTag>>,
+    #[serde(skip_serializing_if = "MaybeMultiple::is_none")]
+    #[serde(default)]
+    pub tag: MaybeMultiple<ApTag>,
 
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub attachment: Option<Vec<ApAttachment>>,
+    #[serde(skip_serializing_if = "MaybeMultiple::is_none")]
+    #[serde(default)]
+    pub attachment: MaybeMultiple<ApAttachment>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
     pub endpoints: Option<ApEndpoint>,
@@ -231,79 +243,8 @@ pub struct ApActorTerse {
     pub url: MaybeMultiple<String>,
     pub name: Option<String>,
     pub preferred_username: String,
-    pub tag: Vec<ApTag>,
+    pub tag: MaybeMultiple<ApTag>,
     pub icon: Option<ApImage>,
-}
-
-impl From<ApActor> for ApActorTerse {
-    fn from(actor: ApActor) -> Self {
-        let name = actor.name;
-        let id = actor.id.unwrap_or_default().to_string();
-        let preferred_username = actor.preferred_username;
-        let url = actor.url;
-        let icon = actor.icon;
-        let tag = actor.tag.unwrap_or_default();
-
-        ApActorTerse {
-            name,
-            id,
-            preferred_username,
-            url,
-            icon,
-            tag,
-        }
-    }
-}
-
-impl From<Actor> for ApActorTerse {
-    fn from(actor: Actor) -> Self {
-        let name = actor.as_name;
-        let id = actor.as_id;
-        let preferred_username = actor.as_preferred_username.unwrap_or_default();
-        let url = from_serde_option(actor.as_url).unwrap_or_default();
-        let icon = from_serde(actor.as_icon);
-        let tag = from_serde(actor.as_tag).unwrap_or(vec![]);
-
-        ApActorTerse {
-            name,
-            id,
-            preferred_username,
-            url,
-            icon,
-            tag,
-        }
-    }
-}
-
-impl Cache for ApActor {
-    async fn cache(&self, conn: &Db) -> &Self {
-        if let Some(tags) = self.tag.clone() {
-            for tag in tags {
-                cache_content(conn, tag.try_into()).await;
-            }
-        };
-
-        for image in vec![self.image.clone(), self.icon.clone()]
-            .into_iter()
-            .flatten()
-        {
-            cache_content(conn, Ok(image.clone().into())).await;
-        }
-
-        self
-    }
-}
-
-impl Outbox for ApActor {
-    async fn outbox(
-        &self,
-        _conn: Db,
-        _events: EventChannels,
-        _profile: Actor,
-        _raw: Value,
-    ) -> Result<ActivityJson<ApActivity>, Status> {
-        Err(Status::ServiceUnavailable)
-    }
 }
 
 impl Default for ApActor {
@@ -329,8 +270,8 @@ impl Default for ApActor {
             url: MaybeMultiple::None,
             manually_approves_followers: None,
             published: None,
-            tag: None,
-            attachment: None,
+            tag: MaybeMultiple::None,
+            attachment: MaybeMultiple::None,
             endpoints: None,
             icon: None,
             image: None,
@@ -383,7 +324,7 @@ impl ApActor {
     }
 
     pub fn get_hashtags(&self) -> Vec<String> {
-        if let Some(tags) = self.tag.clone() {
+        if let MaybeMultiple::Multiple(tags) = self.tag.clone() {
             tags.iter()
                 .filter_map(|tag| {
                     if let ApTag::HashTag(hashtag) = tag {
@@ -399,124 +340,21 @@ impl ApActor {
     }
 }
 
-type ExtendedActor = (Actor, Option<Leader>);
-
-impl From<ExtendedActor> for ApActor {
-    fn from((actor, leader): ExtendedActor) -> Self {
-        let mut actor = ApActor::from(actor);
-
-        actor.ephemeral = Some(Ephemeral {
-            following: leader.clone().and_then(|x| x.accepted),
-            leader_as_id: leader
-                .clone()
-                .and_then(|x| format!("{}/leader/{}", *crate::SERVER_URL, x.uuid).into()),
-            follow_activity_as_id: leader.and_then(|x| x.follow_ap_id),
-            ..Default::default()
-        });
-
-        actor
-    }
-}
-
 impl FromIterator<ApActor> for Vec<ApActorTerse> {
     fn from_iter<I: IntoIterator<Item = ApActor>>(iter: I) -> Self {
         iter.into_iter().map(ApActorTerse::from).collect()
     }
 }
 
-impl FromIterator<Actor> for Vec<ApActor> {
-    fn from_iter<I: IntoIterator<Item = Actor>>(iter: I) -> Self {
-        iter.into_iter().map(ApActor::from).collect()
-    }
-}
-
-impl FromIterator<Actor> for Vec<ApActorTerse> {
-    fn from_iter<I: IntoIterator<Item = Actor>>(iter: I) -> Self {
-        iter.into_iter().map(ApActorTerse::from).collect()
-    }
-}
-
-impl From<Actor> for ApActor {
-    fn from(actor: Actor) -> Self {
-        let context = Some(from_serde_option(actor.as_context).unwrap_or(ApContext::default()));
-        let name = actor.as_name;
-        let summary = actor.as_summary;
-        let id = Some(actor.as_id.into());
-        let kind = actor.as_type.into();
-        let preferred_username = actor.as_preferred_username.unwrap_or_default();
-        let inbox = actor.as_inbox;
-        let outbox = actor.as_outbox;
-        let followers = actor.as_followers;
-        let following = actor.as_following;
-        let featured = actor.as_featured;
-        let featured_tags = actor.as_featured_tags;
-        let manually_approves_followers = Some(actor.ap_manually_approves_followers);
-        let published = actor.as_published.map(ActivityPub::time);
-        let liked = actor.as_liked;
-        let public_key = from_serde(actor.as_public_key).unwrap();
-        let url = actor.as_url.into();
-        let icon = from_serde(actor.as_icon);
-        let image = from_serde(actor.as_image);
-        let discoverable = Some(actor.as_discoverable);
-        let capabilities = from_serde(actor.ap_capabilities);
-        let attachment = from_serde(actor.as_attachment);
-        let also_known_as = actor.as_also_known_as.into();
-        let tag = from_serde(actor.as_tag);
-        let endpoints = from_serde(actor.as_endpoints);
-        let keys = actor.ek_keys;
-
-        ApActor {
-            context,
-            name,
-            summary,
-            id,
-            kind,
-            preferred_username,
-            inbox,
-            outbox,
-            followers,
-            following,
-            subscribers: None,
-            featured,
-            featured_tags,
-            manually_approves_followers,
-            published,
-            liked,
-            public_key,
-            url,
-            icon,
-            image,
-            discoverable,
-            capabilities,
-            attachment,
-            also_known_as,
-            tag,
-            endpoints,
-            keys,
-            ephemeral: None,
+impl From<ApActor> for ApActorTerse {
+    fn from(actor: ApActor) -> Self {
+        ApActorTerse {
+            id: actor.id.unwrap_or_default().to_string(),
+            url: actor.url,
+            name: actor.name,
+            preferred_username: actor.preferred_username,
+            tag: actor.tag,
+            icon: actor.icon,
         }
-    }
-}
-
-impl From<&Actor> for ApActor {
-    fn from(actor: &Actor) -> ApActor {
-        ApActor::from(actor.clone())
-    }
-}
-
-type ActorAndLeader = (ApActor, Option<Leader>);
-
-impl From<ActorAndLeader> for ApActor {
-    fn from((mut actor, leader): ActorAndLeader) -> Self {
-        actor.ephemeral = Some(Ephemeral {
-            following: leader.clone().and_then(|x| x.accepted),
-            leader_as_id: leader
-                .clone()
-                .and_then(|x| format!("{}/leader/{}", *crate::SERVER_URL, x.uuid).into()),
-            follow_activity_as_id: leader.and_then(|x| x.follow_ap_id),
-            ..Default::default()
-        });
-
-        actor
     }
 }

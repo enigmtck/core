@@ -12,8 +12,8 @@ use crate::{
             ActivityTarget, ActivityType, ExtendedActivity, NewActivity,
         },
         actors::{get_actor, get_actor_by_as_id, Actor},
+        coalesced_activity::CoalescedActivity,
         followers::{create_follower, NewFollower},
-        from_serde,
     },
     routes::ActivityJson,
     runner::{self, get_inboxes, send_to_inboxes, TaskError},
@@ -48,10 +48,12 @@ pub struct ApFollow {
     pub actor: ApAddress,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub id: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub to: Option<MaybeMultiple<ApAddress>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub cc: Option<MaybeMultiple<ApAddress>>,
+    #[serde(skip_serializing_if = "MaybeMultiple::is_none")]
+    #[serde(default)]
+    pub to: MaybeMultiple<ApAddress>,
+    #[serde(skip_serializing_if = "MaybeMultiple::is_none")]
+    #[serde(default)]
+    pub cc: MaybeMultiple<ApAddress>,
     pub object: MaybeReference<ApObject>,
 }
 
@@ -313,13 +315,37 @@ impl TryFrom<ExtendedActivity> for ApFollow {
                 kind: ApFollowType::default(),
                 actor: activity.actor.into(),
                 id: Some(activity.ap_id.ok_or(anyhow!("no follow as_id found"))?),
-                to: activity.ap_to.and_then(from_serde),
-                cc: activity.cc.and_then(from_serde),
+                to: activity.ap_to.into(),
+                cc: activity.cc.into(),
                 object: target.into(),
             })
         } else {
-            log::error!("NOT A FOLLOW ACTIVITY");
-            Err(anyhow!("NOT A FOLLOW ACTIVITY"))
+            log::error!("Not a Follow Activity");
+            Err(anyhow!("Not a Follow Activity"))
+        }
+    }
+}
+
+impl TryFrom<CoalescedActivity> for ApFollow {
+    type Error = anyhow::Error;
+
+    fn try_from(activity: CoalescedActivity) -> Result<Self, Self::Error> {
+        if activity.kind.is_follow() {
+            Ok(ApFollow {
+                context: Some(ApContext::default()),
+                kind: ApFollowType::default(),
+                actor: activity.actor.into(),
+                id: Some(activity.ap_id.ok_or(anyhow!("no follow as_id found"))?),
+                to: activity.ap_to.into(),
+                cc: activity.cc.into(),
+                object: activity
+                    .object_as_id
+                    .ok_or(anyhow!("no object_as_id"))?
+                    .into(),
+            })
+        } else {
+            log::error!("Not a Follow Activity");
+            Err(anyhow!("Not a Follow Activity"))
         }
     }
 }

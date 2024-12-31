@@ -56,7 +56,7 @@ impl From<ApQuestionType> for String {
     }
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, Default)]
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct QuestionCollection {
     total_items: i32,
@@ -64,7 +64,7 @@ pub struct QuestionCollection {
     kind: ApCollectionType,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, Default)]
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct QuestionNote {
     id: Option<String>,
@@ -98,10 +98,13 @@ pub struct ApQuestion {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub published: Option<DateTime<Utc>>,
 
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub one_of: Option<Vec<QuestionNote>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub any_of: Option<Vec<QuestionNote>>,
+    #[serde(skip_serializing_if = "MaybeMultiple::is_none")]
+    #[serde(default)]
+    pub one_of: MaybeMultiple<QuestionNote>,
+
+    #[serde(skip_serializing_if = "MaybeMultiple::is_none")]
+    #[serde(default)]
+    pub any_of: MaybeMultiple<QuestionNote>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
     pub content: Option<String>,
@@ -117,10 +120,14 @@ pub struct ApQuestion {
 
     #[serde(skip_serializing_if = "Option::is_none")]
     pub conversation: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub tag: Option<Vec<ApTag>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub attachment: Option<Vec<ApAttachment>>,
+
+    #[serde(skip_serializing_if = "MaybeMultiple::is_none")]
+    #[serde(default)]
+    pub tag: MaybeMultiple<ApTag>,
+
+    #[serde(skip_serializing_if = "MaybeMultiple::is_none")]
+    #[serde(default)]
+    pub attachment: MaybeMultiple<ApAttachment>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sensitive: Option<bool>,
@@ -156,13 +163,13 @@ impl ApQuestion {
 
 impl Cache for ApQuestion {
     async fn cache(&self, conn: &Db) -> &Self {
-        if let Some(attachments) = self.attachment.clone() {
+        if let MaybeMultiple::Multiple(attachments) = self.attachment.clone() {
             for attachment in attachments {
                 cache_content(conn, attachment.clone().try_into()).await;
             }
         }
 
-        if let Some(tags) = self.tag.clone() {
+        if let MaybeMultiple::Multiple(tags) = self.tag.clone() {
             for tag in tags {
                 cache_content(conn, tag.clone().try_into()).await;
             }
@@ -221,7 +228,7 @@ impl TryFrom<CoalescedActivity> for ApQuestion {
             .and_then(from_serde)
             .ok_or_else(|| anyhow::anyhow!("object_to is None"))?;
         let cc: MaybeMultiple<ApAddress> = coalesced.object_cc.into();
-        let tag = coalesced.object_tag.and_then(from_serde);
+        let tag = coalesced.object_tag.into();
         let attributed_to = coalesced
             .object_attributed_to
             .and_then(from_serde)
@@ -229,13 +236,13 @@ impl TryFrom<CoalescedActivity> for ApQuestion {
         let in_reply_to = coalesced.object_in_reply_to.and_then(from_serde);
         let content = coalesced.object_content;
         let conversation = coalesced.object_conversation;
-        let attachment = coalesced.object_attachment.and_then(from_serde);
+        let attachment = coalesced.object_attachment.into();
         let summary = coalesced.object_summary;
         let sensitive = coalesced.object_sensitive;
         let published = coalesced.object_published;
         let end_time = coalesced.object_end_time;
-        let one_of = coalesced.object_one_of.and_then(from_serde);
-        let any_of = coalesced.object_any_of.and_then(from_serde);
+        let one_of = coalesced.object_one_of.into();
+        let any_of = coalesced.object_any_of.into();
         let voters_count = coalesced.object_voters_count;
 
         Ok(ApQuestion {
@@ -275,16 +282,16 @@ impl TryFrom<Object> for ApQuestion {
             cc: object.as_cc.into(),
             end_time: object.as_end_time,
             published: object.as_published,
-            one_of: object.as_one_of.and_then(from_serde),
-            any_of: object.as_any_of.and_then(from_serde),
+            one_of: object.as_one_of.into(),
+            any_of: object.as_any_of.into(),
             content: object.as_content,
             content_map: object.as_content_map.and_then(from_serde),
             summary: object.as_summary,
             voters_count: object.ap_voters_count,
             url: object.as_url.and_then(from_serde),
             conversation: object.ap_conversation,
-            tag: object.as_tag.and_then(from_serde),
-            attachment: object.as_attachment.and_then(from_serde),
+            tag: object.as_tag.into(),
+            attachment: object.as_attachment.into(),
             sensitive: object.ap_sensitive,
             in_reply_to: object.as_in_reply_to.and_then(from_serde),
             ephemeral: Some(Ephemeral {

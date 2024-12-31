@@ -12,6 +12,7 @@ use crate::{
             revoke_activity_by_uuid, ActivityTarget, ActivityType, ExtendedActivity, NewActivity,
         },
         actors::{get_actor, Actor},
+        coalesced_activity::CoalescedActivity,
         followers::delete_follower_by_ap_id,
         leaders::delete_leader_by_ap_id_and_actor_id,
     },

@@ -47,6 +47,14 @@ impl ApContext {
     }
 }
 
+impl TryFrom<Value> for ApContext {
+    type Error = anyhow::Error;
+
+    fn try_from(value: Value) -> Result<Self> {
+        serde_json::from_value(value).map_err(anyhow::Error::msg)
+    }
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 pub enum ApBasicContentType {
     IdentityKey,
@@ -258,7 +266,7 @@ impl From<Object> for Vec<ApHashtag> {
 impl From<ApNote> for Vec<ApHashtag> {
     fn from(note: ApNote) -> Self {
         note.tag
-            .unwrap_or_default()
+            .multiple()
             .iter()
             .filter_map(|tag| {
                 if let ApTag::HashTag(tag) = tag {
@@ -296,6 +304,14 @@ pub struct ApEndpoint {
     pub shared_inbox: String,
 }
 
+impl TryFrom<Value> for ApEndpoint {
+    type Error = anyhow::Error;
+
+    fn try_from(value: Value) -> Result<Self> {
+        serde_json::from_value(value).map_err(anyhow::Error::msg)
+    }
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, Ord, PartialOrd)]
 pub enum ApImageType {
     #[serde(alias = "image")]
@@ -319,6 +335,14 @@ fn get_media_type(url: &str) -> Option<String> {
         ContentType::from_extension(ext).map(|x| x.to_string())
     } else {
         None
+    }
+}
+
+impl TryFrom<Value> for ApImage {
+    type Error = anyhow::Error;
+
+    fn try_from(value: Value) -> Result<Self> {
+        serde_json::from_value(value).map_err(anyhow::Error::msg)
     }
 }
 

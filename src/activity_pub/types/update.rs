@@ -56,12 +56,16 @@ impl Inbox for ApUpdate {
         _channels: EventChannels,
         raw: Value,
     ) -> Result<Status, Status> {
+        log::debug!("Update Message received by Inbox\n{raw:#?}");
+
         let activity: ApActivity = self.clone().into();
+
+        log::debug!("ApActivity\n{activity:#?}");
 
         match self.clone().object {
             MaybeReference::Actual(actual) => match actual {
                 ApObject::Actor(actor) => {
-                    log::debug!("UPDATING ACTOR: {}", actor.clone().id.unwrap_or_default());
+                    log::debug!("Updating Actor: {}", actor.clone().id.unwrap_or_default());
                     let webfinger = actor.get_webfinger().await;
 
                     if let Ok(mut new_remote_actor) = NewActor::try_from(actor.clone()) {
@@ -91,17 +95,17 @@ impl Inbox for ApUpdate {
 
                             Ok(Status::Accepted)
                         } else {
-                            log::error!("FAILED TO HANDLE ACTIVITY\n{raw}");
+                            log::error!("Failed to handle Activity\n{raw}");
                             Err(Status::NoContent)
                         }
                     } else {
-                        log::error!("FAILED TO HANDLE ACTIVITY\n{raw}");
+                        log::error!("Failed to handle Activity\n{raw}");
                         Err(Status::NoContent)
                     }
                 }
                 ApObject::Note(note) => {
                     if let Some(id) = note.clone().id {
-                        log::debug!("UPDATING NOTE: {}", id);
+                        log::debug!("Updating Note: {}", id);
 
                         if note.clone().attributed_to == self.actor.clone() {
                             let object = create_or_update_object(&conn, note.into())
@@ -127,18 +131,18 @@ impl Inbox for ApUpdate {
 
                             Ok(Status::Accepted)
                         } else {
-                            log::error!("FAILED TO HANDLE ACTIVITY\n{raw}");
+                            log::error!("Failed to handle Activity\n{raw}");
                             Err(Status::NoContent)
                         }
                     } else {
-                        log::warn!("MISSING NOTE ID: {note:#?}");
-                        log::error!("FAILED TO HANDLE ACTIVITY\n{raw}");
+                        log::warn!("Missing Note ID: {note:#?}");
+                        log::error!("Failed to handle Activity\n{raw}");
                         Err(Status::NoContent)
                     }
                 }
                 ApObject::Question(question) => {
                     let id = question.clone().id;
-                    log::debug!("UPDATING QUESTION: {id}");
+                    log::debug!("Updating Question: {id}");
 
                     if question.clone().attributed_to == self.actor.clone() {
                         let object = create_or_update_object(&conn, question.into())
@@ -162,13 +166,12 @@ impl Inbox for ApUpdate {
 
                         Ok(Status::Accepted)
                     } else {
-                        log::error!("FAILED TO HANDLE ACTIVITY\n{raw}");
+                        log::error!("Failed to handle Activity\n{raw}");
                         Err(Status::NoContent)
                     }
                 }
                 _ => {
-                    log::debug!("UNIMPLEMENTED UPDATE TYPE");
-                    log::error!("{raw:#?}");
+                    log::debug!("Unimplemented Update type");
                     Err(Status::NoContent)
                 }
             },

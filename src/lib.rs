@@ -419,6 +419,21 @@ impl From<String> for MaybeReference<String> {
     }
 }
 
+impl<T: DeserializeOwned> From<Value> for MaybeReference<T> {
+    fn from(data: Value) -> Self {
+        // First, try to convert to Actual<T>
+        if let Ok(actual_result) = serde_json::from_value::<T>(data.clone()) {
+            MaybeReference::Actual(actual_result)
+        } else {
+            // If Vec conversion fails, try reference
+            MaybeReference::Reference(
+                serde_json::from_value::<String>(data)
+                    .expect("failed to convert MaybeReference to String"),
+            )
+        }
+    }
+}
+
 #[derive(Clone, Eq, PartialEq, Serialize, Deserialize, Debug)]
 pub struct OrdValue(Value);
 

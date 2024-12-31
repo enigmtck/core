@@ -1,8 +1,9 @@
 use crate::activity_pub::retriever::signed_get;
-use crate::activity_pub::{ApAttachment, ApDocument, ApImage, ApTag};
+use crate::activity_pub::{ApActor, ApAttachment, ApDocument, ApImage, ApTag};
 use crate::db::Db;
 use crate::models::actors::guaranteed_actor;
 use crate::schema::cache;
+use crate::MaybeMultiple;
 use crate::POOL;
 use anyhow::Result;
 use chrono::{DateTime, Utc};
@@ -136,6 +137,25 @@ impl From<ApImage> for NewCacheItem {
             media_type: image.media_type,
             blurhash: None,
         }
+    }
+}
+
+impl Cache for ApActor {
+    async fn cache(&self, conn: &Db) -> &Self {
+        if let MaybeMultiple::Multiple(tags) = self.tag.clone() {
+            for tag in tags {
+                cache_content(conn, tag.try_into()).await;
+            }
+        };
+
+        for image in vec![self.image.clone(), self.icon.clone()]
+            .into_iter()
+            .flatten()
+        {
+            cache_content(conn, Ok(image.clone().into())).await;
+        }
+
+        self
     }
 }
 
