@@ -1,7 +1,6 @@
 use std::collections::HashSet;
 
 use crate::{
-    activity_pub::{ApActivity, ApActor, ApAddress, ApUpdate},
     db::Db,
     fairings::events::EventChannels,
     models::{
@@ -10,6 +9,7 @@ use crate::{
     },
     runner::send_to_inboxes,
 };
+use jdt_activity_pub::{ApActivity, ApActor, ApAddress, ApUpdate};
 
 use super::TaskError;
 

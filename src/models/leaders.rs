@@ -1,14 +1,15 @@
 use super::OffsetPaging;
-use crate::activity_pub::{ApAccept, ApActivity};
 use crate::db::Db;
 use crate::helper::{get_local_identifier, LocalIdentifierType};
 use crate::schema::{actors, leaders};
-use crate::{MaybeReference, POOL};
+use crate::POOL;
 use anyhow::Result;
 use chrono::{DateTime, Utc};
 use diesel::prelude::*;
 use diesel::Insertable;
 use diesel::{AsChangeset, Identifiable, Queryable};
+use jdt_activity_pub::{ApAccept, ApActivity};
+use jdt_maybe_reference::MaybeReference;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 

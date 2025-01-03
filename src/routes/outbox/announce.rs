@@ -1,17 +1,17 @@
-use crate::activity_pub::ApAnnounce;
 use crate::routes::Outbox;
+use jdt_activity_pub::{ApActivity, ApAnnounce};
 
 use crate::{
-    activity_pub::ApActivity,
     db::Db,
     models::{
-        activities::{create_activity, NewActivity},
+        activities::{create_activity, NewActivity, TryFromExtendedActivity},
         actors::Actor,
         objects::get_object_by_as_id,
     },
     routes::ActivityJson,
-    runner, MaybeReference,
+    runner,
 };
+use jdt_maybe_reference::MaybeReference;
 use rocket::http::Status;
 use serde_json::Value;
 
@@ -62,12 +62,12 @@ async fn outbox(
         .await;
 
         let activity: ApActivity =
-            (activity, None, Some(object), None)
-                .try_into()
-                .map_err(|e| {
+            ApActivity::try_from_extended_activity((activity, None, Some(object), None)).map_err(
+                |e| {
                     log::error!("Failed to build ApActivity: {e:#?}");
                     Status::InternalServerError
-                })?;
+                },
+            )?;
 
         Ok(activity.into())
     } else {

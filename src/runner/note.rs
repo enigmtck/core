@@ -2,15 +2,15 @@ use anyhow::{anyhow, Result};
 use reqwest::StatusCode;
 use webpage::{Webpage, WebpageOptions};
 
-use crate::activity_pub::retriever::signed_get;
-use crate::activity_pub::{ApHashtag, Metadata};
 use crate::fairings::events::EventChannels;
 use crate::models::actors::{guaranteed_actor, Actor};
 use crate::models::cache::Cache;
 use crate::models::objects;
 use crate::models::objects::{create_or_update_object, get_object_by_as_id, Object};
-use crate::{activity_pub::ApObject, db::Db, signing::Method};
+use crate::retriever::signed_get;
+use crate::{db::Db, signing::Method};
 use crate::{runner, ANCHOR_RE};
+use jdt_activity_pub::{ApHashtag, ApObject, Metadata};
 use serde_json::json;
 
 use super::TaskError;

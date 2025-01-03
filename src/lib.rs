@@ -4,27 +4,30 @@ extern crate log;
 #[macro_use]
 extern crate rocket;
 
-use activity_pub::ApCollection;
-use activity_pub::{ApActivity, ApObject};
-use anyhow::anyhow;
-use anyhow::Result;
-use db::Pool;
+use crate::models::actors::{get_actor_by_as_id, Actor};
+use crate::models::followers::get_follower_count_by_actor_id;
+use crate::models::leaders::{get_leader_by_actor_id_and_ap_id, get_leader_count_by_actor_id};
+use crate::webfinger::retrieve_webfinger;
+use db::{Db, Pool};
 use diesel::r2d2::ConnectionManager;
 use dotenvy::dotenv;
+use jdt_activity_pub::{ApActivity, ApActor, ApCollection, ApNote, ApObject, ApTag, Ephemeral};
+use jdt_maybe_multiple::MaybeMultiple;
+use jdt_maybe_reference::MaybeReference;
 use lazy_static::lazy_static;
 use regex::Regex;
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use std::cmp::Ordering;
 use std::env;
-use std::fmt;
 
-pub mod activity_pub;
+//pub mod activity_pub;
 pub mod admin;
 pub mod db;
 pub mod fairings;
 pub mod helper;
 pub mod models;
+pub mod retriever;
 pub mod routes;
 pub mod runner;
 
@@ -151,289 +154,6 @@ lazy_static! {
     };
 }
 
-// This was an idea I had to return an un-awaited Future from the model calls so that I could use
-// non-async calls in runner. But it's truly a pain in the ass to deal with the 'static lifetime requirements
-// of Rocket's async conn. I couldn't make it work properly with all the other requirements.
-
-// pub enum MaybeFuture<'a, T: Clone> {
-//     Future(Pin<Box<dyn Future<Output = Result<T>> + Send + 'a>>),
-//     Resolved(Result<T>),
-// }
-
-// impl<'a, T: Clone> From<Pin<Box<dyn Future<Output = Result<T>> + Send>>> for MaybeFuture<'a, T> {
-//     fn from(future: Pin<Box<dyn Future<Output = Result<T>> + Send>>) -> Self {
-//         MaybeFuture::Future(future)
-//     }
-// }
-
-// impl<'a, T: Clone> From<Result<T>> for MaybeFuture<'a, T> {
-//     fn from(result: Result<T>) -> Self {
-//         MaybeFuture::Resolved(result)
-//     }
-// }
-
-// impl<'a, T: Clone> MaybeFuture<'a, T> {
-//     pub fn resolved(self) -> Result<T> {
-//         match self {
-//             MaybeFuture::Resolved(result) => result,
-//             _ => Err(anyhow::Error::msg("MaybeFuture is not Resolved")),
-//         }
-//     }
-
-//     pub async fn future(self) -> Result<T> {
-//         match self {
-//             MaybeFuture::Future(future) => future.await,
-//             _ => Err(anyhow::Error::msg("MaybeFuture is not Future")),
-//         }
-//     }
-// }
-
-#[derive(Serialize, Deserialize, Clone, Debug, Default, Eq, PartialEq, Ord, PartialOrd)]
-#[serde(untagged)]
-pub enum MaybeMultiple<T> {
-    Single(T),
-    Multiple(Vec<T>),
-    #[default]
-    None,
-}
-
-impl<T: PartialEq> MaybeMultiple<T> {
-    fn is_none(&self) -> bool {
-        *self == MaybeMultiple::None
-    }
-}
-
-impl<T> From<Option<Vec<T>>> for MaybeMultiple<T> {
-    fn from(data: Option<Vec<T>>) -> Self {
-        match data {
-            Some(x) => MaybeMultiple::Multiple(x),
-            None => MaybeMultiple::None,
-        }
-    }
-}
-
-impl<T: DeserializeOwned> From<Option<Value>> for MaybeMultiple<T> {
-    fn from(data: Option<Value>) -> Self {
-        match data {
-            Some(value) => value.into(),
-            None => MaybeMultiple::None,
-        }
-    }
-}
-
-impl<T: DeserializeOwned> From<Value> for MaybeMultiple<T> {
-    fn from(data: Value) -> Self {
-        // First, try to convert to Vec<T>
-        if let Ok(vec_result) = serde_json::from_value::<Vec<T>>(data.clone()) {
-            MaybeMultiple::Multiple(vec_result)
-        }
-        // If Vec conversion fails, try single T
-        else if let Ok(single_result) = serde_json::from_value::<T>(data) {
-            MaybeMultiple::Single(single_result)
-        }
-        // If both conversions fail, return None
-        else {
-            MaybeMultiple::None
-        }
-    }
-}
-
-impl<T: Serialize> From<&MaybeMultiple<T>> for Option<Value> {
-    fn from(object: &MaybeMultiple<T>) -> Self {
-        match object {
-            MaybeMultiple::None => None,
-            _ => Some(json!(object)),
-        }
-    }
-}
-
-impl<T: Serialize> From<MaybeMultiple<T>> for Option<Value> {
-    fn from(object: MaybeMultiple<T>) -> Self {
-        match object {
-            MaybeMultiple::None => None,
-            _ => Some(json!(object)),
-        }
-    }
-}
-
-impl<T: Serialize> From<&MaybeMultiple<T>> for Value {
-    fn from(object: &MaybeMultiple<T>) -> Self {
-        json!(object)
-    }
-}
-
-impl<T: Serialize> From<MaybeMultiple<T>> for Value {
-    fn from(object: MaybeMultiple<T>) -> Self {
-        json!(object)
-    }
-}
-
-impl From<ApObject> for MaybeMultiple<ApObject> {
-    fn from(data: ApObject) -> Self {
-        MaybeMultiple::Single(data)
-    }
-}
-
-impl From<String> for MaybeMultiple<String> {
-    fn from(data: String) -> Self {
-        MaybeMultiple::Single(data)
-    }
-}
-
-impl<T> From<Vec<T>> for MaybeMultiple<T> {
-    fn from(data: Vec<T>) -> Self {
-        MaybeMultiple::Multiple(data)
-    }
-}
-
-impl<T: Clone> MaybeMultiple<T> {
-    pub fn map<U, F>(self, mut f: F) -> MaybeMultiple<U>
-    where
-        F: FnMut(T) -> U,
-    {
-        match self {
-            MaybeMultiple::Multiple(vec) => {
-                MaybeMultiple::Multiple(vec.into_iter().map(f).collect())
-            }
-            MaybeMultiple::Single(val) => MaybeMultiple::Single(f(val)),
-            MaybeMultiple::None => MaybeMultiple::None,
-        }
-    }
-
-    pub fn single(&self) -> Result<T> {
-        match self {
-            MaybeMultiple::Multiple(s) => {
-                if s.len() == 1 {
-                    Ok(s[0].clone())
-                } else {
-                    Err(anyhow!("MaybeMultiple is Multiple"))
-                }
-            }
-            MaybeMultiple::Single(s) => Ok(s.clone()),
-            MaybeMultiple::None => Err(anyhow!("MaybeMultiple is None")),
-        }
-    }
-
-    pub fn multiple(&self) -> Vec<T> {
-        match self {
-            MaybeMultiple::Multiple(data) => data.clone(),
-            MaybeMultiple::Single(data) => {
-                vec![data.clone()]
-            }
-            MaybeMultiple::None => vec![],
-        }
-    }
-
-    pub fn extend(mut self, mut additional: Vec<T>) -> Self {
-        match self {
-            MaybeMultiple::Multiple(ref mut data) => {
-                data.append(&mut additional);
-                data.clone().into()
-            }
-            MaybeMultiple::Single(data) => {
-                additional.push(data.clone());
-                additional.clone().into()
-            }
-            MaybeMultiple::None => additional.clone().into(),
-        }
-    }
-
-    pub fn option(&self) -> Option<Vec<T>> {
-        match self {
-            MaybeMultiple::Multiple(v) => Some(v.clone()),
-            MaybeMultiple::Single(s) => Some(vec![s.clone()]),
-            MaybeMultiple::None => None,
-        }
-    }
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug, Default)]
-pub struct Identifier {
-    id: String,
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug, Default)]
-#[serde(untagged)]
-pub enum MaybeReference<T> {
-    Reference(String),
-    Actual(T),
-    Identifier(Identifier),
-    #[default]
-    None,
-}
-
-impl<T> MaybeReference<T> {
-    pub fn reference(&self) -> Option<String> {
-        match self {
-            MaybeReference::Reference(reference) => Some(reference.clone()),
-            MaybeReference::Identifier(identifier) => Some(identifier.id.clone()),
-            _ => None,
-        }
-    }
-
-    pub fn actual(self) -> Option<T> {
-        match self {
-            MaybeReference::Actual(actual) => Some(actual),
-            _ => None,
-        }
-    }
-}
-
-impl<T> fmt::Display for MaybeReference<T> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            MaybeReference::Reference(reference) => f.write_str(reference),
-            MaybeReference::Identifier(identifier) => f.write_str(&identifier.id),
-            _ => f.write_str("UNDEFINED"),
-        }
-    }
-}
-
-impl From<ApObject> for MaybeReference<ApObject> {
-    fn from(object: ApObject) -> Self {
-        MaybeReference::Actual(object)
-    }
-}
-
-impl From<String> for MaybeReference<ApObject> {
-    fn from(reference: String) -> Self {
-        MaybeReference::Reference(reference)
-    }
-}
-
-impl From<String> for MaybeReference<Box<ApCollection>> {
-    fn from(reference: String) -> Self {
-        MaybeReference::Reference(reference)
-    }
-}
-
-impl From<ApActivity> for MaybeReference<ApActivity> {
-    fn from(activity: ApActivity) -> Self {
-        MaybeReference::Actual(activity)
-    }
-}
-
-impl From<String> for MaybeReference<String> {
-    fn from(reference: String) -> Self {
-        MaybeReference::Reference(reference)
-    }
-}
-
-impl<T: DeserializeOwned> From<Value> for MaybeReference<T> {
-    fn from(data: Value) -> Self {
-        // First, try to convert to Actual<T>
-        if let Ok(actual_result) = serde_json::from_value::<T>(data.clone()) {
-            MaybeReference::Actual(actual_result)
-        } else {
-            // If Vec conversion fails, try reference
-            MaybeReference::Reference(
-                serde_json::from_value::<String>(data)
-                    .expect("failed to convert MaybeReference to String"),
-            )
-        }
-    }
-}
-
 #[derive(Clone, Eq, PartialEq, Serialize, Deserialize, Debug)]
 pub struct OrdValue(Value);
 
@@ -448,5 +168,123 @@ impl Ord for OrdValue {
         let a_str = serde_json::to_string(&self.0).unwrap();
         let b_str = serde_json::to_string(&other.0).unwrap();
         a_str.cmp(&b_str)
+    }
+}
+
+pub trait GetWebfinger {
+    async fn get_webfinger(&self) -> Option<String>;
+}
+
+impl GetWebfinger for ApActor {
+    async fn get_webfinger(&self) -> Option<String> {
+        let id = self.id.clone()?.to_string();
+        let domain = DOMAIN_RE.captures(&id)?.get(1)?.as_str().to_string();
+        let username = self.preferred_username.clone();
+
+        let webfinger = retrieve_webfinger(domain, username).await.ok()?;
+
+        webfinger.get_address()
+    }
+}
+
+pub trait GetHashtags {
+    fn get_hashtags(&self) -> Vec<String>;
+}
+
+impl GetHashtags for ApActor {
+    fn get_hashtags(&self) -> Vec<String> {
+        if let MaybeMultiple::Multiple(tags) = self.tag.clone() {
+            tags.iter()
+                .filter_map(|tag| {
+                    if let ApTag::HashTag(hashtag) = tag {
+                        Some(hashtag.name.clone().to_lowercase())
+                    } else {
+                        None
+                    }
+                })
+                .collect()
+        } else {
+            vec![]
+        }
+    }
+}
+
+pub trait LoadEphemeral {
+    async fn load_ephemeral(&mut self, conn: &Db, requester: Option<Actor>) -> Self;
+}
+
+impl LoadEphemeral for ApNote {
+    async fn load_ephemeral(&mut self, conn: &Db, requester: Option<Actor>) -> Self {
+        if let Ok(actor) = get_actor_by_as_id(conn, self.attributed_to.to_string()).await {
+            let mut ephemeral = self.ephemeral.clone().unwrap_or_default();
+            ephemeral.attributed_to = Some(vec![actor.into()]);
+            self.ephemeral = Some(ephemeral);
+        }
+
+        self.clone()
+    }
+}
+
+impl LoadEphemeral for ApActivity {
+    async fn load_ephemeral(&mut self, conn: &Db, requester: Option<Actor>) -> Self {
+        match self.clone() {
+            ApActivity::Create(mut create) => {
+                if let MaybeReference::Actual(ApObject::Note(ref mut note)) = create.object {
+                    note.load_ephemeral(conn, requester).await;
+                }
+                create.into()
+            }
+            _ => self.clone(),
+        }
+    }
+}
+
+impl LoadEphemeral for ApActor {
+    async fn load_ephemeral(&mut self, conn: &Db, requester: Option<Actor>) -> Self {
+        if let Some(ap_id) = self.id.clone() {
+            if let Ok(profile) = get_actor_by_as_id(conn, ap_id.to_string()).await {
+                self.ephemeral = Some(Ephemeral {
+                    followers: get_follower_count_by_actor_id(conn, profile.id).await.ok(),
+                    leaders: get_leader_count_by_actor_id(conn, profile.id).await.ok(),
+                    summary_markdown: profile.ek_summary_markdown,
+                    following: {
+                        if let Some(requester) = requester {
+                            if let Some(id) = self.id.clone() {
+                                get_leader_by_actor_id_and_ap_id(conn, requester.id, id.to_string())
+                                    .await
+                                    .and_then(|x| x.accepted)
+                            } else {
+                                None
+                            }
+                        } else {
+                            None
+                        }
+                    },
+                    ..Default::default()
+                });
+            }
+        }
+
+        self.clone()
+    }
+}
+
+impl LoadEphemeral for ApObject {
+    async fn load_ephemeral(&mut self, conn: &Db, requester: Option<Actor>) -> Self {
+        match self {
+            ApObject::Note(ref mut note) => {
+                if let Ok(actor) =
+                    retriever::get_actor(conn, note.attributed_to.clone().to_string(), None, true)
+                        .await
+                {
+                    note.ephemeral = Some(Ephemeral {
+                        attributed_to: Some(vec![actor.into()]),
+                        ..Default::default()
+                    });
+                }
+                ApObject::Note(note.clone())
+            }
+            _ => self.clone(),
+        }
     }
 }

@@ -1,10 +1,12 @@
 use crate::db::Db;
+use crate::helper::get_instrument_as_id_from_uuid;
 use crate::schema::olm_one_time_keys;
 use anyhow::Result;
 use chrono::{DateTime, Utc};
 use diesel::prelude::*;
 use diesel::Insertable;
 use diesel::{AsChangeset, Identifiable, Queryable};
+use jdt_activity_pub::{ApInstrument, ApInstrumentType};
 use rocket_sync_db_pools::diesel;
 use serde::{Deserialize, Serialize};
 
@@ -32,6 +34,23 @@ pub struct NewOlmOneTimeKey {
     pub key_data: String,
     pub distributed: bool,
     pub assignee: Option<String>,
+}
+
+impl From<OlmOneTimeKey> for ApInstrument {
+    fn from(otk: OlmOneTimeKey) -> Self {
+        Self {
+            kind: ApInstrumentType::OlmOneTimeKey,
+            id: Some(get_instrument_as_id_from_uuid(otk.uuid.clone())),
+            content: Some(otk.key_data),
+            uuid: None,
+            hash: None,
+            name: None,
+            url: None,
+            mutation_of: None,
+            conversation: None,
+            activity: None,
+        }
+    }
 }
 
 // profile_id, olm_id, key_data

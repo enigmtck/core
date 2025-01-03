@@ -1,4 +1,5 @@
-use crate::{activity_pub::ApObject, db::Db, models::objects::get_object_by_uuid};
+use crate::{db::Db, models::objects::get_object_by_uuid};
+use jdt_activity_pub::ApObject;
 use rocket::{get, http::Status, serde::json::Json};
 
 use super::ActivityJson;

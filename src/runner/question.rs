@@ -1,10 +1,10 @@
 use anyhow::Result;
 
-use crate::activity_pub::ApQuestion;
 use crate::db::Db;
 use crate::fairings::events::EventChannels;
 use crate::models::actors::guaranteed_actor;
 use crate::models::objects::{get_object_by_as_id, Object};
+use jdt_activity_pub::ApQuestion;
 
 use super::actor::get_actor;
 use super::TaskError;

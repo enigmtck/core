@@ -1,4 +1,4 @@
 use super::Inbox;
-use crate::activity_pub::ApBlock;
+use jdt_activity_pub::ApBlock;
 
 impl Inbox for ApBlock {}

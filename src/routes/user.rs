@@ -1,5 +1,4 @@
 use crate::{
-    activity_pub::{ApActor, ApCollection, FollowersPage, LeadersPage},
     db::Db,
     fairings::signatures::Signed,
     models::{
@@ -7,7 +6,9 @@ use crate::{
         followers::get_followers_by_actor_id, leaders::get_leader_count_by_actor_id,
         leaders::get_leaders_by_actor_id, OffsetPaging,
     },
+    LoadEphemeral,
 };
+use jdt_activity_pub::{ActivityPub, ApActor, ApCollection, ApObject, FollowersPage, LeadersPage};
 use rocket::{get, http::Status, response::Redirect, serde::json::Json};
 
 use super::{ActivityJson, LdJson};
@@ -107,7 +108,7 @@ pub async fn get_followers(
 
     let followers = results
         .iter()
-        .map(|(follower, _)| follower.clone())
+        .map(|(follower, _)| ActivityPub::Object(ApObject::Plain(follower.clone().actor)))
         .collect();
 
     let actors = Some(
@@ -120,7 +121,10 @@ pub async fn get_followers(
     Ok(ActivityJson(Json(
         ApCollection::try_from(FollowersPage {
             page,
-            profile,
+            username: profile.ek_username.ok_or_else(|| {
+                log::error!("Profile must have a Username");
+                Status::InternalServerError
+            })?,
             total_items,
             followers,
             actors,
@@ -165,7 +169,11 @@ pub async fn get_leaders(
         _ => vec![],
     };
 
-    let leaders = results.iter().map(|(leader, _)| leader.clone()).collect();
+    let leaders = results
+        .iter()
+        .map(|(leader, _)| ActivityPub::Object(ApObject::Plain(leader.clone().actor)))
+        .collect();
+
     let actors = Some(
         results
             .iter()
@@ -176,7 +184,10 @@ pub async fn get_leaders(
     Ok(ActivityJson(Json(
         ApCollection::try_from(LeadersPage {
             page,
-            profile,
+            username: profile.ek_username.ok_or_else(|| {
+                log::error!("Profile must have a Username");
+                Status::InternalServerError
+            })?,
             total_items,
             leaders,
             actors,

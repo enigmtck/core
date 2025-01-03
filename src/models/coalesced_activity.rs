@@ -1,5 +1,7 @@
-use crate::activity_pub::{ApActivity, ApAnnounce, ApCreate, ApDelete, ApFollow, ApLike};
+use crate::helper::get_instrument_as_id_from_uuid;
 use crate::models::activities::ActivityType;
+use crate::models::from_serde;
+use crate::models::objects::ObjectType;
 use crate::schema::sql_types::{
     ActivityType as SqlActivityType, ActorType as SqlActorType, ObjectType as SqlObjectType,
 };
@@ -8,6 +10,12 @@ use chrono::{DateTime, Utc};
 use diesel::prelude::*;
 use diesel::sql_types::{Bool, Integer, Jsonb, Nullable, Text, Timestamptz};
 use diesel::Queryable;
+use jdt_activity_pub::{
+    ActivityPub, ApActivity, ApAddress, ApAnnounce, ApContext, ApCreate, ApDelete, ApDeleteType,
+    ApFollow, ApFollowType, ApInstrument, ApInstrumentType, ApLike, ApLikeType, ApNote, ApObject,
+    ApQuestion, Ephemeral,
+};
+use jdt_maybe_multiple::MaybeMultiple;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -437,5 +445,371 @@ impl TryFrom<CoalescedActivity> for ApActivity {
                 Err(anyhow!("Failed to match implemented Activity"))
             }
         }
+    }
+}
+
+impl TryFrom<CoalescedActivity> for ApAnnounce {
+    type Error = anyhow::Error;
+
+    fn try_from(coalesced: CoalescedActivity) -> Result<Self, Self::Error> {
+        let object = match coalesced
+            .clone()
+            .object_type
+            .ok_or(anyhow!("object_type is None"))?
+            .to_string()
+            .to_lowercase()
+            .as_str()
+        {
+            "note" => Ok(ApObject::Note(ApNote::try_from(coalesced.clone())?).into()),
+            "question" => Ok(ApObject::Question(ApQuestion::try_from(coalesced.clone())?).into()),
+            _ => Err(anyhow!("invalid type")),
+        }?;
+        let kind = coalesced.kind.clone().try_into()?;
+        let actor = ApAddress::Address(coalesced.actor.clone());
+        let id = coalesced.ap_id.clone();
+        let context = Some(ApContext::default());
+        let to = coalesced.clone().ap_to.into();
+        let cc = coalesced.clone().cc.into();
+        let published = ActivityPub::time(coalesced.created_at);
+        let ephemeral = Some(Ephemeral {
+            created_at: Some(coalesced.created_at),
+            updated_at: Some(coalesced.updated_at),
+            ..Default::default()
+        });
+
+        Ok(ApAnnounce {
+            context,
+            kind,
+            actor,
+            id,
+            object,
+            to,
+            cc,
+            published,
+            ephemeral,
+        })
+    }
+}
+
+impl TryFrom<CoalescedActivity> for ApCreate {
+    type Error = anyhow::Error;
+
+    fn try_from(coalesced: CoalescedActivity) -> Result<Self, Self::Error> {
+        let object = match coalesced
+            .clone()
+            .object_type
+            .ok_or_else(|| anyhow::anyhow!("object_type is None"))?
+        {
+            ObjectType::Note => Ok(ApObject::Note(ApNote::try_from(coalesced.clone())?).into()),
+            ObjectType::EncryptedNote => {
+                Ok(ApObject::Note(ApNote::try_from(coalesced.clone())?).into())
+            }
+            ObjectType::Question => {
+                Ok(ApObject::Question(ApQuestion::try_from(coalesced.clone())?).into())
+            }
+            _ => Err(anyhow!("invalid type")),
+        }?;
+        let kind = coalesced.kind.clone().try_into()?;
+        let actor = ApAddress::Address(coalesced.actor.clone());
+        let id = coalesced.ap_id.clone();
+        let context = Some(ApContext::default());
+        let to = coalesced.ap_to.clone().into();
+        let cc = coalesced.cc.clone().into();
+        let signature = None;
+        let published = Some(ActivityPub::time(coalesced.created_at));
+        let ephemeral = Some(Ephemeral {
+            created_at: Some(coalesced.created_at),
+            updated_at: Some(coalesced.updated_at),
+            ..Default::default()
+        });
+
+        let mut instrument: MaybeMultiple<ApInstrument> = coalesced.instrument.clone().into();
+
+        if let Ok(instruments) = Vec::<ApInstrument>::try_from(coalesced) {
+            instrument = instrument.extend(instruments);
+        }
+
+        Ok(ApCreate {
+            context,
+            kind,
+            actor,
+            id,
+            object,
+            to,
+            cc,
+            signature,
+            published,
+            ephemeral,
+            instrument,
+        })
+    }
+}
+
+impl TryFrom<CoalescedActivity> for ApDelete {
+    type Error = anyhow::Error;
+
+    fn try_from(activity: CoalescedActivity) -> Result<Self, Self::Error> {
+        if !activity.kind.is_delete() {
+            return Err(anyhow!("Not a Delete Activity"));
+        }
+
+        Ok(ApDelete {
+            context: Some(ApContext::default()),
+            kind: ApDeleteType::default(),
+            actor: activity.actor.into(),
+            id: activity.ap_id,
+            to: activity.ap_to.into(),
+            cc: activity.cc.into(),
+            object: activity
+                .object_as_id
+                .ok_or(anyhow!("no object_as_id"))?
+                .into(),
+            signature: None,
+        })
+    }
+}
+
+impl TryFrom<CoalescedActivity> for ApFollow {
+    type Error = anyhow::Error;
+
+    fn try_from(activity: CoalescedActivity) -> Result<Self, Self::Error> {
+        if activity.kind.is_follow() {
+            Ok(ApFollow {
+                context: Some(ApContext::default()),
+                kind: ApFollowType::default(),
+                actor: activity.actor.into(),
+                id: Some(activity.ap_id.ok_or(anyhow!("no follow as_id found"))?),
+                to: activity.ap_to.into(),
+                cc: activity.cc.into(),
+                object: activity
+                    .object_as_id
+                    .ok_or(anyhow!("no object_as_id"))?
+                    .into(),
+            })
+        } else {
+            log::error!("Not a Follow Activity");
+            Err(anyhow!("Not a Follow Activity"))
+        }
+    }
+}
+
+impl TryFrom<CoalescedActivity> for ApLike {
+    type Error = anyhow::Error;
+
+    fn try_from(activity: CoalescedActivity) -> Result<Self, Self::Error> {
+        if !activity.kind.is_like() {
+            return Err(anyhow!("Not a Like Activity"));
+        }
+
+        Ok(ApLike {
+            context: Some(ApContext::default()),
+            kind: ApLikeType::default(),
+            actor: activity.actor.into(),
+            id: activity.ap_id,
+            to: activity.ap_to.into(),
+            object: activity
+                .object_as_id
+                .ok_or(anyhow!("no object_as_id"))?
+                .into(),
+        })
+    }
+}
+
+impl TryFrom<CoalescedActivity> for ApNote {
+    type Error = anyhow::Error;
+
+    fn try_from(coalesced: CoalescedActivity) -> Result<Self, Self::Error> {
+        let kind = coalesced
+            .object_type
+            .ok_or_else(|| anyhow::anyhow!("object_type is None"))?
+            .try_into()
+            .map_err(|e| anyhow::anyhow!("Failed to convert object_type: {}", e))?;
+
+        let id = coalesced.object_as_id;
+        let url = coalesced
+            .object_url
+            .and_then(from_serde::<MaybeMultiple<String>>)
+            .and_then(|x| x.single().ok());
+        let to = coalesced
+            .object_to
+            .and_then(from_serde)
+            .ok_or_else(|| anyhow::anyhow!("object_to is None"))?;
+        let cc: MaybeMultiple<ApAddress> = coalesced.object_cc.into();
+        let tag = coalesced.object_tag.into();
+        let attributed_to = coalesced
+            .object_attributed_to
+            .and_then(from_serde)
+            .ok_or_else(|| anyhow::anyhow!("object_attributed_to is None"))?;
+        let in_reply_to = coalesced.object_in_reply_to.and_then(from_serde);
+        let content = coalesced
+            .object_content
+            .ok_or_else(|| anyhow::anyhow!("object_content is None"))?;
+        let conversation = coalesced.object_conversation;
+        let attachment = coalesced.object_attachment.into();
+        let summary = coalesced.object_summary;
+        let sensitive = coalesced.object_sensitive;
+        let published = coalesced
+            .object_published
+            .ok_or_else(|| anyhow::anyhow!("object_published is None"))?;
+        let ephemeral = Some(Ephemeral {
+            metadata: coalesced.object_metadata.and_then(from_serde),
+            announces: from_serde(coalesced.object_announcers),
+            likes: from_serde(coalesced.object_likers),
+            announced: coalesced.object_announced,
+            liked: coalesced.object_liked,
+            attributed_to: from_serde(coalesced.object_attributed_to_profiles),
+            ..Default::default()
+        });
+        let instrument = coalesced.object_instrument.and_then(from_serde);
+
+        Ok(ApNote {
+            kind,
+            id,
+            url,
+            to,
+            cc,
+            tag,
+            attributed_to,
+            in_reply_to,
+            content,
+            conversation,
+            attachment,
+            summary,
+            sensitive,
+            published: ActivityPub::time(published),
+            ephemeral,
+            instrument,
+            ..Default::default()
+        })
+    }
+}
+
+impl TryFrom<CoalescedActivity> for ApQuestion {
+    type Error = anyhow::Error;
+
+    fn try_from(coalesced: CoalescedActivity) -> Result<Self, Self::Error> {
+        let kind = coalesced
+            .object_type
+            .ok_or_else(|| anyhow::anyhow!("object_type is None"))?
+            .to_string()
+            .try_into()
+            .map_err(|e| anyhow::anyhow!("Failed to convert object_type: {}", e))?;
+
+        let id = coalesced
+            .object_as_id
+            .ok_or_else(|| anyhow::anyhow!("object_id is None"))?;
+        let url = coalesced
+            .object_url
+            .and_then(from_serde::<MaybeMultiple<String>>)
+            .and_then(|x| x.single().ok());
+        let to = coalesced
+            .object_to
+            .and_then(from_serde)
+            .ok_or_else(|| anyhow::anyhow!("object_to is None"))?;
+        let cc: MaybeMultiple<ApAddress> = coalesced.object_cc.into();
+        let tag = coalesced.object_tag.into();
+        let attributed_to = coalesced
+            .object_attributed_to
+            .and_then(from_serde)
+            .ok_or_else(|| anyhow::anyhow!("object_attributed_to is None"))?;
+        let in_reply_to = coalesced.object_in_reply_to.and_then(from_serde);
+        let content = coalesced.object_content;
+        let conversation = coalesced.object_conversation;
+        let attachment = coalesced.object_attachment.into();
+        let summary = coalesced.object_summary;
+        let sensitive = coalesced.object_sensitive;
+        let published = coalesced.object_published;
+        let end_time = coalesced.object_end_time;
+        let one_of = coalesced.object_one_of.into();
+        let any_of = coalesced.object_any_of.into();
+        let voters_count = coalesced.object_voters_count;
+
+        Ok(ApQuestion {
+            kind,
+            id,
+            url,
+            to,
+            cc,
+            tag,
+            attributed_to,
+            in_reply_to,
+            content,
+            conversation,
+            attachment,
+            summary,
+            sensitive,
+            published,
+            end_time,
+            one_of,
+            any_of,
+            voters_count,
+            ..Default::default()
+        })
+    }
+}
+
+impl TryFrom<CoalescedActivity> for Vec<ApInstrument> {
+    type Error = anyhow::Error;
+
+    fn try_from(coalesced: CoalescedActivity) -> Result<Self, Self::Error> {
+        let mut instruments: Vec<ApInstrument> = vec![];
+
+        if coalesced.vault_data.is_some() {
+            instruments.push(ApInstrument {
+                kind: ApInstrumentType::VaultItem,
+                id: Some(get_instrument_as_id_from_uuid(
+                    coalesced
+                        .vault_uuid
+                        .clone()
+                        .ok_or(anyhow!("VaultItem must have a UUID"))?,
+                )),
+                content: Some(
+                    coalesced
+                        .vault_data
+                        .ok_or(anyhow!("VaultItem must have content"))?,
+                ),
+                uuid: Some(
+                    coalesced
+                        .vault_uuid
+                        .ok_or(anyhow!("VaultItem must have a UUID"))?,
+                ),
+                hash: None,
+                name: None,
+                url: None,
+                mutation_of: None,
+                conversation: None,
+                activity: None,
+            });
+        }
+
+        if coalesced.olm_data.is_some() {
+            instruments.push(ApInstrument {
+                kind: ApInstrumentType::OlmSession,
+                id: Some(get_instrument_as_id_from_uuid(
+                    coalesced
+                        .olm_uuid
+                        .clone()
+                        .ok_or(anyhow!("OlmSession must have a UUID"))?,
+                )),
+                content: Some(
+                    coalesced
+                        .olm_data
+                        .ok_or(anyhow!("OlmSession must have Data"))?,
+                ),
+                uuid: Some(
+                    coalesced
+                        .olm_uuid
+                        .ok_or(anyhow!("OlmSession must have a UUID"))?,
+                ),
+                hash: None,
+                name: None,
+                url: None,
+                mutation_of: None,
+                conversation: None,
+                activity: None,
+            });
+        }
+
+        Ok(instruments)
     }
 }

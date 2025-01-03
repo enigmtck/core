@@ -1,15 +1,13 @@
 use super::Inbox;
-use crate::activity_pub::ApLike;
-
 use crate::{
-    activity_pub::{ApActivity, ApAddress, ApObject},
     db::Db,
     models::{
         activities::{create_activity, ActivityTarget, NewActivity},
         objects::get_object_by_as_id,
     },
-    MaybeReference,
 };
+use jdt_activity_pub::{ApActivity, ApAddress, ApLike, ApObject};
+use jdt_maybe_reference::MaybeReference;
 use rocket::http::Status;
 use serde_json::Value;
 

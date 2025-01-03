@@ -1,4 +1,3 @@
-use crate::activity_pub::ApInstrument;
 use crate::db::Db;
 use crate::schema::vault;
 use anyhow::{anyhow, Result};
@@ -6,6 +5,7 @@ use chrono::{DateTime, Utc};
 use diesel::prelude::*;
 use diesel::Insertable;
 use diesel::{AsChangeset, Identifiable, Queryable};
+use jdt_activity_pub::ApInstrument;
 use rocket_sync_db_pools::diesel;
 use serde::{Deserialize, Serialize};
 

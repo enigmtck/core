@@ -1,9 +1,3 @@
-use crate::activity_pub::PUBLIC_COLLECTION;
-use crate::activity_pub::{
-    ApAccept, ApAcceptType, ApActivity, ApAddress, ApAnnounce, ApAnnounceType, ApContext, ApCreate,
-    ApCreateType, ApDelete, ApDeleteType, ApFollow, ApFollowType, ApLike, ApLikeType, ApNote,
-    ApObject, ApUndo, ApUndoType, ApUpdateType,
-};
 use crate::db::Db;
 use crate::helper::get_activity_ap_id_from_uuid;
 use crate::models::actors::{get_actor_by_as_id, Actor};
@@ -12,8 +6,9 @@ use crate::models::objects::{Object, ObjectType};
 use crate::models::olm_sessions::OlmSession;
 use crate::models::parameter_generator;
 use crate::routes::inbox::InboxView;
+use crate::routes::{Inbox, Outbox};
 use crate::schema::{activities, actors, objects, olm_sessions, vault};
-use crate::{MaybeReference, POOL};
+use crate::{LoadEphemeral, POOL};
 use anyhow::{anyhow, Result};
 use chrono::{DateTime, Utc};
 use convert_case::{Case, Casing};
@@ -22,6 +17,15 @@ use diesel::query_builder::{BoxedSqlQuery, SqlQuery};
 use diesel::sql_types::Nullable;
 use diesel::{prelude::*, sql_query};
 use diesel::{AsChangeset, Identifiable, Insertable, Queryable};
+use jdt_activity_pub::PUBLIC_COLLECTION;
+use jdt_activity_pub::{
+    ActivityPub, ApAccept, ApAcceptType, ApActivity, ApActor, ApAddress, ApAnnounce,
+    ApAnnounceType, ApContext, ApCreate, ApCreateType, ApDelete, ApDeleteType, ApFollow,
+    ApFollowType, ApInstrument, ApLike, ApLikeType, ApNote, ApObject, ApUndo, ApUndoType,
+    ApUpdateType, Ephemeral,
+};
+use jdt_maybe_multiple::MaybeMultiple;
+use jdt_maybe_reference::MaybeReference;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::fmt::{self, Debug};
@@ -88,6 +92,28 @@ impl fmt::Display for ActivityType {
 impl From<ActivityType> for String {
     fn from(activity: ActivityType) -> Self {
         format!("{activity}").to_case(Case::Snake)
+    }
+}
+
+impl TryFrom<ActivityType> for ApCreateType {
+    type Error = anyhow::Error;
+
+    fn try_from(t: ActivityType) -> Result<Self, Self::Error> {
+        match t {
+            ActivityType::Create => Ok(ApCreateType::Create),
+            _ => Err(anyhow!("invalid ActivityType")),
+        }
+    }
+}
+
+impl TryFrom<ActivityType> for ApAnnounceType {
+    type Error = anyhow::Error;
+
+    fn try_from(t: ActivityType) -> Result<Self, Self::Error> {
+        match t {
+            ActivityType::Announce => Ok(ApAnnounceType::Announce),
+            _ => Err(anyhow!("invalid ActivityType")),
+        }
     }
 }
 
@@ -612,27 +638,41 @@ impl From<UndoActivity> for NewActivity {
     }
 }
 
+pub trait TryFromExtendedActivity: Sized {
+    type Error;
+    fn try_from_extended_activity(activity: ExtendedActivity) -> Result<Self, Self::Error>;
+}
+
 pub type ExtendedActivity = (Activity, Option<Activity>, Option<Object>, Option<Actor>);
 
-impl TryFrom<ExtendedActivity> for ApActivity {
+impl TryFromExtendedActivity for ApActivity {
     type Error = anyhow::Error;
 
-    fn try_from(
+    fn try_from_extended_activity(
         (activity, target_activity, target_object, target_actor): ExtendedActivity,
     ) -> Result<Self, Self::Error> {
         match activity.kind {
-            ActivityType::Create => {
-                ApCreate::try_from((activity, target_activity, target_object, target_actor))
-                    .map(ApActivity::Create)
-            }
-            ActivityType::Announce => {
-                ApAnnounce::try_from((activity, target_activity, target_object, target_actor))
-                    .map(ApActivity::Announce)
-            }
-            ActivityType::Like => {
-                ApLike::try_from((activity, target_activity, target_object, target_actor))
-                    .map(|activity| ApActivity::Like(Box::new(activity)))
-            }
+            ActivityType::Create => ApCreate::try_from_extended_activity((
+                activity,
+                target_activity,
+                target_object,
+                target_actor,
+            ))
+            .map(ApActivity::Create),
+            ActivityType::Announce => ApAnnounce::try_from_extended_activity((
+                activity,
+                target_activity,
+                target_object,
+                target_actor,
+            ))
+            .map(ApActivity::Announce),
+            ActivityType::Like => ApLike::try_from_extended_activity((
+                activity,
+                target_activity,
+                target_object,
+                target_actor,
+            ))
+            .map(|activity| ApActivity::Like(Box::new(activity))),
             ActivityType::Delete => {
                 let note = ApNote::try_from(target_object.unwrap())?;
                 ApDelete::try_from(note).map(|mut delete| {
@@ -640,18 +680,27 @@ impl TryFrom<ExtendedActivity> for ApActivity {
                     ApActivity::Delete(Box::new(delete))
                 })
             }
-            ActivityType::Follow => {
-                ApFollow::try_from((activity, target_activity, target_object, target_actor))
-                    .map(ApActivity::Follow)
-            }
-            ActivityType::Undo => {
-                ApUndo::try_from((activity, target_activity, target_object, target_actor))
-                    .map(|undo| ApActivity::Undo(Box::new(undo)))
-            }
-            ActivityType::Accept => {
-                ApAccept::try_from((activity, target_activity, target_object, target_actor))
-                    .map(|accept| ApActivity::Accept(Box::new(accept)))
-            }
+            ActivityType::Follow => ApFollow::try_from_extended_activity((
+                activity,
+                target_activity,
+                target_object,
+                target_actor,
+            ))
+            .map(ApActivity::Follow),
+            ActivityType::Undo => ApUndo::try_from_extended_activity((
+                activity,
+                target_activity,
+                target_object,
+                target_actor,
+            ))
+            .map(|undo| ApActivity::Undo(Box::new(undo))),
+            ActivityType::Accept => ApAccept::try_from_extended_activity((
+                activity,
+                target_activity,
+                target_object,
+                target_actor,
+            ))
+            .map(|accept| ApActivity::Accept(Box::new(accept))),
             _ => {
                 log::error!(
                     "Failed to match implemented activity in TryFrom for ApActivity\nACTIVITY: {activity:#?}\nTARGET_ACTIVITY: {target_activity:#?}\nTARGET_OBJECT: {target_object:#?}\nTARGET_ACTOR {target_actor:#?}"
@@ -662,13 +711,13 @@ impl TryFrom<ExtendedActivity> for ApActivity {
     }
 }
 
-impl TryFrom<ExtendedActivity> for ApAccept {
+impl TryFromExtendedActivity for ApAccept {
     type Error = anyhow::Error;
 
-    fn try_from(
+    fn try_from_extended_activity(
         (activity, target_activity, _target_object, _target_actor): ExtendedActivity,
     ) -> Result<Self, Self::Error> {
-        let follow = ApActivity::try_from((
+        let follow = ApActivity::try_from_extended_activity((
             target_activity.ok_or(anyhow!("TARGET_ACTIVITY CANNOT BE NONE"))?,
             None,
             None,
@@ -688,6 +737,198 @@ impl TryFrom<ExtendedActivity> for ApAccept {
                 "FAILED TO MATCH IMPLEMENTED ACCEPT IN TryFrom FOR ApAccept\n{activity:#?}"
             );
             Err(anyhow!("FAILED TO MATCH IMPLEMENTED ACCEPT"))
+        }
+    }
+}
+
+impl TryFromExtendedActivity for ApAnnounce {
+    type Error = anyhow::Error;
+
+    fn try_from_extended_activity(
+        (activity, _target_activity, target_object, _target_actor): ExtendedActivity,
+    ) -> Result<Self, Self::Error> {
+        if activity.kind.to_string().to_lowercase().as_str() == "announce" {
+            let object = target_object.ok_or(anyhow!("INVALID ACTIVITY TYPE"))?;
+            let object = MaybeReference::Actual(ApObject::Note(ApNote::try_from(object)?));
+
+            Ok(ApAnnounce {
+                context: Some(ApContext::default()),
+                kind: ApAnnounceType::default(),
+                actor: activity.clone().actor.into(),
+                id: Some(format!(
+                    "{}/activities/{}",
+                    *crate::SERVER_URL,
+                    activity.uuid
+                )),
+                to: activity.clone().ap_to.into(),
+                cc: activity.cc.into(),
+                published: ActivityPub::time(activity.created_at),
+                object,
+                ephemeral: Some(Ephemeral {
+                    created_at: Some(activity.created_at),
+                    updated_at: Some(activity.updated_at),
+                    ..Default::default()
+                }),
+            })
+        } else {
+            log::error!("NOT AN ANNOUNCE ACTIVITY");
+            Err(anyhow::Error::msg("NOT AN ANNOUNCE ACTIVITY"))
+        }
+    }
+}
+
+// I suspect that any uses of this have now been redirected to the CoalescedActivity above,
+// even if functions are still calling this impl. It would be good to remove this and clean
+// up the function chains.
+impl TryFromExtendedActivity for ApCreate {
+    type Error = anyhow::Error;
+    fn try_from_extended_activity(
+        (activity, _target_activity, target_object, _target_actor): ExtendedActivity,
+    ) -> Result<Self, Self::Error> {
+        let note = {
+            if let Some(object) = target_object.clone() {
+                ApObject::Note(ApNote::try_from(object)?)
+            } else {
+                return Err(anyhow!("ACTIVITY MUST INCLUDE A NOTE OR REMOTE_NOTE"));
+            }
+        };
+
+        let instrument: MaybeMultiple<ApInstrument> = activity.instrument.into();
+        let instrument = match instrument {
+            MaybeMultiple::Single(instrument) => {
+                if instrument.is_olm_identity_key() {
+                    vec![instrument].into()
+                } else {
+                    MaybeMultiple::None
+                }
+            }
+            MaybeMultiple::Multiple(instruments) => instruments
+                .into_iter()
+                .filter(|x| x.is_olm_identity_key())
+                .collect::<Vec<ApInstrument>>()
+                .into(),
+            _ => MaybeMultiple::None,
+        };
+
+        Ok(ApCreate {
+            context: Some(ApContext::default()),
+            kind: ApCreateType::default(),
+            actor: ApAddress::Address(activity.actor.clone()),
+            id: activity.ap_id,
+            object: note.into(),
+            to: activity.ap_to.clone().into(),
+            cc: activity.cc.into(),
+            signature: None,
+            published: Some(ActivityPub::time(activity.created_at)),
+            ephemeral: Some(Ephemeral {
+                created_at: Some(activity.created_at),
+                updated_at: Some(activity.updated_at),
+                ..Default::default()
+            }),
+            instrument,
+        })
+    }
+}
+
+impl TryFromExtendedActivity for ApFollow {
+    type Error = anyhow::Error;
+
+    fn try_from_extended_activity(
+        (activity, _target_activity, _target_object, _target_actor): ExtendedActivity,
+    ) -> Result<Self, Self::Error> {
+        if activity.kind.is_follow() {
+            let target = activity
+                .target_ap_id
+                .ok_or(anyhow!("no target_ap_id on follow"))?;
+            Ok(ApFollow {
+                context: Some(ApContext::default()),
+                kind: ApFollowType::default(),
+                actor: activity.actor.into(),
+                id: Some(activity.ap_id.ok_or(anyhow!("no follow as_id found"))?),
+                to: activity.ap_to.into(),
+                cc: activity.cc.into(),
+                object: target.into(),
+            })
+        } else {
+            log::error!("Not a Follow Activity");
+            Err(anyhow!("Not a Follow Activity"))
+        }
+    }
+}
+
+impl TryFromExtendedActivity for ApLike {
+    type Error = anyhow::Error;
+
+    fn try_from_extended_activity(
+        (activity, _target_activity, target_object, _target_actor): ExtendedActivity,
+    ) -> Result<Self, Self::Error> {
+        if !activity.kind.is_like() {
+            return Err(anyhow!("NOT A LIKE ACTIVITY"));
+        }
+
+        let object = target_object.ok_or(anyhow!("no target object"))?;
+        let note = ApNote::try_from(object)?;
+
+        let (id, object): (String, MaybeReference<ApObject>) = (
+            note.attributed_to.clone().to_string(),
+            MaybeReference::Reference(note.id.ok_or(anyhow!("no note id"))?),
+        );
+
+        Ok(ApLike {
+            context: Some(ApContext::default()),
+            kind: ApLikeType::default(),
+            actor: activity.actor.into(),
+            id: activity.ap_id,
+            to: MaybeMultiple::Single(ApAddress::Address(id)),
+            object,
+        })
+    }
+}
+
+impl TryFromExtendedActivity for ApUndo {
+    type Error = anyhow::Error;
+
+    fn try_from_extended_activity(
+        (activity, target_activity, target_object, _target_actor): ExtendedActivity,
+    ) -> Result<Self, Self::Error> {
+        let target_activity = target_activity.ok_or(anyhow!("RECURSIVE CANNOT BE NONE"))?;
+        let target_activity = ApActivity::try_from_extended_activity((
+            target_activity.clone(),
+            None,
+            target_object,
+            None,
+        ))?;
+
+        if !activity.kind.is_undo() {
+            return Err(anyhow!("activity is not an undo"));
+        }
+
+        match target_activity {
+            ApActivity::Follow(follow) => Ok(ApUndo {
+                context: Some(ApContext::default()),
+                kind: ApUndoType::default(),
+                actor: activity.actor.clone().into(),
+                id: activity.ap_id,
+                object: MaybeReference::Actual(ApActivity::Follow(follow)),
+            }),
+            ApActivity::Like(like) => Ok(ApUndo {
+                context: Some(ApContext::default()),
+                kind: ApUndoType::default(),
+                actor: activity.actor.clone().into(),
+                id: activity.ap_id,
+                object: MaybeReference::Actual(ApActivity::Like(like)),
+            }),
+            ApActivity::Announce(announce) => Ok(ApUndo {
+                context: Some(ApContext::default()),
+                kind: ApUndoType::default(),
+                actor: activity.actor.clone().into(),
+                id: activity.ap_id,
+                object: MaybeReference::Actual(ApActivity::Announce(announce)),
+            }),
+            _ => {
+                log::error!("FAILED TO MATCH IMPLEMENTED UNDO: {activity:#?}");
+                Err(anyhow!("FAILED TO MATCH IMPLEMENTED UNDO"))
+            }
         }
     }
 }
@@ -1312,21 +1553,77 @@ pub async fn get_announcers(
     .await
 }
 
+pub trait TryFromEncryptedActivity: Sized {
+    type Error;
+    fn try_from_encrypted_activity(activity: EncryptedActivity) -> Result<Self, Self::Error>;
+}
 pub type EncryptedActivity = (Activity, Object, Option<OlmSession>);
 
-impl TryFrom<EncryptedActivity> for ApActivity {
+impl TryFromEncryptedActivity for ApActivity {
     type Error = anyhow::Error;
 
-    fn try_from((activity, object, session): EncryptedActivity) -> Result<Self, Self::Error> {
+    fn try_from_encrypted_activity(
+        (activity, object, session): EncryptedActivity,
+    ) -> Result<Self, Self::Error> {
         match activity.kind {
             ActivityType::Create => {
-                ApCreate::try_from((activity, object, session)).map(ApActivity::Create)
+                ApCreate::try_from_encrypted_activity((activity, object, session))
+                    .map(ApActivity::Create)
             }
             _ => {
                 log::error!("Failed to match implemented EncryptedActivity\n{activity:#?}");
                 Err(anyhow!("Failed to match implemented EncryptedActivity"))
             }
         }
+    }
+}
+
+impl TryFromEncryptedActivity for ApCreate {
+    type Error = anyhow::Error;
+
+    fn try_from_encrypted_activity(
+        (activity, object, session): EncryptedActivity,
+    ) -> Result<Self, Self::Error> {
+        let note = ApObject::Note(ApNote::try_from(object)?);
+
+        let instrument: MaybeMultiple<ApInstrument> = activity.instrument.into();
+        let mut instrument = match instrument {
+            MaybeMultiple::Single(instrument) => {
+                if instrument.is_olm_identity_key() {
+                    vec![instrument].into()
+                } else {
+                    MaybeMultiple::None
+                }
+            }
+            MaybeMultiple::Multiple(instruments) => instruments
+                .into_iter()
+                .filter(|x| x.is_olm_identity_key())
+                .collect::<Vec<ApInstrument>>()
+                .into(),
+            _ => MaybeMultiple::None,
+        };
+
+        if let Some(session) = session {
+            instrument = instrument.extend(vec![session.into()]);
+        }
+
+        Ok(ApCreate {
+            context: Some(ApContext::default()),
+            kind: ApCreateType::default(),
+            actor: ApAddress::Address(activity.actor.clone()),
+            id: activity.ap_id,
+            object: note.into(),
+            to: activity.ap_to.clone().into(),
+            cc: activity.cc.into(),
+            signature: None,
+            published: Some(ActivityPub::time(activity.created_at)),
+            ephemeral: Some(Ephemeral {
+                created_at: Some(activity.created_at),
+                updated_at: Some(activity.updated_at),
+                ..Default::default()
+            }),
+            instrument,
+        })
     }
 }
 

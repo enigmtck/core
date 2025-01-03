@@ -1,5 +1,5 @@
 use crate::routes::Outbox;
-use crate::MaybeMultiple;
+use jdt_maybe_multiple::MaybeMultiple;
 use serde_json::Value;
 
 impl Outbox for MaybeMultiple<Value> {}

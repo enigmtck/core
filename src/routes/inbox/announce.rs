@@ -1,11 +1,10 @@
 use super::Inbox;
-use crate::activity_pub::ApAnnounce;
 use crate::{
-    activity_pub::{ApActivity, ApAddress},
     db::Db,
     models::activities::{create_activity, NewActivity},
     runner,
 };
+use jdt_activity_pub::{ApActivity, ApAddress, ApAnnounce};
 use rocket::http::Status;
 use serde_json::Value;
 

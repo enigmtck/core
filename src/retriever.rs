@@ -4,17 +4,18 @@ use reqwest::Client;
 use reqwest::Response;
 use url::Url;
 
-use crate::activity_pub::ApActor;
 use crate::db::Db;
 use crate::models::actors::{
-    create_or_update_actor, get_actor_by_as_id, guaranteed_actor, Actor, NewActor,
+    create_or_update_actor, get_actor_by_as_id, guaranteed_actor, Actor, FromActorAndLeader,
+    NewActor,
 };
 use crate::models::cache::Cache;
 use crate::models::leaders::get_leader_by_actor_ap_id_and_profile;
 use crate::models::objects::{create_or_update_object, get_object_by_as_id, NewObject};
 use crate::signing::{sign, Method, SignParams};
 use crate::webfinger::WebFinger;
-use crate::WEBFINGER_RE;
+use crate::{GetWebfinger, LoadEphemeral, WEBFINGER_RE};
+use jdt_activity_pub::ApActor;
 
 use super::{ApCollection, ApObject};
 
@@ -108,7 +109,7 @@ pub async fn get_object(conn: &Db, profile: Option<Actor>, id: String) -> Option
                 .cache(conn)
                 .await
                 .clone()
-                .load_ephemeral(conn)
+                .load_ephemeral(conn, None)
                 .await
                 .clone(),
         ),
@@ -130,7 +131,7 @@ pub async fn get_object(conn: &Db, profile: Option<Actor>, id: String) -> Option
                 .map(|x| ApObject::try_from(x).ok())?;
 
                 if let Some(mut object) = object {
-                    Some(object.load_ephemeral(conn).await.clone())
+                    Some(object.load_ephemeral(conn, None).await.clone())
                 } else {
                     None
                 }
@@ -150,8 +151,8 @@ pub async fn get_local_or_cached_actor(
     let actor = get_actor_by_as_id(conn, id.clone()).await.ok()?;
 
     if let Some(requester) = requester.clone() {
-        Some(ApActor::from((
-            actor,
+        Some(ApActor::from_actor_and_leader((
+            actor.into(),
             get_leader_by_actor_ap_id_and_profile(conn, id.clone(), requester.id).await,
         )))
     } else {

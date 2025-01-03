@@ -1,8 +1,7 @@
 use super::Inbox;
-use crate::activity_pub::ApDelete;
+use jdt_activity_pub::{ApActivity, ApAddress, ApDelete, ApObject};
 
 use crate::{
-    activity_pub::{ApActivity, ApAddress, ApObject},
     db::Db,
     models::{
         activities::{
@@ -12,8 +11,9 @@ use crate::{
         objects::{get_object_by_as_id, tombstone_object_by_as_id},
         Tombstone,
     },
-    MaybeMultiple, MaybeReference,
 };
+use jdt_maybe_multiple::MaybeMultiple;
+use jdt_maybe_reference::MaybeReference;
 use rocket::http::Status;
 use serde_json::Value;
 

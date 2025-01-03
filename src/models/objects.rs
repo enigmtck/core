@@ -1,16 +1,18 @@
 use super::actors::Actor;
-use super::coalesced_activity::CoalescedActivity;
-use crate::activity_pub::{
-    ApAddress, ApHashtag, ApNote, ApNoteType, ApObject, ApQuestion, ApQuestionType,
-};
+use super::{actors::get_actor_by_as_id, coalesced_activity::CoalescedActivity, from_serde};
 use crate::db::Db;
 use crate::schema::objects;
-use crate::{MaybeMultiple, POOL};
+use crate::{retriever, POOL};
 use anyhow::{anyhow, Result};
 use chrono::{DateTime, Utc};
 use convert_case::{Case, Casing};
 use diesel::prelude::*;
 use diesel::{AsChangeset, Identifiable, Insertable, Queryable};
+use jdt_activity_pub::{
+    ActivityPub, ApActor, ApAddress, ApHashtag, ApNote, ApNoteType, ApObject, ApQuestion,
+    ApQuestionType, Ephemeral,
+};
+use jdt_maybe_multiple::MaybeMultiple;
 use maplit::{hashmap, hashset};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -91,6 +93,18 @@ impl TryFrom<String> for ObjectType {
 impl From<ObjectType> for String {
     fn from(object: ObjectType) -> Self {
         format!("{object}").to_case(Case::Snake)
+    }
+}
+
+impl TryFrom<ObjectType> for ApNoteType {
+    type Error = anyhow::Error;
+
+    fn try_from(kind: ObjectType) -> Result<Self, Self::Error> {
+        match kind {
+            ObjectType::Note => Ok(Self::Note),
+            ObjectType::EncryptedNote => Ok(Self::EncryptedNote),
+            _ => Err(anyhow!("invalid Object type for ApNote")),
+        }
     }
 }
 
@@ -414,6 +428,101 @@ impl Object {
         }
 
         false
+    }
+}
+
+impl TryFrom<Object> for ApNote {
+    type Error = anyhow::Error;
+
+    fn try_from(object: Object) -> Result<ApNote> {
+        if object.as_type.is_note() || object.as_type.is_encrypted_note() {
+            Ok(ApNote {
+                id: Some(object.as_id.clone()),
+                kind: object.as_type.try_into()?,
+                published: ActivityPub::time(object.as_published.unwrap_or(Utc::now())),
+                url: object.as_url.clone().and_then(from_serde),
+                to: object
+                    .as_to
+                    .clone()
+                    .and_then(from_serde)
+                    .unwrap_or(vec![].into()),
+                cc: object.as_cc.clone().into(),
+                tag: object.as_tag.clone().into(),
+                attributed_to: from_serde(
+                    object.as_attributed_to.ok_or(anyhow!("no attributed_to"))?,
+                )
+                .ok_or(anyhow!("failed to convert from Value"))?,
+                content: object.as_content.clone().ok_or(anyhow!("no content"))?,
+                replies: object.as_replies.clone().and_then(from_serde),
+                in_reply_to: object.as_in_reply_to.clone().and_then(from_serde),
+                attachment: object.as_attachment.clone().into(),
+                conversation: object.ap_conversation.clone(),
+                ephemeral: Some(Ephemeral {
+                    timestamp: Some(object.created_at),
+                    metadata: object.ek_metadata.and_then(from_serde),
+                    ..Default::default()
+                }),
+                instrument: object.ek_instrument.clone().and_then(from_serde),
+                ..Default::default()
+            })
+        } else {
+            Err(anyhow!("ObjectType is not Note"))
+        }
+    }
+}
+
+impl TryFrom<Object> for ApObject {
+    type Error = anyhow::Error;
+
+    fn try_from(object: Object) -> Result<Self> {
+        match object.as_type {
+            ObjectType::Note => Ok(ApObject::Note(object.try_into()?)),
+            _ => Err(anyhow!("unimplemented Object -> ApObject conversion")),
+        }
+    }
+}
+
+impl From<Object> for Vec<ApHashtag> {
+    fn from(object: Object) -> Self {
+        match ApObject::try_from(object) {
+            Ok(ApObject::Note(note)) => note.into(),
+            _ => vec![],
+        }
+    }
+}
+
+impl TryFrom<Object> for ApQuestion {
+    type Error = anyhow::Error;
+
+    fn try_from(object: Object) -> Result<Self, Self::Error> {
+        Ok(ApQuestion {
+            id: object.as_id,
+            attributed_to: from_serde(object.as_attributed_to.ok_or(anyhow!("no attributed_to"))?)
+                .ok_or(anyhow!("failed to convert from Value"))?,
+            to: from_serde(object.as_to.ok_or(anyhow!("as_to is None"))?)
+                .ok_or(anyhow!("failed to deserialize as_to"))?,
+            cc: object.as_cc.into(),
+            end_time: object.as_end_time,
+            published: object.as_published,
+            one_of: object.as_one_of.into(),
+            any_of: object.as_any_of.into(),
+            content: object.as_content,
+            content_map: object.as_content_map.and_then(from_serde),
+            summary: object.as_summary,
+            voters_count: object.ap_voters_count,
+            url: object.as_url.and_then(from_serde),
+            conversation: object.ap_conversation,
+            tag: object.as_tag.into(),
+            attachment: object.as_attachment.into(),
+            sensitive: object.ap_sensitive,
+            in_reply_to: object.as_in_reply_to.and_then(from_serde),
+            ephemeral: Some(Ephemeral {
+                created_at: Some(object.created_at),
+                updated_at: Some(object.updated_at),
+                ..Default::default()
+            }),
+            ..Default::default()
+        })
     }
 }
 

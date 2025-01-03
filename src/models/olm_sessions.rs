@@ -1,12 +1,13 @@
 use super::actors::Actor;
-use crate::activity_pub::ApInstrument;
 use crate::db::Db;
+use crate::helper::get_session_as_id_from_uuid;
 use crate::schema::olm_sessions;
 use anyhow::{anyhow, Result};
 use chrono::{DateTime, Utc};
 use diesel::prelude::*;
 use diesel::upsert::excluded;
 use diesel::{AsChangeset, Identifiable, Queryable, QueryableByName, Selectable};
+use jdt_activity_pub::{ApInstrument, ApInstrumentType};
 use rocket_sync_db_pools::diesel;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -85,6 +86,23 @@ impl TryFrom<OlmSessionParams> for NewOlmSession {
             ap_conversation,
             owner_id,
         })
+    }
+}
+
+impl From<OlmSession> for ApInstrument {
+    fn from(session: OlmSession) -> Self {
+        Self {
+            kind: ApInstrumentType::OlmSession,
+            id: Some(get_session_as_id_from_uuid(session.uuid.clone())),
+            content: Some(session.session_data),
+            hash: Some(session.session_hash),
+            uuid: None,
+            name: None,
+            url: None,
+            mutation_of: None,
+            conversation: None,
+            activity: None,
+        }
     }
 }
 

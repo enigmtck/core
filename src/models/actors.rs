@@ -1,19 +1,22 @@
 use std::collections::HashSet;
 
-use crate::activity_pub::ApAddress;
-use crate::activity_pub::{ActivityPub, ApActor, ApActorTerse, ApActorType, ApContext, Ephemeral};
 use crate::db::Db;
 use crate::models::followers::get_follower_count_by_actor_id;
 use crate::models::leaders::Leader;
 use crate::models::leaders::{get_leader_by_actor_id_and_ap_id, get_leader_count_by_actor_id};
 use crate::schema::actors;
-use crate::POOL;
+use crate::{GetHashtags, LoadEphemeral, POOL};
 use anyhow::{anyhow, Result};
 use chrono::{DateTime, Duration, Utc};
 use convert_case::{Case, Casing};
 use diesel::prelude::*;
 use diesel::sql_query;
 use diesel::{AsChangeset, Identifiable, Insertable, Queryable};
+use jdt_activity_pub::ApAddress;
+use jdt_activity_pub::{
+    ActivityPub, ApActor, ApActorTerse, ApActorType, ApContext, ApInstrument, ApInstrumentType,
+    Ephemeral,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use serde_json::Value;
@@ -102,35 +105,60 @@ impl From<ActorType> for String {
     }
 }
 
-impl ApActor {
-    pub async fn load_ephemeral(&mut self, conn: &Db, requester: Option<Actor>) -> Self {
-        if let Some(ap_id) = self.id.clone() {
-            if let Ok(profile) = get_actor_by_as_id(conn, ap_id.to_string()).await {
-                self.ephemeral = Some(Ephemeral {
-                    followers: get_follower_count_by_actor_id(conn, profile.id).await.ok(),
-                    leaders: get_leader_count_by_actor_id(conn, profile.id).await.ok(),
-                    summary_markdown: profile.ek_summary_markdown,
-                    following: {
-                        if let Some(requester) = requester {
-                            if let Some(id) = self.id.clone() {
-                                get_leader_by_actor_id_and_ap_id(conn, requester.id, id.to_string())
-                                    .await
-                                    .and_then(|x| x.accepted)
-                            } else {
-                                None
-                            }
-                        } else {
-                            None
-                        }
-                    },
-                    ..Default::default()
-                });
-            }
+impl From<Actor> for Vec<ApInstrument> {
+    fn from(actor: Actor) -> Self {
+        let mut instruments: Vec<ApInstrument> = vec![];
+
+        if actor.ek_olm_pickled_account.is_some() {
+            instruments.push(ApInstrument {
+                kind: ApInstrumentType::OlmAccount,
+                id: Some(format!("{}#olm-account", actor.as_id)),
+                content: actor.ek_olm_pickled_account,
+                hash: actor.ek_olm_pickled_account_hash,
+                uuid: None,
+                name: None,
+                url: None,
+                mutation_of: None,
+                conversation: None,
+                activity: None,
+            })
         }
 
-        self.clone()
+        if actor.ek_olm_identity_key.is_some() {
+            instruments.push(ApInstrument {
+                kind: ApInstrumentType::OlmIdentityKey,
+                id: Some(format!("{}#identity-key", actor.as_id)),
+                content: actor.ek_olm_identity_key,
+                hash: None,
+                uuid: None,
+                name: None,
+                url: None,
+                mutation_of: None,
+                conversation: None,
+                activity: None,
+            })
+        };
+
+        instruments
     }
 }
+
+// impl ApInstrument {
+//     pub fn from_actor_olm_account(actor: Actor) -> Self {
+//         ApInstrument {
+//             kind: ApInstrumentType::OlmAccount,
+//             id: Some(format!("{}#olm-account", actor.as_id)),
+//             content: actor.ek_olm_pickled_account,
+//             hash: actor.ek_olm_pickled_account_hash,
+//             uuid: None,
+//             name: None,
+//             url: None,
+//             mutation_of: None,
+//             conversation: None,
+//             activity: None,
+//         }
+//     }
+// }
 
 #[derive(Serialize, Deserialize, Insertable, Default, Debug, AsChangeset)]
 #[diesel(table_name = actors)]
@@ -287,10 +315,14 @@ impl FromIterator<Actor> for Vec<ApActorTerse> {
     }
 }
 
+pub trait FromExtendedActor {
+    fn from_extended_actor(actor: ExtendedActor) -> Self;
+}
+
 type ExtendedActor = (Actor, Option<Leader>);
 
-impl From<ExtendedActor> for ApActor {
-    fn from((actor, leader): ExtendedActor) -> Self {
+impl FromExtendedActor for ApActor {
+    fn from_extended_actor((actor, leader): ExtendedActor) -> Self {
         let mut actor = ApActor::from(actor);
 
         actor.ephemeral = Some(Ephemeral {
@@ -308,7 +340,7 @@ impl From<ExtendedActor> for ApActor {
 
 impl From<Actor> for ApActor {
     fn from(actor: Actor) -> Self {
-        let context = actor.as_context.and_then(|x| ApContext::try_from(x).ok());
+        let context = Some(ApContext::full());
         let name = actor.as_name;
         let summary = actor.as_summary;
         let id = Some(actor.as_id.into());
@@ -378,10 +410,14 @@ impl From<&Actor> for ApActor {
     }
 }
 
+pub trait FromActorAndLeader {
+    fn from_actor_and_leader(actor: ActorAndLeader) -> Self;
+}
+
 type ActorAndLeader = (ApActor, Option<Leader>);
 
-impl From<ActorAndLeader> for ApActor {
-    fn from((mut actor, leader): ActorAndLeader) -> Self {
+impl FromActorAndLeader for ApActor {
+    fn from_actor_and_leader((mut actor, leader): ActorAndLeader) -> Self {
         actor.ephemeral = Some(Ephemeral {
             following: leader.clone().and_then(|x| x.accepted),
             leader_as_id: leader
@@ -581,6 +617,29 @@ impl TryFrom<ApActor> for NewActor {
         })
     }
 }
+
+// impl TryFrom<Actor> for ApInstrument {
+//     type Error = anyhow::Error;
+
+//     fn try_from(actor: Actor) -> Result<Self> {
+//         Ok(Self {
+//             kind: ApInstrumentType::OlmIdentityKey,
+//             id: Some(format!("{}#identity-key", actor.as_id)),
+//             content: Some(
+//                 actor
+//                     .ek_olm_identity_key
+//                     .ok_or(anyhow!("Actor does not have an IDK"))?,
+//             ),
+//             hash: None,
+//             uuid: None,
+//             name: None,
+//             url: None,
+//             mutation_of: None,
+//             conversation: None,
+//             activity: None,
+//         })
+//     }
+// }
 
 pub async fn create_or_update_actor(conn: Option<&Db>, actor: NewActor) -> Result<Actor> {
     match conn {

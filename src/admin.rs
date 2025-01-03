@@ -8,9 +8,6 @@ use serde::Deserialize;
 use serde_json::json;
 use uuid::Uuid;
 
-use crate::activity_pub::{
-    ApActor, ApCapabilities, ApContext, ApEndpoint, ApImage, ApImageType, ApPublicKey,
-};
 use crate::db::Db;
 use crate::helper::get_ap_id_from_username;
 use crate::models::actors::{
@@ -18,7 +15,10 @@ use crate::models::actors::{
 };
 use crate::models::cache::Cache;
 use crate::models::profiles::Profile;
-use crate::MaybeMultiple;
+use jdt_activity_pub::{
+    ApActor, ApCapabilities, ApContext, ApEndpoint, ApImage, ApImageType, ApPublicKey,
+};
+use jdt_maybe_multiple::MaybeMultiple;
 
 struct KeyPair {
     private_key: RsaPrivateKey,

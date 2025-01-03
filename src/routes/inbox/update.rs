@@ -1,16 +1,15 @@
 use super::Inbox;
-use crate::activity_pub::ApUpdate;
-
 use crate::{
-    activity_pub::{ApActivity, ApAddress, ApObject},
     db::Db,
     models::{
         activities::{create_activity, NewActivity},
         actors::{create_or_update_actor, NewActor},
         objects::create_or_update_object,
     },
-    MaybeReference,
+    GetWebfinger,
 };
+use jdt_activity_pub::{ApActivity, ApAddress, ApObject, ApUpdate};
+use jdt_maybe_reference::MaybeReference;
 use rocket::http::Status;
 use serde_json::Value;
 

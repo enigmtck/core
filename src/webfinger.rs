@@ -1,6 +1,7 @@
-use crate::activity_pub::{ApActor, ApTag};
-use crate::{models::actors::Actor, MaybeMultiple, DOMAIN_RE, WEBFINGER_ACCT_RE};
+use crate::{models::actors::Actor, DOMAIN_RE, WEBFINGER_ACCT_RE};
 use anyhow::Result;
+use jdt_activity_pub::{ApActor, ApTag};
+use jdt_maybe_multiple::MaybeMultiple;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 
@@ -51,34 +52,6 @@ impl WebFinger {
             })
             .take(1)
             .next()
-    }
-}
-
-impl ApActor {
-    pub async fn get_webfinger(&self) -> Option<String> {
-        let id = self.id.clone()?.to_string();
-        let domain = DOMAIN_RE.captures(&id)?.get(1)?.as_str().to_string();
-        let username = self.preferred_username.clone();
-
-        let webfinger = retrieve_webfinger(domain, username).await.ok()?;
-
-        webfinger.get_address()
-    }
-
-    pub fn get_hashtags(&self) -> Vec<String> {
-        if let MaybeMultiple::Multiple(tags) = self.tag.clone() {
-            tags.iter()
-                .filter_map(|tag| {
-                    if let ApTag::HashTag(hashtag) = tag {
-                        Some(hashtag.name.clone().to_lowercase())
-                    } else {
-                        None
-                    }
-                })
-                .collect()
-        } else {
-            vec![]
-        }
     }
 }
 

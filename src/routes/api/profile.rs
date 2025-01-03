@@ -1,5 +1,4 @@
 use crate::{
-    activity_pub::{ApActor, ApImage, ApImageType},
     db::Db,
     fairings::events::EventChannels,
     models::{
@@ -9,9 +8,10 @@ use crate::{
         },
     },
     routes::ActivityJson,
-    runner,
+    runner, LoadEphemeral,
 };
 use image::{imageops::FilterType, io::Reader, DynamicImage, ImageFormat};
+use jdt_activity_pub::{ApActor, ApImage, ApImageType};
 use rocket::{
     data::{Data, ToByteUnit},
     http::Status,
@@ -103,7 +103,7 @@ fn process_banner(filename: String) -> Option<ApImage> {
 
     if decode.save_with_format(path, ImageFormat::Png).is_ok() {
         Some(ApImage {
-            kind: crate::activity_pub::ApImageType::Image,
+            kind: ApImageType::Image,
             media_type: Some("image/png".to_string()),
             url: format!("{}/media/banners/{}", *crate::SERVER_URL, filename),
         })

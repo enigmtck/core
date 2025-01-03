@@ -1,4 +1,3 @@
-use crate::activity_pub::{ActivityPub, ApActivity, ApObject};
 use crate::db::Db;
 use crate::fairings::events::EventChannels;
 use crate::fairings::signatures::Signed;
@@ -7,6 +6,7 @@ use crate::models::actors::get_actor_by_username;
 use crate::models::unprocessable::create_unprocessable;
 use crate::routes::Outbox;
 use crate::SERVER_URL;
+use jdt_activity_pub::{ActivityPub, ApActivity, ApObject};
 use rocket::{get, http::Status, post, serde::json::Json, serde::json::Value};
 
 use super::{retrieve, ActivityJson};

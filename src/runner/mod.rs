@@ -11,12 +11,13 @@ use std::fmt;
 use url::Url;
 
 use crate::{
-    activity_pub::{ApActivity, ApActor, ApAddress},
     db::Db,
     fairings::events::EventChannels,
     models::{activities::add_log_by_as_id, actors::Actor, instances::get_instance_inboxes},
-    signing::{Method, SignParams}, MaybeReference,
+    signing::{Method, SignParams},
 };
+use jdt_activity_pub::{ApActivity, ApActor, ApAddress};
+use jdt_maybe_reference::MaybeReference;
 
 use self::{actor::get_actor, user::get_follower_inboxes};
 

@@ -1,10 +1,10 @@
-use crate::activity_pub::ApAddress;
 use crate::db::Db;
 use crate::schema::instances;
 use crate::POOL;
 use chrono::{DateTime, Utc};
 use diesel::prelude::*;
 use diesel::{AsChangeset, Identifiable, Insertable, Queryable};
+use jdt_activity_pub::ApAddress;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 

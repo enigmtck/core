@@ -6,7 +6,6 @@ use rocket::serde::json::Json;
 use rocket::{get, post};
 use serde_json::Value;
 
-use crate::activity_pub::{retriever, ActivityPub, ApActivity, ApActor, ApCollection, ApObject};
 use crate::db::Db;
 use crate::fairings::access_control::Permitted;
 use crate::fairings::events::EventChannels;
@@ -15,8 +14,10 @@ use crate::models::activities::get_announcers;
 use crate::models::activities::{TimelineFilters, TimelineView};
 use crate::models::leaders::get_leaders_by_actor_id;
 use crate::models::unprocessable::create_unprocessable;
+use crate::retriever;
 use crate::signing::{verify, VerificationType};
 use crate::SERVER_URL;
+use jdt_activity_pub::{ActivityPub, ApActivity, ApActor, ApCollection, ApObject};
 use std::fmt;
 use urlencoding::encode;
 

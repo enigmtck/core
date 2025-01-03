@@ -1,4 +1,4 @@
 use crate::routes::Outbox;
-use crate::Identifier;
+use jdt_maybe_reference::Identifier;
 
 impl Outbox for Identifier {}

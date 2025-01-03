@@ -1,11 +1,13 @@
 use anyhow::Result;
 
 use crate::{
-    activity_pub::{ApActivity, ApAddress},
     db::Db,
     fairings::events::EventChannels,
     models::{
-        activities::{get_activity_by_ap_id, revoke_activity_by_apid, update_target_object},
+        activities::{
+            get_activity_by_ap_id, revoke_activity_by_apid, update_target_object,
+            TryFromExtendedActivity,
+        },
         actors::{get_actor, guaranteed_actor},
         objects::get_object_by_as_id,
     },
@@ -15,6 +17,7 @@ use crate::{
         send_to_inboxes,
     },
 };
+use jdt_activity_pub::{ApActivity, ApAddress};
 
 use super::TaskError;
 
@@ -40,13 +43,17 @@ pub async fn send_announce_task(
             TaskError::TaskFailed
         })?;
 
-        let activity =
-            ApActivity::try_from((activity, target_activity, target_object, target_actor))
-                .map_err(|e| {
-                    log::error!("FAILED TO BUILD ApActivity: {e:#?}");
-                    TaskError::TaskFailed
-                })?
-                .formalize();
+        let activity = ApActivity::try_from_extended_activity((
+            activity,
+            target_activity,
+            target_object,
+            target_actor,
+        ))
+        .map_err(|e| {
+            log::error!("FAILED TO BUILD ApActivity: {e:#?}");
+            TaskError::TaskFailed
+        })?
+        .formalize();
 
         let inboxes: Vec<ApAddress> = get_inboxes(&conn, activity.clone(), sender.clone()).await;
 

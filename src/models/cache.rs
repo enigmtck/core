@@ -1,15 +1,19 @@
-use crate::activity_pub::retriever::signed_get;
-use crate::activity_pub::{ApActor, ApAttachment, ApDocument, ApImage, ApTag};
 use crate::db::Db;
 use crate::models::actors::guaranteed_actor;
+use crate::retriever::signed_get;
 use crate::schema::cache;
-use crate::MaybeMultiple;
 use crate::POOL;
 use anyhow::Result;
 use chrono::{DateTime, Utc};
 use diesel::prelude::*;
 use diesel::Insertable;
 use diesel::{AsChangeset, Identifiable, Queryable};
+use jdt_activity_pub::{
+    ActivityPub, ApActivity, ApActor, ApAttachment, ApCollection, ApDocument, ApImage, ApNote,
+    ApObject, ApQuestion, ApTag, Collectible,
+};
+use jdt_maybe_multiple::MaybeMultiple;
+use jdt_maybe_reference::MaybeReference;
 use rocket_sync_db_pools::diesel;
 use serde::{Deserialize, Serialize};
 use tokio::fs::File;
@@ -39,6 +43,101 @@ pub trait Cache {
 pub enum Cacheable {
     Document(ApDocument),
     Image(ApImage),
+}
+
+impl Cache for ApCollection {
+    async fn cache(&self, conn: &Db) -> &Self {
+        let items = self.items().unwrap_or_default();
+        for item in items {
+            if let ActivityPub::Activity(ApActivity::Create(create)) = item {
+                if let MaybeReference::Actual(ApObject::Note(note)) = create.object {
+                    note.cache(conn).await;
+                }
+            }
+        }
+
+        self
+    }
+}
+
+impl Cache for ApNote {
+    async fn cache(&self, conn: &Db) -> &Self {
+        log::debug!("Checking for attachments");
+        for attachment in self.attachment.multiple() {
+            log::debug!("Attachment\n{attachment:#?}");
+            cache_content(conn, attachment.clone().try_into()).await;
+        }
+
+        log::debug!("Checking for tags");
+        for tag in self.tag.multiple() {
+            log::debug!("Tag\n{tag:#?}");
+            cache_content(conn, tag.clone().try_into()).await;
+        }
+
+        if let Some(ephemeral) = self.ephemeral.clone() {
+            if let Some(metadata_vec) = ephemeral.metadata.clone() {
+                for metadata in metadata_vec {
+                    if let Some(og_image) = metadata.og_image.clone() {
+                        cache_content(conn, Ok(ApImage::from(og_image).into())).await;
+                    }
+
+                    if let Some(twitter_image) = metadata.twitter_image.clone() {
+                        cache_content(conn, Ok(ApImage::from(twitter_image).into())).await;
+                    }
+                }
+            }
+        }
+
+        self
+    }
+}
+
+impl Cache for ApObject {
+    async fn cache(&self, conn: &Db) -> &Self {
+        match self {
+            ApObject::Note(note) => {
+                note.cache(conn).await;
+            }
+            ApObject::Question(question) => {
+                question.cache(conn).await;
+            }
+            _ => (),
+        }
+
+        self
+    }
+}
+
+impl Cache for ApQuestion {
+    async fn cache(&self, conn: &Db) -> &Self {
+        if let MaybeMultiple::Multiple(attachments) = self.attachment.clone() {
+            for attachment in attachments {
+                cache_content(conn, attachment.clone().try_into()).await;
+            }
+        }
+
+        if let MaybeMultiple::Multiple(tags) = self.tag.clone() {
+            for tag in tags {
+                cache_content(conn, tag.clone().try_into()).await;
+            }
+        }
+
+        if let Some(ephemeral) = self.ephemeral.clone() {
+            if let Some(metadata_vec) = ephemeral.metadata.clone() {
+                for metadata in metadata_vec {
+                    if let Some(og_image) = metadata.og_image.clone() {
+                        cache_content(conn, Ok(ApImage::from(og_image).into())).await;
+                    }
+
+                    if let Some(twitter_image) = metadata.twitter_image.clone() {
+                        cache_content(conn, Ok(ApImage::from(twitter_image).into())).await;
+                    }
+                }
+            }
+        }
+
+        self
+    }
 }
 
 impl TryFrom<ApAttachment> for Cacheable {

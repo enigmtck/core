@@ -1,13 +1,13 @@
 use std::collections::HashMap;
 
 use crate::{
-    activity_pub::{ActivityPub, ApActivity, ApCollection, ApInstrument, ApObject, Collectible},
     db::Db,
     fairings::signatures::Signed,
     helper::get_uuid,
     models::{
-        activities::get_encrypted_activities,
-        activities::lookup_activity_id_by_as_id,
+        activities::{
+            get_encrypted_activities, lookup_activity_id_by_as_id, TryFromEncryptedActivity,
+        },
         actors::get_actor_by_username,
         actors::update_olm_account_by_username,
         olm_one_time_keys::{
@@ -20,6 +20,9 @@ use crate::{
         vault::{create_vault_item, VaultItemParams},
     },
     routes::ActivityJson,
+};
+use jdt_activity_pub::{
+    ActivityPub, ApActivity, ApCollection, ApInstrument, ApInstrumentType, ApObject, Collectible,
 };
 use rocket::{get, http::Status, post, serde::json::Error, serde::json::Json};
 use serde::{Deserialize, Serialize};
@@ -46,7 +49,7 @@ pub async fn encrypted_activities_get(
                 Status::InternalServerError
             })?
             .into_iter()
-            .filter_map(|x| ApActivity::try_from(x).ok())
+            .filter_map(|x| ApActivity::try_from_encrypted_activity(x).ok())
             .collect::<Vec<ActivityPub>>(),
             None,
         ))
@@ -82,9 +85,16 @@ pub async fn olm_session_get(
 pub async fn olm_account_get(signed: Signed) -> Result<ActivityJson<ApObject>, Status> {
     let profile = signed.profile().ok_or(Status::Unauthorized)?;
 
-    Ok(ActivityJson(Json(ApObject::Instrument(
-        ApInstrument::from_actor_olm_account(profile),
-    ))))
+    let instruments: Vec<ApInstrument> = profile.into();
+    let olm_account: ApInstrument = instruments
+        .into_iter()
+        .find(|instrument| instrument.kind == ApInstrumentType::OlmAccount)
+        .ok_or_else(|| {
+            log::error!("Failed to locate OlmAccount");
+            Status::NotFound
+        })?;
+
+    Ok(ActivityJson(Json(olm_account.into())))
 }
 
 #[post(
@@ -282,10 +292,17 @@ pub async fn keys_get(
             Status::NotFound
         })?;
 
-        let idk = ApInstrument::try_from(profile.clone()).map_err(|e| {
-            log::error!("Failed to get IDK: {e:#?}");
-            Status::InternalServerError
-        })?;
+        let instruments: Vec<ApInstrument> = profile.clone().into();
+
+        let idk: ApInstrument = instruments
+            .into_iter()
+            .find(|instrument| instrument.kind == ApInstrumentType::OlmIdentityKey)
+            .ok_or(Status::InternalServerError)?;
+
+        // let idk = ApInstrument::try_from(profile.clone()).map_err(|e| {
+        //     log::error!("Failed to get IDK: {e:#?}");
+        //     Status::InternalServerError
+        // })?;
 
         Ok(ActivityJson(Json(
             ApCollection::from(vec![otk.into(), idk]).into(),

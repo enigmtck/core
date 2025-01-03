@@ -1,11 +1,11 @@
 use std::collections::HashMap;
 
-use crate::activity_pub::ApActor;
 use crate::db::Db;
 use crate::models::actors::{get_actor_by_key_id, get_actor_by_username, Actor};
 use crate::{ASSIGNMENT_RE, LOCAL_USER_KEY_ID_RE};
 use anyhow::anyhow;
 use base64::{engine::general_purpose, engine::Engine as _};
+use jdt_activity_pub::ApActor;
 use rsa::pkcs1v15::{Signature, SigningKey};
 use rsa::signature::{RandomizedSigner, SignatureEncoding, Verifier};
 use rsa::{pkcs8::DecodePrivateKey, pkcs8::DecodePublicKey, RsaPrivateKey, RsaPublicKey};

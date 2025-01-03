@@ -5,11 +5,11 @@ use rocket::serde::json::Json;
 use rocket::Data;
 use rocket::{data::ToByteUnit, get, post};
 
-use crate::activity_pub::ApAttachment;
 use crate::db::Db;
 use crate::fairings::signatures::Signed;
 use crate::models::actors::get_actor_by_username;
 use crate::models::cache::get_cache_item_by_url;
+use jdt_activity_pub::ApAttachment;
 
 #[post("/api/user/<username>/image", data = "<media>")]
 pub async fn upload_image(

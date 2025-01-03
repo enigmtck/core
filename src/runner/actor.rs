@@ -4,16 +4,12 @@ use crate::{
         actors::{create_or_update_actor, get_actor_by_as_id, Actor, NewActor},
         leaders::get_leader_by_actor_id_and_ap_id,
     },
+    GetWebfinger,
 };
+use crate::{models::leaders::Leader, retriever::signed_get, runner::cache::cache_content};
+use jdt_activity_pub::ApActor;
+use jdt_maybe_multiple::MaybeMultiple;
 use reqwest::StatusCode;
-
-use crate::{
-    activity_pub::{retriever::signed_get, ApActor},
-    models::leaders::Leader,
-    runner::cache::cache_content,
-    MaybeMultiple,
-};
-
 async fn cache_actor(conn: &Db, actor: &ApActor) -> ApActor {
     if let MaybeMultiple::Multiple(tags) = actor.tag.clone() {
         for tag in tags {

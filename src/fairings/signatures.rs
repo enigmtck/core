@@ -1,12 +1,12 @@
 use std::collections::HashMap;
 
 use crate::{
-    activity_pub::ApActor,
     db::Db,
     models::{actors::get_actor_by_key_id, actors::Actor, instances::create_or_update_instance},
     signing::{verify, VerificationError, VerificationType, VerifyMapParams},
     ASSIGNMENT_RE, DOMAIN_RE,
 };
+use jdt_activity_pub::ApActor;
 
 use rocket::{
     http::Status,

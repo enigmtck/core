@@ -1,12 +1,9 @@
+use crate::db::Db;
 use crate::models::activities::get_activities_coalesced;
 use crate::models::activities::{get_outbox_count_by_actor_id, TimelineFilters};
 use crate::models::actors::Actor;
 use crate::SERVER_URL;
-use crate::{
-    activity_pub::{ActivityPub, ApActivity, ApCollection, ApObject},
-    db::Db,
-};
-
+use jdt_activity_pub::{ActivityPub, ApActivity, ApCollection, ApObject};
 pub async fn outbox_collection(conn: &Db, profile: Actor, base_url: Option<String>) -> ApObject {
     let server_url = &*SERVER_URL;
     let username = profile.ek_username.unwrap();
