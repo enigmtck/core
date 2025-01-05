@@ -2,6 +2,7 @@ use anyhow::Result;
 use clap::{Parser, Subcommand};
 use diesel_migrations::{embed_migrations, EmbeddedMigrations, MigrationHarness};
 use enigmatick::admin::create_user;
+use enigmatick::models::actors::ActorType;
 use enigmatick::{admin::NewUser, server};
 use enigmatick::{POOL, SYSTEM_USER};
 use rand::distributions::{Alphanumeric, DistString};
@@ -100,6 +101,7 @@ fn handle_system_user() -> Result<()> {
                 olm_pickled_account_hash: None,
                 olm_identity_key: None,
                 salt: None,
+                kind: Some(ActorType::Application),
             },
         )
         .await

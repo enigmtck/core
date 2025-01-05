@@ -1,7 +1,7 @@
 use crate::routes::Outbox;
 use jdt_activity_pub::{
-    ActivityPub, ApActivity, ApAddress, ApAttachment, ApContext, ApCreate, ApImage, ApInstrument,
-    ApNote, ApNoteType, ApObject, Ephemeral,
+    ApActivity, ApAddress, ApAttachment, ApContext, ApCreate, ApImage, ApInstrument, ApNote,
+    ApNoteType, ApObject, Ephemeral,
 };
 
 use crate::{
@@ -45,11 +45,11 @@ impl Outbox for ApNote {
         profile: Actor,
         raw: Value,
     ) -> Result<ActivityJson<ApActivity>, Status> {
-        outbox_note(conn, self.clone(), profile, raw).await
+        note_outbox(conn, self.clone(), profile, raw).await
     }
 }
 
-async fn outbox_note(
+async fn note_outbox(
     conn: Db,
     mut note: ApNote,
     profile: Actor,
@@ -106,7 +106,7 @@ async fn outbox_note(
 
         note.id = Some(get_object_ap_id_from_uuid(uuid.clone()));
         note.url = Some(get_object_url_from_uuid(uuid.clone()));
-        note.published = ActivityPub::time(Utc::now());
+        note.published = Utc::now().into();
         note.attributed_to = profile.as_id.clone().into();
 
         if note.conversation.is_none() {

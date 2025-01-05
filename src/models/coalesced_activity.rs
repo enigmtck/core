@@ -11,9 +11,9 @@ use diesel::prelude::*;
 use diesel::sql_types::{Bool, Integer, Jsonb, Nullable, Text, Timestamptz};
 use diesel::Queryable;
 use jdt_activity_pub::{
-    ActivityPub, ApActivity, ApAddress, ApAnnounce, ApContext, ApCreate, ApDelete, ApDeleteType,
-    ApFollow, ApFollowType, ApInstrument, ApInstrumentType, ApLike, ApLikeType, ApNote, ApObject,
-    ApQuestion, Ephemeral,
+    ActivityPub, ApActivity, ApAddress, ApAnnounce, ApContext, ApCreate, ApDateTime, ApDelete,
+    ApDeleteType, ApFollow, ApFollowType, ApInstrument, ApInstrumentType, ApLike, ApLikeType,
+    ApNote, ApObject, ApQuestion, Ephemeral,
 };
 use jdt_maybe_multiple::MaybeMultiple;
 use serde::{Deserialize, Serialize};
@@ -470,7 +470,7 @@ impl TryFrom<CoalescedActivity> for ApAnnounce {
         let context = Some(ApContext::default());
         let to = coalesced.clone().ap_to.into();
         let cc = coalesced.clone().cc.into();
-        let published = ActivityPub::time(coalesced.created_at);
+        let published = coalesced.created_at.into();
         let ephemeral = Some(Ephemeral {
             created_at: Some(coalesced.created_at),
             updated_at: Some(coalesced.updated_at),
@@ -516,7 +516,7 @@ impl TryFrom<CoalescedActivity> for ApCreate {
         let to = coalesced.ap_to.clone().into();
         let cc = coalesced.cc.clone().into();
         let signature = None;
-        let published = Some(ActivityPub::time(coalesced.created_at));
+        let published = Some(coalesced.created_at.into());
         let ephemeral = Some(Ephemeral {
             created_at: Some(coalesced.created_at),
             updated_at: Some(coalesced.updated_at),
@@ -650,7 +650,8 @@ impl TryFrom<CoalescedActivity> for ApNote {
         let sensitive = coalesced.object_sensitive;
         let published = coalesced
             .object_published
-            .ok_or_else(|| anyhow::anyhow!("object_published is None"))?;
+            .ok_or_else(|| anyhow::anyhow!("object_published is None"))?
+            .into();
         let ephemeral = Some(Ephemeral {
             metadata: coalesced.object_metadata.and_then(from_serde),
             announces: from_serde(coalesced.object_announcers),
@@ -676,7 +677,7 @@ impl TryFrom<CoalescedActivity> for ApNote {
             attachment,
             summary,
             sensitive,
-            published: ActivityPub::time(published),
+            published,
             ephemeral,
             instrument,
             ..Default::default()
@@ -718,8 +719,8 @@ impl TryFrom<CoalescedActivity> for ApQuestion {
         let attachment = coalesced.object_attachment.into();
         let summary = coalesced.object_summary;
         let sensitive = coalesced.object_sensitive;
-        let published = coalesced.object_published;
-        let end_time = coalesced.object_end_time;
+        let published = coalesced.object_published.map(ApDateTime::from);
+        let end_time = coalesced.object_end_time.map(ApDateTime::from);
         let one_of = coalesced.object_one_of.into();
         let any_of = coalesced.object_any_of.into();
         let voters_count = coalesced.object_voters_count;

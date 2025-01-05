@@ -6,9 +6,8 @@ use crate::models::objects::{Object, ObjectType};
 use crate::models::olm_sessions::OlmSession;
 use crate::models::parameter_generator;
 use crate::routes::inbox::InboxView;
-use crate::routes::{Inbox, Outbox};
 use crate::schema::{activities, actors, objects, olm_sessions, vault};
-use crate::{LoadEphemeral, POOL};
+use crate::POOL;
 use anyhow::{anyhow, Result};
 use chrono::{DateTime, Utc};
 use convert_case::{Case, Casing};
@@ -19,10 +18,9 @@ use diesel::{prelude::*, sql_query};
 use diesel::{AsChangeset, Identifiable, Insertable, Queryable};
 use jdt_activity_pub::PUBLIC_COLLECTION;
 use jdt_activity_pub::{
-    ActivityPub, ApAccept, ApAcceptType, ApActivity, ApActor, ApAddress, ApAnnounce,
-    ApAnnounceType, ApContext, ApCreate, ApCreateType, ApDelete, ApDeleteType, ApFollow,
-    ApFollowType, ApInstrument, ApLike, ApLikeType, ApNote, ApObject, ApUndo, ApUndoType,
-    ApUpdateType, Ephemeral,
+    ApAccept, ApAcceptType, ApActivity, ApAddress, ApAnnounce, ApAnnounceType, ApContext, ApCreate,
+    ApCreateType, ApDelete, ApDeleteType, ApFollow, ApFollowType, ApInstrument, ApLike, ApLikeType,
+    ApNote, ApObject, ApUndo, ApUndoType, ApUpdateType, Ephemeral,
 };
 use jdt_maybe_multiple::MaybeMultiple;
 use jdt_maybe_reference::MaybeReference;
@@ -762,7 +760,7 @@ impl TryFromExtendedActivity for ApAnnounce {
                 )),
                 to: activity.clone().ap_to.into(),
                 cc: activity.cc.into(),
-                published: ActivityPub::time(activity.created_at),
+                published: activity.created_at.into(),
                 object,
                 ephemeral: Some(Ephemeral {
                     created_at: Some(activity.created_at),
@@ -819,7 +817,7 @@ impl TryFromExtendedActivity for ApCreate {
             to: activity.ap_to.clone().into(),
             cc: activity.cc.into(),
             signature: None,
-            published: Some(ActivityPub::time(activity.created_at)),
+            published: Some(activity.created_at.into()),
             ephemeral: Some(Ephemeral {
                 created_at: Some(activity.created_at),
                 updated_at: Some(activity.updated_at),
@@ -1616,7 +1614,7 @@ impl TryFromEncryptedActivity for ApCreate {
             to: activity.ap_to.clone().into(),
             cc: activity.cc.into(),
             signature: None,
-            published: Some(ActivityPub::time(activity.created_at)),
+            published: Some(activity.created_at.into()),
             ephemeral: Some(Ephemeral {
                 created_at: Some(activity.created_at),
                 updated_at: Some(activity.updated_at),

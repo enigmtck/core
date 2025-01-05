@@ -22,11 +22,11 @@ impl Outbox for ApAnnounce {
         profile: Actor,
         raw: Value,
     ) -> Result<ActivityJson<ApActivity>, Status> {
-        outbox(conn, self.clone(), profile, raw).await
+        announce_outbox(conn, self.clone(), profile, raw).await
     }
 }
 
-async fn outbox(
+async fn announce_outbox(
     conn: Db,
     announce: ApAnnounce,
     _profile: Actor,

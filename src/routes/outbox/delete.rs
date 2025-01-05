@@ -28,11 +28,11 @@ impl Outbox for Box<ApDelete> {
         profile: Actor,
         raw: Value,
     ) -> Result<ActivityJson<ApActivity>, Status> {
-        outbox(conn, *self.clone(), profile, raw).await
+        delete_outbox(conn, *self.clone(), profile, raw).await
     }
 }
 
-async fn outbox(
+async fn delete_outbox(
     conn: Db,
     delete: ApDelete,
     _profile: Actor,

@@ -27,11 +27,11 @@ impl Outbox for Box<ApUndo> {
         profile: Actor,
         raw: Value,
     ) -> Result<ActivityJson<ApActivity>, Status> {
-        outbox(conn, *self.clone(), profile, raw).await
+        undo_outbox(conn, *self.clone(), profile, raw).await
     }
 }
 
-async fn outbox(
+async fn undo_outbox(
     conn: Db,
     undo: ApUndo,
     profile: Actor,

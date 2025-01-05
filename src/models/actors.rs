@@ -1,11 +1,9 @@
 use std::collections::HashSet;
 
 use crate::db::Db;
-use crate::models::followers::get_follower_count_by_actor_id;
 use crate::models::leaders::Leader;
-use crate::models::leaders::{get_leader_by_actor_id_and_ap_id, get_leader_count_by_actor_id};
 use crate::schema::actors;
-use crate::{GetHashtags, LoadEphemeral, POOL};
+use crate::{GetHashtags, POOL};
 use anyhow::{anyhow, Result};
 use chrono::{DateTime, Duration, Utc};
 use convert_case::{Case, Casing};
@@ -14,8 +12,8 @@ use diesel::sql_query;
 use diesel::{AsChangeset, Identifiable, Insertable, Queryable};
 use jdt_activity_pub::ApAddress;
 use jdt_activity_pub::{
-    ActivityPub, ApActor, ApActorTerse, ApActorType, ApContext, ApInstrument, ApInstrumentType,
-    Ephemeral,
+    ActivityPub, ApActor, ApActorTerse, ApActorType, ApContext, ApDateTime, ApInstrument,
+    ApInstrumentType, Ephemeral,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -142,23 +140,6 @@ impl From<Actor> for Vec<ApInstrument> {
         instruments
     }
 }
-
-// impl ApInstrument {
-//     pub fn from_actor_olm_account(actor: Actor) -> Self {
-//         ApInstrument {
-//             kind: ApInstrumentType::OlmAccount,
-//             id: Some(format!("{}#olm-account", actor.as_id)),
-//             content: actor.ek_olm_pickled_account,
-//             hash: actor.ek_olm_pickled_account_hash,
-//             uuid: None,
-//             name: None,
-//             url: None,
-//             mutation_of: None,
-//             conversation: None,
-//             activity: None,
-//         }
-//     }
-// }
 
 #[derive(Serialize, Deserialize, Insertable, Default, Debug, AsChangeset)]
 #[diesel(table_name = actors)]
@@ -353,7 +334,7 @@ impl From<Actor> for ApActor {
         let featured = actor.as_featured;
         let featured_tags = actor.as_featured_tags;
         let manually_approves_followers = Some(actor.ap_manually_approves_followers);
-        let published = actor.as_published.map(ActivityPub::time);
+        let published = actor.as_published.map(ApDateTime::from);
         let liked = actor.as_liked;
         let public_key = actor
             .as_public_key
@@ -571,11 +552,7 @@ impl TryFrom<ApActor> for NewActor {
         let as_featured_tags = actor.featured_tags;
         let as_url = (&actor.url.clone()).into();
         let ap_manually_approves_followers = actor.manually_approves_followers.unwrap_or_default();
-        let as_published = actor.published.and_then(|x| {
-            x.parse::<DateTime<chrono::FixedOffset>>()
-                .ok()
-                .map(|dt| dt.with_timezone(&Utc))
-        });
+        let as_published = actor.published.as_deref().cloned();
         let as_tag = actor.tag.into();
         let as_attachment = actor.attachment.into();
         let as_endpoints = actor.endpoints.map_or(json!({}), |x| json!(x));

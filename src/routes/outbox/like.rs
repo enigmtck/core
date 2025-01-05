@@ -25,11 +25,11 @@ impl Outbox for Box<ApLike> {
         profile: Actor,
         raw: Value,
     ) -> Result<ActivityJson<ApActivity>, Status> {
-        outbox(conn, *self.clone(), profile, raw).await
+        like_outbox(conn, *self.clone(), profile, raw).await
     }
 }
 
-async fn outbox(
+async fn like_outbox(
     conn: Db,
     like: ApLike,
     _profile: Actor,

@@ -26,11 +26,11 @@ impl Outbox for ApFollow {
         profile: Actor,
         raw: Value,
     ) -> Result<ActivityJson<ApActivity>, Status> {
-        outbox(conn, self.clone(), profile, raw).await
+        follow_outbox(conn, self.clone(), profile, raw).await
     }
 }
 
-async fn outbox(
+async fn follow_outbox(
     conn: Db,
     follow: ApFollow,
     profile: Actor,

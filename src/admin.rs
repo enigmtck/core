@@ -76,6 +76,7 @@ pub struct NewUser {
     pub olm_pickled_account_hash: Option<String>,
     pub olm_identity_key: Option<String>,
     pub salt: Option<String>,
+    pub kind: Option<ActorType>,
 }
 
 pub async fn create_user(conn: Option<&Db>, user: NewUser) -> Result<Actor> {
@@ -152,7 +153,7 @@ pub async fn create_user(conn: Option<&Db>, user: NewUser) -> Result<Actor> {
         ek_banner_filename: None,
         ek_checked_at: Utc::now(),
         ek_hashtags: json!([]),
-        as_type: ActorType::Person,
+        as_type: user.kind.unwrap_or(ActorType::Person),
         as_attachment: json!([]),
         as_context: Some(json!(ApContext::default())),
         as_featured: None,

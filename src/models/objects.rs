@@ -1,18 +1,19 @@
 use super::actors::Actor;
-use super::{actors::get_actor_by_as_id, coalesced_activity::CoalescedActivity, from_serde};
+use super::{coalesced_activity::CoalescedActivity, from_serde};
 use crate::db::Db;
 use crate::schema::objects;
-use crate::{retriever, POOL};
+use crate::POOL;
 use anyhow::{anyhow, Result};
 use chrono::{DateTime, Utc};
 use convert_case::{Case, Casing};
 use diesel::prelude::*;
 use diesel::{AsChangeset, Identifiable, Insertable, Queryable};
 use jdt_activity_pub::{
-    ActivityPub, ApActor, ApAddress, ApHashtag, ApNote, ApNoteType, ApObject, ApQuestion,
-    ApQuestionType, Ephemeral,
+    ApAddress, ApDateTime, ApHashtag, ApNote, ApNoteType, ApObject, ApQuestion, ApQuestionType,
+    Ephemeral,
 };
 use jdt_maybe_multiple::MaybeMultiple;
+use jdt_maybe_reference::MaybeReference;
 use maplit::{hashmap, hashset};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -333,12 +334,7 @@ impl From<ApNote> for NewObject {
                 ],
             ]);
 
-        let published: Option<DateTime<Utc>> = note
-            .clone()
-            .published
-            .parse::<DateTime<chrono::FixedOffset>>()
-            .ok()
-            .map(|dt| dt.with_timezone(&Utc));
+        let published: Option<DateTime<Utc>> = Some(*note.clone().published);
 
         let clean_content_map = {
             let mut content_map = HashMap::<String, String>::new();
@@ -365,7 +361,7 @@ impl From<ApNote> for NewObject {
             as_attributed_to: Some(json!(note.attributed_to)),
             as_to: note.to.into(),
             as_cc: note.cc.into(),
-            as_replies: note.replies.map(|x| json!(x)),
+            as_replies: note.replies.into(),
             as_tag: note.tag.into(),
             as_content: Some(ammonia.clean(&note.content).to_string()),
             as_summary: note.summary.map(|x| ammonia.clean(&x).to_string()),
@@ -389,8 +385,8 @@ impl From<ApQuestion> for NewObject {
             as_id: question.id,
             as_to: question.to.into(),
             as_cc: question.cc.into(),
-            as_end_time: question.end_time,
-            as_published: question.published,
+            as_end_time: question.end_time.as_deref().cloned(),
+            as_published: question.published.as_deref().cloned(),
             as_one_of: question.one_of.into(),
             as_any_of: question.any_of.into(),
             as_content: question.content,
@@ -439,7 +435,7 @@ impl TryFrom<Object> for ApNote {
             Ok(ApNote {
                 id: Some(object.as_id.clone()),
                 kind: object.as_type.try_into()?,
-                published: ActivityPub::time(object.as_published.unwrap_or(Utc::now())),
+                published: object.as_published.unwrap_or(Utc::now()).into(),
                 url: object.as_url.clone().and_then(from_serde),
                 to: object
                     .as_to
@@ -453,7 +449,10 @@ impl TryFrom<Object> for ApNote {
                 )
                 .ok_or(anyhow!("failed to convert from Value"))?,
                 content: object.as_content.clone().ok_or(anyhow!("no content"))?,
-                replies: object.as_replies.clone().and_then(from_serde),
+                replies: object
+                    .as_replies
+                    .clone()
+                    .map_or_else(|| MaybeReference::None, |x| x.into()),
                 in_reply_to: object.as_in_reply_to.clone().and_then(from_serde),
                 attachment: object.as_attachment.clone().into(),
                 conversation: object.ap_conversation.clone(),
@@ -502,8 +501,8 @@ impl TryFrom<Object> for ApQuestion {
             to: from_serde(object.as_to.ok_or(anyhow!("as_to is None"))?)
                 .ok_or(anyhow!("failed to deserialize as_to"))?,
             cc: object.as_cc.into(),
-            end_time: object.as_end_time,
-            published: object.as_published,
+            end_time: object.as_end_time.map(ApDateTime::from),
+            published: object.as_published.map(ApDateTime::from),
             one_of: object.as_one_of.into(),
             any_of: object.as_any_of.into(),
             content: object.as_content,
