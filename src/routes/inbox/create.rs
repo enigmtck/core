@@ -5,6 +5,7 @@ use crate::{
     models::{
         activities::{create_activity, get_activity_by_ap_id, ActivityTarget, NewActivity},
         objects::{create_or_update_object, NewObject},
+        unprocessable::create_unprocessable,
     },
     runner,
 };
@@ -81,6 +82,11 @@ impl Inbox for ApCreate {
             }
             _ => {
                 log::error!("FAILED TO CREATE ACTIVITY\n{raw}");
+                create_unprocessable(
+                    &conn,
+                    (raw, Some("Create object not implemented".to_string())).into(),
+                )
+                .await;
                 Err(Status::NotImplemented)
             }
         }

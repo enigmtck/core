@@ -11,9 +11,9 @@ use diesel::prelude::*;
 use diesel::sql_types::{Bool, Integer, Jsonb, Nullable, Text, Timestamptz};
 use diesel::Queryable;
 use jdt_activity_pub::{
-    ActivityPub, ApActivity, ApAddress, ApAnnounce, ApContext, ApCreate, ApDateTime, ApDelete,
-    ApDeleteType, ApFollow, ApFollowType, ApInstrument, ApInstrumentType, ApLike, ApLikeType,
-    ApNote, ApObject, ApQuestion, Ephemeral,
+    ApActivity, ApAddress, ApAnnounce, ApContext, ApCreate, ApDateTime, ApDelete, ApDeleteType,
+    ApFollow, ApFollowType, ApInstrument, ApInstrumentType, ApLike, ApLikeType, ApNote, ApObject,
+    ApQuestion, Ephemeral,
 };
 use jdt_maybe_multiple::MaybeMultiple;
 use serde::{Deserialize, Serialize};
@@ -379,6 +379,15 @@ pub struct CoalescedActivity {
 
     #[diesel(sql_type = Nullable<Timestamptz>)]
     pub actor_last_decrypted_activity: Option<DateTime<Utc>>,
+
+    #[diesel(sql_type = Nullable<Text>)]
+    pub actor_mls_credentials: Option<String>,
+
+    #[diesel(sql_type = Nullable<Text>)]
+    pub actor_mls_storage: Option<String>,
+
+    #[diesel(sql_type = Nullable<Text>)]
+    pub actor_mls_storage_hash: Option<String>,
 
     // Vault Fields
     #[diesel(sql_type = Nullable<Integer>)]

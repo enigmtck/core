@@ -12,8 +12,8 @@ use diesel::sql_query;
 use diesel::{AsChangeset, Identifiable, Insertable, Queryable};
 use jdt_activity_pub::ApAddress;
 use jdt_activity_pub::{
-    ActivityPub, ApActor, ApActorTerse, ApActorType, ApContext, ApDateTime, ApInstrument,
-    ApInstrumentType, Ephemeral,
+    ApActor, ApActorTerse, ApActorType, ApContext, ApDateTime, ApInstrument, ApInstrumentType,
+    Ephemeral,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -262,6 +262,9 @@ pub struct Actor {
     pub ap_manually_approves_followers: bool,
     pub ek_keys: Option<String>,
     pub ek_last_decrypted_activity: DateTime<Utc>,
+    pub ek_mls_credentials: Option<String>,
+    pub ek_mls_storage: Option<String>,
+    pub ek_mls_storage_hash: Option<String>,
 }
 
 impl From<Actor> for ApActorTerse {
@@ -472,6 +475,9 @@ impl TryFrom<CoalescedActivity> for Actor {
         let ek_last_decrypted_activity = activity
             .actor_last_decrypted_activity
             .ok_or(anyhow!("no last_decrypted_activity"))?;
+        let ek_mls_credentials = activity.actor_mls_credentials;
+        let ek_mls_storage = activity.actor_mls_storage;
+        let ek_mls_storage_hash = activity.actor_mls_storage_hash;
 
         Ok(Actor {
             id,
@@ -520,6 +526,9 @@ impl TryFrom<CoalescedActivity> for Actor {
             ek_keys,
             ap_manually_approves_followers,
             ek_last_decrypted_activity,
+            ek_mls_credentials,
+            ek_mls_storage,
+            ek_mls_storage_hash,
         })
     }
 }
@@ -642,6 +651,51 @@ pub async fn create_or_update_actor(conn: Option<&Db>, actor: NewActor) -> Resul
                 .map_err(anyhow::Error::msg)
         }
     }
+}
+
+pub async fn set_mls_credentials_by_username(
+    conn: &Db,
+    username: String,
+    credentials: String,
+) -> Result<Actor> {
+    conn.run(move |c| {
+        diesel::update(actors::table)
+            .filter(
+                actors::ek_username
+                    .eq(username)
+                    .and(actors::ek_mls_credentials.is_null()),
+            )
+            .set(actors::ek_mls_credentials.eq(credentials))
+            .get_result::<Actor>(c)
+    })
+    .await
+    .map_err(anyhow::Error::msg)
+}
+
+pub async fn update_mls_storage_by_username(
+    conn: &Db,
+    username: String,
+    storage: String,
+    storage_hash: String,
+    mutation_of: Option<String>,
+) -> Result<Actor> {
+    conn.run(move |c| {
+        diesel::update(actors::table)
+            .filter(
+                actors::ek_username.eq(username).and(
+                    actors::ek_mls_storage_hash
+                        .eq(mutation_of)
+                        .or(actors::ek_mls_storage_hash.is_null()),
+                ),
+            )
+            .set((
+                actors::ek_mls_storage.eq(storage),
+                actors::ek_mls_storage_hash.eq(storage_hash),
+            ))
+            .get_result::<Actor>(c)
+    })
+    .await
+    .map_err(anyhow::Error::msg)
 }
 
 pub async fn update_olm_account_by_username(

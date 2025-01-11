@@ -17,7 +17,9 @@ use crate::models::unprocessable::create_unprocessable;
 use crate::retriever;
 use crate::signing::{verify, VerificationType};
 use crate::SERVER_URL;
-use jdt_activity_pub::{ActivityPub, ApActivity, ApActor, ApCollection, ApObject};
+use jdt_activity_pub::{
+    verify_jsonld_signature, ActivityPub, ApActivity, ApActor, ApCollection, ApObject,
+};
 use std::fmt;
 use urlencoding::encode;
 
@@ -229,15 +231,21 @@ pub async fn shared_inbox_post(
     let activity: ApActivity = match raw.clone().try_into() {
         Ok(activity) => activity,
         Err(e) => {
-            create_unprocessable(&conn, (raw, Some(format!("{e:#?}"))).into()).await;
+            create_unprocessable(&conn, (raw.clone(), Some(format!("{e:#?}"))).into()).await;
             return Err(Status::UnprocessableEntity);
         }
     };
 
+    let mut a = signed.actor();
+
     let is_authorized = if let Some(deferred) = signed.deferred() {
-        let actor = retriever::get_actor(&conn, activity.actor().to_string(), None, true).await;
+        let actor = retriever::get_actor(&conn, activity.actor().to_string(), None, true)
+            .await
+            .ok();
 
         log::debug!("Deferred Actor retrieved\n{actor:#?}");
+
+        a = actor;
 
         matches!(
             verify(&conn, deferred).await,
@@ -246,6 +254,15 @@ pub async fn shared_inbox_post(
     } else {
         signed.any()
     };
+
+    if let Some(actor) = a {
+        let public_key_pem = actor.public_key.public_key_pem;
+
+        match verify_jsonld_signature(raw.clone(), public_key_pem).await {
+            Ok(verified) => log::debug!("RsaSignature2017 Verification: {verified:#?}"),
+            Err(e) => log::debug!("RsaSignature2017 Verification Error: {e}"),
+        }
+    }
 
     if is_authorized {
         activity.inbox(conn, raw).await

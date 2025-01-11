@@ -1,5 +1,6 @@
 use anyhow::{anyhow, Result};
 use chrono::{DateTime, Utc};
+use jdt_activity_pub::ApAddress;
 use serde::{Deserialize, Serialize};
 
 use super::actors::Actor;
@@ -9,6 +10,7 @@ pub struct Profile {
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
     pub uuid: String,
+    pub id: ApAddress,
     pub username: String,
     pub display_name: String,
     pub summary: Option<String>,
@@ -34,6 +36,7 @@ impl TryFrom<Actor> for Profile {
             created_at: actor.created_at,
             updated_at: actor.updated_at,
             uuid: actor.ek_uuid.ok_or(anyhow!("no uuid"))?,
+            id: actor.as_id.into(),
             username: actor.ek_username.ok_or(anyhow!("no username"))?,
             display_name: actor.as_name.ok_or(anyhow!("no name"))?,
             summary: actor.as_summary,

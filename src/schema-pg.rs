@@ -96,6 +96,9 @@ diesel::table! {
         ap_manually_approves_followers -> Bool,
         ek_keys -> Nullable<Text>,
         ek_last_decrypted_activity -> Timestamptz,
+        ek_mls_credentials -> Nullable<Text>,
+        ek_mls_storage -> Nullable<Text>,
+        ek_mls_storage_hash -> Nullable<Text>,
     }
 }
 
@@ -188,6 +191,19 @@ diesel::table! {
         accepted -> Nullable<Bool>,
         follow_ap_id -> Nullable<Varchar>,
         actor_id -> Int4,
+    }
+}
+
+diesel::table! {
+    mls_key_packages (id) {
+        id -> Int4,
+        created_at -> Timestamptz,
+        updated_at -> Timestamptz,
+        uuid -> Text,
+        actor_id -> Int4,
+        key_data -> Text,
+        distributed -> Bool,
+        assignee -> Nullable<Text>,
     }
 }
 
@@ -296,7 +312,6 @@ diesel::table! {
         id -> Int4,
         created_at -> Timestamptz,
         updated_at -> Timestamptz,
-        profile_id -> Int4,
         ap_id -> Varchar,
         ap_to -> Jsonb,
         cc -> Nullable<Jsonb>,
@@ -304,6 +319,7 @@ diesel::table! {
         kind -> Varchar,
         ap_object -> Jsonb,
         processed -> Bool,
+        profile_id -> Int4,
     }
 }
 
@@ -358,6 +374,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     hashtag_trend,
     instances,
     leaders,
+    mls_key_packages,
     notifications,
     objects,
     olm_one_time_keys,

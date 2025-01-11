@@ -69,6 +69,21 @@ impl Inbox for ApActivity {
             ApActivity::Add(add) => add.inbox(conn, raw).await,
         }
     }
+
+    fn actor(&self) -> ApAddress {
+        match self {
+            ApActivity::Delete(delete) => delete.actor.clone(),
+            ApActivity::Like(like) => like.actor.clone(),
+            ApActivity::Undo(undo) => undo.actor.clone(),
+            ApActivity::Accept(accept) => accept.actor.clone(),
+            ApActivity::Follow(follow) => follow.actor.clone(),
+            ApActivity::Announce(announce) => announce.actor.clone(),
+            ApActivity::Create(create) => create.actor.clone(),
+            ApActivity::Update(update) => update.actor.clone(),
+            ApActivity::Block(block) => block.actor.clone(),
+            ApActivity::Add(add) => add.actor.clone(),
+        }
+    }
 }
 
 #[enum_dispatch(ApActivity, ApObject)]

@@ -16,12 +16,12 @@ use diesel::query_builder::{BoxedSqlQuery, SqlQuery};
 use diesel::sql_types::Nullable;
 use diesel::{prelude::*, sql_query};
 use diesel::{AsChangeset, Identifiable, Insertable, Queryable};
-use jdt_activity_pub::PUBLIC_COLLECTION;
 use jdt_activity_pub::{
     ApAccept, ApAcceptType, ApActivity, ApAddress, ApAnnounce, ApAnnounceType, ApContext, ApCreate,
     ApCreateType, ApDelete, ApDeleteType, ApFollow, ApFollowType, ApInstrument, ApLike, ApLikeType,
     ApNote, ApObject, ApUndo, ApUndoType, ApUpdateType, Ephemeral,
 };
+use jdt_activity_pub::{ApUpdate, PUBLIC_COLLECTION};
 use jdt_maybe_multiple::MaybeMultiple;
 use jdt_maybe_reference::MaybeReference;
 use serde::{Deserialize, Serialize};
@@ -184,6 +184,7 @@ impl From<ApLikeType> for ActivityType {
     }
 }
 
+#[derive(Clone)]
 pub enum ActivityTarget {
     Object(Object),
     Activity(Activity),
@@ -463,12 +464,13 @@ impl TryFrom<ApActivityTarget> for NewActivity {
             .link_target(target)
             .clone()),
             ApActivity::Accept(accept) => {
-                if let MaybeReference::Actual(ApActivity::Follow(follow)) = accept.object {
+                if let Some(ActivityTarget::Activity(follow)) = target.clone() {
+                    //if let MaybeReference::Actual(ApActivity::Follow(follow)) = accept.object {
                     Ok(NewActivity {
                         kind: accept.kind.into(),
                         uuid: uuid.clone(),
                         actor: accept.actor.to_string(),
-                        target_ap_id: follow.id,
+                        target_ap_id: follow.ap_id,
                         revoked: false,
                         ap_id: accept
                             .id
@@ -478,7 +480,8 @@ impl TryFrom<ApActivityTarget> for NewActivity {
                     .link_target(target)
                     .clone())
                 } else {
-                    Err(anyhow!("ACCEPT OBJECT NOT AN ACTUAL"))
+                    //Err(anyhow!("ACCEPT OBJECT NOT AN ACTUAL"))
+                    Err(anyhow!("Unable to locate Follow"))
                 }
             }
             ApActivity::Update(update) => match update.object {
@@ -521,6 +524,16 @@ impl TryFrom<ApActivityTarget> for NewActivity {
                 }
                 .link_target(target)
                 .clone()),
+                MaybeReference::Actual(ApObject::Collection(_)) => Ok(NewActivity {
+                    kind: update.kind.into(),
+                    uuid: uuid.clone(),
+                    actor: update.actor.to_string(),
+                    revoked: false,
+                    ap_id: update
+                        .id
+                        .map_or(Some(get_activity_ap_id_from_uuid(uuid)), Some),
+                    ..Default::default()
+                }),
                 _ => Err(anyhow!("UPDATE OBJECT NOT IMPLEMENTED")),
             },
             ApActivity::Undo(undo) => match undo.object {
@@ -699,6 +712,13 @@ impl TryFromExtendedActivity for ApActivity {
                 target_actor,
             ))
             .map(|accept| ApActivity::Accept(Box::new(accept))),
+            ActivityType::Update => ApUpdate::try_from_extended_activity((
+                activity,
+                target_activity,
+                target_object,
+                target_actor,
+            ))
+            .map(|update| ApActivity::Update(update)),
             _ => {
                 log::error!(
                     "Failed to match implemented activity in TryFrom for ApActivity\nACTIVITY: {activity:#?}\nTARGET_ACTIVITY: {target_activity:#?}\nTARGET_OBJECT: {target_object:#?}\nTARGET_ACTOR {target_actor:#?}"
@@ -706,6 +726,25 @@ impl TryFromExtendedActivity for ApActivity {
                 Err(anyhow!("Failed to match implemented activity"))
             }
         }
+    }
+}
+
+impl TryFromExtendedActivity for ApUpdate {
+    type Error = anyhow::Error;
+
+    fn try_from_extended_activity(
+        (activity, _target_activity, _target_object, _target_actor): ExtendedActivity,
+    ) -> Result<Self, Self::Error> {
+        // I wrote this with updating a collection of instruments in mind; for Actor or Object
+        // updates, we probably want to do more here
+        Ok(ApUpdate {
+            context: Some(ApContext::default()),
+            kind: ApUpdateType::default(),
+            actor: activity.actor.clone().into(),
+            id: Some(activity.ap_id.ok_or(anyhow!("Update must have an ap_id"))?),
+            object: MaybeReference::None,
+            ..Default::default()
+        })
     }
 }
 
@@ -1092,7 +1131,10 @@ fn query_initial_block() -> String {
      COALESCE(ta.ap_capabilities, ta2.ap_capabilities) AS actor_capabilities,\
      COALESCE(ta.ek_keys, ta2.ek_keys) AS actor_keys,\
      COALESCE(ta.ek_last_decrypted_activity, ta2.ek_last_decrypted_activity) AS actor_last_decrypted_activity,\
-     COALESCE(ta.ap_manually_approves_followers, ta2.ap_manually_approves_followers) AS actor_manually_approves_followers ".to_string()
+     COALESCE(ta.ap_manually_approves_followers, ta2.ap_manually_approves_followers) AS actor_manually_approves_followers,\
+     COALESCE(ta.ek_mls_credentials, ta2.ek_mls_credentials) AS actor_mls_credentials,\
+     COALESCE(ta.ek_mls_storage, ta2.ek_mls_storage) AS actor_mls_storage,\
+     COALESCE(ta.ek_mls_storage_hash, ta2.ek_mls_storage_hash) AS actor_mls_storage_hash ".to_string()
 }
 
 fn query_end_block(mut query: String) -> String {
@@ -1141,8 +1183,8 @@ fn query_end_block(mut query: String) -> String {
          m.actor_following, m.actor_liked, m.actor_public_key, m.actor_featured, m.actor_featured_tags, m.actor_url,\
          m.actor_published, m.actor_tag, m.actor_attachment, m.actor_endpoints, m.actor_icon, m.actor_image,\
          m.actor_also_known_as, m.actor_discoverable, m.actor_capabilities, m.actor_keys,\
-         m.actor_last_decrypted_activity, m.actor_manually_approves_followers,\
-         announced.object_announced, liked.object_liked, vaulted.vault_id,\
+         m.actor_last_decrypted_activity, m.actor_manually_approves_followers, m.actor_mls_credentials,\
+         m.actor_mls_storage, m.actor_mls_storage_hash ,announced.object_announced, liked.object_liked, vaulted.vault_id,\
          vaulted.vault_created_at, vaulted.vault_updated_at, vaulted.vault_uuid, vaulted.vault_owner_as_id,\
          vaulted.vault_activity_id, vaulted.vault_data, olm.olm_data, olm.olm_hash, olm.olm_conversation,\
          olm.olm_created_at, olm.olm_updated_at, olm.olm_owner, olm.olm_uuid, olm.olm_owner_id ");

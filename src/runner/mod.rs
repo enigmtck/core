@@ -110,7 +110,7 @@ async fn process_inbox(
 
     let request = client
         .post(inbox.to_string())
-        .timeout(std::time::Duration::new(5, 0))
+        .timeout(std::time::Duration::new(10, 0))
         .header("Date", signature.date)
         .header("Digest", signature.digest.unwrap())
         .header("Signature", &signature.signature)
