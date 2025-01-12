@@ -8,8 +8,8 @@ use crate::{
         activities::{
             get_encrypted_activities, lookup_activity_id_by_as_id, TryFromEncryptedActivity,
         },
-        actors::get_actor_by_username,
-        actors::update_olm_account_by_username,
+        actors::{get_actor_by_username, update_olm_account_by_username},
+        mls_key_packages::{get_mkp_count_by_profile_id, get_next_mkp_by_actor_id},
         olm_one_time_keys::{
             create_olm_one_time_key, get_next_otk_by_profile_id, get_otk_count_by_profile_id,
         },
@@ -312,6 +312,55 @@ pub async fn keys_get(
             .await
             .map_err(|e| {
                 log::error!("Failed to retrieve OTK count: {e:#?}");
+                Status::InternalServerError
+            })?;
+
+        let mut collection = ApCollection::default();
+        collection.total_items = Some(count as i64);
+        collection.id = Some(format!(
+            "https://{}/user/{username}/keys",
+            *crate::SERVER_NAME
+        ));
+
+        Ok(ActivityJson(Json(collection.into())))
+    }
+}
+
+#[get("/user/<username>/keys?<mkp>", format = "application/activity+json")]
+pub async fn keys_mkp_get(
+    signed: Signed,
+    conn: Db,
+    username: String,
+    mkp: Option<bool>,
+) -> Result<ActivityJson<ApObject>, Status> {
+    let profile = get_actor_by_username(&conn, username.clone())
+        .await
+        .ok_or(Status::NotFound)?;
+
+    // Requests for KeyPackages should come via the external path (i.e., signed.actor() not
+    // signed.profile()). The WASM login process does call this endpoint to check for the
+    // key population, so the 'else' path allows for unsigned access to the collection
+    // description.
+    if signed.actor().is_some_and(|x| x.id.is_some()) && mkp.is_some_and(|x| x) {
+        let mkp = get_next_mkp_by_actor_id(
+            &conn,
+            signed.actor().unwrap().id.unwrap().to_string(),
+            profile.id,
+        )
+        .await
+        .map_err(|e| {
+            log::error!("Failed to get MKP: {e:#?}");
+            Status::NotFound
+        })?;
+
+        Ok(ActivityJson(Json(
+            ApCollection::from(vec![mkp.into()]).into(),
+        )))
+    } else {
+        let count = get_mkp_count_by_profile_id(&conn, profile.id)
+            .await
+            .map_err(|e| {
+                log::error!("Failed to retrieve MKP count: {e:#?}");
                 Status::InternalServerError
             })?;
 

@@ -231,6 +231,7 @@ fn rocket() -> Rocket<Build> {
                 authenticate_user,
                 add_one_time_keys,
                 keys_get,
+                keys_mkp_get,
                 //get_processing_queue,
                 //update_processing_queue_item,
                 //get_olm_session,
