@@ -213,6 +213,7 @@ fn rocket() -> Rocket<Build> {
                 person_redirect,
                 person_activity_json,
                 person_ld_json,
+                person_post,
                 webfinger_jrd_json,
                 webfinger_activity_json,
                 webfinger_json,

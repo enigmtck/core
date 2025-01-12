@@ -718,7 +718,7 @@ impl TryFromExtendedActivity for ApActivity {
                 target_object,
                 target_actor,
             ))
-            .map(|update| ApActivity::Update(update)),
+            .map(ApActivity::Update),
             _ => {
                 log::error!(
                     "Failed to match implemented activity in TryFrom for ApActivity\nACTIVITY: {activity:#?}\nTARGET_ACTIVITY: {target_activity:#?}\nTARGET_OBJECT: {target_object:#?}\nTARGET_ACTOR {target_actor:#?}"
@@ -733,7 +733,7 @@ impl TryFromExtendedActivity for ApUpdate {
     type Error = anyhow::Error;
 
     fn try_from_extended_activity(
-        (activity, _target_activity, _target_object, _target_actor): ExtendedActivity,
+        (activity, _target_activity, _target_object, target_actor): ExtendedActivity,
     ) -> Result<Self, Self::Error> {
         // I wrote this with updating a collection of instruments in mind; for Actor or Object
         // updates, we probably want to do more here

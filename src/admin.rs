@@ -146,6 +146,7 @@ pub async fn create_user(conn: Option<&Db>, user: NewUser) -> Result<Actor> {
             url: format!("{server_url}/{avatar}"),
             kind: ApImageType::Image,
             media_type: Some("image/png".to_string()),
+            ..Default::default()
         }),
         as_image: json!("{}"),
         ek_webfinger: Some(format!("@{username}@{server_name}")),

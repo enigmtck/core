@@ -60,7 +60,7 @@ jdt_maybe_multiple = "0.1.0"
 #jdt_maybe_reference = { path = "../../libs/maybe_reference/" }
 jdt_maybe_reference = "0.1.6"
 #jdt_activity_pub = { path = "../../libs/activity_pub/" }
-jdt_activity_pub = "0.1.17"
+jdt_activity_pub = "0.1.19"
 
 [dependencies.rocket_sync_db_pools]
 version = "0.1.0"

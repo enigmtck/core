@@ -106,6 +106,7 @@ fn process_banner(filename: String) -> Option<ApImage> {
             kind: ApImageType::Image,
             media_type: Some("image/png".to_string()),
             url: format!("{}/media/banners/{}", *crate::SERVER_URL, filename),
+            ..Default::default()
         })
     } else {
         None
@@ -148,6 +149,7 @@ fn process_avatar(filename: String) -> Option<ApImage> {
             kind: ApImageType::Image,
             media_type: Some("image/png".to_string()),
             url: format!("{}/media/avatars/{}", *crate::SERVER_URL, filename),
+            ..Default::default()
         })
     } else {
         None
