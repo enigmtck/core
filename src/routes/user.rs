@@ -2,7 +2,6 @@ use crate::{
     db::Db,
     fairings::signatures::Signed,
     models::{
-        activities::{create_activity, NewActivity, TryFromExtendedActivity},
         actors::{
             get_actor_by_username, set_mls_credentials_by_username, update_mls_storage_by_username,
             Actor,
@@ -16,10 +15,9 @@ use crate::{
     LoadEphemeral,
 };
 use jdt_activity_pub::{
-    ActivityPub, ApActivity, ApActor, ApCollection, ApInstrument, ApInstrumentType, ApObject,
-    Collectible, FollowersPage, LeadersPage,
+    ActivityPub, ApActor, ApCollection, ApInstrument, ApInstrumentType, ApObject, Collectible,
+    FollowersPage, LeadersPage,
 };
-use jdt_maybe_reference::MaybeReference;
 use rocket::{get, http::Status, response::Redirect, serde::json::Json};
 use serde_json::Value;
 

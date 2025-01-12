@@ -733,7 +733,7 @@ impl TryFromExtendedActivity for ApUpdate {
     type Error = anyhow::Error;
 
     fn try_from_extended_activity(
-        (activity, _target_activity, _target_object, target_actor): ExtendedActivity,
+        (activity, _target_activity, _target_object, _target_actor): ExtendedActivity,
     ) -> Result<Self, Self::Error> {
         // I wrote this with updating a collection of instruments in mind; for Actor or Object
         // updates, we probably want to do more here

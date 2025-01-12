@@ -217,7 +217,7 @@ pub trait LoadEphemeral {
 }
 
 impl LoadEphemeral for ApNote {
-    async fn load_ephemeral(&mut self, conn: &Db, requester: Option<Actor>) -> Self {
+    async fn load_ephemeral(&mut self, conn: &Db, _requester: Option<Actor>) -> Self {
         if let Ok(actor) = get_actor_by_as_id(conn, self.attributed_to.to_string()).await {
             let mut ephemeral = self.ephemeral.clone().unwrap_or_default();
             ephemeral.attributed_to = Some(vec![actor.into()]);
@@ -273,7 +273,7 @@ impl LoadEphemeral for ApActor {
 }
 
 impl LoadEphemeral for ApObject {
-    async fn load_ephemeral(&mut self, conn: &Db, requester: Option<Actor>) -> Self {
+    async fn load_ephemeral(&mut self, conn: &Db, _requester: Option<Actor>) -> Self {
         match self {
             ApObject::Note(ref mut note) => {
                 if let Ok(actor) =

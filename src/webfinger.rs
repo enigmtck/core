@@ -1,7 +1,5 @@
-use crate::{models::actors::Actor, DOMAIN_RE, WEBFINGER_ACCT_RE};
+use crate::{models::actors::Actor, WEBFINGER_ACCT_RE};
 use anyhow::Result;
-use jdt_activity_pub::{ApActor, ApTag};
-use jdt_maybe_multiple::MaybeMultiple;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 

@@ -3,7 +3,6 @@ use crate::{
     db::Db,
     models::actors::{get_actor_by_as_id, guaranteed_actor, Actor},
     retriever::get_actor,
-    routes::inbox,
 };
 use jdt_activity_pub::{ApActor, ApContext, ApFollow};
 use jdt_maybe_multiple::MaybeMultiple;
@@ -83,8 +82,8 @@ pub async fn relay_post(_ip: IpRestriction, conn: Db, actor: String) -> Result<S
         None
     };
 
-    if let (Some(inbox), Some(actor)) = (inbox, actor) {
-        let follow = ApFollow {
+    if let (Some(_inbox), Some(actor)) = (inbox, actor) {
+        let _follow = ApFollow {
             context: Some(ApContext::activity_streams()),
             actor: profile.as_id.into(),
             to: MaybeMultiple::Single(actor.id.unwrap_or_default()),
