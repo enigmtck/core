@@ -230,7 +230,7 @@ fn rocket() -> Rocket<Build> {
                 create_user,
                 authenticate_user,
                 add_one_time_keys,
-                keys_get,
+                //keys_get,
                 keys_mkp_get,
                 //get_processing_queue,
                 //update_processing_queue_item,

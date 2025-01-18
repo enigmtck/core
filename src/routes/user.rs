@@ -2,14 +2,17 @@ use crate::{
     db::Db,
     fairings::signatures::Signed,
     models::{
+        activities::lookup_activity_id_by_as_id,
         actors::{
             get_actor_by_username, set_mls_credentials_by_username, update_mls_storage_by_username,
             Actor,
         },
         followers::{get_follower_count_by_actor_id, get_followers_by_actor_id},
         leaders::{get_leader_count_by_actor_id, get_leaders_by_actor_id},
+        mls_group_conversations::create_mls_group_conversation,
         mls_key_packages::create_mls_key_package,
         unprocessable::create_unprocessable,
+        vault::{create_vault_item, VaultItemParams},
         OffsetPaging,
     },
     LoadEphemeral,
@@ -33,16 +36,16 @@ async fn process_collection_items(
     for item in items {
         if let ActivityPub::Object(ApObject::Instrument(instrument)) = item {
             log::debug!("Updating Instrument: {instrument:#?}");
-            process_instrument(conn, profile, instrument).await?;
+            process_instrument(conn, profile, &instrument).await?;
         }
     }
     Ok(())
 }
 
-async fn process_instrument(
+pub async fn process_instrument(
     conn: &Db,
     profile: &Actor,
-    instrument: ApInstrument,
+    instrument: &ApInstrument,
 ) -> Result<(), Status> {
     let username = profile
         .ek_username
@@ -50,8 +53,26 @@ async fn process_instrument(
         .ok_or(Status::InternalServerError)?;
 
     match instrument.kind {
+        ApInstrumentType::MlsGroupId => {
+            let content = instrument.content.clone().ok_or_else(|| {
+                log::debug!("MlsGroupId content must be Some");
+                Status::UnprocessableEntity
+            })?;
+
+            let conversation = instrument.clone().conversation.ok_or_else(|| {
+                log::error!("MlsGroupId conversation cannot be None");
+                Status::UnprocessableEntity
+            })?;
+
+            create_mls_group_conversation(conn, (profile.id, content, conversation).into())
+                .await
+                .map_err(|e| {
+                    log::error!("Failed to create or update GroupId: {e:#?}");
+                    Status::InternalServerError
+                })?;
+        }
         ApInstrumentType::MlsCredentials => {
-            let content = instrument.content.ok_or_else(|| {
+            let content = instrument.content.clone().ok_or_else(|| {
                 log::debug!("MlsCredentials content must be Some");
                 Status::UnprocessableEntity
             })?;
@@ -63,23 +84,29 @@ async fn process_instrument(
                 })?;
         }
         ApInstrumentType::MlsStorage => {
-            let content = instrument.content.ok_or_else(|| {
+            let content = instrument.content.clone().ok_or_else(|| {
                 log::debug!("MlsStorage content must be Some");
                 Status::UnprocessableEntity
             })?;
-            let hash = instrument.hash.ok_or_else(|| {
+            let hash = instrument.hash.clone().ok_or_else(|| {
                 log::debug!("MlsStorage hash must be Some");
                 Status::UnprocessableEntity
             })?;
-            update_mls_storage_by_username(conn, username, content, hash, instrument.mutation_of)
-                .await
-                .map_err(|e| {
-                    log::debug!("Failed to set Storage: {e:#?}");
-                    Status::InternalServerError
-                })?;
+            update_mls_storage_by_username(
+                conn,
+                username,
+                content,
+                hash,
+                instrument.mutation_of.clone(),
+            )
+            .await
+            .map_err(|e| {
+                log::debug!("Failed to set Storage: {e:#?}");
+                Status::InternalServerError
+            })?;
         }
         ApInstrumentType::MlsKeyPackage => {
-            let content = instrument.content.ok_or_else(|| {
+            let content = instrument.content.clone().ok_or_else(|| {
                 log::debug!("MlsKeyPackage content must be Some");
                 Status::UnprocessableEntity
             })?;
@@ -89,6 +116,43 @@ async fn process_instrument(
                     log::debug!("Failed to create KeyPackage: {e:#?}");
                     Status::InternalServerError
                 })?;
+        }
+        ApInstrumentType::VaultItem => {
+            let activity_id = lookup_activity_id_by_as_id(
+                conn,
+                instrument.activity.clone().ok_or_else(|| {
+                    log::error!("VaultItem Instrument must have an Activity");
+                    Status::UnprocessableEntity
+                })?,
+            )
+            .await
+            .map_err(|e| {
+                log::error!("Failed to lookup activity_id: {e:#?}");
+                Status::InternalServerError
+            })?;
+
+            log::debug!("Activity ID: {activity_id}");
+
+            let result = create_vault_item(
+                conn,
+                VaultItemParams {
+                    instrument: instrument.clone(),
+                    owner: profile.clone(),
+                    activity_id,
+                }
+                .try_into()
+                .map_err(|e| {
+                    log::error!("Failed to build NewVaultItem: {e:#?}");
+                    Status::UnprocessableEntity
+                })?,
+            )
+            .await
+            .map_err(|e| {
+                log::error!("Failed to create VaultItem: {e:#?}");
+                Status::InternalServerError
+            });
+
+            log::debug!("VaultItem insert result: {result:#?}");
         }
         _ => (),
     }

@@ -411,30 +411,27 @@ pub struct CoalescedActivity {
     #[diesel(sql_type = Nullable<Text>)]
     pub vault_data: Option<String>,
 
-    // Olm Session Fields
-    #[diesel(sql_type = Nullable<Text>)]
-    pub olm_data: Option<String>,
-
-    #[diesel(sql_type = Nullable<Text>)]
-    pub olm_hash: Option<String>,
-
-    #[diesel(sql_type = Nullable<Text>)]
-    pub olm_uuid: Option<String>,
-
-    #[diesel(sql_type = Nullable<Text>)]
-    pub olm_conversation: Option<String>,
+    // MlsGroupId Fields
+    #[diesel(sql_type = Nullable<Integer>)]
+    pub mls_group_id_id: Option<i32>,
 
     #[diesel(sql_type = Nullable<Timestamptz>)]
-    pub olm_created_at: Option<DateTime<Utc>>,
+    pub mls_group_id_created_at: Option<DateTime<Utc>>,
 
     #[diesel(sql_type = Nullable<Timestamptz>)]
-    pub olm_updated_at: Option<DateTime<Utc>>,
+    pub mls_group_id_updated_at: Option<DateTime<Utc>>,
 
     #[diesel(sql_type = Nullable<Text>)]
-    pub olm_owner: Option<String>,
+    pub mls_group_id_uuid: Option<String>,
 
     #[diesel(sql_type = Nullable<Integer>)]
-    pub olm_owner_id: Option<i32>,
+    pub mls_group_id_actor_id: Option<i32>,
+
+    #[diesel(sql_type = Nullable<Text>)]
+    pub mls_group_id_conversation: Option<String>,
+
+    #[diesel(sql_type = Nullable<Text>)]
+    pub mls_group_id_mls_group: Option<String>,
 }
 
 impl TryFrom<CoalescedActivity> for ApActivity {
@@ -670,7 +667,7 @@ impl TryFrom<CoalescedActivity> for ApNote {
             attributed_to: from_serde(coalesced.object_attributed_to_profiles),
             ..Default::default()
         });
-        let instrument = coalesced.object_instrument.and_then(from_serde);
+        let instrument = coalesced.object_instrument.into();
 
         Ok(ApNote {
             kind,
@@ -792,30 +789,34 @@ impl TryFrom<CoalescedActivity> for Vec<ApInstrument> {
             });
         }
 
-        if coalesced.olm_data.is_some() {
+        if coalesced.mls_group_id_mls_group.is_some() {
             instruments.push(ApInstrument {
-                kind: ApInstrumentType::OlmSession,
+                kind: ApInstrumentType::MlsGroupId,
                 id: Some(get_instrument_as_id_from_uuid(
                     coalesced
-                        .olm_uuid
+                        .mls_group_id_uuid
                         .clone()
-                        .ok_or(anyhow!("OlmSession must have a UUID"))?,
+                        .ok_or(anyhow!("MlsGroupId must have a UUID"))?,
                 )),
                 content: Some(
                     coalesced
-                        .olm_data
-                        .ok_or(anyhow!("OlmSession must have Data"))?,
+                        .mls_group_id_mls_group
+                        .ok_or(anyhow!("MlsGroupId must have Data"))?,
                 ),
                 uuid: Some(
                     coalesced
-                        .olm_uuid
-                        .ok_or(anyhow!("OlmSession must have a UUID"))?,
+                        .mls_group_id_uuid
+                        .ok_or(anyhow!("MlsGroupId must have a UUID"))?,
                 ),
                 hash: None,
                 name: None,
                 url: None,
                 mutation_of: None,
-                conversation: None,
+                conversation: Some(
+                    coalesced
+                        .mls_group_id_conversation
+                        .ok_or(anyhow!("MlsGroupId must have a conversation"))?,
+                ),
                 activity: None,
             });
         }

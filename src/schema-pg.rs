@@ -195,6 +195,18 @@ diesel::table! {
 }
 
 diesel::table! {
+    mls_group_conversations (id) {
+        id -> Int4,
+        created_at -> Timestamptz,
+        updated_at -> Timestamptz,
+        uuid -> Text,
+        actor_id -> Int4,
+        conversation -> Text,
+        mls_group -> Text,
+    }
+}
+
+diesel::table! {
     mls_key_packages (id) {
         id -> Int4,
         created_at -> Timestamptz,
@@ -361,6 +373,7 @@ diesel::table! {
     }
 }
 
+diesel::joinable!(mls_group_conversations -> actors (actor_id));
 diesel::joinable!(olm_one_time_keys -> actors (profile_id));
 diesel::joinable!(vault -> activities (activity_id));
 
@@ -374,6 +387,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     hashtag_trend,
     instances,
     leaders,
+    mls_group_conversations,
     mls_key_packages,
     notifications,
     objects,

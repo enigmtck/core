@@ -8,6 +8,7 @@ pub mod coalesced_activity;
 pub mod followers;
 pub mod instances;
 pub mod leaders;
+pub mod mls_group_conversations;
 pub mod mls_key_packages;
 pub mod notifications;
 pub mod objects;

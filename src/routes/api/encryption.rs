@@ -326,12 +326,16 @@ pub async fn keys_get(
     }
 }
 
-#[get("/user/<username>/keys?<mkp>", format = "application/activity+json")]
+#[get(
+    "/user/<username>/keys?<mkp>&<count>",
+    format = "application/activity+json"
+)]
 pub async fn keys_mkp_get(
     signed: Signed,
     conn: Db,
     username: String,
     mkp: Option<bool>,
+    count: Option<bool>,
 ) -> Result<ActivityJson<ApObject>, Status> {
     let profile = get_actor_by_username(&conn, username.clone())
         .await
@@ -356,6 +360,10 @@ pub async fn keys_mkp_get(
         Ok(ActivityJson(Json(
             ApCollection::from(vec![mkp.into()]).into(),
         )))
+    } else if signed.profile().is_some() && (count.is_some_and(|x| !x) || count.is_none()) {
+        let actor = signed.profile().unwrap();
+        let instruments: Vec<ApInstrument> = actor.into();
+        Ok(ActivityJson(Json(ApCollection::from(instruments).into())))
     } else {
         let count = get_mkp_count_by_profile_id(&conn, profile.id)
             .await

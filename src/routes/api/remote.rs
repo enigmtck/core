@@ -452,7 +452,7 @@ pub async fn remote_keys_authenticated(
             Status::InternalServerError
         })?;
 
-        let keys = format!("{keys}?otk=true");
+        let keys = format!("{keys}?mkp=true");
 
         let collection = get_remote_collection(&conn, Some(profile), keys)
             .await

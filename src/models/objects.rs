@@ -371,7 +371,7 @@ impl From<ApNote> for NewObject {
             as_content_map: Some(json!(clean_content_map)),
             as_attachment: note.attachment.into(),
             ek_uuid: note.ephemeral.and_then(|x| x.internal_uuid),
-            ek_instrument: note.instrument.map(|x| json!(x)),
+            ek_instrument: note.instrument.option().map(|x| json!(x)),
             ek_hashtags,
             ..Default::default()
         }
@@ -461,7 +461,7 @@ impl TryFrom<Object> for ApNote {
                     metadata: object.ek_metadata.and_then(from_serde),
                     ..Default::default()
                 }),
-                instrument: object.ek_instrument.clone().and_then(from_serde),
+                instrument: object.ek_instrument.clone().into(),
                 ..Default::default()
             })
         } else {

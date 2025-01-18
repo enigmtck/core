@@ -1,4 +1,10 @@
-use crate::routes::Outbox;
+use crate::{
+    models::{
+        actors::update_mls_storage_by_username,
+        mls_group_conversations::create_mls_group_conversation,
+    },
+    routes::{user::process_instrument, Outbox},
+};
 use jdt_activity_pub::{
     ApActivity, ApAddress, ApAttachment, ApContext, ApCreate, ApImage, ApInstrument, ApNote,
     ApNoteType, ApObject, Ephemeral,
@@ -18,17 +24,10 @@ use crate::{
         actors::{get_actor, Actor},
         cache::{cache_content, Cacheable},
         objects::{create_or_update_object, Object},
-        olm_sessions::{create_or_update_olm_session, OlmSessionParams},
         vault::create_vault_item,
     },
     routes::ActivityJson,
-    runner::{
-        self,
-        //encrypted::handle_encrypted_note,
-        get_inboxes,
-        send_to_inboxes,
-        TaskError,
-    },
+    runner::{self, get_inboxes, send_to_inboxes, TaskError},
     LoadEphemeral,
 };
 use anyhow::Result;
@@ -64,7 +63,7 @@ async fn note_outbox(
         conn: &Db,
         object: &Object,
         raw: Value,
-    ) -> Result<Activity, Status> {
+    ) -> Result<NewActivity, Status> {
         let mut activity = NewActivity::try_from((create.into(), Some(object.into())))
             .map_err(|e| {
                 log::error!("Failed to build Activity: {e:#?}");
@@ -75,12 +74,7 @@ async fn note_outbox(
 
         activity.raw = Some(raw);
 
-        create_activity(Some(conn), activity.clone())
-            .await
-            .map_err(|e| {
-                log::error!("Failed to create Activity: {e:#?}");
-                Status::InternalServerError
-            })
+        Ok(activity)
     }
 
     fn build_ap_create(object: &Object) -> Result<ApCreate, Status> {
@@ -116,89 +110,31 @@ async fn note_outbox(
         note.context = Some(ApContext::default());
     }
 
-    async fn process_instruments(
-        note: ApNote,
-        conn: &Db,
-        profile: &Actor,
-    ) -> Result<Vec<ApInstrument>, Status> {
-        let instruments = note
-            .instrument
-            .clone()
-            .and_then(|mut instrument| match &mut instrument {
-                MaybeMultiple::Single(inst) => {
+    async fn process_instruments(mut note: ApNote) -> Result<Vec<ApInstrument>, Status> {
+        let instruments = match &mut note.instrument {
+            MaybeMultiple::Single(inst) => {
+                let uuid = Uuid::new_v4().to_string();
+                let mut cloned_inst = inst.clone();
+                cloned_inst.uuid = Some(uuid.clone());
+                cloned_inst.id = Some(get_instrument_as_id_from_uuid(uuid));
+                cloned_inst.conversation = note.conversation.clone();
+                vec![cloned_inst]
+            }
+            MaybeMultiple::Multiple(insts) => insts
+                .iter()
+                .map(|inst| {
                     let uuid = Uuid::new_v4().to_string();
                     let mut cloned_inst = inst.clone();
                     cloned_inst.uuid = Some(uuid.clone());
                     cloned_inst.id = Some(get_instrument_as_id_from_uuid(uuid));
                     cloned_inst.conversation = note.conversation.clone();
-                    Some(vec![cloned_inst])
-                }
-                MaybeMultiple::Multiple(insts) => Some(
-                    insts
-                        .iter()
-                        .map(|inst| {
-                            let uuid = Uuid::new_v4().to_string();
-                            let mut cloned_inst = inst.clone();
-                            cloned_inst.uuid = Some(uuid.clone());
-                            cloned_inst.id = Some(get_instrument_as_id_from_uuid(uuid));
-                            cloned_inst.conversation = note.conversation.clone();
-                            cloned_inst
-                        })
-                        .collect::<Vec<_>>(),
-                ),
-                _ => None,
-            })
-            .unwrap_or_default();
-
-        // Process OLM sessions
-        for instrument in instruments.iter().filter(|inst| inst.is_olm_session()) {
-            create_or_update_olm_session(
-                conn,
-                OlmSessionParams {
-                    instrument: instrument.clone(),
-                    owner: profile.clone(),
-                    uuid: None,
-                }
-                .try_into()
-                .unwrap(),
-                None,
-            )
-            .await
-            .map_err(|e| {
-                log::error!("Failed to create or update OlmSession: {e:#?}");
-                Status::InternalServerError
-            })?;
-        }
+                    cloned_inst
+                })
+                .collect::<Vec<_>>(),
+            _ => vec![],
+        };
 
         Ok(instruments)
-    }
-
-    async fn process_vault_items(
-        conn: &Db,
-        instruments: &[ApInstrument],
-        activity: &Activity,
-    ) -> Result<(), Status> {
-        for instrument in instruments
-            .iter()
-            .filter(|instrument| instrument.is_vault_item())
-        {
-            create_vault_item(
-                conn,
-                (
-                    instrument.content.clone().unwrap(),
-                    activity.actor.to_string(),
-                    activity.id,
-                )
-                    .into(),
-            )
-            .await
-            .map_err(|e| {
-                log::error!("Failed to create VaultItem: {e:#?}");
-                Status::InternalServerError
-            })?;
-        }
-
-        Ok(())
     }
 
     async fn dispatch_activity(conn: Db, activity: &Activity) -> Result<(), Status> {
@@ -217,14 +153,6 @@ async fn note_outbox(
 
     prepare_note_metadata(&mut note, &profile);
 
-    let instruments = process_instruments(note.clone(), &conn, &profile).await?;
-
-    note.instrument = if instruments.is_empty() {
-        None
-    } else {
-        Some(instruments.clone().into())
-    };
-
     let object = create_or_update_object(&conn, (note.clone(), profile.clone()).into())
         .await
         .map_err(|e| {
@@ -234,9 +162,19 @@ async fn note_outbox(
 
     let create = build_ap_create(&object)?;
 
-    let activity = build_activity(create, &conn, &object, raw).await?;
+    let activity = create_activity(
+        Some(&conn),
+        build_activity(create, &conn, &object, raw).await?,
+    )
+    .await
+    .map_err(|e| {
+        log::error!("Failed to create Activity: {e:#?}");
+        Status::InternalServerError
+    })?;
 
-    process_vault_items(&conn, &instruments, &activity).await?;
+    for instrument in process_instruments(note.clone()).await? {
+        process_instrument(&conn, &profile, &instrument).await?;
+    }
 
     let mut ap_activity =
         ApActivity::try_from_extended_activity((activity.clone(), None, Some(object), None))

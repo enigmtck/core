@@ -137,6 +137,36 @@ impl From<Actor> for Vec<ApInstrument> {
             })
         };
 
+        if actor.ek_mls_credentials.is_some() {
+            instruments.push(ApInstrument {
+                kind: ApInstrumentType::MlsCredentials,
+                id: Some(format!("{}#mls-credentials", actor.as_id)),
+                content: actor.ek_mls_credentials,
+                hash: None,
+                uuid: None,
+                name: None,
+                url: None,
+                mutation_of: None,
+                conversation: None,
+                activity: None,
+            })
+        }
+
+        if actor.ek_mls_storage.is_some() {
+            instruments.push(ApInstrument {
+                kind: ApInstrumentType::MlsStorage,
+                id: Some(format!("{}#mls-storage", actor.as_id)),
+                content: actor.ek_mls_storage,
+                hash: actor.ek_mls_storage_hash,
+                uuid: None,
+                name: None,
+                url: None,
+                mutation_of: None,
+                conversation: None,
+                activity: None,
+            })
+        }
+
         instruments
     }
 }
