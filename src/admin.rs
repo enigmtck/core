@@ -15,10 +15,10 @@ use crate::models::actors::{
 };
 use crate::models::cache::Cache;
 use crate::models::profiles::Profile;
+use jdt_activity_pub::MaybeMultiple;
 use jdt_activity_pub::{
     ApActor, ApCapabilities, ApContext, ApEndpoint, ApImage, ApImageType, ApPublicKey,
 };
-use jdt_maybe_multiple::MaybeMultiple;
 
 struct KeyPair {
     private_key: RsaPrivateKey,

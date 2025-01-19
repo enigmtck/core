@@ -95,17 +95,32 @@ pub async fn outbox_post(
 ) -> Result<ActivityJson<ApActivity>, Status> {
     let actor = signed.profile().ok_or(Status::Unauthorized)?;
 
-    log::debug!("POSTING TO OUTBOX\n{raw:#?}");
+    log::debug!("Posting to Outbox\n{raw:#?}");
     let raw = raw.into_inner();
 
     if let Ok(object) = serde_json::from_value::<ActivityPub>(raw.clone()) {
         match object {
             ActivityPub::Activity(activity) => activity.outbox(conn, actor, raw).await,
             ActivityPub::Object(object) => object.outbox(conn, actor, raw).await,
-            _ => Err(Status::NotImplemented),
+            _ => {
+                let unprocessable = create_unprocessable(&conn, raw.into()).await;
+                log::error!(
+                    "Unprocessable: {}",
+                    unprocessable
+                        .map(|x| x.id.to_string())
+                        .unwrap_or("Failed".to_string())
+                );
+                Err(Status::NotImplemented)
+            }
         }
     } else {
-        create_unprocessable(&conn, raw.into()).await;
+        let unprocessable = create_unprocessable(&conn, raw.into()).await;
+        log::error!(
+            "Unprocessable: {}",
+            unprocessable
+                .map(|x| x.id.to_string())
+                .unwrap_or("Failed".to_string())
+        );
         Err(Status::UnprocessableEntity)
     }
 }

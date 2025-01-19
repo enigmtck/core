@@ -16,7 +16,7 @@ use crate::{
     runner,
     runner::{get_inboxes, send_to_inboxes},
 };
-use jdt_maybe_reference::MaybeReference;
+use jdt_activity_pub::MaybeReference;
 use rocket::http::Status;
 use serde_json::Value;
 

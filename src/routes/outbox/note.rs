@@ -1,8 +1,9 @@
 use crate::{
     models::{
-        actors::update_mls_storage_by_username,
+        actors::{self, update_mls_storage_by_username},
         mls_group_conversations::create_mls_group_conversation,
     },
+    retriever::get_actor,
     routes::{user::process_instrument, Outbox},
 };
 use jdt_activity_pub::{
@@ -21,7 +22,7 @@ use crate::{
         activities::{
             create_activity, get_activity_by_ap_id, Activity, NewActivity, TryFromExtendedActivity,
         },
-        actors::{get_actor, Actor},
+        actors::Actor,
         cache::{cache_content, Cacheable},
         objects::{create_or_update_object, Object},
         vault::create_vault_item,
@@ -32,7 +33,7 @@ use crate::{
 };
 use anyhow::Result;
 use chrono::Utc;
-use jdt_maybe_multiple::MaybeMultiple;
+use jdt_activity_pub::MaybeMultiple;
 use rocket::http::Status;
 use serde_json::Value;
 use uuid::Uuid;
@@ -208,7 +209,7 @@ async fn send_note(
             TaskError::TaskFailed
         })?;
 
-        let sender = get_actor(&conn, profile_id).await.ok_or_else(|| {
+        let sender = actors::get_actor(&conn, profile_id).await.ok_or_else(|| {
             log::error!("Failed to retrieve sending Actor");
             TaskError::TaskFailed
         })?;
@@ -277,10 +278,11 @@ async fn send_note(
             }
         }
 
-        let _ = runner::actor::get_actor(
-            Some(&conn),
-            sender.clone(),
+        let _ = get_actor(
+            &conn,
             note.clone().attributed_to.to_string(),
+            Some(sender.clone()),
+            true,
         )
         .await;
 

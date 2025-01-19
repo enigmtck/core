@@ -10,18 +10,18 @@ use std::collections::HashMap;
 use std::fmt;
 use url::Url;
 
+use crate::retriever::get_actor;
 use crate::{
     db::Db,
     fairings::events::EventChannels,
     models::{activities::add_log_by_as_id, actors::Actor, instances::get_instance_inboxes},
     signing::{Method, SignParams},
 };
+use jdt_activity_pub::MaybeReference;
 use jdt_activity_pub::{ApActivity, ApActor, ApAddress};
-use jdt_maybe_reference::MaybeReference;
 
-use self::{actor::get_actor, user::get_follower_inboxes};
+use self::user::get_follower_inboxes;
 
-pub mod actor;
 pub mod announce;
 pub mod cache;
 pub mod note;
@@ -81,6 +81,7 @@ async fn process_inbox(
     profile: Actor,
     client: Client,
 ) -> LogMessage {
+    log::debug!("Sending to inbox: {inbox}");
     let url = match Url::parse(&inbox.to_string()) {
         Ok(url) => url,
         Err(e) => {
@@ -124,6 +125,8 @@ async fn process_inbox(
     match client.execute(request).await {
         Ok(resp) => {
             let code = resp.status().as_u16();
+            log::debug!("Send status: {code}");
+
             LogMessage {
                 code: Some(code.into()),
                 request: Some(client_info),
@@ -186,81 +189,12 @@ pub async fn send_to_inboxes(
     message: ApActivity,
 ) -> Result<()> {
     let as_id = message.as_id().ok_or_else(|| {
-        log::debug!("MESSAGE DOES NOT HAVE AN ID");
-        anyhow!("MESSAGE DOES NOT HAVE AN ID")
+        log::debug!("Message does not have an ID");
+        anyhow!("Message does not have an ID")
     })?;
 
     let body = serde_json::to_string(&message).map_err(anyhow::Error::msg)?;
-
     process_all_inboxes(inboxes, body, profile, conn, as_id).await?;
-    // let mut logs: Vec<LogMessage> = vec![];
-
-    // for inbox in inboxes {
-    //     let url = Url::parse(&inbox.clone().to_string());
-
-    //     if url.is_err() {
-    //         continue;
-    //     }
-
-    //     let url = url.map_err(anyhow::Error::msg)?;
-
-    //     let signature = crate::signing::sign(SignParams {
-    //         profile: profile.clone(),
-    //         url,
-    //         body: Some(body.clone()),
-    //         method: Method::Post,
-    //     });
-
-    //     if signature.is_err() {
-    //         continue;
-    //     }
-
-    //     let signature = signature.map_err(anyhow::Error::msg)?;
-
-    //     let client = Client::builder()
-    //         .user_agent("Enigmatick/0.1")
-    //         .build()
-    //         .unwrap();
-
-    //     let request = client
-    //         .post(inbox.clone().to_string())
-    //         .timeout(std::time::Duration::new(5, 0))
-    //         .header("Date", signature.date)
-    //         .header("Digest", signature.digest.unwrap())
-    //         .header("Signature", &signature.signature)
-    //         .header("Content-Type", "application/activity+json")
-    //         .body(body.clone())
-    //         .build()
-    //         .unwrap();
-
-    //     let client_info = request_builder_to_info(&request);
-
-    //     match client.execute(request).await {
-    //         Ok(resp) => {
-    //             let code = resp.status().as_u16();
-
-    //             logs.push(LogMessage {
-    //                 code: Some(code.into()),
-    //                 request: Some(client_info),
-    //                 response: resp.text().await.ok(),
-    //             });
-    //         }
-    //         Err(e) => {
-    //             log::error!("FAILED TO SEND TO INBOX: {}", inbox.clone().to_string());
-
-    //             logs.push(LogMessage {
-    //                 code: Some(-1),
-    //                 request: Some(client_info),
-    //                 response: Some(e.to_string()),
-    //             });
-    //         }
-    //     }
-    // }
-
-    // if !logs.is_empty() {
-    //     let logs = serde_json::to_value(&logs).unwrap();
-    //     add_log_by_as_id(conn, as_id.clone(), logs).await?;
-    // }
 
     Ok(())
 }
@@ -275,18 +209,18 @@ async fn handle_recipients(
 
     if address.is_public() {
         inboxes.extend(get_instance_inboxes(conn).await.into_iter());
-        //inboxes.extend(get_follower_inboxes(conn, sender.clone()).await);
-        // instead of the above, consider sending to shared inboxes of known instances
-        // the duplicate code is temporary because some operations (e.g., Delete) do not have
-        // the followers in cc, so until there's logic to send more broadly to all instances,
-        // this will need to suffice
     } else if let Some(followers) = actor.followers {
         if address.to_string() == followers {
             inboxes.extend(get_follower_inboxes(conn, sender.clone()).await);
-        } else if let Some((actor, _)) =
-            get_actor(Some(conn), sender.clone(), address.clone().to_string()).await
+        } else if let Ok(actor) = get_actor(
+            conn,
+            address.clone().to_string(),
+            Some(sender.clone()),
+            true,
+        )
+        .await
         {
-            inboxes.insert(ApAddress::Address(actor.as_inbox));
+            inboxes.insert(ApAddress::Address(actor.inbox));
         }
     }
 }
@@ -330,7 +264,7 @@ pub async fn get_inboxes(conn: &Db, activity: ApActivity, sender: Actor) -> Vec<
     };
 
     let consolidated = match (to, cc) {
-        (Some(to), Some(cc)) => Some(vec![to, cc].concat()),
+        (Some(to), Some(cc)) => Some([to, cc].concat()),
         (Some(to), None) => Some(to),
         (None, Some(cc)) => Some(cc),
         (None, None) => None,

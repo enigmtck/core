@@ -12,8 +12,8 @@ use crate::{
         Tombstone,
     },
 };
-use jdt_maybe_multiple::MaybeMultiple;
-use jdt_maybe_reference::MaybeReference;
+use jdt_activity_pub::MaybeMultiple;
+use jdt_activity_pub::MaybeReference;
 use rocket::http::Status;
 use serde_json::Value;
 

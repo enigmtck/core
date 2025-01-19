@@ -13,8 +13,8 @@ use crate::{
     },
     runner::{self, TaskError},
 };
+use jdt_activity_pub::MaybeReference;
 use jdt_activity_pub::{ApAccept, ApActivity, ApAddress};
-use jdt_maybe_reference::MaybeReference;
 use rocket::http::Status;
 use serde_json::Value;
 

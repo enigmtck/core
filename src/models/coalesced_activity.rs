@@ -10,12 +10,12 @@ use chrono::{DateTime, Utc};
 use diesel::prelude::*;
 use diesel::sql_types::{Bool, Integer, Jsonb, Nullable, Text, Timestamptz};
 use diesel::Queryable;
+use jdt_activity_pub::MaybeMultiple;
 use jdt_activity_pub::{
     ApActivity, ApAddress, ApAnnounce, ApContext, ApCreate, ApDateTime, ApDelete, ApDeleteType,
     ApFollow, ApFollowType, ApInstrument, ApInstrumentType, ApLike, ApLikeType, ApNote, ApObject,
     ApQuestion, Ephemeral,
 };
-use jdt_maybe_multiple::MaybeMultiple;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 

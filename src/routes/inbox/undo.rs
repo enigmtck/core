@@ -10,8 +10,8 @@ use crate::{
     },
     runner::{self},
 };
+use jdt_activity_pub::MaybeReference;
 use jdt_activity_pub::{ApActivity, ApAddress, ApUndo};
-use jdt_maybe_reference::MaybeReference;
 use rocket::http::Status;
 use serde_json::Value;
 

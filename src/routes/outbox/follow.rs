@@ -4,7 +4,6 @@ use jdt_activity_pub::{ApActivity, ApAddress, ApFollow};
 use crate::{
     db::Db,
     fairings::events::EventChannels,
-    helper::get_activity_ap_id_from_uuid,
     models::{
         activities::{
             create_activity, get_activity_by_ap_id, get_activity_by_kind_actor_id_and_target_ap_id,
@@ -15,7 +14,7 @@ use crate::{
     routes::ActivityJson,
     runner::{self, get_inboxes, send_to_inboxes, TaskError},
 };
-use jdt_maybe_reference::MaybeReference;
+use jdt_activity_pub::MaybeReference;
 use rocket::http::Status;
 use serde_json::Value;
 
@@ -82,7 +81,16 @@ async fn follow_outbox(
             }
         };
 
-        runner::run(send, conn, None, vec![activity.uuid.clone()]).await;
+        runner::run(
+            send,
+            conn,
+            None,
+            vec![activity.ap_id.clone().ok_or_else(|| {
+                log::error!("ActivityPub ID cannot be None");
+                Status::BadRequest
+            })?],
+        )
+        .await;
 
         let activity = ApActivity::try_from_extended_activity((activity, None, None, Some(actor)))
             .map_err(|e| {
@@ -104,13 +112,22 @@ async fn send(
 ) -> Result<(), TaskError> {
     for ap_id in ap_ids {
         let (activity, target_activity, target_object, target_actor) =
-            get_activity_by_ap_id(&conn, get_activity_ap_id_from_uuid(ap_id.clone()))
+            get_activity_by_ap_id(&conn, ap_id.clone())
                 .await
-                .ok_or(TaskError::TaskFailed)?;
+                .ok_or_else(|| {
+                    log::error!("Failed to retrieve Activity");
+                    TaskError::TaskFailed
+                })?;
 
-        let sender = get_actor(&conn, activity.actor_id.ok_or(TaskError::TaskFailed)?)
-            .await
-            .ok_or(TaskError::TaskFailed)?;
+        let sender = get_actor(
+            &conn,
+            activity.actor_id.ok_or_else(|| {
+                log::error!("Failed to retrieve Actor");
+                TaskError::TaskFailed
+            })?,
+        )
+        .await
+        .ok_or(TaskError::TaskFailed)?;
 
         let activity = ApActivity::try_from_extended_activity((
             activity,
@@ -119,7 +136,7 @@ async fn send(
             target_actor,
         ))
         .map_err(|e| {
-            log::error!("FAILED TO BUILD AP_ACTIVITY: {e:#?}");
+            log::error!("Failed to build ApActivity: {e:#?}");
             TaskError::TaskFailed
         })?;
 
@@ -128,7 +145,7 @@ async fn send(
         send_to_inboxes(&conn, inboxes, sender, activity.clone())
             .await
             .map_err(|e| {
-                log::error!("FAILED TO SEND TO INBOXES: {e:#?}");
+                log::error!("Failed to send to inboxes: {e:#?}");
                 TaskError::TaskFailed
             })?;
     }

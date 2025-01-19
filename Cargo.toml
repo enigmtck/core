@@ -54,11 +54,8 @@ diesel_migrations = { version = "2.2.0", features = ["postgres", "sqlite"] }
 rust-embed = { version = "8.3.0", features = ["rocket", "interpolate-folder-path", "compression", "tokio"] }
 cfg-if = "1.0.0"
 convert_case = "0.6.0"
-jdt_maybe_multiple = "0.1.0"
-#jdt_maybe_reference = { path = "../../libs/maybe_reference/" }
-jdt_maybe_reference = "0.1.6"
 #jdt_activity_pub = { path = "../../libs/activity_pub/" }
-jdt_activity_pub = "0.2.1"
+jdt_activity_pub = "0.2.7"
 indoc = "2.0.5"
 
 [dependencies.rocket_sync_db_pools]

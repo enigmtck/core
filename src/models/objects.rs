@@ -8,12 +8,12 @@ use chrono::{DateTime, Utc};
 use convert_case::{Case, Casing};
 use diesel::prelude::*;
 use diesel::{AsChangeset, Identifiable, Insertable, Queryable};
+use jdt_activity_pub::MaybeMultiple;
+use jdt_activity_pub::MaybeReference;
 use jdt_activity_pub::{
     ApAddress, ApDateTime, ApHashtag, ApNote, ApNoteType, ApObject, ApQuestion, ApQuestionType,
     Ephemeral,
 };
-use jdt_maybe_multiple::MaybeMultiple;
-use jdt_maybe_reference::MaybeReference;
 use maplit::{hashmap, hashset};
 use serde::{Deserialize, Serialize};
 use serde_json::json;

@@ -16,7 +16,7 @@ use crate::{
     routes::ActivityJson,
     runner::{self, get_inboxes, send_to_inboxes, TaskError},
 };
-use jdt_maybe_reference::MaybeReference;
+use jdt_activity_pub::MaybeReference;
 use rocket::http::Status;
 use serde_json::Value;
 

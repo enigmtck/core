@@ -146,18 +146,14 @@ pub async fn get_local_or_cached_actor(
     conn: &Db,
     id: String,
     requester: Option<Actor>,
-    _update: bool,
 ) -> Option<ApActor> {
     let actor = get_actor_by_as_id(conn, id.clone()).await.ok()?;
 
-    if let Some(requester) = requester.clone() {
-        Some(ApActor::from_actor_and_leader((
-            actor.into(),
-            get_leader_by_actor_ap_id_and_profile(conn, id.clone(), requester.id).await,
-        )))
-    } else {
-        Some(actor.into())
+    if actor.is_stale() {
+        return None;
     }
+
+    Some(actor_ret(conn, requester, actor).await)
 }
 
 pub async fn process_remote_actor_retrieval(
@@ -165,11 +161,18 @@ pub async fn process_remote_actor_retrieval(
     profile: Option<Actor>,
     id: String,
 ) -> Result<ApActor> {
-    let response = signed_get(guaranteed_actor(conn, profile).await, id, false).await?;
+    let response = signed_get(
+        guaranteed_actor(conn, profile.clone()).await,
+        id.clone(),
+        false,
+    )
+    .await?;
 
     if !response.status().is_success() {
         let message = response.text().await.ok();
-        return Err(anyhow::Error::msg(format!("BAD RESPONSE: {message:#?}")));
+        return Err(anyhow::Error::msg(format!(
+            "Bad remote ApActor response: {message:#?}"
+        )));
     }
 
     let text = response.text().await?;
@@ -181,9 +184,20 @@ pub async fn process_remote_actor_retrieval(
 
     let actor = create_or_update_actor(Some(conn), actor)
         .await
-        .context("FAILED TO CREATE OR UPDATE ACTOR")?;
+        .context("Failed to create or update Actor")?;
 
-    Ok(actor.into())
+    Ok(actor_ret(conn, profile, actor).await)
+}
+
+async fn actor_ret(conn: &Db, requester: Option<Actor>, target: Actor) -> ApActor {
+    if let Some(requester) = requester.clone() {
+        ApActor::from_actor_and_leader((
+            target.clone().into(),
+            get_leader_by_actor_ap_id_and_profile(conn, target.as_id.clone(), requester.id).await,
+        ))
+    } else {
+        target.into()
+    }
 }
 
 pub async fn get_actor(
@@ -194,13 +208,13 @@ pub async fn get_actor(
 ) -> Result<ApActor> {
     log::debug!("Retrieving: {id}");
 
-    let actor = get_local_or_cached_actor(conn, id.clone(), requester.clone(), update).await;
-
-    log::debug!("Locally retrieved Actor:\n{actor:#?}");
+    let actor = get_local_or_cached_actor(conn, id.clone(), requester.clone()).await;
 
     if let Some(actor) = actor {
-        Ok(actor.cache(conn).await.clone())
+        log::debug!("Locally retrieved Actor: {actor}");
+        Ok(actor)
     } else if update {
+        log::debug!("Retrieving remote Actor: {id}");
         process_remote_actor_retrieval(conn, requester, id).await
     } else {
         log::error!("Failed to retrieve Actor");

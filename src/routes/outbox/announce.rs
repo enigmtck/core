@@ -11,7 +11,7 @@ use crate::{
     routes::ActivityJson,
     runner,
 };
-use jdt_maybe_reference::MaybeReference;
+use jdt_activity_pub::MaybeReference;
 use rocket::http::Status;
 use serde_json::Value;
 

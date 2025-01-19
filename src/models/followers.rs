@@ -9,7 +9,7 @@ use diesel::prelude::*;
 use diesel::Insertable;
 use diesel::{AsChangeset, Identifiable, Queryable};
 use jdt_activity_pub::ApFollow;
-use jdt_maybe_reference::MaybeReference;
+use jdt_activity_pub::MaybeReference;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 

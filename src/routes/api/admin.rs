@@ -4,8 +4,8 @@ use crate::{
     models::actors::{get_actor_by_as_id, guaranteed_actor, Actor},
     retriever::get_actor,
 };
+use jdt_activity_pub::MaybeMultiple;
 use jdt_activity_pub::{ApActor, ApContext, ApFollow};
-use jdt_maybe_multiple::MaybeMultiple;
 use rocket::{
     http::Status,
     post,

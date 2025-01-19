@@ -6,8 +6,8 @@ use crate::{
         objects::get_object_by_as_id,
     },
 };
+use jdt_activity_pub::MaybeReference;
 use jdt_activity_pub::{ApActivity, ApAddress, ApLike, ApObject};
-use jdt_maybe_reference::MaybeReference;
 use rocket::http::Status;
 use serde_json::Value;
 

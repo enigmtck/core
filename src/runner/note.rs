@@ -7,7 +7,7 @@ use crate::models::actors::{guaranteed_actor, Actor};
 use crate::models::cache::Cache;
 use crate::models::objects;
 use crate::models::objects::{create_or_update_object, get_object_by_as_id, Object};
-use crate::retriever::signed_get;
+use crate::retriever::{get_actor, signed_get};
 use crate::{db::Db, signing::Method};
 use crate::{runner, ANCHOR_RE};
 use jdt_activity_pub::{ApHashtag, ApObject, Metadata};
@@ -126,8 +126,13 @@ pub async fn handle_object(
 
     if let ApObject::Note(note) = ap_object {
         log::debug!("Found ApNote as Object");
-        let _ = runner::actor::get_actor(Some(conn), profile.await, note.attributed_to.to_string())
-            .await;
+        let _ = get_actor(
+            conn,
+            note.attributed_to.to_string(),
+            Some(profile.await),
+            true,
+        )
+        .await;
 
         // if let Some(announcer) = announcer {
         //     note.ephemeral_announces = Some(vec![announcer]);

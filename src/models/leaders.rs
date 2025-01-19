@@ -8,8 +8,8 @@ use chrono::{DateTime, Utc};
 use diesel::prelude::*;
 use diesel::Insertable;
 use diesel::{AsChangeset, Identifiable, Queryable};
+use jdt_activity_pub::MaybeReference;
 use jdt_activity_pub::{ApAccept, ApActivity};
-use jdt_maybe_reference::MaybeReference;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 

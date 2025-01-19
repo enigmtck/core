@@ -17,14 +17,14 @@ use diesel::sql_types::Nullable;
 use diesel::{prelude::*, sql_query};
 use diesel::{AsChangeset, Identifiable, Insertable, Queryable};
 use indoc::indoc;
+use jdt_activity_pub::MaybeMultiple;
+use jdt_activity_pub::MaybeReference;
 use jdt_activity_pub::{
     ApAccept, ApAcceptType, ApActivity, ApAddress, ApAnnounce, ApAnnounceType, ApContext, ApCreate,
     ApCreateType, ApDelete, ApDeleteType, ApFollow, ApFollowType, ApInstrument, ApLike, ApLikeType,
     ApNote, ApObject, ApUndo, ApUndoType, ApUpdateType, Ephemeral,
 };
 use jdt_activity_pub::{ApUpdate, PUBLIC_COLLECTION};
-use jdt_maybe_multiple::MaybeMultiple;
-use jdt_maybe_reference::MaybeReference;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::fmt::{self, Debug};
@@ -879,7 +879,7 @@ impl TryFromExtendedActivity for ApFollow {
                 .target_ap_id
                 .ok_or(anyhow!("no target_ap_id on follow"))?;
             Ok(ApFollow {
-                context: Some(ApContext::default()),
+                context: Some(ApContext::activity_streams()),
                 kind: ApFollowType::default(),
                 actor: activity.actor.into(),
                 id: Some(activity.ap_id.ok_or(anyhow!("no follow as_id found"))?),
@@ -913,7 +913,7 @@ impl TryFromExtendedActivity for ApLike {
         );
 
         Ok(ApLike {
-            context: Some(ApContext::default()),
+            context: Some(ApContext::activity_streams()),
             kind: ApLikeType::default(),
             actor: activity.actor.into(),
             id: activity.ap_id,

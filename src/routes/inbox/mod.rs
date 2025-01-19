@@ -196,22 +196,22 @@ pub async fn shared_inbox_get(
     )))
 }
 
-#[post("/unsafe-inbox", data = "<raw>")]
-pub async fn unsafe_inbox_post(
-    conn: Db,
-    _channels: EventChannels,
-    raw: Json<Value>,
-) -> Result<Status, Status> {
-    log::debug!("Posting to unsafe inbox\n{raw:#?}");
-    let raw = raw.into_inner();
+// #[post("/unsafe-inbox", data = "<raw>")]
+// pub async fn unsafe_inbox_post(
+//     conn: Db,
+//     _channels: EventChannels,
+//     raw: Json<Value>,
+// ) -> Result<Status, Status> {
+//     log::debug!("Posting to unsafe inbox\n{raw:#?}");
+//     let raw = raw.into_inner();
 
-    if let Ok(activity) = ApActivity::try_from(raw.clone()) {
-        activity.inbox(conn, raw).await
-    } else {
-        create_unprocessable(&conn, raw.into()).await;
-        Err(Status::UnprocessableEntity)
-    }
-}
+//     if let Ok(activity) = ApActivity::try_from(raw.clone()) {
+//         activity.inbox(conn, raw).await
+//     } else {
+//         create_unprocessable(&conn, raw.into()).await;
+//         Err(Status::UnprocessableEntity)
+//     }
+// }
 
 #[post("/inbox", data = "<raw>")]
 pub async fn shared_inbox_post(
@@ -236,7 +236,11 @@ pub async fn shared_inbox_post(
         }
     };
 
-    let mut a = signed.actor();
+    if activity.is_delete() && signed.deferred().is_some() {
+        return Ok(Status::Accepted);
+    }
+
+    let mut signer = signed.actor();
 
     let is_authorized = if let Some(deferred) = signed.deferred() {
         let actor = retriever::get_actor(&conn, activity.actor().to_string(), None, true)
@@ -245,7 +249,7 @@ pub async fn shared_inbox_post(
 
         log::debug!("Deferred Actor retrieved\n{actor:#?}");
 
-        a = actor;
+        signer = actor;
 
         matches!(
             verify(&conn, deferred).await,
@@ -255,12 +259,14 @@ pub async fn shared_inbox_post(
         signed.any()
     };
 
-    if let Some(actor) = a {
-        let public_key_pem = actor.public_key.public_key_pem;
+    if activity.is_signed() {
+        if let Some(actor) = signer {
+            let public_key_pem = actor.public_key.public_key_pem;
 
-        match verify_jsonld_signature(raw.clone(), public_key_pem).await {
-            Ok(verified) => log::debug!("RsaSignature2017 Verification: {verified:#?}"),
-            Err(e) => log::debug!("RsaSignature2017 Verification Error: {e}"),
+            match verify_jsonld_signature(raw.clone(), public_key_pem).await {
+                Ok(verified) => log::debug!("RsaSignature2017 Verification: {verified:#?}"),
+                Err(e) => log::debug!("RsaSignature2017 Verification Error: {e}"),
+            }
         }
     }
 

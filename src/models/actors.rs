@@ -297,6 +297,12 @@ pub struct Actor {
     pub ek_mls_storage_hash: Option<String>,
 }
 
+impl fmt::Display for Actor {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", self.as_id)
+    }
+}
+
 impl From<Actor> for ApActorTerse {
     fn from(actor: Actor) -> Self {
         let name = actor.as_name;
@@ -379,9 +385,9 @@ impl From<Actor> for ApActor {
         let image = actor.as_image.try_into().ok();
         let discoverable = Some(actor.as_discoverable);
         let capabilities = actor.ap_capabilities.try_into().ok();
-        let attachment = actor.as_attachment.try_into().unwrap_or_default();
+        let attachment = actor.as_attachment.into();
         let also_known_as = actor.as_also_known_as.into();
-        let tag = actor.as_tag.try_into().unwrap_or_default();
+        let tag = actor.as_tag.into();
         let endpoints = actor.as_endpoints.try_into().ok();
         let keys = actor.ek_keys;
 
@@ -575,6 +581,7 @@ impl TryFrom<ApActor> for NewActor {
     fn try_from(actor: ApActor) -> Result<NewActor, Self::Error> {
         let ek_hashtags = json!(actor.get_hashtags());
         let ek_webfinger = None;
+        let ek_checked_at = Utc::now();
         let as_id = actor.id.clone().ok_or(anyhow!("no id"))?.to_string();
         let as_type = actor.kind.to_string().try_into()?;
         let as_context = actor.context.as_ref().map(|x| json!(x));
@@ -629,33 +636,11 @@ impl TryFrom<ApActor> for NewActor {
             as_discoverable,
             ap_capabilities,
             ek_hashtags,
+            ek_checked_at,
             ..Default::default()
         })
     }
 }
-
-// impl TryFrom<Actor> for ApInstrument {
-//     type Error = anyhow::Error;
-
-//     fn try_from(actor: Actor) -> Result<Self> {
-//         Ok(Self {
-//             kind: ApInstrumentType::OlmIdentityKey,
-//             id: Some(format!("{}#identity-key", actor.as_id)),
-//             content: Some(
-//                 actor
-//                     .ek_olm_identity_key
-//                     .ok_or(anyhow!("Actor does not have an IDK"))?,
-//             ),
-//             hash: None,
-//             uuid: None,
-//             name: None,
-//             url: None,
-//             mutation_of: None,
-//             conversation: None,
-//             activity: None,
-//         })
-//     }
-// }
 
 pub async fn create_or_update_actor(conn: Option<&Db>, actor: NewActor) -> Result<Actor> {
     match conn {

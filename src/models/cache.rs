@@ -8,12 +8,12 @@ use chrono::{DateTime, Utc};
 use diesel::prelude::*;
 use diesel::Insertable;
 use diesel::{AsChangeset, Identifiable, Queryable};
+use jdt_activity_pub::MaybeMultiple;
+use jdt_activity_pub::MaybeReference;
 use jdt_activity_pub::{
     ActivityPub, ApActivity, ApActor, ApAttachment, ApCollection, ApDocument, ApImage, ApNote,
     ApObject, ApQuestion, ApTag, Collectible,
 };
-use jdt_maybe_multiple::MaybeMultiple;
-use jdt_maybe_reference::MaybeReference;
 use rocket_sync_db_pools::diesel;
 use serde::{Deserialize, Serialize};
 use tokio::fs::File;
