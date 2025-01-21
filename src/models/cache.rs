@@ -144,10 +144,10 @@ impl TryFrom<ApAttachment> for Cacheable {
     type Error = anyhow::Error;
 
     fn try_from(attachment: ApAttachment) -> Result<Self, Self::Error> {
-        if let ApAttachment::Document(document) = attachment {
-            Ok(Cacheable::Document(document))
-        } else {
-            Err(Self::Error::msg("not cacheable"))
+        match attachment {
+            ApAttachment::Document(document) => Ok(Cacheable::Document(document)),
+            ApAttachment::Image(image) => Ok(Cacheable::Image(image)),
+            _ => Err(Self::Error::msg("not cacheable")),
         }
     }
 }

@@ -2,12 +2,15 @@ use std::collections::HashMap;
 
 use crate::{
     db::Db,
-    models::{actors::get_actor_by_key_id, actors::Actor, instances::create_or_update_instance},
+    models::{
+        actors::{get_actor_by_key_id, Actor},
+        instances::{create_or_update_instance, Instance},
+    },
     signing::{verify, VerificationError, VerificationType, VerifyMapParams},
     ASSIGNMENT_RE, DOMAIN_RE,
 };
+use anyhow::{anyhow, Result};
 use jdt_activity_pub::ApActor;
-
 use rocket::{
     http::Status,
     request::{FromRequest, Outcome, Request},
@@ -30,7 +33,7 @@ impl Signed {
     }
 
     pub fn actor(&self) -> Option<ApActor> {
-        if let Signed(true, VerificationType::Remote(actor)) = self {
+        if let Signed(true, VerificationType::Remote((actor, _digest))) = self {
             Some(*actor.clone())
         } else {
             None
@@ -38,8 +41,18 @@ impl Signed {
     }
 
     pub fn profile(&self) -> Option<Actor> {
-        if let Signed(true, VerificationType::Local(profile)) = self {
+        if let Signed(true, VerificationType::Local((profile, _digest))) = self {
             Some(*profile.clone())
+        } else {
+            None
+        }
+    }
+
+    pub fn digest(&self) -> Option<String> {
+        if let Signed(true, VerificationType::Local((_profile, digest))) = self {
+            digest.clone()
+        } else if let Signed(true, VerificationType::Remote((_actor, digest))) = self {
+            digest.clone()
         } else {
             None
         }
@@ -68,7 +81,7 @@ pub enum SignatureError {
     Unknown,
 }
 
-async fn update_instance(conn: &Db, signature: String) {
+async fn update_instance(conn: &Db, signature: String) -> Result<Instance> {
     let mut signature_map = HashMap::<String, String>::new();
 
     for cap in ASSIGNMENT_RE.captures_iter(&signature) {
@@ -77,14 +90,14 @@ async fn update_instance(conn: &Db, signature: String) {
 
     let key_id = signature_map
         .get("keyId")
-        .expect("keyId not found in signature_map");
+        .ok_or(anyhow!("keyId not found in signature_map"))?;
 
     // It might be better to derive the domain_name from the webfinger stored
     // on the Actor. But I'm not sure how that would work when the actor doesn't
     // exist yet, so maybe not.
     let domain_name = DOMAIN_RE
         .captures(key_id)
-        .expect("Unable to locate domain name")[1]
+        .ok_or(anyhow!("failed to retrieve key_id"))?[1]
         .to_string();
 
     let shared_inbox = get_actor_by_key_id(conn, key_id.clone())
@@ -96,9 +109,7 @@ async fn update_instance(conn: &Db, signature: String) {
                 .map(|endpoints| endpoints.shared_inbox)
         });
 
-    if let Err(e) = create_or_update_instance(conn, (domain_name, shared_inbox).into()).await {
-        log::error!("Instance update error: {e}");
-    }
+    create_or_update_instance(conn, (domain_name, shared_inbox).into()).await
 }
 
 #[rocket::async_trait]
@@ -133,7 +144,7 @@ impl<'r> FromRequest<'r> for Signed {
                 let digest = get_header("digest");
                 let user_agent = get_header("user-agent");
                 let content_length = get_header("content-length");
-                let content_type = request.content_type().map(|x| x.to_string());
+                let content_type = get_header("content-type");
 
                 let signature_vec: Vec<_> = request.headers().get("signature").collect();
 
@@ -152,9 +163,13 @@ impl<'r> FromRequest<'r> for Signed {
                             content_length,
                             user_agent,
                         };
+
+                        log::debug!("{verify_params}");
+
                         match verify(&conn, verify_params.clone()).await {
                             Ok(t) => {
-                                update_instance(&conn, signature.to_string()).await;
+                                log::debug!("Signature verification successful");
+                                let _ = update_instance(&conn, signature.to_string()).await;
                                 Outcome::Success(Signed(true, t))
                             }
                             Err(e) => match e {
@@ -163,13 +178,14 @@ impl<'r> FromRequest<'r> for Signed {
                                 // the Fairing (i.e., it's not in the header), so we defer the verification
                                 // to the receiving route that decodes the whole request
                                 VerificationError::ActorNotFound(verify_map_params) => {
+                                    log::debug!("Signature verification deferred");
                                     Outcome::Success(Signed(
                                         false,
                                         VerificationType::Deferred(verify_map_params),
                                     ))
                                 }
                                 _ => {
-                                    log::debug!("Signature verification failed\n{e:#?}");
+                                    log::debug!("Signature verification failed: {e}");
                                     Outcome::Error((
                                         Status::BadRequest,
                                         SignatureError::SignatureInvalid,

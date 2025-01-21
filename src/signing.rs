@@ -9,6 +9,7 @@ use jdt_activity_pub::ApActor;
 use rsa::pkcs1v15::{Signature, SigningKey};
 use rsa::signature::{RandomizedSigner, SignatureEncoding, Verifier};
 use rsa::{pkcs8::DecodePrivateKey, pkcs8::DecodePublicKey, RsaPrivateKey, RsaPublicKey};
+use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::error::Error;
 use std::fmt::{self, Debug};
@@ -27,6 +28,35 @@ pub struct VerifyMapParams {
     pub user_agent: Option<String>,
 }
 
+impl std::fmt::Display for VerifyMapParams {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "Request[target: {}, host: {}, signature: {}, date: {}{}{}{}{}]",
+            self.request_target,
+            self.host,
+            self.signature,
+            self.date,
+            self.digest
+                .as_ref()
+                .map(|d| format!(", digest: {d}"))
+                .unwrap_or_default(),
+            self.content_type
+                .as_ref()
+                .map(|ct| format!(", content-type: {ct}"))
+                .unwrap_or_default(),
+            self.content_length
+                .as_ref()
+                .map(|cl| format!(", content-length: {cl}"))
+                .unwrap_or_default(),
+            self.user_agent
+                .as_ref()
+                .map(|ua| format!(", user-agent: {ua}"))
+                .unwrap_or_default()
+        )
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct VerifyParams {
     verify_string: String,
@@ -35,6 +65,25 @@ pub struct VerifyParams {
     key_selector: Option<String>,
     local: bool,
     signer_username: Option<String>,
+}
+
+impl std::fmt::Display for VerifyParams {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "Verify[key: {}, {}{}{}]",
+            self.key_id,
+            if self.local { "local" } else { "remote" },
+            self.key_selector
+                .as_ref()
+                .map(|ks| format!(", selector: {}", ks))
+                .unwrap_or_default(),
+            self.signer_username
+                .as_ref()
+                .map(|u| format!(", user: {}", u))
+                .unwrap_or_default()
+        )
+    }
 }
 
 fn build_verify_string(params: VerifyMapParams) -> VerifyParams {
@@ -87,7 +136,7 @@ fn build_verify_string(params: VerifyMapParams) -> VerifyParams {
         .collect::<Vec<String>>()
         .join("\n");
 
-    //log::debug!("VERIFY STRING: {verify_string}");
+    log::debug!("Verify String\n{verify_string}");
 
     VerifyParams {
         verify_string,
@@ -102,10 +151,12 @@ fn build_verify_string(params: VerifyMapParams) -> VerifyParams {
     }
 }
 
+// Remote and Local need to pass back the base64-encoded hash so that the destination
+// endpoint can verify it
 #[derive(Clone, Debug)]
 pub enum VerificationType {
-    Remote(Box<ApActor>),
-    Local(Box<Actor>),
+    Remote((Box<ApActor>, Option<String>)),
+    Local((Box<Actor>, Option<String>)),
     None,
     Deferred(Box<VerifyMapParams>),
 }
@@ -119,6 +170,22 @@ pub enum VerificationError {
     ActorNotFound(Box<VerifyMapParams>),
     ProfileNotFound,
     ClientKeyNotFound,
+}
+
+impl std::fmt::Display for VerificationError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            VerificationError::DecodeError(e) => write!(f, "failed to decode data: {}", e),
+            VerificationError::SignatureError(e) => write!(f, "invalid signature: {}", e),
+            VerificationError::VerificationFailed(e) => write!(f, "verification failed: {}", e),
+            VerificationError::PublicKeyError(e) => write!(f, "invalid public key: {}", e),
+            VerificationError::ActorNotFound(params) => {
+                write!(f, "actor not found for params: {:?}", params)
+            }
+            VerificationError::ProfileNotFound => write!(f, "profile not found"),
+            VerificationError::ClientKeyNotFound => write!(f, "client key not found"),
+        }
+    }
 }
 
 pub async fn verify(
@@ -172,24 +239,14 @@ pub async fn verify(
             .map_err(|e| VerificationError::PublicKeyError(anyhow!(e)))
             .and_then(|pk| verify(&pk, &signature_str, &verify_string))?;
 
-        Ok(VerificationType::Local(Box::from(profile)))
+        Ok(VerificationType::Local((Box::from(profile), params.digest)))
     } else if let Ok(actor) = get_actor_by_key_id(conn, key_id).await {
         let actor = ApActor::from(actor.clone());
-        // log::debug!(
-        //     "Retrieved actor by key_id: {}",
-        //     actor
-        //         .id
-        //         .clone()
-        //         .map(|x| x.to_string())
-        //         .unwrap_or("No ID".to_string())
-        // );
 
-        //log::debug!("signature_str: {signature_str}");
-        //log::debug!("verify_string: {verify_string}");
         RsaPublicKey::from_public_key_pem(actor.clone().public_key.public_key_pem.trim_end())
             .map_err(|e| VerificationError::PublicKeyError(anyhow!(e)))
             .and_then(|pk| verify(&pk, &signature_str, &verify_string))?;
-        Ok(VerificationType::Remote(Box::new(actor)))
+        Ok(VerificationType::Remote((Box::new(actor), params.digest)))
     } else {
         Err(VerificationError::ActorNotFound(params.into()))
     }
@@ -203,7 +260,7 @@ pub enum SigningError {
 
 impl fmt::Display for SigningError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{:#?}", self)
+        write!(f, "{:?}", self)
     }
 }
 
@@ -236,6 +293,22 @@ pub struct SignParams {
     pub method: Method,
 }
 
+impl std::fmt::Display for SignParams {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "Sign[{} {} by {}{}]",
+            self.method,
+            self.url,
+            self.profile.as_id,
+            self.body
+                .as_ref()
+                .map(|b| format!(" with body ({} bytes)", b.len()))
+                .unwrap_or_default()
+        )
+    }
+}
+
 pub struct SignResponse {
     pub signature: String,
     pub date: String,
@@ -248,7 +321,7 @@ pub fn sign(params: SignParams) -> Result<SignResponse, SigningError> {
         let request_target = format_request_target(&params.method, &params.url);
         let date = httpdate::fmt_http_date(SystemTime::now());
 
-        //log::debug!("SIGN {}, {host}, {request_target}, {date}", params.url);
+        log::debug!("{params}");
 
         let actor = ApActor::from(params.profile.clone());
         let private_key = RsaPrivateKey::from_pkcs8_pem(
@@ -272,6 +345,13 @@ pub fn sign(params: SignParams) -> Result<SignResponse, SigningError> {
     } else {
         Err(SigningError::InvalidUrl)
     }
+}
+
+pub fn get_hash(bytes: Vec<u8>) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(bytes);
+    let hashed = hasher.finalize();
+    general_purpose::STANDARD.encode(hashed)
 }
 
 fn compute_digest(body: &Option<String>) -> Option<String> {

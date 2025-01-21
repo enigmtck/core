@@ -1,7 +1,10 @@
 use std::fmt::Display;
 
 use super::Inbox;
+use rocket::data::{self, Data, FromData, ToByteUnit};
 use rocket::http::Status;
+use rocket::outcome::Outcome;
+use rocket::request::Request;
 use rocket::serde::json::Json;
 use rocket::{get, post};
 use serde_json::Value;
@@ -15,7 +18,7 @@ use crate::models::activities::{TimelineFilters, TimelineView};
 use crate::models::leaders::get_leaders_by_actor_id;
 use crate::models::unprocessable::create_unprocessable;
 use crate::retriever;
-use crate::signing::{verify, VerificationType};
+use crate::signing::{get_hash, verify, VerificationType};
 use crate::SERVER_URL;
 use jdt_activity_pub::{
     verify_jsonld_signature, ActivityPub, ApActivity, ApActor, ApCollection, ApObject,
@@ -65,15 +68,139 @@ pub async fn inbox_get(
     shared_inbox_get(signed, conn, min, max, limit, Some(view), hashtags).await
 }
 
-#[post("/user/<_>/inbox", data = "<activity>")]
+pub struct HashedJson {
+    pub hash: String,
+    pub json: Value,
+}
+
+#[rocket::async_trait]
+impl<'r> FromData<'r> for HashedJson {
+    type Error = anyhow::Error;
+
+    async fn from_data(req: &'r Request<'_>, data: Data<'r>) -> data::Outcome<'r, Self> {
+        let limit = req.limits().get("json").unwrap_or(1.mebibytes());
+
+        let bytes = match data.open(limit).into_bytes().await {
+            Ok(bytes) if bytes.is_complete() => bytes.into_inner(),
+            Ok(_) => {
+                return Outcome::Error((
+                    Status::PayloadTooLarge,
+                    anyhow::anyhow!("JSON POST too large"),
+                ))
+            }
+            Err(e) => {
+                return Outcome::Error((
+                    Status::InternalServerError,
+                    anyhow::anyhow!("IO error: {}", e),
+                ))
+            }
+        };
+
+        let hash = get_hash(bytes.clone());
+        let json = match serde_json::from_slice(&bytes) {
+            Ok(value) => value,
+            Err(e) => {
+                return Outcome::Error((Status::BadRequest, anyhow::anyhow!("Invalid JSON: {}", e)))
+            }
+        };
+
+        Outcome::Success(HashedJson { hash, json })
+    }
+}
+
+#[post("/user/<_>/inbox", data = "<hashed>")]
 pub async fn inbox_post(
+    hashed: HashedJson,
     permitted: Permitted,
     signed: Signed,
     conn: Db,
     channels: EventChannels,
-    activity: Json<Value>,
 ) -> Result<Status, Status> {
-    shared_inbox_post(permitted, signed, conn, channels, activity).await
+    shared_inbox_post(hashed, permitted, signed, conn, channels).await
+}
+
+#[post("/inbox", data = "<hashed>")]
+pub async fn shared_inbox_post(
+    hashed: HashedJson,
+    permitted: Permitted,
+    signed: Signed,
+    conn: Db,
+    _channels: EventChannels,
+) -> Result<Status, Status> {
+    if !permitted.is_permitted() {
+        log::debug!("Request was explicitly forbidden");
+        return Err(Status::Forbidden);
+    }
+
+    let raw = hashed.json;
+
+    if let Some(signed_digest) = signed.digest() {
+        let signed_digest = if signed_digest[..8].eq_ignore_ascii_case("sha-256=") {
+            signed_digest[8..].to_string()
+        } else {
+            signed_digest
+        };
+
+        if hashed.hash != signed_digest {
+            log::debug!("Computed body hash does not match signed hash");
+            log::debug!("Computed JSON message digest: {}", hashed.hash);
+            log::debug!("Signed JSON message digest: {signed_digest}");
+            return Err(Status::Unauthorized);
+        }
+    }
+
+    let activity: ApActivity = match raw.clone().try_into() {
+        Ok(activity) => activity,
+        Err(e) => {
+            create_unprocessable(&conn, (raw.clone(), Some(format!("{e:#?}"))).into()).await;
+            return Err(Status::UnprocessableEntity);
+        }
+    };
+
+    if activity.is_delete() && signed.deferred().is_some() {
+        return Ok(Status::Accepted);
+    }
+
+    let mut signer = signed.actor();
+
+    let is_authorized = if let Some(deferred) = signed.deferred() {
+        let actor = retriever::get_actor(&conn, activity.actor().to_string(), None, true)
+            .await
+            .ok();
+
+        if let Some(actor) = actor.clone() {
+            if let Some(id) = actor.id {
+                log::debug!("Deferred Actor retrieved: {id}");
+            }
+        }
+
+        signer = actor;
+
+        matches!(
+            verify(&conn, deferred).await,
+            Ok(VerificationType::Remote(_))
+        )
+    } else {
+        signed.any()
+    };
+
+    if activity.is_signed() {
+        if let Some(actor) = signer {
+            let public_key_pem = actor.public_key.public_key_pem;
+
+            match verify_jsonld_signature(raw.clone(), public_key_pem).await {
+                Ok(verified) => log::debug!("RsaSignature2017 Verification: {verified:#?}"),
+                Err(e) => log::debug!("RsaSignature2017 Verification Error: {e}"),
+            }
+        }
+    }
+
+    if is_authorized {
+        activity.inbox(conn, raw).await
+    } else {
+        log::debug!("Request was not authorized");
+        Err(Status::Unauthorized)
+    }
 }
 
 pub fn convert_hashtags_to_query_string(hashtags: &[String]) -> String {
@@ -212,71 +339,6 @@ pub async fn shared_inbox_get(
 //         Err(Status::UnprocessableEntity)
 //     }
 // }
-
-#[post("/inbox", data = "<raw>")]
-pub async fn shared_inbox_post(
-    permitted: Permitted,
-    signed: Signed,
-    conn: Db,
-    _channels: EventChannels,
-    raw: Json<Value>,
-) -> Result<Status, Status> {
-    if !permitted.is_permitted() {
-        log::debug!("Request was explicitly forbidden");
-        return Err(Status::Forbidden);
-    }
-
-    let raw = raw.into_inner();
-
-    let activity: ApActivity = match raw.clone().try_into() {
-        Ok(activity) => activity,
-        Err(e) => {
-            create_unprocessable(&conn, (raw.clone(), Some(format!("{e:#?}"))).into()).await;
-            return Err(Status::UnprocessableEntity);
-        }
-    };
-
-    if activity.is_delete() && signed.deferred().is_some() {
-        return Ok(Status::Accepted);
-    }
-
-    let mut signer = signed.actor();
-
-    let is_authorized = if let Some(deferred) = signed.deferred() {
-        let actor = retriever::get_actor(&conn, activity.actor().to_string(), None, true)
-            .await
-            .ok();
-
-        log::debug!("Deferred Actor retrieved\n{actor:#?}");
-
-        signer = actor;
-
-        matches!(
-            verify(&conn, deferred).await,
-            Ok(VerificationType::Remote(_))
-        )
-    } else {
-        signed.any()
-    };
-
-    if activity.is_signed() {
-        if let Some(actor) = signer {
-            let public_key_pem = actor.public_key.public_key_pem;
-
-            match verify_jsonld_signature(raw.clone(), public_key_pem).await {
-                Ok(verified) => log::debug!("RsaSignature2017 Verification: {verified:#?}"),
-                Err(e) => log::debug!("RsaSignature2017 Verification Error: {e}"),
-            }
-        }
-    }
-
-    if is_authorized {
-        activity.inbox(conn, raw).await
-    } else {
-        log::debug!("Request was not authorized");
-        Err(Status::Unauthorized)
-    }
-}
 
 #[get("/api/announcers?<limit>&<min>&<max>&<target>")]
 pub async fn announcers_get(
