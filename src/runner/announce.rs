@@ -3,12 +3,14 @@ use anyhow::Result;
 use crate::{
     db::Db,
     fairings::events::EventChannels,
+    helper::get_domain_from_url,
     models::{
         activities::{
             get_activity_by_ap_id, revoke_activity_by_apid, update_target_object,
             TryFromExtendedActivity,
         },
         actors::{get_actor, guaranteed_actor},
+        instances::get_instance_by_domain_name,
         objects::get_object_by_as_id,
     },
     runner::{
@@ -33,13 +35,13 @@ pub async fn send_announce_task(
             get_activity_by_ap_id(&conn, ap_id.clone())
                 .await
                 .ok_or_else(|| {
-                    log::error!("FAILED TO RETRIEVE ACTIVITY");
+                    log::error!("Failed to retrieve Activity: {ap_id}");
                     TaskError::TaskFailed
                 })?;
 
         let profile_id = activity.actor_id.ok_or(TaskError::TaskFailed)?;
         let sender = get_actor(&conn, profile_id).await.ok_or_else(|| {
-            log::error!("FAILED TO RETRIEVE ACTOR");
+            log::error!("Failed to retrieve Actor: {profile_id}");
             TaskError::TaskFailed
         })?;
 
@@ -50,7 +52,7 @@ pub async fn send_announce_task(
             target_actor,
         ))
         .map_err(|e| {
-            log::error!("FAILED TO BUILD ApActivity: {e:#?}");
+            log::error!("Failed to build ApActivity: {e}");
             TaskError::TaskFailed
         })?
         .formalize();
@@ -60,7 +62,7 @@ pub async fn send_announce_task(
         send_to_inboxes(&conn, inboxes, sender, activity.clone())
             .await
             .map_err(|e| {
-                log::error!("FAILED TO SEND ANNOUNCE: {e:#?}");
+                log::error!("Failed to send Announce: {e}");
                 TaskError::TaskFailed
             })?;
     }
@@ -78,7 +80,7 @@ pub async fn remote_undo_announce_task(
             .await
             .is_ok()
         {
-            log::debug!("ANNOUNCE REVOKED: {ap_id}");
+            log::debug!("Announce revoked: {ap_id}");
         }
     }
 
@@ -100,12 +102,12 @@ pub async fn remote_announce_task(
         get_activity_by_ap_id(&conn, ap_id.clone())
             .await
             .ok_or_else(|| {
-                log::error!("FAILED TO RETRIEVE ACTIVITY");
+                log::error!("Failed to retrieve Activity: {ap_id}");
                 TaskError::TaskFailed
             })?;
 
     let target_ap_id = activity.clone().target_ap_id.ok_or_else(|| {
-        log::error!("target_ap_id CAN NOT BE NONE");
+        log::error!("target_ap_id can not be None");
         TaskError::TaskFailed
     })?;
 
@@ -113,14 +115,24 @@ pub async fn remote_announce_task(
         update_target_object(Some(&conn), activity, object)
             .await
             .ok_or_else(|| {
-                log::error!("FAILED TO UPDATE TARGET OBJECT");
+                log::error!("Failed to update target Object: {target_ap_id}");
                 TaskError::TaskFailed
             })?;
     } else {
+        let domain_name = get_domain_from_url(target_ap_id.clone()).ok_or(TaskError::TaskFailed)?;
+        if get_instance_by_domain_name(&conn, domain_name.clone())
+            .await
+            .map(|x| x.blocked)
+            .unwrap_or(false)
+        {
+            log::debug!("Instance is explicitly blocked: {domain_name}");
+            return Err(TaskError::Prohibited);
+        }
+
         let remote_object = fetch_remote_object(&conn, target_ap_id.clone(), profile.clone())
             .await
             .ok_or_else(|| {
-                log::error!("FAILED TO RETRIEVE REMOTE OBJECT");
+                log::error!("Failed to retrieve remote Object: {}", target_ap_id.clone());
                 TaskError::TaskFailed
             })?;
 
@@ -135,7 +147,7 @@ pub async fn remote_announce_task(
             )
             .await
             .map_err(|e| {
-                log::error!("FAILED TO UPDATE TARGET OBJECT: {e:#?}");
+                log::error!("Failed to update target Object: {e}");
                 TaskError::TaskFailed
             })?,
         )

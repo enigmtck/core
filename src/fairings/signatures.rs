@@ -177,11 +177,11 @@ impl<'r> FromRequest<'r> for Signed {
                                 // yet have them in the database. The ID of the user is not available in
                                 // the Fairing (i.e., it's not in the header), so we defer the verification
                                 // to the receiving route that decodes the whole request
-                                VerificationError::ActorNotFound(verify_map_params) => {
-                                    log::debug!("Signature verification deferred");
+                                VerificationError::ActorNotFound(ref verify_map_params) => {
+                                    log::debug!("Signature verification deferred: {}", e);
                                     Outcome::Success(Signed(
                                         false,
-                                        VerificationType::Deferred(verify_map_params),
+                                        VerificationType::Deferred(verify_map_params.clone()),
                                     ))
                                 }
                                 _ => {

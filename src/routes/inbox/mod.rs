@@ -164,15 +164,19 @@ pub async fn shared_inbox_post(
     let mut signer = signed.actor();
 
     let is_authorized = if let Some(deferred) = signed.deferred() {
-        let actor = retriever::get_actor(&conn, activity.actor().to_string(), None, true)
-            .await
-            .ok();
-
-        if let Some(actor) = actor.clone() {
-            if let Some(id) = actor.id {
-                log::debug!("Deferred Actor retrieved: {id}");
-            }
-        }
+        let actor =
+            match retriever::get_actor(&conn, activity.actor().to_string(), None, true).await {
+                Ok(actor) => {
+                    if let Some(id) = actor.id.clone() {
+                        log::debug!("Deferred Actor retrieved: {id}");
+                    }
+                    Some(actor)
+                }
+                Err(e) => {
+                    log::error!("Failed to retrieve deferred actor: {e}");
+                    None
+                }
+            };
 
         signer = actor;
 

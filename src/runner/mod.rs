@@ -282,6 +282,7 @@ pub async fn get_inboxes(conn: &Db, activity: ApActivity, sender: Actor) -> Vec<
 #[derive(Eq, PartialEq, Clone, Debug)]
 pub enum TaskError {
     TaskFailed,
+    Prohibited,
 }
 
 impl fmt::Display for TaskError {

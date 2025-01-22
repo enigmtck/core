@@ -15,16 +15,14 @@ use serde_json::Value;
 
 impl Inbox for ApUpdate {
     async fn inbox(&self, conn: Db, raw: Value) -> Result<Status, Status> {
-        log::debug!("Update Message received by Inbox\n{raw:#?}");
+        log::debug!("Update Message received by Inbox: {}", self.clone());
 
         let activity: ApActivity = self.clone().into();
-
-        log::debug!("ApActivity\n{activity:#?}");
 
         match self.clone().object {
             MaybeReference::Actual(actual) => match actual {
                 ApObject::Actor(actor) => {
-                    log::debug!("Updating Actor: {}", actor.clone().id.unwrap_or_default());
+                    log::debug!("{actor}");
                     let webfinger = actor.get_webfinger().await;
 
                     if let Ok(mut new_remote_actor) = NewActor::try_from(actor.clone()) {
@@ -34,107 +32,97 @@ impl Inbox for ApUpdate {
                             let actor = create_or_update_actor(Some(&conn), new_remote_actor)
                                 .await
                                 .map_err(|e| {
-                                    log::error!("Failed to create or update Actor: {e:#?}");
+                                    log::error!("Failed to create or update Actor: {e}");
                                     Status::InternalServerError
                                 })?;
 
                             let mut activity =
                                 NewActivity::try_from((activity, Some(actor.into()))).map_err(
                                     |e| {
-                                        log::error!("Failed to build NewActivity: {e:#?}");
+                                        log::error!("Failed to build NewActivity: {e}");
                                         Status::InternalServerError
                                     },
                                 )?;
                             activity.raw = Some(raw);
 
                             create_activity(Some(&conn), activity).await.map_err(|e| {
-                                log::error!("Failed to create Activity: {e:#?}");
+                                log::error!("Failed to create Activity: {e}");
                                 Status::InternalServerError
                             })?;
 
                             Ok(Status::Accepted)
                         } else {
-                            log::error!("Failed to handle Activity\n{raw}");
-                            Err(Status::NoContent)
+                            log::error!("Failed to handle Activity");
+                            Err(Status::Unauthorized)
                         }
                     } else {
-                        log::error!("Failed to handle Activity\n{raw}");
-                        Err(Status::NoContent)
+                        log::error!("Failed to handle Activity");
+                        Err(Status::InternalServerError)
                     }
                 }
                 ApObject::Note(note) => {
-                    if let Some(id) = note.clone().id {
-                        log::debug!("Updating Note: {}", id);
-
-                        if note.clone().attributed_to == self.actor.clone() {
-                            let object = create_or_update_object(&conn, note.into())
+                    log::debug!("{note}");
+                    if note.clone().attributed_to == self.actor.clone() {
+                        let object =
+                            create_or_update_object(&conn, note.into())
                                 .await
                                 .map_err(|e| {
-                                    log::error!("Failed to create or update Note: {e:#?}");
+                                    log::error!("Failed to create or update Note: {e}");
                                     Status::InternalServerError
                                 })?;
 
-                            let mut activity =
-                                NewActivity::try_from((activity, Some(object.into()))).map_err(
-                                    |e| {
-                                        log::error!("Failed to build NewActivity: {e:#?}");
-                                        Status::InternalServerError
-                                    },
-                                )?;
-                            activity.raw = Some(raw);
-
-                            create_activity(Some(&conn), activity).await.map_err(|e| {
-                                log::error!("Failed to create Activity: {e:#?}");
-                                Status::InternalServerError
-                            })?;
-
-                            Ok(Status::Accepted)
-                        } else {
-                            log::error!("Failed to handle Activity\n{raw}");
-                            Err(Status::NoContent)
-                        }
-                    } else {
-                        log::warn!("Missing Note ID: {note:#?}");
-                        log::error!("Failed to handle Activity\n{raw}");
-                        Err(Status::NoContent)
-                    }
-                }
-                ApObject::Question(question) => {
-                    let id = question.clone().id;
-                    log::debug!("Updating Question: {id}");
-
-                    if question.clone().attributed_to == self.actor.clone() {
-                        let object = create_or_update_object(&conn, question.into())
-                            .await
-                            .map_err(|e| {
-                                log::error!("Failed to create or update Question: {e:#?}");
-                                Status::InternalServerError
-                            })?;
-
                         let mut activity = NewActivity::try_from((activity, Some(object.into())))
                             .map_err(|e| {
-                            log::error!("Failed to build NewActivity: {e:#?}");
+                            log::error!("Failed to build NewActivity: {e}");
                             Status::InternalServerError
                         })?;
                         activity.raw = Some(raw);
 
                         create_activity(Some(&conn), activity).await.map_err(|e| {
-                            log::error!("Failed to create Activity: {e:#?}");
+                            log::error!("Failed to create Activity: {e}");
                             Status::InternalServerError
                         })?;
 
                         Ok(Status::Accepted)
                     } else {
-                        log::error!("Failed to handle Activity\n{raw}");
-                        Err(Status::NoContent)
+                        log::error!("attributed_to does not match Actor");
+                        Err(Status::Unauthorized)
+                    }
+                }
+                ApObject::Question(question) => {
+                    log::debug!("{question}");
+                    if question.clone().attributed_to == self.actor.clone() {
+                        let object = create_or_update_object(&conn, question.into())
+                            .await
+                            .map_err(|e| {
+                                log::error!("Failed to create or update Question: {e}");
+                                Status::InternalServerError
+                            })?;
+
+                        let mut activity = NewActivity::try_from((activity, Some(object.into())))
+                            .map_err(|e| {
+                            log::error!("Failed to build NewActivity: {e}");
+                            Status::InternalServerError
+                        })?;
+                        activity.raw = Some(raw);
+
+                        create_activity(Some(&conn), activity).await.map_err(|e| {
+                            log::error!("Failed to create Activity: {e}");
+                            Status::InternalServerError
+                        })?;
+
+                        Ok(Status::Accepted)
+                    } else {
+                        log::error!("attributed_to does not match Actor");
+                        Err(Status::Unauthorized)
                     }
                 }
                 _ => {
                     log::debug!("Unimplemented Update type");
-                    Err(Status::NoContent)
+                    Err(Status::NotImplemented)
                 }
             },
-            _ => Err(Status::NoContent),
+            _ => Err(Status::UnprocessableEntity),
         }
     }
 

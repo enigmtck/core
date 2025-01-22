@@ -12,11 +12,8 @@ pub fn is_local(ap_id: String) -> bool {
     }
 }
 
-pub fn get_domain_from_url(url: String) -> String {
-    DOMAIN_RE
-        .captures(&url)
-        .expect("unable to locate domain name")[1]
-        .to_string()
+pub fn get_domain_from_url(url: String) -> Option<String> {
+    Some(DOMAIN_RE.captures(&url)?[1].to_string())
 }
 
 pub fn get_domain_from_webfinger(webfinger: String) -> String {

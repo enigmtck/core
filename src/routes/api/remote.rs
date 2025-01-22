@@ -23,7 +23,7 @@ pub async fn remote_id(blocks: BlockList, conn: Db, id: &str) -> Result<String, 
     })?;
     let id = (*id).to_string();
 
-    if blocks.is_blocked(get_domain_from_url(id.clone())) {
+    if blocks.is_blocked(get_domain_from_url(id.clone()).ok_or(Status::InternalServerError)?) {
         Err(Status::Forbidden)
     } else {
         let actor = get_actor(&conn, id, None, true).await.map_err(|e| {
@@ -49,7 +49,7 @@ pub async fn remote_id_authenticated(
     })?;
     let id = (*id).to_string();
 
-    if blocks.is_blocked(get_domain_from_url(id.clone())) {
+    if blocks.is_blocked(get_domain_from_url(id.clone()).ok_or(Status::InternalServerError)?) {
         Err(Status::Forbidden)
     } else if signed.local() {
         let profile = get_actor_by_username(&conn, username.to_string())
@@ -476,7 +476,9 @@ pub async fn remote_object(
     if let Ok(url) = urlencoding::decode(id) {
         let url = &(*url).to_string();
 
-        if blocks.is_blocked(get_domain_from_url(id.to_string())) {
+        if blocks
+            .is_blocked(get_domain_from_url(id.to_string()).ok_or(Status::InternalServerError)?)
+        {
             Err(Status::Forbidden)
         } else if let Some(object) = get_object(&conn, signed.profile(), url.to_string()).await {
             Ok(Json(object))

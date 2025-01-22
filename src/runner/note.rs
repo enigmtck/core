@@ -33,18 +33,18 @@ pub async fn fetch_remote_object(conn: &Db, id: String, profile: Actor) -> Optio
                         .ok()
                 }
                 Err(e) => {
-                    log::error!("FAILED TO DECODE REMOTE OBJECT\n{e:#?}");
+                    log::error!("Failed to decode remote Object: {e}");
                     None
                 }
                 _ => None,
             },
             StatusCode::GONE => {
-                log::debug!("REMOTE OBJECT NO LONGER EXISTS AT SOURCE");
+                log::debug!("Remote Object no longer exists at source");
                 None
             }
             _ => {
-                log::error!("REMOTE OBJECT FETCH STATUS {:#?}", resp.status());
-                log::error!("{:#?}", resp.text().await);
+                log::error!("Remote Object fetch status: {}", resp.status());
+                log::error!("Remote Object fetch text: {}", resp.text().await);
                 None
             }
         }
@@ -95,7 +95,6 @@ pub async fn handle_object(
     mut object: Object,
     _announcer: Option<String>,
 ) -> anyhow::Result<Object> {
-    log::debug!("Entering handle_object");
     let metadata = metadata_object(&object);
 
     if !metadata.is_empty() {
@@ -116,16 +115,10 @@ pub async fn handle_object(
             .unwrap_or(object);
     }
 
-    // SOMETHING HERE MAY BE FAILING - LOG AND INVESTIGATE WHY CACHING ISN'T WORKING
-
-    log::debug!("Converting Object to ApObject");
     let ap_object: ApObject = object.clone().try_into()?;
-
-    log::debug!("Retrieving Actor");
     let profile = guaranteed_actor(conn, None);
 
     if let ApObject::Note(note) = ap_object {
-        log::debug!("Found ApNote as Object");
         let _ = get_actor(
             conn,
             note.attributed_to.to_string(),
@@ -138,46 +131,17 @@ pub async fn handle_object(
         //     note.ephemeral_announces = Some(vec![announcer]);
         // }
 
-        log::debug!("Caching note");
         note.cache(conn).await;
 
         if let Some(mut channels) = channels {
             channels.send(None, serde_json::to_string(&note.clone()).unwrap());
         }
 
-        log::debug!("Exiting handle_object");
         Ok(object)
     } else {
         Err(anyhow!("ApObject is not a Note"))
     }
 }
-
-// pub async fn handle_remote_encrypted_note_task(
-//     _conn: Option<&Db>,
-//     remote_note: RemoteNote,
-// ) -> Result<()> {
-//     log::debug!("adding to processing queue");
-
-//     if let Some(ap_to) = remote_note.clone().ap_to {
-//         cfg_if::cfg_if! {
-//             if #[cfg(feature = "pg")] {
-//                 let _to_vec: Vec<String> = serde_json::from_value(ap_to)?;
-//             } else if #[cfg(feature = "sqlite")] {
-//                 let _to_vec: Vec<String> = serde_json::from_str(&ap_to)?;
-//             }
-//         }
-
-//         // need to refactor this because of the async in the closures
-//         // to_vec
-//         //     .iter()
-//         //     .filter_map(|ap_id| get_profile_by_ap_id(conn, ap_id.to_string()).await)
-//         //     .for_each(|profile| {
-//         //         create_processing_item(None, (remote_note.clone(), profile.id).into()).await;
-//         //     });
-//     }
-
-//     Ok(())
-// }
 
 pub async fn object_task(
     conn: Db,

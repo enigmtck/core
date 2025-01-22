@@ -9,7 +9,6 @@ use jdt_activity_pub::ApActor;
 use rsa::pkcs1v15::{Signature, SigningKey};
 use rsa::signature::{RandomizedSigner, SignatureEncoding, Verifier};
 use rsa::{pkcs8::DecodePrivateKey, pkcs8::DecodePublicKey, RsaPrivateKey, RsaPublicKey};
-use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::error::Error;
 use std::fmt::{self, Debug};
@@ -135,8 +134,6 @@ fn build_verify_string(params: VerifyMapParams) -> VerifyParams {
         })
         .collect::<Vec<String>>()
         .join("\n");
-
-    log::debug!("Verify String\n{verify_string}");
 
     VerifyParams {
         verify_string,

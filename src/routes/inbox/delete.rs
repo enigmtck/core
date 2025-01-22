@@ -19,7 +19,7 @@ use serde_json::Value;
 
 impl Inbox for Box<ApDelete> {
     async fn inbox(&self, conn: Db, raw: Value) -> Result<Status, Status> {
-        log::debug!("Delete Message received by Inbox\n{raw:#?}");
+        log::debug!("Delete Message received by Inbox: {}", self.clone());
 
         let tombstone = match self.object.clone() {
             MaybeReference::Actual(actual) => match actual {
@@ -52,7 +52,7 @@ impl Inbox for Box<ApDelete> {
                     Status::NotFound
                 })?),
                 _ => {
-                    log::error!("Failed to identify Delete Object: {:#?}", self.object);
+                    log::error!("Failed to identify Delete Object: {}", self.object);
                     Err(Status::NoContent)
                 }
             },
@@ -76,7 +76,6 @@ impl Inbox for Box<ApDelete> {
             }
         };
 
-        log::debug!("Tombstone\n{tombstone:#?}");
         let tombstone = tombstone.clone()?;
 
         let mut activity = match tombstone.clone() {
@@ -85,7 +84,7 @@ impl Inbox for Box<ApDelete> {
                 Some(ActivityTarget::from(actor.clone())),
             ))
             .map_err(|e| {
-                log::error!("Failed to build Activity: {e:#?}");
+                log::error!("Failed to build Activity: {e}");
                 Status::InternalServerError
             })?,
             Tombstone::Object(object) => NewActivity::try_from((
@@ -93,7 +92,7 @@ impl Inbox for Box<ApDelete> {
                 Some(ActivityTarget::from(object.clone())),
             ))
             .map_err(|e| {
-                log::error!("Failed to build Activity: {e:#?}");
+                log::error!("Failed to build Activity: {e}");
                 Status::InternalServerError
             })?,
         };
@@ -101,11 +100,14 @@ impl Inbox for Box<ApDelete> {
         activity.raw = Some(raw);
 
         let activity = create_activity(Some(&conn), activity).await.map_err(|e| {
-            log::error!("Failed to create Activity: {e:#?}");
+            log::error!("Failed to create Activity: {e}");
             Status::InternalServerError
         })?;
 
-        log::debug!("Tombstone Activity\n{activity:#?}");
+        log::debug!(
+            "Tombstone Activity: {}",
+            activity.ap_id.unwrap_or("no id".to_string())
+        );
 
         match tombstone {
             Tombstone::Actor(actor) => {
@@ -115,7 +117,7 @@ impl Inbox for Box<ApDelete> {
                     tombstone_actor_by_as_id(&conn, actor.as_id)
                         .await
                         .map_err(|e| {
-                            log::error!("Failed to delete Actor: {e:#?}");
+                            log::error!("Failed to delete Actor: {e}");
                             Status::InternalServerError
                         })?;
                 }
@@ -134,14 +136,14 @@ impl Inbox for Box<ApDelete> {
                         tombstone_object_by_as_id(&conn, object.as_id.clone())
                             .await
                             .map_err(|e| {
-                                log::error!("Failed to delete Object: {e:#?}");
+                                log::error!("Failed to delete Object: {e}");
                                 Status::InternalServerError
                             })?;
 
                         revoke_activities_by_object_as_id(&conn, object.as_id)
                             .await
                             .map_err(|e| {
-                                log::error!("Failed to revoke Activities: {e:#?}");
+                                log::error!("Failed to revoke Activities: {e}");
                                 Status::InternalServerError
                             })?;
                     }
