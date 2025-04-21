@@ -199,7 +199,7 @@ impl GetHashtags for ApActor {
         if let MaybeMultiple::Multiple(tags) = self.tag.clone() {
             tags.iter()
                 .filter_map(|tag| {
-                    if let ApTag::HashTag(hashtag) = tag {
+                    if let ApTag::Hashtag(hashtag) = tag {
                         Some(hashtag.name.clone().to_lowercase())
                     } else {
                         None

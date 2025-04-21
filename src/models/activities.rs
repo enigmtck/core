@@ -255,6 +255,7 @@ pub struct TimelineFilters {
     pub hashtags: Vec<String>,
     pub username: Option<String>,
     pub conversation: Option<String>,
+    pub excluded_words: Vec<String>,
     pub direct: bool,
 }
 
@@ -1042,6 +1043,7 @@ struct QueryParams {
     activity_as_id: Option<String>,
     activity_uuid: Option<String>,
     activity_id: Option<i32>,
+    excluded_words: Vec<String>,
     direct: bool,
 }
 
@@ -1427,6 +1429,11 @@ FROM activities a
             if !params.hashtags.is_empty() {
                 query.push_str(&format!("AND o.ek_hashtags ?| {} ", param_gen()));
             }
+
+            params.excluded_words.extend(filters.excluded_words.clone());
+            if !params.excluded_words.is_empty() {
+                query.push_str(&format!("AND o.as_content !~* '\\m({})\\M' ", param_gen()));
+            }
         }
 
         if (min.is_some() && min.unwrap() == 0) || params.conversation.clone().is_some() {
@@ -1687,6 +1694,12 @@ fn bind_params<'a>(
             log::debug!("SETTING HASHTAGS: |{:#?}|", &params.hashtags);
             lowercase_hashtags.extend(params.hashtags.iter().map(|hashtag| hashtag.to_lowercase()));
             query = query.bind::<Array<Text>, _>(lowercase_hashtags);
+        }
+
+        if !params.excluded_words.is_empty() {
+            log::debug!("SETTING EXCLUSIONS: |{:#?}|", &params.excluded_words);
+            let terms = params.excluded_words.join("|");
+            query = query.bind::<Text, _>(terms);
         }
 
         log::debug!("SETTING LIMIT: |{}|", &params.limit);

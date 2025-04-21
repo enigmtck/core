@@ -1,4 +1,5 @@
-use anyhow::Result;
+use anyhow::{anyhow, Result};
+use rocket::tokio::time::{sleep, Duration};
 
 use crate::{
     db::Db,
@@ -9,9 +10,9 @@ use crate::{
             get_activity_by_ap_id, revoke_activity_by_apid, update_target_object,
             TryFromExtendedActivity,
         },
-        actors::{get_actor, guaranteed_actor},
+        actors::{get_actor, guaranteed_actor, Actor},
         instances::get_instance_by_domain_name,
-        objects::get_object_by_as_id,
+        objects::{get_object_by_as_id, Object},
     },
     runner::{
         get_inboxes,
@@ -129,10 +130,32 @@ pub async fn remote_announce_task(
             return Err(TaskError::Prohibited);
         }
 
-        let remote_object = fetch_remote_object(&conn, target_ap_id.clone(), profile.clone())
+        async fn retrieve_object(
+            conn: &Db,
+            as_id: String,
+            profile: Actor,
+            retries: u64,
+        ) -> Result<Object> {
+            if retries == 0 {
+                return Err(anyhow!("Maximum retry limit reached"));
+            }
+
+            match fetch_remote_object(conn, as_id.clone(), profile.clone()).await {
+                Ok(object) => Ok(object),
+                Err(e) => {
+                    log::warn!("Failed to retrieve remote Object: {} | {e}", as_id.clone());
+                    log::warn!("Remaining attempts: {retries}");
+                    let backoff = Duration::from_secs(120 / retries);
+                    sleep(backoff).await;
+                    Box::pin(retrieve_object(conn, as_id, profile, retries - 1)).await
+                }
+            }
+        }
+
+        let remote_object = retrieve_object(&conn, target_ap_id, profile, 10)
             .await
-            .ok_or_else(|| {
-                log::error!("Failed to retrieve remote Object: {}", target_ap_id.clone());
+            .map_err(|e| {
+                log::error!("All retries failed: {e}");
                 TaskError::TaskFailed
             })?;
 

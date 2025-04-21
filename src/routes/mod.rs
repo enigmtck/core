@@ -130,9 +130,6 @@ impl Outbox for ApObject {
             ApObject::Actor(x) => x.outbox(conn, profile, raw).await,
             ApObject::Collection(x) => x.outbox(conn, profile, raw).await,
             ApObject::Identifier(x) => x.outbox(conn, profile, raw).await,
-            ApObject::Basic(x) => x.outbox(conn, profile, raw).await,
-            ApObject::Complex(x) => x.outbox(conn, profile, raw).await,
-            ApObject::Plain(x) => x.outbox(conn, profile, raw).await,
         }
     }
 }

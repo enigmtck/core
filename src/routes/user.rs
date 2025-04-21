@@ -19,7 +19,7 @@ use crate::{
 };
 use jdt_activity_pub::{
     ActivityPub, ApActor, ApCollection, ApInstrument, ApInstrumentType, ApObject, Collectible,
-    FollowersPage, LeadersPage,
+    FollowersPage, LeadersPage, MaybeReference,
 };
 use rocket::{get, http::Status, response::Redirect, serde::json::Json};
 use serde_json::Value;
@@ -283,7 +283,10 @@ pub async fn get_followers(
 
     let followers = results
         .iter()
-        .map(|(follower, _)| ActivityPub::Object(ApObject::Plain(follower.clone().actor)))
+        .map(|(follower, _)| {
+            ActivityPub::try_from(MaybeReference::<ApActor>::Reference(follower.clone().actor))
+                .unwrap()
+        })
         .collect();
 
     let actors = Some(
@@ -346,7 +349,12 @@ pub async fn get_leaders(
 
     let leaders = results
         .iter()
-        .map(|(leader, _)| ActivityPub::Object(ApObject::Plain(leader.clone().actor)))
+        .map(|(leader, _)| {
+            ActivityPub::try_from(MaybeReference::<ApActor>::Reference(
+                leader.clone().leader_ap_id,
+            ))
+            .unwrap()
+        })
         .collect();
 
     let actors = Some(

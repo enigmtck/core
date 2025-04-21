@@ -18,6 +18,8 @@ use serde_json::Value;
 
 impl Inbox for ApFollow {
     async fn inbox(&self, conn: Db, raw: Value) -> Result<Status, Status> {
+        log::debug!("{:?}", self.clone());
+
         let actor_as_id = self
             .object
             .clone()

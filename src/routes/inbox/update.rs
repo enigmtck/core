@@ -15,7 +15,7 @@ use serde_json::Value;
 
 impl Inbox for ApUpdate {
     async fn inbox(&self, conn: Db, raw: Value) -> Result<Status, Status> {
-        log::debug!("Update Message received by Inbox: {}", self.clone());
+        log::debug!("{:?}", self.clone());
 
         let activity: ApActivity = self.clone().into();
 

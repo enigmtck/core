@@ -18,6 +18,8 @@ use serde_json::Value;
 //impl Inbox for ApCreate {}
 impl Inbox for ApCreate {
     async fn inbox(&self, conn: Db, raw: Value) -> Result<Status, Status> {
+        log::debug!("{:?}", self.clone());
+
         if let Some(id) = self.id.clone() {
             if get_activity_by_ap_id(&conn, id).await.is_some() {
                 return Ok(Status::Accepted);

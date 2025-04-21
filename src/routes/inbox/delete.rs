@@ -19,7 +19,7 @@ use serde_json::Value;
 
 impl Inbox for Box<ApDelete> {
     async fn inbox(&self, conn: Db, raw: Value) -> Result<Status, Status> {
-        log::debug!("Delete Message received by Inbox: {}", self.clone());
+        log::debug!("{:?}", self.clone());
 
         let tombstone = match self.object.clone() {
             MaybeReference::Actual(actual) => match actual {

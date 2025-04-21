@@ -17,20 +17,16 @@ use serde_json::Value;
 
 impl Inbox for Box<ApUndo> {
     async fn inbox(&self, conn: Db, raw: Value) -> Result<Status, Status> {
+        log::debug!("{:?}", self.clone());
+
         match self.object.clone() {
             MaybeReference::Actual(actual) => inbox(conn, &actual, self, raw).await,
             MaybeReference::Reference(_) => {
-                log::warn!(
-                    "INSUFFICIENT CONTEXT FOR UNDO TARGET (REFERENCE FOUND WHEN ACTUAL IS REQUIRED)"
-                );
-                log::error!("FAILED TO HANDLE ACTIVITY\n{raw}");
+                log::warn!("Undo object must be Actual");
                 Err(Status::BadRequest)
             }
             _ => {
-                log::warn!(
-                    "INSUFFICIENT CONTEXT FOR UNDO TARGET (NONE FOUND WHEN ACTUAL IS REQUIRED)"
-                );
-                log::error!("FAILED TO HANDLE ACTIVITY\n{raw}");
+                log::warn!("Undo object must be Actual");
                 Err(Status::BadRequest)
             }
         }
@@ -43,16 +39,13 @@ impl Inbox for Box<ApUndo> {
 
 async fn inbox(conn: Db, target: &ApActivity, undo: &ApUndo, raw: Value) -> Result<Status, Status> {
     let target_ap_id = target.as_id().ok_or_else(|| {
-        log::error!("ApActivity.as_id() FAILED\n{target:#?}");
+        log::error!("Activity discarded: no id");
         Status::NotImplemented
     })?;
 
     let (_, target_activity, _, _) = get_activity_by_ap_id(&conn, target_ap_id.clone())
         .await
-        .ok_or({
-            log::error!("ACTIVITY NOT FOUND: {target_ap_id}");
-            Status::NotFound
-        })?;
+        .ok_or(Status::NotFound)?;
 
     let activity_target = (
         ApActivity::Undo(Box::new(undo.clone())),
@@ -62,7 +55,7 @@ async fn inbox(conn: Db, target: &ApActivity, undo: &ApUndo, raw: Value) -> Resu
     );
 
     let mut activity = NewActivity::try_from(activity_target).map_err(|e| {
-        log::error!("FAILED TO BUILD ACTIVITY: {e:#?}");
+        log::error!("Failed to build Activity: {e}");
         Status::InternalServerError
     })?;
 
@@ -71,7 +64,7 @@ async fn inbox(conn: Db, target: &ApActivity, undo: &ApUndo, raw: Value) -> Resu
     create_activity(Some(&conn), activity.clone())
         .await
         .map_err(|e| {
-            log::error!("FAILED TO CREATE ACTIVITY: {e:#?}");
+            log::error!("Failed to create Activity: {e}");
             Status::InternalServerError
         })?;
 
@@ -80,14 +73,14 @@ async fn inbox(conn: Db, target: &ApActivity, undo: &ApUndo, raw: Value) -> Resu
             revoke_activity_by_apid(Some(&conn), target_ap_id.clone())
                 .await
                 .map_err(|e| {
-                    log::error!("FAILED TO REVOKE LIKE: {e:#?}");
+                    log::error!("Failed to revoke Like: {e}");
                     Status::InternalServerError
                 })?;
             Ok(Status::Accepted)
         }
         ApActivity::Follow(_) => {
             if delete_follower_by_ap_id(Some(&conn), target_ap_id.clone()).await {
-                log::info!("FOLLOWER RECORD DELETED: {target_ap_id}");
+                log::info!("Follower record deleted: {target_ap_id}");
             }
 
             Ok(Status::Accepted)

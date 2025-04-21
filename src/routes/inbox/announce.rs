@@ -10,6 +10,8 @@ use serde_json::Value;
 
 impl Inbox for ApAnnounce {
     async fn inbox(&self, conn: Db, raw: Value) -> Result<Status, Status> {
+        log::debug!("{:?}", self.clone());
+
         let mut activity = NewActivity::try_from((ApActivity::Announce(self.clone()), None))
             .map_err(|e| {
                 log::error!("FAILED TO BUILD ACTIVITY: {e:#?}");

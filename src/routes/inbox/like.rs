@@ -13,6 +13,8 @@ use serde_json::Value;
 
 impl Inbox for Box<ApLike> {
     async fn inbox(&self, conn: Db, raw: Value) -> Result<Status, Status> {
+        log::debug!("{:?}", self.clone());
+
         let note_apid = match self.object.clone() {
             MaybeReference::Reference(reference) => Some(reference),
             MaybeReference::Actual(ApObject::Note(actual)) => actual.id,

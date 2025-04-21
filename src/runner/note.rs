@@ -8,48 +8,46 @@ use crate::models::cache::Cache;
 use crate::models::objects;
 use crate::models::objects::{create_or_update_object, get_object_by_as_id, Object};
 use crate::retriever::{get_actor, signed_get};
+use crate::ANCHOR_RE;
 use crate::{db::Db, signing::Method};
-use crate::{runner, ANCHOR_RE};
 use jdt_activity_pub::{ApHashtag, ApObject, Metadata};
 use serde_json::json;
 
 use super::TaskError;
 
-pub async fn fetch_remote_object(conn: &Db, id: String, profile: Actor) -> Option<Object> {
+pub async fn fetch_remote_object(conn: &Db, id: String, profile: Actor) -> Result<Object> {
     let _url = id.clone();
     let _method = Method::Get;
 
-    if let Ok(resp) = signed_get(profile, id, false).await {
-        match resp.status() {
+    match signed_get(profile, id, false).await {
+        Ok(resp) => match resp.status() {
             StatusCode::ACCEPTED | StatusCode::OK => match resp.json().await {
                 Ok(ApObject::Note(note)) => {
-                    create_or_update_object(conn, note.cache(conn).await.clone().into())
-                        .await
-                        .ok()
+                    create_or_update_object(conn, note.cache(conn).await.clone().into()).await
                 }
                 Ok(ApObject::Question(question)) => {
-                    create_or_update_object(conn, question.cache(conn).await.clone().into())
-                        .await
-                        .ok()
+                    create_or_update_object(conn, question.cache(conn).await.clone().into()).await
                 }
                 Err(e) => {
                     log::error!("Failed to decode remote Object: {e}");
-                    None
+                    Err(e.into())
                 }
-                _ => None,
+                _ => Err(anyhow!("Unimplemented ApObject")),
             },
             StatusCode::GONE => {
                 log::debug!("Remote Object no longer exists at source");
-                None
+                Err(anyhow!("Object no longer exists"))
             }
             _ => {
                 log::error!("Remote Object fetch status: {}", resp.status());
-                log::error!("Remote Object fetch text: {}", resp.text().await);
-                None
+                match resp.text().await {
+                    Ok(text) => log::error!("Remote Object fetch text: {text}"),
+                    Err(e) => log::error!("Remote Object fetch error: {e}"),
+                }
+                Err(anyhow!("Unknown error"))
             }
-        }
-    } else {
-        None
+        },
+        Err(e) => Err(e.into()),
     }
 }
 

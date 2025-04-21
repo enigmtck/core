@@ -142,7 +142,7 @@ pub async fn shared_inbox_post(
         };
 
         if hashed.hash != signed_digest {
-            log::debug!("Computed body hash does not match signed hash");
+            log::warn!("Computed body hash does not match signed hash");
             log::debug!("Computed JSON message digest: {}", hashed.hash);
             log::debug!("Signed JSON message digest: {signed_digest}");
             return Err(Status::Unauthorized);
@@ -157,6 +157,7 @@ pub async fn shared_inbox_post(
         }
     };
 
+    log::info!("{}", activity);
     if activity.is_delete() && signed.deferred().is_some() {
         return Ok(Status::Accepted);
     }
@@ -173,7 +174,7 @@ pub async fn shared_inbox_post(
                     Some(actor)
                 }
                 Err(e) => {
-                    log::error!("Failed to retrieve deferred actor: {e}");
+                    log::warn!("Failed to retrieve deferred actor: {e}");
                     None
                 }
             };
@@ -188,21 +189,23 @@ pub async fn shared_inbox_post(
         signed.any()
     };
 
-    if activity.is_signed() {
-        if let Some(actor) = signer {
-            let public_key_pem = actor.public_key.public_key_pem;
+    // Skipping for now because verify_jsonld_signature generates too many requests for Context using
+    // ReqwestLoader and they get blocked by Cloudflare
+    // if activity.is_signed() {
+    //     if let Some(actor) = signer {
+    //         let public_key_pem = actor.public_key.public_key_pem;
 
-            match verify_jsonld_signature(raw.clone(), public_key_pem).await {
-                Ok(verified) => log::debug!("RsaSignature2017 Verification: {verified:#?}"),
-                Err(e) => log::debug!("RsaSignature2017 Verification Error: {e}"),
-            }
-        }
-    }
+    //         match verify_jsonld_signature(raw.clone(), public_key_pem).await {
+    //             Ok(verified) => log::debug!("RsaSignature2017 Verification: {verified:#?}"),
+    //             Err(e) => log::warn!("RsaSignature2017 Verification Error: {e}"),
+    //         }
+    //     }
+    // }
 
     if is_authorized {
         activity.inbox(conn, raw).await
     } else {
-        log::debug!("Request was not authorized");
+        log::warn!("Request was not authorized");
         Err(Status::Unauthorized)
     }
 }
@@ -268,6 +271,7 @@ pub async fn shared_inbox_get(
                     hashtags,
                     username: None,
                     conversation: None,
+                    excluded_words: vec![],
                     direct: false,
                 },
                 InboxView::Home => TimelineFilters {
@@ -285,6 +289,7 @@ pub async fn shared_inbox_get(
                     hashtags,
                     username: None,
                     conversation: None,
+                    excluded_words: vec![],
                     direct: false,
                 },
                 InboxView::Local => TimelineFilters {
@@ -292,6 +297,7 @@ pub async fn shared_inbox_get(
                     hashtags,
                     username: None,
                     conversation: None,
+                    excluded_words: vec![],
                     direct: false,
                 },
                 InboxView::Direct => TimelineFilters {
@@ -299,6 +305,7 @@ pub async fn shared_inbox_get(
                     hashtags,
                     username: None,
                     conversation: None,
+                    excluded_words: vec![],
                     direct: true,
                 },
             }
@@ -308,6 +315,7 @@ pub async fn shared_inbox_get(
                 hashtags,
                 username: None,
                 conversation: None,
+                excluded_words: vec![],
                 direct: false,
             }
         }
@@ -327,41 +335,30 @@ pub async fn shared_inbox_get(
     )))
 }
 
-// #[post("/unsafe-inbox", data = "<raw>")]
-// pub async fn unsafe_inbox_post(
-//     conn: Db,
-//     _channels: EventChannels,
-//     raw: Json<Value>,
-// ) -> Result<Status, Status> {
-//     log::debug!("Posting to unsafe inbox\n{raw:#?}");
-//     let raw = raw.into_inner();
-
-//     if let Ok(activity) = ApActivity::try_from(raw.clone()) {
-//         activity.inbox(conn, raw).await
-//     } else {
-//         create_unprocessable(&conn, raw.into()).await;
-//         Err(Status::UnprocessableEntity)
-//     }
-// }
-
 #[get("/api/announcers?<limit>&<min>&<max>&<target>")]
 pub async fn announcers_get(
-    _permitted: Permitted,
-    _signed: Signed,
+    permitted: Permitted,
+    signed: Signed,
     conn: Db,
     target: String,
     min: Option<i64>,
     max: Option<i64>,
     limit: Option<u8>,
 ) -> Result<ActivityJson<ApObject>, Status> {
-    //if permitted.is_permitted() {
-    //if signed.local() {
+    if !permitted.is_permitted() {
+        return Err(Status::Forbidden);
+    }
+
+    if !signed.local() {
+        return Err(Status::Unauthorized);
+    }
+
     let server_url = &*SERVER_URL;
     let limit = limit.unwrap_or(50);
     let base_url = format!("{server_url}/api/announcers?limit={limit}&target={target}");
 
     let decoded = urlencoding::decode(&target).map_err(|e| {
-        log::error!("Failed to decode target: {e:#?}");
+        log::error!("Failed to decode target: {e}");
         Status::UnprocessableEntity
     })?;
 
@@ -375,12 +372,6 @@ pub async fn announcers_get(
     Ok(ActivityJson(Json(ApObject::Collection(
         ApCollection::from((actors, Some(base_url))),
     ))))
-    // } else {
-    //     Err(Status::Unauthorized)
-    // }
-    // } else {
-    //     Err(Status::Forbidden)
-    // }
 }
 
 #[get("/api/conversation?<id>&<min>&<max>&<limit>")]
@@ -406,6 +397,7 @@ pub async fn conversation_get(
         hashtags: vec![],
         username: None,
         conversation: Some(decoded.to_string()),
+        excluded_words: vec![],
         direct: false,
     };
 

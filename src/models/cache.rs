@@ -3,7 +3,7 @@ use crate::models::actors::guaranteed_actor;
 use crate::retriever::signed_get;
 use crate::schema::cache;
 use crate::POOL;
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use chrono::{DateTime, Utc};
 use diesel::prelude::*;
 use diesel::Insertable;
@@ -14,6 +14,7 @@ use jdt_activity_pub::{
     ActivityPub, ApActivity, ApActor, ApAttachment, ApCollection, ApDocument, ApImage, ApNote,
     ApObject, ApQuestion, ApTag, Collectible,
 };
+use rocket::tokio::time::{sleep, Duration};
 use rocket_sync_db_pools::diesel;
 use serde::{Deserialize, Serialize};
 use tokio::fs::File;
@@ -64,13 +65,13 @@ impl Cache for ApNote {
     async fn cache(&self, conn: &Db) -> &Self {
         log::debug!("Checking for attachments");
         for attachment in self.attachment.multiple() {
-            log::debug!("Attachment\n{attachment:#?}");
+            log::debug!("{attachment}");
             cache_content(conn, attachment.clone().try_into()).await;
         }
 
         log::debug!("Checking for tags");
         for tag in self.tag.multiple() {
-            log::debug!("Tag\n{tag:#?}");
+            log::debug!("{tag}");
             cache_content(conn, tag.clone().try_into()).await;
         }
 
@@ -285,35 +286,59 @@ pub async fn download_image(
     profile: Option<Actor>,
     cache_item: NewCacheItem,
 ) -> Result<NewCacheItem> {
-    log::debug!("DOWNLOADING IMAGE: {}", cache_item.url);
+    log::debug!("Downloading image: {}", cache_item.url);
 
-    let path = format!("{}/cache/{}", &*crate::MEDIA_DIR, cache_item.uuid);
+    async fn retrieve_image(
+        conn: &Db,
+        profile: Option<Actor>,
+        cache_item: NewCacheItem,
+        retries: u64,
+    ) -> Result<NewCacheItem> {
+        if retries == 0 {
+            return Err(anyhow!("Maximum retry limit reached"));
+        }
 
-    // Send an HTTP GET request to the URL
-    let response = signed_get(
-        guaranteed_actor(conn, profile).await,
-        cache_item.url.clone(),
-        true,
-    )
-    .await?;
+        match signed_get(
+            guaranteed_actor(conn, profile.clone()).await,
+            cache_item.url.clone(),
+            true,
+        )
+        .await
+        {
+            Ok(response) => {
+                log::debug!(
+                    "Response code for {}: {}",
+                    cache_item.uuid,
+                    response.status()
+                );
 
-    log::debug!(
-        "RESPONSE CODE FOR {}: {}",
-        cache_item.uuid,
-        response.status()
-    );
+                let path = format!("{}/cache/{}", &*crate::MEDIA_DIR, cache_item.uuid);
+                // Create a new file to write the downloaded image to
+                let mut file = File::create(path.clone()).await?;
 
-    // Create a new file to write the downloaded image to
-    let mut file = File::create(path.clone()).await?;
+                log::debug!("File created: {path}");
 
-    log::debug!("FILE CREATED: {path}");
+                let data = response.bytes().await?;
+                file.write_all(&data).await?;
 
-    let data = response.bytes().await?;
-    file.write_all(&data).await?;
+                log::debug!("File written: {path}");
 
-    log::debug!("FILE WRITTEN: {path}");
+                Ok(cache_item)
+            }
+            Err(e) => {
+                log::warn!(
+                    "Failed to retrieve remote Image: {} | {e}",
+                    cache_item.url.clone()
+                );
+                log::warn!("Remaining attempts: {retries}");
+                let backoff = Duration::from_secs(120 / retries);
+                sleep(backoff).await;
+                Box::pin(retrieve_image(conn, profile, cache_item, retries - 1)).await
+            }
+        }
+    }
 
-    Ok(cache_item)
+    retrieve_image(conn, profile, cache_item.clone(), 10).await
 }
 
 // I'm not sure if this is ridiculous or not, but if I use a Result here as a parameter

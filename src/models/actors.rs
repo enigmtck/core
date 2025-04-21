@@ -311,6 +311,7 @@ impl From<Actor> for ApActorTerse {
         let url = actor.as_url.into();
         let icon = actor.as_icon.try_into().ok();
         let tag = actor.as_tag.into();
+        let webfinger = actor.ek_webfinger;
 
         ApActorTerse {
             name,
@@ -319,6 +320,7 @@ impl From<Actor> for ApActorTerse {
             url,
             icon,
             tag,
+            webfinger,
         }
     }
 }
@@ -378,7 +380,6 @@ impl From<Actor> for ApActor {
         let public_key = actor
             .as_public_key
             .try_into()
-            .ok()
             .expect("actor must have a public key");
         let url = actor.as_url.into();
         let icon = actor.as_icon.try_into().ok();
@@ -390,6 +391,10 @@ impl From<Actor> for ApActor {
         let tag = actor.as_tag.into();
         let endpoints = actor.as_endpoints.try_into().ok();
         let keys = actor.ek_keys;
+        let ephemeral = actor.ek_webfinger.map(|webfinger| Ephemeral {
+            webfinger: Some(webfinger),
+            ..Default::default()
+        });
 
         ApActor {
             context,
@@ -419,7 +424,7 @@ impl From<Actor> for ApActor {
             tag,
             endpoints,
             keys,
-            ephemeral: None,
+            ephemeral,
         }
     }
 }

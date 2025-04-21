@@ -25,7 +25,6 @@ pub mod update;
 
 // Objects
 pub mod actor;
-pub mod basic;
 pub mod collection;
 pub mod complex;
 pub mod identifier;
@@ -35,6 +34,7 @@ pub mod plain;
 pub mod question;
 pub mod session;
 pub mod tombstone;
+pub mod uncategorized;
 
 #[get("/user/<username>/outbox?<limit>&<min>&<max>&<page>")]
 pub async fn outbox_get(
@@ -60,6 +60,7 @@ pub async fn outbox_get(
                 hashtags: vec![],
                 username: Some(username.clone()),
                 conversation: None,
+                excluded_words: vec![],
                 direct: false,
             }
         };

@@ -21,6 +21,8 @@ use serde_json::Value;
 impl Inbox for Box<ApAccept> {
     #[allow(unused_variables)]
     async fn inbox(&self, conn: Db, raw: Value) -> Result<Status, Status> {
+        log::debug!("{:?}", self.clone());
+
         let follow_as_id = match self.clone().object {
             MaybeReference::Reference(reference) => Some(reference),
             MaybeReference::Actual(ApActivity::Follow(actual)) => actual.id,

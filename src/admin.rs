@@ -136,8 +136,8 @@ pub async fn create_user(conn: Option<&Db>, user: NewUser) -> Result<Actor> {
         as_discoverable: true,
         ap_manually_approves_followers: false,
         ap_capabilities: json!(ApCapabilities {
-            accepts_chat_messages: Some(false),
             enigmatick_encryption: Some(true),
+            ..Default::default()
         }),
         as_also_known_as: json!([]),
         as_tag: json!([]),
