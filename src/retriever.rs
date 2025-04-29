@@ -48,25 +48,19 @@ pub async fn get_remote_collection(
 pub async fn get_ap_id_from_webfinger(acct: String) -> Result<String> {
     let webfinger = get_remote_webfinger(acct).await?;
 
-    webfinger
-        .links
+    webfinger.links
         .iter()
-        .filter_map(|x| {
-            if x.kind == Some("application/activity+json".to_string())
-                || x.kind
-                    == Some(
-                        "application/ld+json; profile=\"https://www.w3.org/ns/activitystreams\""
-                            .to_string(),
-                    )
+        .find_map(|link| {
+            let kind_match = link.kind.as_deref()?;
+            if kind_match == "application/activity+json" 
+                || kind_match == "application/ld+json; profile=\"https://www.w3.org/ns/activitystreams\""
             {
-                x.href.clone()
+                link.href.clone()
             } else {
                 None
             }
         })
-        .take(1)
-        .next()
-        .ok_or(anyhow!("Failed to find usable link"))
+        .ok_or_else(|| anyhow!("Failed to find usable link"))
 }
 
 async fn get_remote_webfinger(handle: String) -> Result<WebFinger> {

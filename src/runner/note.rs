@@ -47,7 +47,7 @@ pub async fn fetch_remote_object(conn: &Db, id: String, profile: Actor) -> Resul
                 Err(anyhow!("Unknown error"))
             }
         },
-        Err(e) => Err(e.into()),
+        Err(e) => Err(e),
     }
 }
 

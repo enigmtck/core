@@ -12,3 +12,4 @@ media
 /db.*
 traces
 /dbdump
+.aider*

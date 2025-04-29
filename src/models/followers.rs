@@ -131,7 +131,7 @@ pub async fn delete_follower_by_ap_id(conn: Option<&Db>, ap_id: String) -> bool 
             })
             .await
             .is_ok(),
-        None => POOL.get().map_or(false, |mut pool| {
+        None => POOL.get().is_ok_and(|mut pool| {
             diesel::delete(followers::table)
                 .filter(followers::ap_id.eq(ap_id))
                 .execute(&mut pool)

@@ -66,10 +66,8 @@ pub async fn relay_post(_ip: IpRestriction, conn: Db, actor: String) -> Result<S
 
     let actor = if let Ok(actor) = get_actor_by_as_id(&conn, actor.clone()).await {
         Some(ApActor::from(actor))
-    } else if let Ok(actor) = get_actor(&conn, actor, None, true).await {
-        Some(actor)
     } else {
-        None
+        (get_actor(&conn, actor, None, true).await).ok()
     };
 
     let inbox = if let Some(actor) = actor.clone() {

@@ -155,7 +155,7 @@ pub async fn delete_leader_by_ap_id_and_actor_id(
             })
             .await
             .is_ok(),
-        None => POOL.get().map_or(false, |mut pool| {
+        None => POOL.get().is_ok_and(|mut pool| {
             diesel::delete(
                 leaders::table
                     .filter(leaders::actor_id.eq(actor_id))
