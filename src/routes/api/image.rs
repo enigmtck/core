@@ -71,10 +71,13 @@ pub async fn cached_image(conn: Db, url: String) -> Result<(ContentType, NamedFi
         .await
         .ok_or(Status::NotFound)?;
 
-    let path = format!("{}/cache/{}", &*crate::MEDIA_DIR, cache.uuid);
-    let media_type = &cache.clone().media_type.map_or("any".to_string(), |x| x);
+    // Borrow path or uuid without cloning
+    let path_suffix = cache.path.as_deref().unwrap_or(cache.uuid.as_str());
+    let path = format!("{}/cache/{}", &*crate::MEDIA_DIR, path_suffix);
+    // Borrow media_type without cloning cache or allocating "any"
+    let media_type_str = cache.media_type.as_deref().unwrap_or("any");
 
-    let content_type = ContentType::parse_flexible(media_type).ok_or_else(|| {
+    let content_type = ContentType::parse_flexible(media_type_str).ok_or_else(|| {
         log::error!("Failed to determine ContentType");
         Status::InternalServerError
     })?;

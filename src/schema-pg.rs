@@ -113,6 +113,7 @@ diesel::table! {
         height -> Nullable<Int4>,
         width -> Nullable<Int4>,
         blurhash -> Nullable<Varchar>,
+        path -> Nullable<Text>,
     }
 }
 

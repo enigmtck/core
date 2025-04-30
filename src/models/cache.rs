@@ -35,6 +35,7 @@ pub struct CacheItem {
     pub height: Option<i32>,
     pub width: Option<i32>,
     pub blurhash: Option<String>,
+    pub path: Option<String>,
 }
 
 pub trait Cache {
@@ -198,6 +199,7 @@ pub struct NewCacheItem {
     pub height: Option<i32>,
     pub width: Option<i32>,
     pub blurhash: Option<String>,
+    pub path: Option<String>,
 }
 
 impl NewCacheItem {
@@ -220,6 +222,7 @@ impl TryFrom<ApDocument> for NewCacheItem {
                 height: document.height,
                 media_type: document.media_type,
                 blurhash: document.blurhash,
+                path: None,
             })
         } else {
             Err("INSUFFICIENT DATA IN DOCUMENT TO CONSTRUCT CACHE ITEM")
@@ -236,6 +239,7 @@ impl From<ApImage> for NewCacheItem {
             height: None,
             media_type: image.media_type,
             blurhash: None,
+            path: None,
         }
     }
 }
@@ -312,18 +316,26 @@ pub async fn download_image(
                     response.status()
                 );
 
-                let path = format!("{}/cache/{}", &*crate::MEDIA_DIR, cache_item.uuid);
-                // Create a new file to write the downloaded image to
-                let mut file = File::create(path.clone()).await?;
+                let date_folder = Utc::now().format("%Y-%m-%d").to_string();
+                let relative_path = format!("{}/{}", date_folder, cache_item.uuid);
+                let dir_path = format!("{}/cache/{}", &*crate::MEDIA_DIR, date_folder); // For directory creation
+                tokio::fs::create_dir_all(&dir_path).await?; // Ensure the directory exists
 
-                log::debug!("File created: {path}");
+                // Use relative_path to construct the full file path
+                let file_path = format!("{}/cache/{}", &*crate::MEDIA_DIR, relative_path);
+                // Create a new file to write the downloaded image to
+                let mut file = File::create(file_path.clone()).await?;
+
+                log::debug!("File created: {file_path}");
 
                 let data = response.bytes().await?;
                 file.write_all(&data).await?;
 
-                log::debug!("File written: {path}");
+                log::debug!("File written: {file_path}");
 
-                Ok(cache_item)
+                let mut updated_cache_item = cache_item.clone();
+                updated_cache_item.path = Some(relative_path);
+                Ok(updated_cache_item)
             }
             Err(e) => {
                 log::warn!(
