@@ -1,4 +1,5 @@
 use anyhow::Result;
+use chrono::{Duration, Utc};
 use clap::{Parser, Subcommand};
 use diesel_migrations::{embed_migrations, EmbeddedMigrations, MigrationHarness};
 use enigmatick::admin::create_user;
@@ -7,7 +8,6 @@ use enigmatick::{admin::NewUser, server};
 use enigmatick::{POOL, SYSTEM_USER};
 use rand::distributions::{Alphanumeric, DistString};
 use rust_embed::RustEmbed;
-use serde::Deserialize;
 use std::fs;
 use tokio::runtime::Runtime;
 
@@ -23,12 +23,27 @@ cfg_if::cfg_if! {
 #[folder = "bundled/"]
 pub struct Bundled;
 
-#[derive(Deserialize, Subcommand)]
-#[serde(rename_all = "lowercase")]
+#[derive(Parser)]
+pub struct CacheArgs {
+    #[command(subcommand)]
+    command: CacheCommands,
+}
+
+#[derive(Subcommand)]
+pub enum CacheCommands {
+    /// Prune cached files older than the specified duration (e.g., 30d, 2m, 1y)
+    Prune { duration: String },
+}
+
+#[derive(Parser)] // Updated derive for clap v4+ compatibility if needed, assuming clap v4+ based on diff
+// #[derive(Deserialize, Subcommand)] // Keep Deserialize if still needed for other reasons
+// #[serde(rename_all = "lowercase")] // Keep Serde if still needed
 pub enum Commands {
     Init,
     Template,
     Migrate,
+    //#[command(subcommand)] // Use command attribute for subcommands in clap v4+
+    Cache(CacheArgs),
     SystemUser,
     Server,
 }
@@ -48,6 +63,7 @@ fn main() {
         Commands::Init => handle_init().expect("init failed"),
         Commands::Template => handle_template().expect("template loading failed"),
         Commands::Migrate => handle_migrations().expect("migrate failed"),
+        Commands::Cache(args) => handle_cache_command(args).expect("cache command failed"),
         Commands::SystemUser => handle_system_user().expect("failed to create system user"),
         Commands::Server => server::start(),
     }
@@ -81,6 +97,51 @@ fn handle_migrations() -> Result<()> {
 
     Ok(())
 }
+
+fn parse_duration(duration_str: &str) -> Result<Duration> {
+    let duration_str = duration_str.trim();
+    let numeric_part = duration_str
+        .chars()
+        .take_while(|c| c.is_ascii_digit())
+        .collect::<String>();
+    let unit_part = duration_str
+        .chars()
+        .skip_while(|c| c.is_ascii_digit())
+        .collect::<String>();
+
+    let value = numeric_part.parse::<i64>()?;
+
+    match unit_part.as_str() {
+        "d" => Ok(Duration::days(value)),
+        "m" => Ok(Duration::days(value * 30)), // Approximate months
+        "y" => Ok(Duration::days(value * 365)), // Approximate years
+        _ => Err(anyhow::anyhow!(
+            "Invalid duration unit: '{}'. Use 'd' for days, 'm' for months, 'y' for years.",
+            unit_part
+        )),
+    }
+}
+
+fn handle_cache_command(args: CacheArgs) -> Result<()> {
+    match args.command {
+        CacheCommands::Prune { duration } => {
+            println!("Pruning cache items older than {duration}...");
+            let duration = parse_duration(&duration)?;
+            let cutoff = Utc::now() - duration;
+
+            let rt = Runtime::new().unwrap();
+            let handle = rt.handle();
+            handle.block_on(async {
+                match enigmatick::models::cache::prune_cache_items(None, cutoff).await {
+                    Ok(count) => println!("Successfully pruned {count} cache items."),
+                    Err(e) => eprintln!("Error pruning cache: {e}"),
+                }
+            });
+        }
+    }
+    Ok(())
+}
+
 
 fn handle_system_user() -> Result<()> {
     let system_user = (*SYSTEM_USER).clone();

@@ -57,6 +57,7 @@ convert_case = "0.6.0"
 #jdt_activity_pub = { path = "../../libs/activity_pub/" }
 jdt_activity_pub = "0.2.24"
 indoc = "2.0.5"
+indicatif = "0.17"
 
 [dependencies.rocket_sync_db_pools]
 version = "0.1.0"

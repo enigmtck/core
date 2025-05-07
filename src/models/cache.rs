@@ -3,8 +3,9 @@ use crate::models::actors::guaranteed_actor;
 use crate::retriever::signed_get;
 use crate::schema::cache;
 use crate::POOL;
-use anyhow::{anyhow, Result};
+use anyhow::{anyhow, Context, Result}; // Add Context
 use chrono::{DateTime, Utc};
+use diesel::pg::PgConnection;
 use diesel::prelude::*;
 use diesel::Insertable;
 use diesel::{AsChangeset, Identifiable, Queryable};
@@ -14,11 +15,14 @@ use jdt_activity_pub::{
     ActivityPub, ApActivity, ApActor, ApAttachment, ApCollection, ApDocument, ApImage, ApNote,
     ApObject, ApQuestion, ApTag, Collectible,
 };
-use rocket::tokio::time::{sleep, Duration};
+use rocket::tokio::time::{sleep, Duration as TokioDuration}; // Renamed to avoid conflict
 use rocket_sync_db_pools::diesel;
 use serde::{Deserialize, Serialize};
-use tokio::fs::File;
+use tokio::fs::{self, File}; // Add fs
 use tokio::io::AsyncWriteExt;
+use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
+use std::time::Duration;
+
 
 use super::actors::{get_actor_by_username, Actor};
 
@@ -154,6 +158,115 @@ impl TryFrom<ApAttachment> for Cacheable {
     }
 }
 
+pub async fn prune_cache_items(conn: Option<&Db>, cutoff: DateTime<Utc>) -> Result<usize> {
+    log::info!("Pruning cache items created before {cutoff}");
+
+    // Fetch items to potentially delete
+    // Capture 'cutoff' for the closure. DateTime<Utc> is Copy.
+    let old_items: Vec<CacheItem> = crate::db::run_db_op(conn, &crate::POOL, move |c: &mut PgConnection| {
+        cache::table
+            .filter(cache::created_at.lt(cutoff))
+            .load::<CacheItem>(c)
+    })
+    .await
+    .context("Failed to load old cache items")?;
+    
+    let mut deleted_count = 0;
+    let mut deleted_ids = Vec::new();
+
+    // Variables for progress reporting
+    let mut main_pb: Option<ProgressBar> = None;
+    let mut message_pb: Option<ProgressBar> = None;
+    let _multi_progress_holder: Option<MultiProgress> = if conn.is_none() && !old_items.is_empty() {
+        let mp = MultiProgress::new();
+
+        let p1 = mp.add(ProgressBar::new(old_items.len() as u64));
+        p1.set_style(ProgressStyle::default_bar()
+            .template("{spinner:.green} [{elapsed_precise}] [{wide_bar:.cyan/blue}] {pos}/{len} ({percent}%)")
+            .expect("Failed to create main progress bar template")
+            .progress_chars("=> "));
+        main_pb = Some(p1);
+
+        let p2 = mp.add(ProgressBar::new(1)); // Length 1, as it's just for messages
+        p2.set_style(ProgressStyle::default_bar()
+            .template("{wide_msg}") // This will display the message across the available width
+            .expect("Failed to create message progress bar template"));
+        // Ensure the message bar redraws even if only the message changes
+        p2.enable_steady_tick(Duration::from_millis(100)); 
+        message_pb = Some(p2);
+        
+        Some(mp) // Keep MultiProgress alive
+    } else {
+        None
+    };
+
+    for item in old_items {
+        let file_operation_message: String;
+
+        if let Some(ref path_suffix) = item.path {
+            let file_path = format!("{}/cache/{}", &*crate::MEDIA_DIR, path_suffix);
+            file_operation_message = format!("Deleting: {}", file_path);
+
+            if let Some(p_msg) = &message_pb {
+                p_msg.set_message(file_path.clone()); // Show file path on the message line
+            }
+
+            match fs::remove_file(&file_path).await {
+                Ok(_) => {
+                    log::debug!("Deleted cached file: {file_path}");
+                    deleted_ids.push(item.id);
+                }
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                    log::warn!("Cached file not found, marking for DB deletion: {file_path}");
+                    deleted_ids.push(item.id);
+                }
+                Err(e) => {
+                    log::error!("Failed to delete cached file {file_path}: {e}");
+                }
+            }
+        } else {
+            file_operation_message = format!("Marking Item ID {} (no path) for DB deletion.", item.id);
+            if let Some(p_msg) = &message_pb {
+                p_msg.set_message(format!("Processing Item ID {} (no path)", item.id));
+            }
+            log::warn!("Cache item ID {} has no path, marking for DB deletion.", item.id);
+            deleted_ids.push(item.id);
+        }
+        
+        // If not using progress bar, log the operation (optional, could be verbose)
+        if main_pb.is_none() { // i.e. conn is Some, so not CLI
+             log::debug!("{}", file_operation_message);
+        }
+
+        if let Some(p_main) = &main_pb {
+            p_main.inc(1);
+        }
+    }
+
+    if let Some(p_msg) = &message_pb {
+        p_msg.finish_and_clear(); // Remove the message line
+    }
+    if let Some(p_main) = &main_pb {
+        p_main.finish_with_message("File deletion scan complete.");
+    }
+
+    // Database deletion part remains unchanged by indicatif
+    if !deleted_ids.is_empty() {
+        let ids_to_delete = deleted_ids.clone();
+        deleted_count = crate::db::run_db_op(conn, &crate::POOL, move |c: &mut PgConnection| {
+            diesel::delete(cache::table.filter(cache::id.eq_any(ids_to_delete)))
+                .execute(c)
+        })
+        .await
+        .context("Failed to delete cache records from database")?;
+        log::info!("Deleted {deleted_count} cache records from database.");
+    } else {
+        log::info!("No cache records needed database deletion.");
+    }
+
+    Ok(deleted_count)
+}
+
 impl TryFrom<ApTag> for Cacheable {
     type Error = anyhow::Error;
 
@@ -264,25 +377,14 @@ impl Cache for ApActor {
 }
 
 pub async fn create_cache_item(conn: Option<&Db>, cache_item: NewCacheItem) -> Option<CacheItem> {
-    match conn {
-        Some(conn) => conn
-            .run(move |c| {
-                diesel::insert_into(cache::table)
-                    .values(&cache_item)
-                    .on_conflict_do_nothing()
-                    .get_result::<CacheItem>(c)
-            })
-            .await
-            .ok(),
-        None => {
-            let mut pool = POOL.get().ok()?;
-            diesel::insert_into(cache::table)
-                .values(&cache_item)
-                .on_conflict_do_nothing()
-                .get_result::<CacheItem>(&mut pool)
-                .ok()
-        }
-    }
+    let operation = move |c: &mut PgConnection| {
+        diesel::insert_into(cache::table)
+            .values(&cache_item)
+            .on_conflict_do_nothing()
+            .get_result::<CacheItem>(c)
+    };
+
+    crate::db::run_db_op(conn, &crate::POOL, operation).await.ok()
 }
 
 pub async fn download_image(
@@ -343,7 +445,7 @@ pub async fn download_image(
                     cache_item.url.clone()
                 );
                 log::warn!("Remaining attempts: {retries}");
-                let backoff = Duration::from_secs(120 / retries);
+                let backoff = TokioDuration::from_secs(120 / retries); // Use aliased TokioDuration
                 sleep(backoff).await;
                 Box::pin(retrieve_image(conn, profile, cache_item, retries - 1)).await
             }
@@ -392,21 +494,11 @@ pub async fn get_cache_item_by_uuid(conn: &Db, uuid: String) -> Option<CacheItem
 }
 
 pub async fn get_cache_item_by_url(conn: Option<&Db>, url: String) -> Option<CacheItem> {
-    match conn {
-        Some(conn) => conn
-            .run(move |c| {
-                cache::table
-                    .filter(cache::url.eq(url))
-                    .first::<CacheItem>(c)
-            })
-            .await
-            .ok(),
-        None => {
-            let mut pool = POOL.get().ok()?;
-            cache::table
-                .filter(cache::url.eq(url))
-                .first::<CacheItem>(&mut pool)
-                .ok()
-        }
-    }
+    let operation = move |c: &mut PgConnection| {
+        cache::table
+            .filter(cache::url.eq(url))
+            .first::<CacheItem>(c)
+    };
+
+    crate::db::run_db_op(conn, &crate::POOL, operation).await.ok()
 }
