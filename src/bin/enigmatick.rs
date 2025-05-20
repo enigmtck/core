@@ -35,14 +35,11 @@ pub enum CacheCommands {
     Prune { duration: String },
 }
 
-#[derive(Parser)] // Updated derive for clap v4+ compatibility if needed, assuming clap v4+ based on diff
-// #[derive(Deserialize, Subcommand)] // Keep Deserialize if still needed for other reasons
-// #[serde(rename_all = "lowercase")] // Keep Serde if still needed
+#[derive(Parser)]
 pub enum Commands {
     Init,
     Template,
     Migrate,
-    //#[command(subcommand)] // Use command attribute for subcommands in clap v4+
     Cache(CacheArgs),
     SystemUser,
     Server,

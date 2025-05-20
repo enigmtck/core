@@ -2,7 +2,6 @@ use crate::db::Db;
 use crate::models::actors::guaranteed_actor;
 use crate::retriever::signed_get;
 use crate::schema::cache;
-use crate::POOL;
 use anyhow::{anyhow, Context, Result}; // Add Context
 use chrono::{DateTime, Utc};
 use diesel::pg::PgConnection;
@@ -177,7 +176,9 @@ pub async fn prune_cache_items(conn: Option<&Db>, cutoff: DateTime<Utc>) -> Resu
     // Variables for progress reporting
     let mut main_pb: Option<ProgressBar> = None;
     let mut message_pb: Option<ProgressBar> = None;
-    let _multi_progress_holder: Option<MultiProgress> = if conn.is_none() && !old_items.is_empty() {
+    // Determine if running in CLI mode and if stdout is a TTY
+    let show_progress = conn.is_none() && !old_items.is_empty() && atty::is(atty::Stream::Stdout);
+    let _multi_progress_holder: Option<MultiProgress> = if show_progress {
         let mp = MultiProgress::new();
 
         let p1 = mp.add(ProgressBar::new(old_items.len() as u64));
@@ -205,7 +206,7 @@ pub async fn prune_cache_items(conn: Option<&Db>, cutoff: DateTime<Utc>) -> Resu
 
         if let Some(ref path_suffix) = item.path {
             let file_path = format!("{}/cache/{}", &*crate::MEDIA_DIR, path_suffix);
-            file_operation_message = format!("Deleting: {}", file_path);
+            file_operation_message = format!("Deleting: {file_path}");
 
             if let Some(p_msg) = &message_pb {
                 p_msg.set_message(file_path.clone()); // Show file path on the message line
@@ -235,7 +236,7 @@ pub async fn prune_cache_items(conn: Option<&Db>, cutoff: DateTime<Utc>) -> Resu
         
         // If not using progress bar, log the operation (optional, could be verbose)
         if main_pb.is_none() { // i.e. conn is Some, so not CLI
-             log::debug!("{}", file_operation_message);
+             log::debug!("{file_operation_message}");
         }
 
         if let Some(p_main) = &main_pb {

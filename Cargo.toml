@@ -53,9 +53,10 @@ clap = { version = "4.5.1", features = ["derive"] }
 diesel_migrations = { version = "2.2.0", features = ["postgres", "sqlite"] }
 rust-embed = { version = "8.3.0", features = ["rocket", "interpolate-folder-path", "compression", "tokio"] }
 cfg-if = "1.0.0"
+atty = "0.2"
 convert_case = "0.6.0"
 #jdt_activity_pub = { path = "../../libs/activity_pub/" }
-jdt_activity_pub = "0.2.24"
+jdt_activity_pub = "0.2.25"
 indoc = "2.0.5"
 indicatif = "0.17"
 

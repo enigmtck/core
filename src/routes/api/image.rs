@@ -54,7 +54,8 @@ pub async fn upload_image(
     }
 }
 
-#[get("/api/cache?<url>")] // Renamed url to url_param to avoid naming conflict
+// This request needs to be updated to require signing (it's effectively an open proxy)
+#[get("/api/cache?<url>")]
 pub async fn cached_image(conn: Db, url: String) -> Result<(ContentType, NamedFile), Status> {
     log::debug!("CACHE URL_PARAM BEFORE DECODING: {url}");
 
