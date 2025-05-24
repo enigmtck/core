@@ -362,8 +362,8 @@ impl From<ApNote> for NewObject {
             as_to: note.to.into(),
             as_cc: note.cc.into(),
             as_replies: note.replies.into(),
-            as_tag: note.tag.into(),
-            as_content: Some(ammonia.clean(&note.content).to_string()),
+            as_tag: note.tag.into(), // Ensure this is correct if ApNote.tag changed
+            as_content: note.content.map(|c| ammonia.clean(&c).to_string()),
             as_summary: note.summary.map(|x| ammonia.clean(&x).to_string()),
             ap_sensitive: note.sensitive,
             as_in_reply_to: note.in_reply_to.map(|x| json!(x)),
@@ -447,8 +447,8 @@ impl TryFrom<Object> for ApNote {
                 attributed_to: from_serde(
                     object.as_attributed_to.ok_or(anyhow!("no attributed_to"))?,
                 )
-                .ok_or(anyhow!("failed to convert from Value"))?,
-                content: object.as_content.clone().ok_or(anyhow!("no content"))?,
+                .ok_or(anyhow!("failed to convert from Value"))?, // Ensure this is correct if ApNote.attributed_to changed
+                content: object.as_content.clone(),
                 replies: object
                     .as_replies
                     .clone()

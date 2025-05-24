@@ -3,25 +3,27 @@ use crate::models::actors::guaranteed_actor;
 use crate::retriever::signed_get;
 use crate::schema::cache;
 use anyhow::{anyhow, Context, Result}; // Add Context
+use bytes::Bytes as ReqwestBytes;
 use chrono::{DateTime, Utc};
 use diesel::pg::PgConnection;
 use diesel::prelude::*;
 use diesel::Insertable;
 use diesel::{AsChangeset, Identifiable, Queryable};
+use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use jdt_activity_pub::MaybeMultiple;
 use jdt_activity_pub::MaybeReference;
 use jdt_activity_pub::{
     ActivityPub, ApActivity, ApActor, ApAttachment, ApCollection, ApDocument, ApImage, ApNote,
     ApObject, ApQuestion, ApTag, Collectible,
 };
-use rocket::tokio::time::{sleep, Duration as TokioDuration}; // Renamed to avoid conflict
+use reqwest::StatusCode as ReqwestStatusCode;
+use reqwest::header::CONTENT_TYPE;
+use rocket::tokio::time::{sleep, Duration as TokioDuration};
 use rocket_sync_db_pools::diesel;
 use serde::{Deserialize, Serialize};
-use tokio::fs::{self, File}; // Add fs
-use tokio::io::AsyncWriteExt;
-use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use std::time::Duration;
-
+use tokio::fs::{self, File};
+use tokio::io::AsyncWriteExt;
 
 use super::actors::{get_actor_by_username, Actor};
 
@@ -162,14 +164,15 @@ pub async fn prune_cache_items(conn: Option<&Db>, cutoff: DateTime<Utc>) -> Resu
 
     // Fetch items to potentially delete
     // Capture 'cutoff' for the closure. DateTime<Utc> is Copy.
-    let old_items: Vec<CacheItem> = crate::db::run_db_op(conn, &crate::POOL, move |c: &mut PgConnection| {
-        cache::table
-            .filter(cache::created_at.lt(cutoff))
-            .load::<CacheItem>(c)
-    })
-    .await
-    .context("Failed to load old cache items")?;
-    
+    let old_items: Vec<CacheItem> =
+        crate::db::run_db_op(conn, &crate::POOL, move |c: &mut PgConnection| {
+            cache::table
+                .filter(cache::created_at.lt(cutoff))
+                .load::<CacheItem>(c)
+        })
+        .await
+        .context("Failed to load old cache items")?;
+
     let mut deleted_count = 0;
     let mut deleted_ids = Vec::new();
 
@@ -189,13 +192,15 @@ pub async fn prune_cache_items(conn: Option<&Db>, cutoff: DateTime<Utc>) -> Resu
         main_pb = Some(p1);
 
         let p2 = mp.add(ProgressBar::new(1)); // Length 1, as it's just for messages
-        p2.set_style(ProgressStyle::default_bar()
-            .template("{wide_msg}") // This will display the message across the available width
-            .expect("Failed to create message progress bar template"));
+        p2.set_style(
+            ProgressStyle::default_bar()
+                .template("{wide_msg}") // This will display the message across the available width
+                .expect("Failed to create message progress bar template"),
+        );
         // Ensure the message bar redraws even if only the message changes
-        p2.enable_steady_tick(Duration::from_millis(100)); 
+        p2.enable_steady_tick(Duration::from_millis(100));
         message_pb = Some(p2);
-        
+
         Some(mp) // Keep MultiProgress alive
     } else {
         None
@@ -226,17 +231,22 @@ pub async fn prune_cache_items(conn: Option<&Db>, cutoff: DateTime<Utc>) -> Resu
                 }
             }
         } else {
-            file_operation_message = format!("Marking Item ID {} (no path) for DB deletion.", item.id);
+            file_operation_message =
+                format!("Marking Item ID {} (no path) for DB deletion.", item.id);
             if let Some(p_msg) = &message_pb {
                 p_msg.set_message(format!("Processing Item ID {} (no path)", item.id));
             }
-            log::warn!("Cache item ID {} has no path, marking for DB deletion.", item.id);
+            log::warn!(
+                "Cache item ID {} has no path, marking for DB deletion.",
+                item.id
+            );
             deleted_ids.push(item.id);
         }
-        
+
         // If not using progress bar, log the operation (optional, could be verbose)
-        if main_pb.is_none() { // i.e. conn is Some, so not CLI
-             log::debug!("{file_operation_message}");
+        if main_pb.is_none() {
+            // i.e. conn is Some, so not CLI
+            log::debug!("{file_operation_message}");
         }
 
         if let Some(p_main) = &main_pb {
@@ -255,8 +265,7 @@ pub async fn prune_cache_items(conn: Option<&Db>, cutoff: DateTime<Utc>) -> Resu
     if !deleted_ids.is_empty() {
         let ids_to_delete = deleted_ids.clone();
         deleted_count = crate::db::run_db_op(conn, &crate::POOL, move |c: &mut PgConnection| {
-            diesel::delete(cache::table.filter(cache::id.eq_any(ids_to_delete)))
-                .execute(c)
+            diesel::delete(cache::table.filter(cache::id.eq_any(ids_to_delete))).execute(c)
         })
         .await
         .context("Failed to delete cache records from database")?;
@@ -385,75 +394,187 @@ pub async fn create_cache_item(conn: Option<&Db>, cache_item: NewCacheItem) -> O
             .get_result::<CacheItem>(c)
     };
 
-    crate::db::run_db_op(conn, &crate::POOL, operation).await.ok()
+    crate::db::run_db_op(conn, &crate::POOL, operation)
+        .await
+        .ok()
 }
+
+pub async fn delete_cache_item_by_url(conn: Option<&Db>, url: String) -> Result<()> {
+    // 1. Find the cache item by URL
+    let item_to_delete = get_cache_item_by_url(conn, url.clone())
+        .await
+        .ok_or_else(|| anyhow!("Cache item with URL '{url}' not found"))?;
+
+    // 2. If it has a path, delete the file from disk
+    if let Some(ref path_suffix) = item_to_delete.path {
+        let file_path = format!("{}/cache/{path_suffix}", &*crate::MEDIA_DIR);
+        log::info!("Attempting to delete file: {file_path}");
+        match fs::remove_file(&file_path).await {
+            Ok(_) => {
+                log::info!("Successfully deleted file: {file_path}");
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                log::warn!("File not found, but proceeding to delete DB record: {file_path}");
+            }
+            Err(e) => {
+                return Err(anyhow!("Failed to delete file {file_path}: {e}"))
+                    .context(format!("Error deleting file for cache item URL: {url}"));
+            }
+        }
+    } else {
+        log::info!(
+            "Cache item with URL '{url}' has no associated file path. Skipping file deletion."
+        );
+    }
+
+    // 3. Delete the cache item from the database
+    log::info!(
+        "Attempting to delete database record for cache item ID: {}",
+        item_to_delete.id
+    );
+    let item_id = item_to_delete.id; // Capture id for the closure
+    crate::db::run_db_op(conn, &crate::POOL, move |c: &mut PgConnection| {
+        diesel::delete(cache::table.filter(cache::id.eq(item_id))).execute(c)
+    })
+    .await
+    .context(format!(
+        "Failed to delete cache record from database for URL: {url}"
+    ))?;
+
+    log::info!(
+        "Successfully deleted database record for cache item ID: {}",
+        item_to_delete.id
+    );
+    Ok(())
+}
+
+// Enum to categorize failures from the primary download attempt (using reqwest)
+#[derive(Debug)]
+enum PrimaryAttemptFailure {
+    Forbidden, // Specifically a 403 error, triggers rquest fallback
+    HttpError(ReqwestStatusCode), // Other HTTP errors
+    NetworkOrOther(anyhow::Error), // Network errors or other issues from signed_get
+    WrongContentType(String),    // Correct HTTP status, but not media
+}
+
 
 pub async fn download_image(
     conn: &Db,
     profile: Option<Actor>,
     cache_item: NewCacheItem,
 ) -> Result<NewCacheItem> {
+    const MAX_ATTEMPTS: u32 = 3; // Total number of attempts
+
     log::debug!("Downloading image: {}", cache_item.url);
+    let signing_actor = guaranteed_actor(conn, profile).await; // Resolve actor for signing once
 
-    async fn retrieve_image(
-        conn: &Db,
-        profile: Option<Actor>,
-        cache_item: NewCacheItem,
-        retries: u64,
+    // Helper to save media data from a response to a cache file
+    async fn save_media_data(
+        response_data: ReqwestBytes,          // Use the imported ReqwestBytes
+        cache_item_for_saving: &NewCacheItem, // Use original to get UUID consistently
+        url_for_log: &str,
     ) -> Result<NewCacheItem> {
-        if retries == 0 {
-            return Err(anyhow!("Maximum retry limit reached"));
-        }
+        let date_folder = Utc::now().format("%Y-%m-%d").to_string();
+        // Use original_cache_item.uuid to ensure consistency if cache_item was cloned/modified
+        let relative_path = format!("{}/{}", date_folder, cache_item_for_saving.uuid);
+        let dir_path = format!("{}/cache/{}", &*crate::MEDIA_DIR, date_folder);
+        tokio::fs::create_dir_all(&dir_path)
+            .await
+            .context(format!("Failed to create directory {dir_path}"))?;
 
-        match signed_get(
-            guaranteed_actor(conn, profile.clone()).await,
-            cache_item.url.clone(),
-            true,
-        )
-        .await
-        {
-            Ok(response) => {
-                log::debug!(
-                    "Response code for {}: {}",
-                    cache_item.uuid,
-                    response.status()
-                );
+        let file_path = format!("{}/cache/{}", &*crate::MEDIA_DIR, relative_path);
+        let mut file = File::create(&file_path)
+            .await
+            .context(format!("Failed to create media file {file_path}"))?;
+        log::debug!("Media file created for {url_for_log}: {file_path}");
 
-                let date_folder = Utc::now().format("%Y-%m-%d").to_string();
-                let relative_path = format!("{}/{}", date_folder, cache_item.uuid);
-                let dir_path = format!("{}/cache/{}", &*crate::MEDIA_DIR, date_folder); // For directory creation
-                tokio::fs::create_dir_all(&dir_path).await?; // Ensure the directory exists
+        file.write_all(&response_data)
+            .await
+            .context(format!("Failed to write data to media file {file_path}"))?;
+        log::debug!("File written for {url_for_log}: {file_path}");
 
-                // Use relative_path to construct the full file path
-                let file_path = format!("{}/cache/{}", &*crate::MEDIA_DIR, relative_path);
-                // Create a new file to write the downloaded image to
-                let mut file = File::create(file_path.clone()).await?;
+        let mut updated_cache_item = cache_item_for_saving.clone();
+        updated_cache_item.path = Some(relative_path);
+        Ok(updated_cache_item)
+    }
 
-                log::debug!("File created: {file_path}");
+    for attempt_num in 1..=MAX_ATTEMPTS {
+        // --- Primary (reqwest) attempt ---
+        let primary_result: Result<NewCacheItem, PrimaryAttemptFailure> = async {
+            match signed_get(signing_actor.clone(), cache_item.url.clone(), true).await {
+                Ok(response) => {
+                    let status = response.status();
+                    log::debug!(
+                        "Attempt {}/{}: Primary signed_get response status for {}: {}",
+                        attempt_num, MAX_ATTEMPTS, cache_item.url, status
+                    );
+                    if status == ReqwestStatusCode::FORBIDDEN {
+                        return Err(PrimaryAttemptFailure::Forbidden);
+                    }
+                    if !status.is_success() {
+                        return Err(PrimaryAttemptFailure::HttpError(status));
+                    }
 
-                let data = response.bytes().await?;
-                file.write_all(&data).await?;
+                    let content_type = response.headers().get(CONTENT_TYPE)
+                        .and_then(|value| value.to_str().ok()).unwrap_or_default().to_lowercase();
 
-                log::debug!("File written: {file_path}");
-
-                let mut updated_cache_item = cache_item.clone();
-                updated_cache_item.path = Some(relative_path);
-                Ok(updated_cache_item)
+                    if !(content_type.starts_with("image/") || content_type.starts_with("video/")) {
+                        return Err(PrimaryAttemptFailure::WrongContentType(content_type));
+                    }
+                    log::debug!("Primary signed_get for {} returned media content-type: {}. Proceeding.", cache_item.url, content_type);
+                    let data = response.bytes().await.context("Failed to get bytes from primary signed_get response")
+                        .map_err(PrimaryAttemptFailure::NetworkOrOther)?;
+                    save_media_data(data, &cache_item, &cache_item.url).await
+                        .map_err(PrimaryAttemptFailure::NetworkOrOther)
+                }
+                Err(e) => Err(PrimaryAttemptFailure::NetworkOrOther(e.context("Primary signed_get network/other error"))),
             }
-            Err(e) => {
-                log::warn!(
-                    "Failed to retrieve remote Image: {} | {e}",
-                    cache_item.url.clone()
+        }.await;
+
+        match primary_result {
+            Ok(saved_item) => return Ok(saved_item), // Successfully downloaded and saved
+            Err(failure_reason) => {
+                let error_message_for_log = match failure_reason {
+                    PrimaryAttemptFailure::Forbidden => {
+                        format!("Primary attempt for {} resulted in 403 (Forbidden).", cache_item.url)
+                    }
+                    PrimaryAttemptFailure::HttpError(s) => {
+                        format!("Primary attempt for {} failed with HTTP status: {}.", cache_item.url, s)
+                    }
+                    PrimaryAttemptFailure::NetworkOrOther(e) => {
+                        format!("Primary attempt for {} failed: {:#}", cache_item.url, e)
+                    }
+                    PrimaryAttemptFailure::WrongContentType(ct) => {
+                        format!("Primary attempt for {} returned non-media content-type: {}", cache_item.url, ct)
+                    }
+                };
+                log::debug!(
+                    "Download attempt {}/{} for {} failed: {}", 
+                    attempt_num,
+                    MAX_ATTEMPTS,
+                    cache_item.url,
+                    error_message_for_log
                 );
-                log::warn!("Remaining attempts: {retries}");
-                let backoff = TokioDuration::from_secs(120 / retries); // Use aliased TokioDuration
-                sleep(backoff).await;
-                Box::pin(retrieve_image(conn, profile, cache_item, retries - 1)).await
+                if attempt_num < MAX_ATTEMPTS {
+                    // Calculate backoff based on the current attempt number (1-indexed for exponent)
+                    let backoff_duration = TokioDuration::from_secs(2u64.pow(attempt_num));
+                    log::info!(
+                        "Retrying download for {} in {:?}...",
+                        cache_item.url,
+                        backoff_duration
+                    );
+                    sleep(backoff_duration).await;
+                }
             }
         }
     }
 
-    retrieve_image(conn, profile, cache_item.clone(), 10).await
+    // If the loop completes, all attempts have failed
+    Err(anyhow!(
+        "All {} download attempts failed for URL: {}",
+        MAX_ATTEMPTS,
+        cache_item.url
+    ))
 }
 
 // I'm not sure if this is ridiculous or not, but if I use a Result here as a parameter
@@ -501,5 +622,7 @@ pub async fn get_cache_item_by_url(conn: Option<&Db>, url: String) -> Option<Cac
             .first::<CacheItem>(c)
     };
 
-    crate::db::run_db_op(conn, &crate::POOL, operation).await.ok()
+    crate::db::run_db_op(conn, &crate::POOL, operation)
+        .await
+        .ok()
 }

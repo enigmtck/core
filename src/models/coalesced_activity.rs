@@ -647,9 +647,7 @@ impl TryFrom<CoalescedActivity> for ApNote {
             .and_then(from_serde)
             .ok_or_else(|| anyhow::anyhow!("object_attributed_to is None"))?;
         let in_reply_to = coalesced.object_in_reply_to.and_then(from_serde);
-        let content = coalesced
-            .object_content
-            .ok_or_else(|| anyhow::anyhow!("object_content is None"))?;
+        let content = coalesced.object_content;
         let conversation = coalesced.object_conversation;
         let attachment = coalesced.object_attachment.into();
         let summary = coalesced.object_summary;

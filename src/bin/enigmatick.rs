@@ -33,6 +33,8 @@ pub struct CacheArgs {
 pub enum CacheCommands {
     /// Prune cached files older than the specified duration (e.g., 30d, 2m, 1y)
     Prune { duration: String },
+    /// Delete a specific cached item by its URL
+    Delete { url: String },
 }
 
 #[derive(Parser)]
@@ -132,6 +134,17 @@ fn handle_cache_command(args: CacheArgs) -> Result<()> {
                 match enigmatick::models::cache::prune_cache_items(None, cutoff).await {
                     Ok(count) => println!("Successfully pruned {count} cache items."),
                     Err(e) => eprintln!("Error pruning cache: {e}"),
+                }
+            });
+        }
+        CacheCommands::Delete { url } => {
+            println!("Attempting to delete cache item with URL: {url}...");
+            let rt = Runtime::new().unwrap();
+            let handle = rt.handle();
+            handle.block_on(async {
+                match enigmatick::models::cache::delete_cache_item_by_url(None, url.clone()).await {
+                    Ok(_) => println!("Successfully deleted cache item for URL: {url}."),
+                    Err(e) => eprintln!("Error deleting cache item for URL {url}: {e}"),
                 }
             });
         }

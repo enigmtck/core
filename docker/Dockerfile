@@ -16,7 +16,10 @@ RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y \
   git-core \
   build-essential \
   libssl-dev \
+  libssl3 \
   libgexiv2-dev \
+  cmake \
+  clang \
   pkg-config
 
 RUN mkdir -p /opt/build
