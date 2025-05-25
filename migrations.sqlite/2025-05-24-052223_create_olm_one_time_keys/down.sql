@@ -1,1 +1,1 @@
--- This file should undo anything in `up.sql`
+DROP TABLE IF EXISTS olm_one_time_keys;

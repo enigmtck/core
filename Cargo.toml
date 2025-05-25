@@ -43,6 +43,7 @@ maplit = "1.0"
 futures-lite = "^2.2"
 #async_once = "0.2"
 webpage = { version = "2.0", features = ["serde"] }
+crossterm = "0.27"
 
 rocket = { version = "0.5.1", features = ["json"] }
 diesel = { version = "2.2", features = ["postgres", "sqlite", "chrono", "r2d2", "serde_json", "64-column-tables", "returning_clauses_for_sqlite_3_35"] }
@@ -60,6 +61,7 @@ convert_case = "0.6.0"
 jdt_activity_pub = "0.2.29"
 indoc = "2.0.5"
 indicatif = "0.17"
+comfy-table = "7.1.0"
 
 [dependencies.rocket_sync_db_pools]
 version = "0.1.0"

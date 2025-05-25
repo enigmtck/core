@@ -1,1 +1,1 @@
--- This file should undo anything in `up.sql`
+DROP TABLE IF EXISTS mls_group_conversations;

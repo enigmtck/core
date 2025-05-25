@@ -10,6 +10,8 @@ use crate::models::followers::get_follower_count_by_actor_id;
 use crate::models::leaders::{get_leader_by_actor_id_and_ap_id, get_leader_count_by_actor_id};
 use crate::webfinger::retrieve_webfinger;
 use clap as _;
+use comfy_table as _;
+use crossterm as _; // Add this line
 use db::{Db, Pool};
 use diesel::r2d2::ConnectionManager;
 use diesel_migrations as _;

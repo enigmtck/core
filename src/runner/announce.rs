@@ -121,10 +121,10 @@ pub async fn remote_announce_task(
             })?;
     } else {
         let domain_name = get_domain_from_url(target_ap_id.clone()).ok_or(TaskError::TaskFailed)?;
-        if get_instance_by_domain_name(&conn, domain_name.clone())
+        if get_instance_by_domain_name(Some(&conn), domain_name.clone())
             .await
-            .map(|x| x.blocked)
-            .unwrap_or(false)
+            .map(|option_instance| option_instance.map_or(false, |instance| instance.blocked))
+            .unwrap_or(false) // If DB query fails or instance not found, default to not blocked
         {
             log::debug!("Instance is explicitly blocked: {domain_name}");
             return Err(TaskError::Prohibited);

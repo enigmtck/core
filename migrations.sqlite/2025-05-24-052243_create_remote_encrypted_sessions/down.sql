@@ -1,1 +1,1 @@
--- This file should undo anything in `up.sql`
+DROP TABLE IF EXISTS remote_encrypted_sessions;
