@@ -70,6 +70,9 @@ macro_rules! define_run_db_op {
 
 cfg_if::cfg_if! {
     if #[cfg(feature = "pg")] {
+        use diesel::pg::Pg;
+        pub type DbType = Pg;
+
         #[database("enigmatick")]
         pub struct Db(PgConnection); // Generated Db is effectively Db(rocket_sync_db_pools::Connection<PgConnection>)
         pub type Pool = r2d2::Pool<ConnectionManager<PgConnection>>;
@@ -79,6 +82,9 @@ cfg_if::cfg_if! {
         define_run_db_op!(PgConnection);
 
     } else if #[cfg(feature = "sqlite")] {
+        use diesel::sqlite::Sqlite;
+        pub type DbType = Sqlite;
+        
         #[database("enigmatick")]
         pub struct Db(SqliteConnection); // Generated Db is effectively Db(rocket_sync_db_pools::Connection<SqliteConnection>)
         pub type Pool = r2d2::Pool<ConnectionManager<SqliteConnection>>;

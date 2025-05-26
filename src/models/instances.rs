@@ -1,14 +1,37 @@
 use crate::db::Db;
 use crate::schema::instances;
-use crate::schema::instances::dsl; // For direct column access in updates (e.g. dsl::blocked)
+use crate::schema::instances::dsl;
 use crate::POOL;
 use chrono::{DateTime, Utc};
-use diesel::OptionalExtension;    // For .optional() in queries
+use diesel::OptionalExtension;
 use diesel::prelude::*;
 use diesel::{AsChangeset, Identifiable, Insertable, Queryable};
 use jdt_activity_pub::ApAddress;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use crate::db::DbType;
+
+// --- Sort-related types ---
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SortField {
+    DomainName,
+    Blocked,
+    LastMessageAt,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SortDirection {
+    Asc,
+    Desc,
+}
+
+#[derive(Debug, Clone)]
+pub struct SortParam {
+    pub field: SortField,
+    pub direction: SortDirection,
+}
+// --- End of Sort-related types ---
+
 
 #[derive(Serialize, Deserialize, Insertable, AsChangeset, Default, Debug, Clone)]
 #[diesel(table_name = instances)]
@@ -104,21 +127,53 @@ pub async fn get_all_instances_paginated(
     conn_opt: Option<&Db>,
     page: i64,
     page_size: i64,
+    sort_params: Option<Vec<SortParam>>,
 ) -> Result<Vec<Instance>, anyhow::Error> {
-    let offset = (page - 1).max(0) * page_size; // Ensure offset is not negative
-    let query = move |c: &mut _| {
-        dsl::instances
-            .order(dsl::domain_name.asc())
+    use crate::schema::instances::BoxedQuery;
+    let offset = (page - 1).max(0) * page_size;
+
+    let query_builder_fn = move |c: &mut _| {
+        let mut query: BoxedQuery<'_, DbType> = dsl::instances.into_boxed();
+
+        if let Some(params) = sort_params {
+            if !params.is_empty() {
+                for p in params {
+                    query = match p.field {
+                        SortField::DomainName => match p.direction {
+                            SortDirection::Asc => query.then_order_by(dsl::domain_name.asc()),
+                            SortDirection::Desc => query.then_order_by(dsl::domain_name.desc()),
+                        },
+                        SortField::Blocked => match p.direction {
+                            SortDirection::Asc => query.then_order_by(dsl::blocked.asc()),
+                            SortDirection::Desc => query.then_order_by(dsl::blocked.desc()),
+                        },
+                        SortField::LastMessageAt => match p.direction {
+                            SortDirection::Asc => query.then_order_by(dsl::last_message_at.asc()),
+                            SortDirection::Desc => query.then_order_by(dsl::last_message_at.desc()),
+                        },
+                    };
+                }
+            } else {
+                // Default sort if params is Some but empty (shouldn't happen with current CLI parsing)
+                // or if you want a specific default when --sort is provided but empty.
+                query = query.order(dsl::domain_name.asc());
+            }
+        } else {
+            // Default sort if no --sort argument is provided at all
+            query = query.order(dsl::domain_name.asc());
+        }
+
+        query
             .limit(page_size)
             .offset(offset)
             .load::<Instance>(c)
     };
 
     if let Some(conn) = conn_opt {
-        conn.run(query).await.map_err(anyhow::Error::from)
+        conn.run(query_builder_fn).await.map_err(anyhow::Error::from)
     } else {
         let mut pool_conn = POOL.get().map_err(|e| anyhow::anyhow!("Failed to get DB connection: {e}"))?;
-        query(&mut pool_conn).map_err(anyhow::Error::from)
+        query_builder_fn(&mut pool_conn).map_err(anyhow::Error::from)
     }
 }
 
@@ -187,8 +242,7 @@ pub async fn set_block_status(
             } else {
                 // Trying to unblock a non-existent instance
                 Err(anyhow::anyhow!(
-                    "Instance {} not found. Cannot unblock a non-existent instance.",
-                    domain_name_val
+                    "Instance {domain_name_val} not found. Cannot unblock a non-existent instance."
                 ))
             }
         }

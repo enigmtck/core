@@ -1,9 +1,10 @@
 use anyhow::Result;
 use chrono::{DateTime, Duration, Utc}; // MODIFIED LINE: Added DateTime
 use clap::{Parser, Subcommand};
-use comfy_table::{presets, Attribute, Cell, Color, Table}; // Modified line
-use enigmatick::models::instances::{self as instance_model, Instance};
-// Add these:
+use comfy_table::{presets, Attribute, Cell, Color, Table, ColumnConstraint, Width}; // MODIFIED LINE: Added Width
+use enigmatick::models::instances::{
+    self as instance_model, Instance, SortField as LibSortField, SortDirection as LibSortDirection, SortParam as LibSortParam
+};
 use crossterm::{
     cursor,
     event::{self, Event, KeyCode, KeyEvent, KeyModifiers},
@@ -26,7 +27,6 @@ struct RawModeGuard;
 
 impl RawModeGuard {
     fn new() -> std::io::Result<Self> {
-        // Changed to std::io::Result<Self>
         enable_raw_mode()?;
         Ok(RawModeGuard)
     }
@@ -70,6 +70,46 @@ pub enum CacheCommands {
     Delete { url: String },
 }
 
+// Helper function to parse a single sort field string like "blocked" or "blocked:asc"
+fn parse_one_lib_sort_param(s: &str) -> Result<LibSortParam, String> {
+    let parts: Vec<&str> = s.split(':').collect();
+    
+    let field_str = parts[0];
+    let direction_str_opt = parts.get(1).copied(); // Use .copied() to get Option<&str>
+
+    if parts.len() > 2 {
+        return Err(format!("Invalid sort format: '{s}'. Expected 'field' or 'field:direction'. Too many colons."));
+    }
+
+    let field = match field_str.to_lowercase().as_str() {
+        "domain" | "domain_name" | "name" => LibSortField::DomainName,
+        "blocked" => LibSortField::Blocked,
+        "last" | "last_message_at" | "lastmessageat" => LibSortField::LastMessageAt,
+        _ => return Err(format!("Unknown sort field: '{}'", field_str)),
+    };
+
+    let direction = match direction_str_opt {
+        Some(dir_str) => match dir_str.to_lowercase().as_str() {
+            "asc" | "ascending" => LibSortDirection::Asc,
+            "desc" | "descending" => LibSortDirection::Desc,
+            _ => return Err(format!("Unknown sort direction: '{}'", dir_str)),
+        },
+        None => LibSortDirection::Asc, // Default to Ascending if no direction is specified
+    };
+
+    Ok(LibSortParam { field, direction })
+}
+
+// The parse_sort_string_to_lib_params function remains unchanged as it calls parse_one_lib_sort_param.
+fn parse_sort_string_to_lib_params(s: &str) -> Result<Vec<LibSortParam>, String> {
+    s.split(',')
+        .map(str::trim)
+        .filter(|part| !part.is_empty())
+        .map(parse_one_lib_sort_param)
+        .collect()
+}
+
+
 #[derive(Parser)]
 pub struct InstanceArgs {
     #[command(subcommand)]
@@ -82,29 +122,63 @@ pub enum InstanceCommands {
     List {
         #[clap(long, default_value = "1")]
         page: i64,
-        #[clap(long)] // Removed default_value = "20"
-        page_size: Option<i64>, // Changed to Option<i64>
+        #[clap(long)]
+        page_size: Option<i64>,
+        /// Sort order for the instance list.
+        ///
+        /// Format: "field[:direction][,field[:direction]...]"
+        ///
+        /// - 'field' can be one of:
+        ///   - 'domain' (or 'name', 'domain_name')
+        ///   - 'blocked'
+        ///   - 'last' (or 'last_message_at')
+        /// - 'direction' can be 'asc' (ascending) or 'desc' (descending).
+        /// - If direction is omitted, 'asc' is assumed.
+        /// - Multiple sort criteria can be comma-separated.
+        ///
+        /// Examples:
+        ///   --sort blocked
+        ///   --sort last:desc
+        ///   --sort blocked:asc,domain:desc
+        #[clap(long)]
+        sort: Option<String>,
     },
     /// Block an instance by its domain name
     Block { domain_name: String },
     /// Unblock an instance by its domain name
     Unblock { domain_name: String },
+    /// Get details for a specific instance by its domain name
+    Get { domain_name: String },
 }
 
 #[derive(Parser)]
 pub enum Commands {
+    /// Initialize the necessary folder structure (e.g., for media).
+    /// This should be run once before starting the server for the first time.
     Init,
+    /// Generate a template .env file named '.env.template'.
+    /// Copy this to '.env' and fill in your configuration values.
     Template,
+    /// Run database migrations to set up or update the database schema.
+    /// This is necessary before starting the server and after updates.
     Migrate,
+    /// Manage cached media files.
+    /// Use subcommands like 'prune' or 'delete'.
     Cache(CacheArgs),
+    /// Create or ensure the system user exists in the database.
+    /// The system user is used for server-to-server activities and internal tasks.
     SystemUser,
+    /// Start the Enigmatick web server and background task runners.
     Server,
+    /// Manage known instances (other federated servers).
+    /// Allows listing, blocking, unblocking, and viewing details of instances.
     Instances(InstanceArgs),
 }
 
 #[derive(Parser)] // requires `derive` feature
 #[command(name = "enigmatick")]
-#[command(about = "Enigmatick Federated Communications Platform", long_about = None)]
+#[command(version = env!("CARGO_PKG_VERSION"))] // Add version from Cargo.toml
+#[command(about = "Enigmatick: A federated communication platform server.", long_about = None)]
 struct Cli {
     #[command(subcommand)]
     command: Commands,
@@ -279,6 +353,11 @@ fn print_instance_table(instances: Vec<Instance>) {
         Cell::new("Blocked").add_attribute(Attribute::Bold),
         Cell::new("Last Message At").add_attribute(Attribute::Bold),
     ]);
+    table.set_constraints(vec![
+        ColumnConstraint::LowerBoundary(Width::Fixed(40)), // For "Domain Name" column (index 0)
+        ColumnConstraint::ContentWidth,                    // For "Blocked" column (index 1)
+        ColumnConstraint::ContentWidth,                    // For "Last Message At" column (index 2)
+    ]);
 
     for instance in instances {
         let blocked_status_text = if instance.blocked { "Yes" } else { "No" };
@@ -304,6 +383,10 @@ fn print_instance_detail(instance: Instance, operation_description: &str) {
     table.set_header(vec![
         Cell::new("Property").add_attribute(Attribute::Bold),
         Cell::new("Value").add_attribute(Attribute::Bold),
+    ]);
+    table.set_constraints(vec![
+        ColumnConstraint::ContentWidth,                    // For "Property" column (index 0)
+        ColumnConstraint::LowerBoundary(Width::Fixed(40)), // For "Value" column (index 1)
     ]);
 
     let blocked_status_text = if instance.blocked { "Yes" } else { "No" };
@@ -346,7 +429,22 @@ fn handle_instance_command(args: InstanceArgs) -> Result<()> {
         InstanceCommands::List {
             mut page,
             page_size,
+            sort: sort_string_opt, // This is Option<String>
         } => {
+            let lib_sort_vec: Option<Vec<LibSortParam>> = sort_string_opt
+                .map_or(Ok(None), |s| { // If sort_string_opt is None, default to Ok(None)
+                    if s.is_empty() {
+                        Ok(None) // If the string is empty, treat as no sort params
+                    } else {
+                        parse_sort_string_to_lib_params(&s)
+                            .map(Some) // If parsing is Ok(params), map to Some(params)
+                            .map_err(|e| { // If parsing is Err(parse_err_str), convert to anyhow::Error
+                                eprintln!("Error parsing --sort argument: {e}");
+                                anyhow::anyhow!("Invalid --sort value: {e}")
+                            })
+                    }
+                })?;
+
             // page_size is now Option<i64>
             let _raw_mode_guard = match RawModeGuard::new() {
                 Ok(guard) => guard,
@@ -361,6 +459,7 @@ fn handle_instance_command(args: InstanceArgs) -> Result<()> {
                             None,
                             1,
                             non_raw_page_size.max(1),
+                            lib_sort_vec.clone(), // Pass the converted lib_sort_vec
                         )
                         .await
                         {
@@ -428,6 +527,7 @@ fn handle_instance_command(args: InstanceArgs) -> Result<()> {
                         None,
                         page,
                         effective_page_size,
+                        lib_sort_vec.clone(), // Pass the converted lib_sort_vec
                     )
                     .await
                     {
@@ -474,6 +574,11 @@ fn handle_instance_command(args: InstanceArgs) -> Result<()> {
                                 Cell::new("Domain Name").add_attribute(Attribute::Bold),
                                 Cell::new("Blocked").add_attribute(Attribute::Bold),
                                 Cell::new("Last Message At").add_attribute(Attribute::Bold),
+                            ]);
+                            table_display.set_constraints(vec![
+                                ColumnConstraint::LowerBoundary(Width::Fixed(40)), // For "Domain Name" column (index 0)
+                                ColumnConstraint::ContentWidth,                    // For "Blocked" column (index 1)
+                                ColumnConstraint::ContentWidth,                    // For "Last Message At" column (index 2)
                             ]);
 
                             for instance_item in instances_data {
@@ -550,10 +655,11 @@ fn handle_instance_command(args: InstanceArgs) -> Result<()> {
                                             | KeyCode::Char('Q')
                                             | KeyCode::Esc => {
                                                 execute!(
-                                                    // Use crossterm for exit message
                                                     stdout(),
-                                                    crossterm::style::Print("\rExiting list..."),
-                                                    crossterm::style::Print("\r\n")
+                                                    cursor::MoveToColumn(0), // Move to beginning of current line
+                                                    Clear(ClearType::CurrentLine), // Clear the current line
+                                                    crossterm::style::Print("\rExiting list..."), // \r to ensure start of line
+                                                    crossterm::style::Print("\r\n") // Proper newline
                                                 )
                                                 .map_err(|e| {
                                                     anyhow::anyhow!("Print failed: {}", e)
@@ -650,6 +756,24 @@ fn handle_instance_command(args: InstanceArgs) -> Result<()> {
                 }
             });
             anyhow::Ok(())? // Add this line
+        }
+        // ADD THIS NEW ARM FOR 'Get'
+        InstanceCommands::Get { domain_name } => {
+            println!("Attempting to retrieve instance: {domain_name}...");
+            handle.block_on(async {
+                match instance_model::get_instance_by_domain_name(None, domain_name.clone()).await {
+                    Ok(Some(instance)) => {
+                        print_instance_detail(instance, "retrieved");
+                    }
+                    Ok(None) => {
+                        eprintln!("Instance {domain_name} not found.");
+                    }
+                    Err(e) => {
+                        eprintln!("Error retrieving instance {domain_name}: {e}");
+                    }
+                }
+            });
+            anyhow::Ok(())?
         }
     }
     Ok(())

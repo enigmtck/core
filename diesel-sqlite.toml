@@ -3,6 +3,7 @@
 
 [print_schema]
 file = "src/schema-sqlite.rs"
+patch_file = "src/schema-sqlite.patch"
 
 [migrations_directory]
 dir = "migrations.sqlite"

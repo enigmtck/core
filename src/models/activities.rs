@@ -11,7 +11,6 @@ use crate::POOL;
 use anyhow::{anyhow, Result};
 use chrono::{DateTime, Utc};
 use convert_case::{Case, Casing};
-use diesel::pg::Pg;
 use diesel::query_builder::{BoxedSqlQuery, SqlQuery};
 use diesel::sql_types::Nullable;
 use diesel::{prelude::*, sql_query};
@@ -28,6 +27,7 @@ use jdt_activity_pub::{ApUpdate, PUBLIC_COLLECTION};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::fmt::{self, Debug};
+use crate::db::DbType;
 
 #[derive(
     diesel_derive_enum::DbEnum, Debug, Serialize, Deserialize, Default, Clone, Eq, PartialEq,
@@ -1606,7 +1606,7 @@ pub async fn add_log_by_as_id(conn: &Db, as_id: String, entry: Value) -> Result<
     let mut query = sql_query(
         "UPDATE activities a SET log = COALESCE(a.log, '[]'::jsonb) || $1::jsonb WHERE ap_id = $2",
     )
-    .into_boxed::<Pg>();
+    .into_boxed::<DbType>();
     query = query.bind::<Jsonb, _>(entry.clone());
     query = query.bind::<Text, _>(as_id.clone());
 
@@ -1631,7 +1631,7 @@ pub async fn get_activities_coalesced(
 
     log::debug!("QUERY\n{params:#?}");
 
-    let query = sql_query(params.query.clone().unwrap()).into_boxed::<diesel::pg::Pg>();
+    let query = sql_query(params.query.clone().unwrap()).into_boxed::<DbType>();
     let query = bind_params(query, params, &profile);
 
     conn.run(move |c| query.load::<CoalescedActivity>(c).expect("bad sql query"))
@@ -1639,10 +1639,10 @@ pub async fn get_activities_coalesced(
 }
 
 fn bind_params<'a>(
-    query: BoxedSqlQuery<'a, diesel::pg::Pg, SqlQuery>,
+    query: BoxedSqlQuery<'a, DbType, SqlQuery>,
     params: QueryParams,
     profile: &Option<Actor>,
-) -> BoxedSqlQuery<'a, diesel::pg::Pg, SqlQuery> {
+) -> BoxedSqlQuery<'a, DbType, SqlQuery> {
     use diesel::sql_types::{Array, Integer, Jsonb, Text, Timestamptz};
     let mut query = query;
 
