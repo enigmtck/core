@@ -518,7 +518,9 @@ pub async fn download_image(
                     let content_type = response.headers().get(CONTENT_TYPE)
                         .and_then(|value| value.to_str().ok()).unwrap_or_default().to_lowercase();
 
-                    if !(content_type.starts_with("image/") || content_type.starts_with("video/")) {
+                    if !(content_type.starts_with("image/") ||
+                         content_type.starts_with("video/") ||
+                         content_type.starts_with("audio/")) {
                         return Err(PrimaryAttemptFailure::WrongContentType(content_type));
                     }
                     log::debug!("Primary signed_get for {} returned media content-type: {}. Proceeding.", cache_item.url, content_type);

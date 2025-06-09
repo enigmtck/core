@@ -254,7 +254,7 @@ fn rocket() -> Rocket<Build> {
                 update_summary,
                 upload_avatar,
                 upload_banner,
-                upload_image,
+                upload_media,
                 change_password,
                 //note_get,
                 object_get,

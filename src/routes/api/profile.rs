@@ -11,7 +11,7 @@ use crate::{
     runner, LoadEphemeral,
 };
 use image::{imageops::FilterType, io::Reader, DynamicImage, ImageFormat};
-use jdt_activity_pub::{ApActor, ApImage, ApImageType};
+use jdt_activity_pub::{ApActor, ApImage};
 use rocket::{
     data::{Data, ToByteUnit},
     http::Status,
@@ -102,12 +102,9 @@ fn process_banner(filename: String) -> Option<ApImage> {
     let decode = decode.resize(1500, 500, FilterType::CatmullRom);
 
     if decode.save_with_format(path, ImageFormat::Png).is_ok() {
-        Some(ApImage {
-            kind: ApImageType::Image,
-            media_type: Some("image/png".to_string()),
-            url: format!("{}/media/banners/{}", *crate::SERVER_URL, filename),
-            ..Default::default()
-        })
+        let mut image = ApImage::from(format!("{}/media/banners/{}", *crate::SERVER_URL, filename));
+        image.media_type = Some("image/png".to_string());
+        Some(image)
     } else {
         None
     }
@@ -145,12 +142,9 @@ fn process_avatar(filename: String) -> Option<ApImage> {
     let decode = decode.resize(400, 400, FilterType::CatmullRom);
 
     if decode.save_with_format(path, ImageFormat::Png).is_ok() {
-        Some(ApImage {
-            kind: ApImageType::Image,
-            media_type: Some("image/png".to_string()),
-            url: format!("{}/media/avatars/{}", *crate::SERVER_URL, filename),
-            ..Default::default()
-        })
+        let mut image = ApImage::from(format!("{}/media/avatars/{}", *crate::SERVER_URL, filename));
+        image.media_type = Some("image/png".to_string());
+        Some(image)
     } else {
         None
     }

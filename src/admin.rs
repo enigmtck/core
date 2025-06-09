@@ -17,7 +17,7 @@ use crate::models::cache::Cache;
 use crate::models::profiles::Profile;
 use jdt_activity_pub::MaybeMultiple;
 use jdt_activity_pub::{
-    ApActor, ApCapabilities, ApContext, ApEndpoint, ApImage, ApImageType, ApPublicKey,
+    ApActor, ApCapabilities, ApContext, ApEndpoint, ApImage, ApPublicKey,
 };
 
 struct KeyPair {
@@ -142,12 +142,11 @@ pub async fn create_user(conn: Option<&Db>, user: NewUser) -> Result<Actor> {
         as_also_known_as: json!([]),
         as_tag: json!([]),
         as_id: owner,
-        as_icon: json!(ApImage {
-            url: format!("{server_url}/{avatar}"),
-            kind: ApImageType::Image,
-            media_type: Some("image/png".to_string()),
-            ..Default::default()
-        }),
+        as_icon: {
+            let mut image = ApImage::from(format!("{server_url}/{avatar}"));
+            image.media_type = Some("image/png".to_string());
+            json!(image)
+        },
         as_image: json!("{}"),
         ek_webfinger: Some(format!("@{username}@{server_name}")),
         ek_avatar_filename: None,

@@ -8,48 +8,76 @@ use rocket::{data::ToByteUnit, get, post};
 use crate::db::Db;
 use crate::fairings::signatures::Signed;
 use crate::models::actors::get_actor_by_username;
-use crate::models::cache::get_cache_item_by_url;
-use crate::models::cache::Cacheable; // Add this import
-use jdt_activity_pub::ApImage; // Add this import
+use crate::models::cache::{get_cache_item_by_url, Cacheable};
+use jdt_activity_pub::{ApDocument, ApImage, ApVideo};
 use jdt_activity_pub::ApAttachment;
 
-#[post("/api/user/<username>/image", data = "<media>")]
-pub async fn upload_image(
+#[post("/api/user/<username>/media", data = "<media>")]
+pub async fn upload_media(
     signed: Signed,
     conn: Db,
     username: String,
-    media: Data<'_>,
+    mut media: Data<'_>,
 ) -> Result<Json<ApAttachment>, Status> {
     if signed.local() {
         let _profile = get_actor_by_username(&conn, username)
             .await
             .ok_or(Status::NotFound)?;
 
-        let filename = uuid::Uuid::new_v4();
-        let path = &format!("{}/uploads/{}", *crate::MEDIA_DIR, filename);
+        let header = media.peek(512).await;
+        let kind = infer::get(header).ok_or(Status::UnsupportedMediaType)?;
+        let filename = format!("{}.{}", uuid::Uuid::new_v4(), kind.extension());
+
+        let path = &format!("{}/uploads", *crate::MEDIA_DIR);
+        let full_path = &format!("{path}/{filename}");
 
         let file = media
-            .open(10.mebibytes())
-            .into_file(path)
+            .open(100.mebibytes())
+            .into_file(full_path)
             .await
             .map_err(|e| {
-                log::error!("FAILED TO SAVE FILE: {e:#?}");
+                log::error!("Failed to save file: {e:#?}");
                 Status::InternalServerError
             })?;
 
         if file.is_complete() {
-            if let Ok(attachment) = ApAttachment::try_from(filename.to_string()) {
-                Ok(Json(attachment))
+            let mime_type_str = kind.mime_type().to_string();
+            let document: ApDocument = if mime_type_str.starts_with("image/") {
+                let mut image_obj = ApImage::initialize(path.to_string(), filename, mime_type_str.clone());
+                image_obj.clean().map_err(|e| {
+                    log::error!("Failed to clean ApImage ({path}): {e:?}");
+                    Status::InternalServerError
+                })?;
+                image_obj.analyze().map_err(|e| {
+                    log::error!("Failed to analyze ApImage ({path}): {e:?}");
+                    Status::InternalServerError
+                })?;
+                ApDocument::try_from(image_obj).map_err(|e| {
+                    log::error!("Failed to convert ApImage to ApDocument ({path}): {e:?}");
+                    Status::InternalServerError
+                })?
+            } else if mime_type_str.starts_with("video/") {
+                let mut video_obj = ApVideo::initialize(path.to_string(), filename, mime_type_str.clone());
+                video_obj.analyze().map_err(|e| {
+                    log::error!("Failed to analyze ApVideo ({path}): {e:?}");
+                    Status::InternalServerError
+                })?;
+                ApDocument::try_from(video_obj).map_err(|e| {
+                    log::error!("Failed to convert ApVideo to ApDocument ({path}): {e:?}");
+                    Status::InternalServerError
+                })?
             } else {
-                log::error!("FAILED TO CREATE ATTACHMENT");
-                Err(Status::NotAcceptable)
-            }
+                log::warn!("Unsupported media type: {mime_type_str}");
+                return Err(Status::UnsupportedMediaType);
+            };
+
+            Ok(Json(document.into()))
         } else {
-            log::error!("FILE INCOMPLETE");
+            log::error!("File incomplete (excessive length?)");
             Err(Status::PayloadTooLarge)
         }
     } else {
-        log::error!("BAD SIGNATURE");
+        log::error!("Bad or missing signature");
         Err(Status::Forbidden)
     }
 }
@@ -82,10 +110,7 @@ pub async fn cached_image(conn: Db, url: String) -> Result<(ContentType, NamedFi
             log::info!("Not in cache, attempting to download and cache: {decoded_url_string}");
 
             // Construct ApImage and Cacheable for the runner's cache_content function
-            let ap_image = ApImage {
-                url: decoded_url_string.clone(),
-                ..Default::default() // ApImage derives Default
-            };
+            let ap_image = ApImage::from(decoded_url_string.clone());
             let cacheable_image = Cacheable::Image(ap_image);
 
             // Call the refined runner's cache_content function
