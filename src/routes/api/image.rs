@@ -9,8 +9,8 @@ use crate::db::Db;
 use crate::fairings::signatures::Signed;
 use crate::models::actors::get_actor_by_username;
 use crate::models::cache::{get_cache_item_by_url, Cacheable};
-use jdt_activity_pub::{ApDocument, ApImage, ApVideo};
 use jdt_activity_pub::ApAttachment;
+use jdt_activity_pub::{ApDocument, ApImage, ApVideo};
 
 #[post("/api/user/<username>/media", data = "<media>")]
 pub async fn upload_media(
@@ -43,7 +43,8 @@ pub async fn upload_media(
         if file.is_complete() {
             let mime_type_str = kind.mime_type().to_string();
             let document: ApDocument = if mime_type_str.starts_with("image/") {
-                let mut image_obj = ApImage::initialize(path.to_string(), filename, mime_type_str.clone());
+                let mut image_obj =
+                    ApImage::initialize(path.to_string(), filename, mime_type_str.clone());
                 image_obj.clean().map_err(|e| {
                     log::error!("Failed to clean ApImage ({path}): {e:?}");
                     Status::InternalServerError
@@ -57,7 +58,8 @@ pub async fn upload_media(
                     Status::InternalServerError
                 })?
             } else if mime_type_str.starts_with("video/") {
-                let mut video_obj = ApVideo::initialize(path.to_string(), filename, mime_type_str.clone());
+                let mut video_obj =
+                    ApVideo::initialize(path.to_string(), filename, mime_type_str.clone());
                 video_obj.analyze().map_err(|e| {
                     log::error!("Failed to analyze ApVideo ({path}): {e:?}");
                     Status::InternalServerError
@@ -85,20 +87,20 @@ pub async fn upload_media(
 // This request needs to be updated to require signing (it's effectively an open proxy)
 #[get("/api/cache?<url>")]
 pub async fn cached_image(conn: Db, url: String) -> Result<(ContentType, NamedFile), Status> {
-    log::debug!("CACHE URL_PARAM BEFORE DECODING: {url}");
+    log::debug!("Cache URL before decoding: {url}");
 
     // Decode the URL parameter
     let decoded_url_bytes = general_purpose::URL_SAFE_NO_PAD.decode(&url).map_err(|e| {
-        log::error!("FAILED TO DECODE url_param: {e:#?}");
+        log::error!("Failed to decode URL: {e:#?}");
         Status::BadRequest
     })?;
 
     let decoded_url_string = String::from_utf8(decoded_url_bytes).map_err(|e| {
-        log::error!("FAILED TO DECODE url_param to UTF8: {e:#?}");
+        log::error!("Failed to decode URL as UTF8: {e:#?}");
         Status::BadRequest
     })?;
 
-    log::debug!("DECODED CACHE URL: {decoded_url_string}");
+    log::debug!("Decoded cache URL: {decoded_url_string}");
 
     // Attempt to get the item from cache, or download and cache if not found
     let cache_item = match get_cache_item_by_url(Some(&conn), decoded_url_string.clone()).await {
@@ -120,9 +122,7 @@ pub async fn cached_image(conn: Db, url: String) -> Result<(ContentType, NamedFi
                     item
                 }
                 Err(e) => {
-                    log::error!(
-                        "Failed to download/cache image {decoded_url_string}: {e:#?}"
-                    );
+                    log::error!("Failed to download/cache image {decoded_url_string}: {e:#?}");
                     // Depending on the error from cache_content, Status::NotFound might also be appropriate
                     return Err(Status::InternalServerError);
                 }

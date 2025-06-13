@@ -1,10 +1,7 @@
 use anyhow::Result;
 use chrono::{DateTime, Duration, Utc}; // MODIFIED LINE: Added DateTime
 use clap::{Parser, Subcommand};
-use comfy_table::{presets, Attribute, Cell, Color, Table, ColumnConstraint, Width}; // MODIFIED LINE: Added Width
-use enigmatick::models::instances::{
-    self as instance_model, Instance, SortField as LibSortField, SortDirection as LibSortDirection, SortParam as LibSortParam
-};
+use comfy_table::{presets, Attribute, Cell, Color, ColumnConstraint, Table, Width}; // MODIFIED LINE: Added Width
 use crossterm::{
     cursor,
     event::{self, Event, KeyCode, KeyEvent, KeyModifiers},
@@ -14,6 +11,10 @@ use crossterm::{
 use diesel_migrations::{embed_migrations, EmbeddedMigrations, MigrationHarness};
 use enigmatick::admin::create_user;
 use enigmatick::models::actors::ActorType;
+use enigmatick::models::instances::{
+    self as instance_model, Instance, SortDirection as LibSortDirection, SortField as LibSortField,
+    SortParam as LibSortParam,
+};
 use enigmatick::{admin::NewUser, server};
 use enigmatick::{POOL, SYSTEM_USER};
 use rand::distributions::{Alphanumeric, DistString};
@@ -73,26 +74,28 @@ pub enum CacheCommands {
 // Helper function to parse a single sort field string like "blocked" or "blocked:asc"
 fn parse_one_lib_sort_param(s: &str) -> Result<LibSortParam, String> {
     let parts: Vec<&str> = s.split(':').collect();
-    
+
     let field_str = parts[0];
     let direction_str_opt = parts.get(1).copied(); // Use .copied() to get Option<&str>
 
     if parts.len() > 2 {
-        return Err(format!("Invalid sort format: '{s}'. Expected 'field' or 'field:direction'. Too many colons."));
+        return Err(format!(
+            "Invalid sort format: '{s}'. Expected 'field' or 'field:direction'. Too many colons."
+        ));
     }
 
     let field = match field_str.to_lowercase().as_str() {
         "domain" | "domain_name" | "name" => LibSortField::DomainName,
         "blocked" => LibSortField::Blocked,
         "last" | "last_message_at" | "lastmessageat" => LibSortField::LastMessageAt,
-        _ => return Err(format!("Unknown sort field: '{}'", field_str)),
+        _ => return Err(format!("Unknown sort field: '{field_str}'")),
     };
 
     let direction = match direction_str_opt {
         Some(dir_str) => match dir_str.to_lowercase().as_str() {
             "asc" | "ascending" => LibSortDirection::Asc,
             "desc" | "descending" => LibSortDirection::Desc,
-            _ => return Err(format!("Unknown sort direction: '{}'", dir_str)),
+            _ => return Err(format!("Unknown sort direction: '{dir_str}'")),
         },
         None => LibSortDirection::Asc, // Default to Ascending if no direction is specified
     };
@@ -108,7 +111,6 @@ fn parse_sort_string_to_lib_params(s: &str) -> Result<Vec<LibSortParam>, String>
         .map(parse_one_lib_sort_param)
         .collect()
 }
-
 
 #[derive(Parser)]
 pub struct InstanceArgs {
@@ -385,7 +387,7 @@ fn print_instance_detail(instance: Instance, operation_description: &str) {
         Cell::new("Value").add_attribute(Attribute::Bold),
     ]);
     table.set_constraints(vec![
-        ColumnConstraint::ContentWidth,                    // For "Property" column (index 0)
+        ColumnConstraint::ContentWidth, // For "Property" column (index 0)
         ColumnConstraint::LowerBoundary(Width::Fixed(40)), // For "Value" column (index 1)
     ]);
 
@@ -431,14 +433,16 @@ fn handle_instance_command(args: InstanceArgs) -> Result<()> {
             page_size,
             sort: sort_string_opt, // This is Option<String>
         } => {
-            let lib_sort_vec: Option<Vec<LibSortParam>> = sort_string_opt
-                .map_or(Ok(None), |s| { // If sort_string_opt is None, default to Ok(None)
+            let lib_sort_vec: Option<Vec<LibSortParam>> =
+                sort_string_opt.map_or(Ok(None), |s| {
+                    // If sort_string_opt is None, default to Ok(None)
                     if s.is_empty() {
                         Ok(None) // If the string is empty, treat as no sort params
                     } else {
                         parse_sort_string_to_lib_params(&s)
                             .map(Some) // If parsing is Ok(params), map to Some(params)
-                            .map_err(|e| { // If parsing is Err(parse_err_str), convert to anyhow::Error
+                            .map_err(|e| {
+                                // If parsing is Err(parse_err_str), convert to anyhow::Error
                                 eprintln!("Error parsing --sort argument: {e}");
                                 anyhow::anyhow!("Invalid --sort value: {e}")
                             })
@@ -577,8 +581,8 @@ fn handle_instance_command(args: InstanceArgs) -> Result<()> {
                             ]);
                             table_display.set_constraints(vec![
                                 ColumnConstraint::LowerBoundary(Width::Fixed(40)), // For "Domain Name" column (index 0)
-                                ColumnConstraint::ContentWidth,                    // For "Blocked" column (index 1)
-                                ColumnConstraint::ContentWidth,                    // For "Last Message At" column (index 2)
+                                ColumnConstraint::ContentWidth, // For "Blocked" column (index 1)
+                                ColumnConstraint::ContentWidth, // For "Last Message At" column (index 2)
                             ]);
 
                             for instance_item in instances_data {
