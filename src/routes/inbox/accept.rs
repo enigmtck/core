@@ -95,7 +95,7 @@ async fn process(
 
         let follow = follow.ok_or(TaskError::TaskFailed)?;
 
-        let profile = get_actor_by_as_id(&conn, follow.actor.to_string())
+        let profile = get_actor_by_as_id(Some(&conn), follow.actor.to_string())
             .await
             .map_err(|e| {
                 log::error!("FAILED TO RETRIEVE ACTOR: {e:#?}");

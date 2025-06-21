@@ -8,7 +8,9 @@ use anyhow::{anyhow, Result}; // Ensure anyhow is imported
 pub async fn cache_content(conn: &Db, cacheable: Result<Cacheable>) -> Result<CacheItem> {
     // Convert Cacheable to NewCacheItem. Propagate errors from try_from/from.
     let new_cache_item_to_process = match cacheable? {
-        Cacheable::Document(document) => NewCacheItem::try_from(document).map_err(anyhow::Error::msg),
+        Cacheable::Document(document) => {
+            NewCacheItem::try_from(document).map_err(anyhow::Error::msg)
+        }
         Cacheable::Image(image) => Ok(NewCacheItem::from(image)),
     }?;
 

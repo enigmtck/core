@@ -9,20 +9,30 @@ use crate::{
     },
     runner::send_to_inboxes,
 };
+use anyhow::Result;
 use jdt_activity_pub::{ApActivity, ApActor, ApAddress, ApUpdate};
 
 use super::TaskError;
 
-pub async fn get_follower_inboxes(conn: &Db, profile: Actor) -> Vec<ApAddress> {
+pub async fn get_follower_inboxes(conn_opt: Option<&Db>, profile: Actor) -> Vec<ApAddress> {
     let mut inboxes: HashSet<ApAddress> = HashSet::new();
 
-    for (follower, _) in get_followers_by_actor_id(conn, profile.id, None).await {
-        if let Ok(actor) = get_actor_by_as_id(conn, follower.actor).await {
-            let actor = ApActor::from(actor);
-            if let Some(endpoints) = actor.endpoints {
-                inboxes.insert(ApAddress::Address(endpoints.shared_inbox));
-            } else {
-                inboxes.insert(ApAddress::Address(actor.inbox));
+    for (follower, _) in get_followers_by_actor_id(conn_opt, profile.id, None).await {
+        match get_actor_by_as_id(conn_opt, follower.actor).await {
+            Ok(actor_model) => {
+                let ap_actor = ApActor::from(actor_model);
+                if let Some(endpoints) = ap_actor.endpoints {
+                    inboxes.insert(ApAddress::Address(endpoints.shared_inbox));
+                } else {
+                    inboxes.insert(ApAddress::Address(ap_actor.inbox));
+                }
+            }
+            Err(e) => {
+                log::warn!(
+                    "Failed to get actor for follower {}: {:?}",
+                    follower.ap_id,
+                    e
+                );
             }
         }
     }
@@ -36,9 +46,12 @@ pub async fn send_profile_update_task(
     uuids: Vec<String>,
 ) -> Result<(), TaskError> {
     for uuid in uuids {
-        let profile = get_actor_by_uuid(&conn, uuid)
+        let profile = get_actor_by_uuid(Some(&conn), uuid.clone())
             .await
-            .ok_or(TaskError::TaskFailed)?;
+            .map_err(|e| {
+                log::error!("Failed to get actor by uuid {}: {:?}", uuid, e);
+                TaskError::TaskFailed
+            })?;
 
         let update = ApUpdate::try_from(ApActor::from(profile.clone())).map_err(|e| {
             log::error!("FAILED TO BUILD ApUpdate: {e:#?}");
@@ -46,8 +59,8 @@ pub async fn send_profile_update_task(
         })?;
 
         send_to_inboxes(
-            &conn,
-            get_follower_inboxes(&conn, profile.clone()).await,
+            Some(&conn),
+            get_follower_inboxes(Some(&conn), profile.clone()).await,
             profile,
             ApActivity::Update(update),
         )

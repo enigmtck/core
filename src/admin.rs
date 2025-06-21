@@ -16,9 +16,7 @@ use crate::models::actors::{
 use crate::models::cache::Cache;
 use crate::models::profiles::Profile;
 use jdt_activity_pub::MaybeMultiple;
-use jdt_activity_pub::{
-    ApActor, ApCapabilities, ApContext, ApEndpoint, ApImage, ApPublicKey,
-};
+use jdt_activity_pub::{ApActor, ApCapabilities, ApContext, ApEndpoint, ApImage, ApPublicKey};
 
 struct KeyPair {
     private_key: RsaPrivateKey,
@@ -40,7 +38,9 @@ fn get_key_pair() -> KeyPair {
 pub async fn authenticate(conn: &Db, username: String, password_str: String) -> Option<Profile> {
     log::debug!("AUTHENTICATING {username} {password_str}");
     let password = pwhash::Password::from_slice(password_str.clone().as_bytes()).ok()?;
-    let profile = get_actor_by_username(conn, username.clone()).await?;
+    let profile = get_actor_by_username(Some(conn), username.clone())
+        .await
+        .ok()?;
     let encoded_password_hash = profile.clone().ek_password?;
     let password_hash = pwhash::PasswordHash::from_encoded(&encoded_password_hash).ok()?;
 

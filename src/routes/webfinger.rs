@@ -16,9 +16,9 @@ pub async fn webfinger_xml(conn: Db, resource: String) -> Result<XrdXml, Status>
 
         let server_url = (*crate::SERVER_URL).clone();
 
-        if get_actor_by_username(&conn, username.to_string())
+        if get_actor_by_username(Some(&conn), username.to_string())
             .await
-            .is_some()
+            .is_ok()
         {
             Ok(XrdXml(format!(
                 r#"<?xml version="1.0" encoding="UTF-8"?><XRD xmlns="http://docs.oasis-open.org/ns/xri/xrd-1.0"><Subject>{resource}</Subject><Alias>{server_url}/user/{username}</Alias><Link href="{server_url}/@{username}" rel="http://webfinger.net/rel/profile-page" type="text/html" /><Link href="{server_url}/user/{username}" rel="self" type="application/activity+json" /><Link href="{server_url}/user/{username}" rel="self" type="application/ld+json; profile=&quot;https://www.w3.org/ns/activitystreams&quot;" /></XRD>"#
@@ -65,9 +65,10 @@ async fn webfinger(conn: Db, resource: String) -> Result<WebFinger, Status> {
         let handle = parts[1].split('@').collect::<Vec<&str>>();
         let username = handle[0];
 
-        match get_actor_by_username(&conn, username.to_string()).await {
-            Some(profile) => Ok(WebFinger::from(profile)),
-            None => Err(Status::NoContent),
+        if let Ok(profile) = get_actor_by_username(Some(&conn), username.to_string()).await {
+            Ok(WebFinger::from(profile))
+        } else {
+            Err(Status::NoContent)
         }
     } else {
         Err(Status::NoContent)

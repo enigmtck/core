@@ -10,7 +10,7 @@ use crate::models::actors::{
     NewActor,
 };
 use crate::models::cache::Cache;
-use crate::models::leaders::get_leader_by_actor_ap_id_and_profile;
+use crate::models::leaders::{get_leader_by_actor_ap_id_and_profile, Leader};
 use crate::models::objects::{create_or_update_object, get_object_by_as_id, NewObject};
 use crate::signing::{sign, Method, SignParams};
 use crate::webfinger::WebFinger;
@@ -48,12 +48,14 @@ pub async fn get_remote_collection(
 pub async fn get_ap_id_from_webfinger(acct: String) -> Result<String> {
     let webfinger = get_remote_webfinger(acct).await?;
 
-    webfinger.links
+    webfinger
+        .links
         .iter()
         .find_map(|link| {
             let kind_match = link.kind.as_deref()?;
-            if kind_match == "application/activity+json" 
-                || kind_match == "application/ld+json; profile=\"https://www.w3.org/ns/activitystreams\""
+            if kind_match == "application/activity+json"
+                || kind_match
+                    == "application/ld+json; profile=\"https://www.w3.org/ns/activitystreams\""
             {
                 link.href.clone()
             } else {
@@ -95,99 +97,133 @@ async fn get_remote_webfinger(handle: String) -> Result<WebFinger> {
     response.json().await.map_err(anyhow::Error::msg)
 }
 
-pub async fn get_object(conn: &Db, profile: Option<Actor>, id: String) -> Option<ApObject> {
-    match get_object_by_as_id(Some(conn), id.clone()).await.ok() {
-        Some(object) => Some(
-            ApObject::try_from(object)
-                .ok()?
-                .cache(conn)
-                .await
-                .clone()
-                .load_ephemeral(conn, None)
-                .await
-                .clone(),
-        ),
-        None => {
-            let resp = signed_get(guaranteed_actor(conn, profile).await, id, false)
-                .await
-                .ok()?;
+pub async fn get_object(
+    conn_opt: Option<&Db>,
+    profile: Option<Actor>,
+    id: String,
+) -> Result<ApObject> {
+    if let Ok(object_model) = get_object_by_as_id(conn_opt, id.clone()).await {
+        let ap_object = ApObject::try_from(object_model)?
+            .cache(conn_opt.expect("DB connection required for cache operation"))
+            .await
+            .clone()
+            .load_ephemeral(
+                conn_opt.expect("DB connection required for load_ephemeral"),
+                None,
+            )
+            .await
+            .clone();
+        Ok(ap_object)
+    } else {
+        let db_conn_for_guaranteed = conn_opt.expect("DB connection required for guaranteed_actor");
+        let resp = signed_get(
+            guaranteed_actor(db_conn_for_guaranteed, profile).await,
+            id,
+            false,
+        )
+        .await?;
 
-            if resp.status().is_success() {
-                let text = resp.text().await.ok()?;
-                let object = serde_json::from_str::<ApObject>(&text).ok()?;
+        if resp.status().is_success() {
+            let text = resp.text().await?;
+            let fetched_ap_object: ApObject = serde_json::from_str(&text)?;
 
-                let object = create_or_update_object(
-                    conn,
-                    NewObject::try_from(object.cache(conn).await.clone()).ok()?,
+            let db_conn_for_cache_and_create =
+                conn_opt.expect("DB connection required for cache/create");
+            let created_object_model = create_or_update_object(
+                db_conn_for_cache_and_create,
+                NewObject::try_from(
+                    fetched_ap_object
+                        .cache(db_conn_for_cache_and_create)
+                        .await
+                        .clone(),
+                )?,
+            )
+            .await?;
+
+            let mut final_ap_object = ApObject::try_from(created_object_model)?;
+
+            Ok(final_ap_object
+                .load_ephemeral(
+                    conn_opt.expect("DB connection required for load_ephemeral"),
+                    None,
                 )
                 .await
-                .ok()
-                .map(|x| ApObject::try_from(x).ok())?;
-
-                if let Some(mut object) = object {
-                    Some(object.load_ephemeral(conn, None).await.clone())
-                } else {
-                    None
-                }
-            } else {
-                None
-            }
+                .clone())
+        } else {
+            Err(anyhow!("unable to get_object"))
         }
     }
 }
 
 pub async fn get_local_or_cached_actor(
-    conn: &Db,
+    conn_opt: Option<&Db>,
     id: String,
     requester: Option<Actor>,
-) -> Option<ApActor> {
-    let actor = get_actor_by_as_id(conn, id.clone()).await.ok()?;
-
-    if actor.is_stale() {
-        return None;
+) -> Result<Option<ApActor>> {
+    match get_actor_by_as_id(conn_opt, id.clone()).await {
+        Ok(actor_model) => {
+            if actor_model.is_stale() {
+                return Ok(None);
+            }
+            let db_conn_for_ret = conn_opt.expect("DB connection required for actor_ret");
+            Ok(Some(
+                actor_ret(db_conn_for_ret, requester, actor_model).await,
+            ))
+        }
+        Err(_e) => Ok(None),
     }
-
-    Some(actor_ret(conn, requester, actor).await)
 }
 
 pub async fn process_remote_actor_retrieval(
-    conn: &Db,
+    conn_opt: Option<&Db>,
     profile: Option<Actor>,
     id: String,
 ) -> Result<ApActor> {
+    let db_conn_for_guaranteed = conn_opt.expect("DB connection required for guaranteed_actor");
     let response = signed_get(
-        guaranteed_actor(conn, profile.clone()).await,
+        guaranteed_actor(db_conn_for_guaranteed, profile.clone()).await,
         id.clone(),
         false,
     )
     .await?;
 
     if !response.status().is_success() {
-        let message = response.text().await.ok();
+        let message = response.text().await.unwrap_or_default();
         return Err(anyhow::Error::msg(format!(
             "Bad remote ApActor response: {message:#?}"
         )));
     }
 
     let text = response.text().await?;
-    let actor = serde_json::from_str::<ApActor>(&text)?;
-    let webfinger = actor.get_webfinger().await;
-    let mut actor =
-        NewActor::try_from(actor.cache(conn).await.clone()).map_err(anyhow::Error::msg)?;
-    actor.ek_webfinger = webfinger;
+    let actor_from_remote = serde_json::from_str::<ApActor>(&text)?;
+    let webfinger = actor_from_remote.get_webfinger().await;
+    let mut new_actor_data = NewActor::try_from(
+        actor_from_remote
+            .cache(conn_opt.expect("DB conn for cache"))
+            .await
+            .clone(),
+    )
+    .map_err(anyhow::Error::msg)?;
+    new_actor_data.ek_webfinger = webfinger;
 
-    let actor = create_or_update_actor(Some(conn), actor)
+    let actor_model = create_or_update_actor(conn_opt, new_actor_data)
         .await
         .context("Failed to create or update Actor")?;
 
-    Ok(actor_ret(conn, profile, actor).await)
+    let db_conn_for_ret = conn_opt.expect("DB connection required for actor_ret");
+    Ok(actor_ret(db_conn_for_ret, profile, actor_model).await)
 }
 
-async fn actor_ret(conn: &Db, requester: Option<Actor>, target: Actor) -> ApActor {
-    if let Some(requester) = requester.clone() {
+async fn actor_ret(db_conn: &Db, requester: Option<Actor>, target: Actor) -> ApActor {
+    if let Some(requester_actor) = requester.clone() {
         ApActor::from_actor_and_leader((
             target.clone().into(),
-            get_leader_by_actor_ap_id_and_profile(conn, target.as_id.clone(), requester.id).await,
+            get_leader_by_actor_ap_id_and_profile(
+                db_conn,
+                target.as_id.clone(),
+                requester_actor.id,
+            )
+            .await,
         ))
     } else {
         target.into()
@@ -195,21 +231,21 @@ async fn actor_ret(conn: &Db, requester: Option<Actor>, target: Actor) -> ApActo
 }
 
 pub async fn get_actor(
-    conn: &Db,
+    conn_opt: Option<&Db>,
     id: String,
     requester: Option<Actor>,
     update: bool,
 ) -> Result<ApActor> {
     log::debug!("Retrieving: {id}");
 
-    let actor = get_local_or_cached_actor(conn, id.clone(), requester.clone()).await;
+    let actor_option = get_local_or_cached_actor(conn_opt, id.clone(), requester.clone()).await?;
 
-    if let Some(actor) = actor {
+    if let Some(actor) = actor_option {
         log::debug!("Locally retrieved Actor: {actor}");
         Ok(actor)
     } else if update {
         log::debug!("Retrieving remote Actor: {id}");
-        process_remote_actor_retrieval(conn, requester, id).await
+        process_remote_actor_retrieval(conn_opt, requester, id).await
     } else {
         log::error!("Failed to retrieve Actor");
         Err(anyhow!("Failed to retrieve Actor"))

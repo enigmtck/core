@@ -47,6 +47,10 @@ pub async fn create_user(
     conn: Db,
     user: Result<Json<NewUser>, Error<'_>>,
 ) -> Result<Json<Actor>, Status> {
+    if !*crate::REGISTRATION_ENABLED {
+        return Err(Status::ServiceUnavailable);
+    }
+
     if let Ok(Json(user)) = user {
         log::debug!("CREATING USER\n{user:#?}");
 
@@ -64,10 +68,10 @@ pub async fn create_user(
 pub async fn relay_post(_ip: IpRestriction, conn: Db, actor: String) -> Result<Status, Status> {
     let profile = guaranteed_actor(&conn, None).await;
 
-    let actor = if let Ok(actor) = get_actor_by_as_id(&conn, actor.clone()).await {
+    let actor = if let Ok(actor) = get_actor_by_as_id(Some(&conn), actor.clone()).await {
         Some(ApActor::from(actor))
     } else {
-        (get_actor(&conn, actor, None, true).await).ok()
+        (get_actor(Some(&conn), actor, None, true).await).ok()
     };
 
     let inbox = if let Some(actor) = actor.clone() {

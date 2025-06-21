@@ -220,7 +220,7 @@ pub trait LoadEphemeral {
 
 impl LoadEphemeral for ApNote {
     async fn load_ephemeral(&mut self, conn: &Db, _requester: Option<Actor>) -> Self {
-        if let Ok(actor) = get_actor_by_as_id(conn, self.attributed_to.to_string()).await {
+        if let Ok(actor) = get_actor_by_as_id(Some(conn), self.attributed_to.to_string()).await {
             let mut ephemeral = self.ephemeral.clone().unwrap_or_default();
             ephemeral.attributed_to = Some(vec![actor.into()]);
             self.ephemeral = Some(ephemeral);
@@ -247,7 +247,7 @@ impl LoadEphemeral for ApActivity {
 impl LoadEphemeral for ApActor {
     async fn load_ephemeral(&mut self, conn: &Db, requester: Option<Actor>) -> Self {
         if let Some(ap_id) = self.id.clone() {
-            if let Ok(profile) = get_actor_by_as_id(conn, ap_id.to_string()).await {
+            if let Ok(profile) = get_actor_by_as_id(Some(conn), ap_id.to_string()).await {
                 self.ephemeral = Some(Ephemeral {
                     followers: get_follower_count_by_actor_id(conn, profile.id).await.ok(),
                     leaders: get_leader_count_by_actor_id(conn, profile.id).await.ok(),
@@ -278,9 +278,13 @@ impl LoadEphemeral for ApObject {
     async fn load_ephemeral(&mut self, conn: &Db, _requester: Option<Actor>) -> Self {
         match self {
             ApObject::Note(ref mut note) => {
-                if let Ok(actor) =
-                    retriever::get_actor(conn, note.attributed_to.clone().to_string(), None, true)
-                        .await
+                if let Ok(actor) = retriever::get_actor(
+                    Some(conn),
+                    note.attributed_to.clone().to_string(),
+                    None,
+                    true,
+                )
+                .await
                 {
                     note.ephemeral = Some(Ephemeral {
                         attributed_to: Some(vec![actor.into()]),

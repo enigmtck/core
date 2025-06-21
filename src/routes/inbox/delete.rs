@@ -24,7 +24,10 @@ impl Inbox for Box<ApDelete> {
         let tombstone = match self.object.clone() {
             MaybeReference::Actual(actual) => match actual {
                 ApObject::Tombstone(tombstone) => Ok(async {
-                    match get_actor_by_as_id(&conn, tombstone.id.clone()).await.ok() {
+                    match get_actor_by_as_id(Some(&conn), tombstone.id.clone())
+                        .await
+                        .ok()
+                    {
                         Some(actor) => Some(Tombstone::Actor(actor)),
                         None => get_object_by_as_id(Some(&conn), tombstone.id.clone())
                             .await
@@ -38,7 +41,7 @@ impl Inbox for Box<ApDelete> {
                     Status::NotFound
                 })?),
                 ApObject::Identifier(obj) => Ok(async {
-                    match get_actor_by_as_id(&conn, obj.id.clone()).await.ok() {
+                    match get_actor_by_as_id(Some(&conn), obj.id.clone()).await.ok() {
                         Some(actor) => Some(Tombstone::Actor(actor)),
                         None => get_object_by_as_id(Some(&conn), obj.id.clone())
                             .await
@@ -57,7 +60,7 @@ impl Inbox for Box<ApDelete> {
                 }
             },
             MaybeReference::Reference(ap_id) => Ok(async {
-                match get_actor_by_as_id(&conn, ap_id.clone()).await.ok() {
+                match get_actor_by_as_id(Some(&conn), ap_id.clone()).await.ok() {
                     Some(actor) => Some(Tombstone::Actor(actor)),
                     None => get_object_by_as_id(Some(&conn), ap_id.clone())
                         .await

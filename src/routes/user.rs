@@ -200,19 +200,18 @@ pub async fn person_activity_json(
     conn: Db,
     username: String,
 ) -> Result<ActivityJson<ApActor>, Status> {
-    match get_actor_by_username(&conn, username).await {
-        Some(profile) => {
-            let actor = if signed.local() {
-                ApActor::from(profile)
-                    .load_ephemeral(&conn, signed.profile())
-                    .await
-            } else {
-                ApActor::from(profile)
-            };
+    if let Ok(profile) = get_actor_by_username(Some(&conn), username).await {
+        let actor = if signed.local() {
+            ApActor::from(profile)
+                .load_ephemeral(&conn, signed.profile())
+                .await
+        } else {
+            ApActor::from(profile)
+        };
 
-            Ok(ActivityJson(Json(actor)))
-        }
-        None => Err(Status::NotFound),
+        Ok(ActivityJson(Json(actor)))
+    } else {
+        Err(Status::NotFound)
     }
 }
 
@@ -222,26 +221,25 @@ pub async fn person_ld_json(
     conn: Db,
     username: String,
 ) -> Result<LdJson<ApActor>, Status> {
-    match get_actor_by_username(&conn, username).await {
-        Some(profile) => {
-            let actor = if signed.local() {
-                ApActor::from(profile)
-                    .load_ephemeral(&conn, signed.profile())
-                    .await
-            } else {
-                ApActor::from(profile)
-            };
+    if let Ok(profile) = get_actor_by_username(Some(&conn), username).await {
+        let actor = if signed.local() {
+            ApActor::from(profile)
+                .load_ephemeral(&conn, signed.profile())
+                .await
+        } else {
+            ApActor::from(profile)
+        };
 
-            Ok(LdJson(Json(actor)))
-        }
-        None => Err(Status::NotFound),
+        Ok(LdJson(Json(actor)))
+    } else {
+        Err(Status::NotFound)
     }
 }
 
 #[get("/user/<username>/liked")]
 pub async fn liked_get(conn: Db, username: String) -> Result<ActivityJson<ApCollection>, Status> {
     // I should make this real at some point.
-    if let Some(_profile) = get_actor_by_username(&conn, username).await {
+    if let Ok(_profile) = get_actor_by_username(Some(&conn), username).await {
         Ok(ActivityJson(Json(ApCollection::default())))
     } else {
         Err(Status::NotFound)
@@ -255,9 +253,9 @@ pub async fn get_followers(
     username: String,
     page: Option<u32>,
 ) -> Result<ActivityJson<ApCollection>, Status> {
-    let profile = get_actor_by_username(&conn, username)
+    let profile = get_actor_by_username(Some(&conn), username)
         .await
-        .ok_or(Status::NotFound)?;
+        .map_err(|_| Status::NotFound)?;
 
     let total_items = get_follower_count_by_actor_id(&conn, profile.id)
         .await
@@ -269,7 +267,7 @@ pub async fn get_followers(
     let results = match page {
         Some(p) if p > 0 => {
             get_followers_by_actor_id(
-                &conn,
+                Some(&conn),
                 profile.id,
                 Some(OffsetPaging {
                     page: p - 1,
@@ -321,9 +319,9 @@ pub async fn get_leaders(
     username: String,
     page: Option<u32>, // page starts at 1; must be adjusted to 0 for query
 ) -> Result<ActivityJson<ApCollection>, Status> {
-    let profile = get_actor_by_username(&conn, username)
+    let profile = get_actor_by_username(Some(&conn), username)
         .await
-        .ok_or(Status::NotFound)?;
+        .map_err(|_| Status::NotFound)?;
 
     let total_items = get_leader_count_by_actor_id(&conn, profile.id)
         .await

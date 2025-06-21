@@ -1,4 +1,5 @@
 use crate::db::Db;
+use crate::db::DbType;
 use crate::helper::get_activity_ap_id_from_uuid;
 use crate::models::actors::{get_actor_by_as_id, Actor};
 use crate::models::coalesced_activity::CoalescedActivity;
@@ -27,7 +28,6 @@ use jdt_activity_pub::{ApUpdate, PUBLIC_COLLECTION};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::fmt::{self, Debug};
-use crate::db::DbType;
 
 #[derive(
     diesel_derive_enum::DbEnum, Debug, Serialize, Deserialize, Default, Clone, Eq, PartialEq,
@@ -361,7 +361,7 @@ impl Default for NewActivity {
 
 impl NewActivity {
     pub async fn link_actor(&mut self, conn: &Db) -> Self {
-        if let Ok(actor) = get_actor_by_as_id(conn, self.clone().actor).await {
+        if let Ok(actor) = get_actor_by_as_id(Some(conn), self.clone().actor).await {
             self.actor_id = Some(actor.id);
         };
 
@@ -1599,20 +1599,37 @@ attributed_actors AS (
     params
 }
 
-pub async fn add_log_by_as_id(conn: &Db, as_id: String, entry: Value) -> Result<usize> {
+pub async fn add_log_by_as_id(conn: Option<&Db>, as_id: String, entry: Value) -> Result<usize> {
     use diesel::sql_types::{Jsonb, Text};
 
-    //sql_query("UPDATE activities a SET log = jsonb_insert(a.log, '{0}', $1) WHERE ap_id = $2")
-    let mut query = sql_query(
-        "UPDATE activities a SET log = COALESCE(a.log, '[]'::jsonb) || $1::jsonb WHERE ap_id = $2",
-    )
-    .into_boxed::<DbType>();
-    query = query.bind::<Jsonb, _>(entry.clone());
-    query = query.bind::<Text, _>(as_id.clone());
+    match conn {
+        Some(db_conn) => {
+            let mut query = sql_query(
+                "UPDATE activities a SET log = COALESCE(a.log, '[]'::jsonb) || $1::jsonb WHERE ap_id = $2",
+            )
+            .into_boxed::<DbType>();
+            query = query.bind::<Jsonb, _>(entry);
+            query = query.bind::<Text, _>(as_id);
 
-    conn.run(move |c| query.execute(c))
-        .await
-        .map_err(anyhow::Error::msg)
+            db_conn
+                .run(move |c| query.execute(c))
+                .await
+                .map_err(anyhow::Error::msg)
+        }
+        None => {
+            tokio::task::spawn_blocking(move || {
+                let mut pool_conn = POOL.get().map_err(anyhow::Error::msg)?;
+                let mut query = sql_query(
+                    "UPDATE activities a SET log = COALESCE(a.log, '[]'::jsonb) || $1::jsonb WHERE ap_id = $2",
+                )
+                .into_boxed::<DbType>();
+                query = query.bind::<Jsonb, _>(entry);
+                query = query.bind::<Text, _>(as_id);
+                query.execute(&mut pool_conn).map_err(anyhow::Error::msg)
+            })
+            .await? // For JoinError from spawn_blocking
+        }
+    }
 }
 
 #[allow(clippy::too_many_arguments)]

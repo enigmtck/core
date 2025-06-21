@@ -45,7 +45,7 @@ async fn follow_outbox(
             )
             .await
             {
-                let actor = get_actor_by_as_id(&conn, as_id.clone())
+                let actor = get_actor_by_as_id(Some(&conn), as_id.clone())
                     .await
                     .map_err(|e| {
                         log::error!("Failed to retrieve Actor: {e:#?}");
@@ -53,7 +53,7 @@ async fn follow_outbox(
                     })?;
                 (activity, actor)
             } else {
-                let actor = get_actor_by_as_id(&conn, as_id).await.map_err(|e| {
+                let actor = get_actor_by_as_id(Some(&conn), as_id).await.map_err(|e| {
                     log::error!("Failed to retrieve Actor: {e:#?}");
                     Status::NotFound
                 })?;
@@ -140,9 +140,10 @@ async fn send(
             TaskError::TaskFailed
         })?;
 
-        let inboxes: Vec<ApAddress> = get_inboxes(&conn, activity.clone(), sender.clone()).await;
+        let inboxes: Vec<ApAddress> =
+            get_inboxes(Some(&conn), activity.clone(), sender.clone()).await;
 
-        send_to_inboxes(&conn, inboxes, sender, activity.clone())
+        send_to_inboxes(Some(&conn), inboxes, sender, activity.clone())
             .await
             .map_err(|e| {
                 log::error!("Failed to send to inboxes: {e:#?}");

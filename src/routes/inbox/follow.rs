@@ -31,7 +31,7 @@ impl Inbox for ApFollow {
             return Err(Status::UnprocessableEntity);
         };
 
-        let actor = get_actor_by_as_id(&conn, actor_as_id.clone())
+        let actor = get_actor_by_as_id(Some(&conn), actor_as_id.clone())
             .await
             .map_err(|e| {
                 log::error!("FAILED TO RETRIEVE ACTOR: {e:#?}");
@@ -95,14 +95,14 @@ async fn process(
             TaskError::TaskFailed
         })?;
 
-        let accept_actor = get_actor_by_as_id(&conn, accept.actor.clone().to_string())
+        let accept_actor = get_actor_by_as_id(Some(&conn), accept.actor.clone().to_string())
             .await
             .map_err(|e| {
                 log::error!("FAILED TO RETRIEVE ACTOR: {e:#?}");
                 TaskError::TaskFailed
             })?;
 
-        let follow_actor = get_actor_by_as_id(&conn, follow.actor.clone().to_string())
+        let follow_actor = get_actor_by_as_id(Some(&conn), follow.actor.clone().to_string())
             .await
             .map_err(|e| {
                 log::error!("FAILED TO RETRIEVE ACTOR: {e:#?}");
@@ -110,7 +110,7 @@ async fn process(
             })?;
 
         send_to_inboxes(
-            &conn,
+            Some(&conn),
             vec![follow_actor.as_inbox.clone().into()],
             accept_actor.clone(),
             ApActivity::Accept(Box::new(accept)),

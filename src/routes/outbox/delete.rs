@@ -128,9 +128,10 @@ async fn send_task(
             TaskError::TaskFailed
         })?;
 
-        let inboxes: Vec<ApAddress> = get_inboxes(&conn, activity.clone(), sender.clone()).await;
+        let inboxes: Vec<ApAddress> =
+            get_inboxes(Some(&conn), activity.clone(), sender.clone()).await;
 
-        send_to_inboxes(&conn, inboxes, sender, activity.clone())
+        send_to_inboxes(Some(&conn), inboxes, sender, activity.clone())
             .await
             .map_err(|e| {
                 log::error!("Failed to send to inboxes: {e:#?}");

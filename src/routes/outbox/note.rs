@@ -279,7 +279,7 @@ async fn send_note(
         }
 
         let _ = get_actor(
-            &conn,
+            Some(&conn),
             note.clone().attributed_to.to_string(),
             Some(sender.clone()),
             true,
@@ -291,13 +291,14 @@ async fn send_note(
             TaskError::TaskFailed
         })?;
 
-        let inboxes: Vec<ApAddress> = get_inboxes(&conn, activity.clone(), sender.clone()).await;
+        let inboxes: Vec<ApAddress> =
+            get_inboxes(Some(&conn), activity.clone(), sender.clone()).await;
 
         log::debug!("SENDING ACTIVITY\n{activity:#?}");
         log::debug!("SENDER\n{sender:#?}");
         log::debug!("INBOXES\n{inboxes:#?}");
 
-        send_to_inboxes(&conn, inboxes, sender, activity)
+        send_to_inboxes(Some(&conn), inboxes, sender, activity)
             .await
             .map_err(|e| {
                 log::error!("Failed to send ApActivity: {e:#?}");

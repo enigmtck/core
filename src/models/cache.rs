@@ -16,8 +16,8 @@ use jdt_activity_pub::{
     ActivityPub, ApActivity, ApActor, ApAttachment, ApCollection, ApDocument, ApImage, ApNote,
     ApObject, ApQuestion, ApTag, Collectible,
 };
-use reqwest::StatusCode as ReqwestStatusCode;
 use reqwest::header::CONTENT_TYPE;
+use reqwest::StatusCode as ReqwestStatusCode;
 use rocket::tokio::time::{sleep, Duration as TokioDuration};
 use rocket_sync_db_pools::diesel;
 use serde::{Deserialize, Serialize};
@@ -451,12 +451,11 @@ pub async fn delete_cache_item_by_url(conn: Option<&Db>, url: String) -> Result<
 // Enum to categorize failures from the primary download attempt (using reqwest)
 #[derive(Debug)]
 enum PrimaryAttemptFailure {
-    Forbidden, // Specifically a 403 error, triggers rquest fallback
-    HttpError(ReqwestStatusCode), // Other HTTP errors
+    Forbidden,                     // Specifically a 403 error, triggers rquest fallback
+    HttpError(ReqwestStatusCode),  // Other HTTP errors
     NetworkOrOther(anyhow::Error), // Network errors or other issues from signed_get
-    WrongContentType(String),    // Correct HTTP status, but not media
+    WrongContentType(String),      // Correct HTTP status, but not media
 }
-
 
 pub async fn download_image(
     conn: &Db,
@@ -506,7 +505,10 @@ pub async fn download_image(
                     let status = response.status();
                     log::debug!(
                         "Attempt {}/{}: Primary signed_get response status for {}: {}",
-                        attempt_num, MAX_ATTEMPTS, cache_item.url, status
+                        attempt_num,
+                        MAX_ATTEMPTS,
+                        cache_item.url,
+                        status
                     );
                     if status == ReqwestStatusCode::FORBIDDEN {
                         return Err(PrimaryAttemptFailure::Forbidden);
@@ -515,43 +517,68 @@ pub async fn download_image(
                         return Err(PrimaryAttemptFailure::HttpError(status));
                     }
 
-                    let content_type = response.headers().get(CONTENT_TYPE)
-                        .and_then(|value| value.to_str().ok()).unwrap_or_default().to_lowercase();
+                    let content_type = response
+                        .headers()
+                        .get(CONTENT_TYPE)
+                        .and_then(|value| value.to_str().ok())
+                        .unwrap_or_default()
+                        .to_lowercase();
 
-                    if !(content_type.starts_with("image/") ||
-                         content_type.starts_with("video/") ||
-                         content_type.starts_with("audio/")) {
+                    if !(content_type.starts_with("image/")
+                        || content_type.starts_with("video/")
+                        || content_type.starts_with("audio/"))
+                    {
                         return Err(PrimaryAttemptFailure::WrongContentType(content_type));
                     }
-                    log::debug!("Primary signed_get for {} returned media content-type: {}. Proceeding.", cache_item.url, content_type);
-                    let data = response.bytes().await.context("Failed to get bytes from primary signed_get response")
+                    log::debug!(
+                        "Primary signed_get for {} returned media content-type: {}. Proceeding.",
+                        cache_item.url,
+                        content_type
+                    );
+                    let data = response
+                        .bytes()
+                        .await
+                        .context("Failed to get bytes from primary signed_get response")
                         .map_err(PrimaryAttemptFailure::NetworkOrOther)?;
-                    save_media_data(data, &cache_item, &cache_item.url).await
+                    save_media_data(data, &cache_item, &cache_item.url)
+                        .await
                         .map_err(PrimaryAttemptFailure::NetworkOrOther)
                 }
-                Err(e) => Err(PrimaryAttemptFailure::NetworkOrOther(e.context("Primary signed_get network/other error"))),
+                Err(e) => Err(PrimaryAttemptFailure::NetworkOrOther(
+                    e.context("Primary signed_get network/other error"),
+                )),
             }
-        }.await;
+        }
+        .await;
 
         match primary_result {
             Ok(saved_item) => return Ok(saved_item), // Successfully downloaded and saved
             Err(failure_reason) => {
                 let error_message_for_log = match failure_reason {
                     PrimaryAttemptFailure::Forbidden => {
-                        format!("Primary attempt for {} resulted in 403 (Forbidden).", cache_item.url)
+                        format!(
+                            "Primary attempt for {} resulted in 403 (Forbidden).",
+                            cache_item.url
+                        )
                     }
                     PrimaryAttemptFailure::HttpError(s) => {
-                        format!("Primary attempt for {} failed with HTTP status: {}.", cache_item.url, s)
+                        format!(
+                            "Primary attempt for {} failed with HTTP status: {}.",
+                            cache_item.url, s
+                        )
                     }
                     PrimaryAttemptFailure::NetworkOrOther(e) => {
                         format!("Primary attempt for {} failed: {:#}", cache_item.url, e)
                     }
                     PrimaryAttemptFailure::WrongContentType(ct) => {
-                        format!("Primary attempt for {} returned non-media content-type: {}", cache_item.url, ct)
+                        format!(
+                            "Primary attempt for {} returned non-media content-type: {}",
+                            cache_item.url, ct
+                        )
                     }
                 };
                 log::debug!(
-                    "Download attempt {}/{} for {} failed: {}", 
+                    "Download attempt {}/{} for {} failed: {}",
                     attempt_num,
                     MAX_ATTEMPTS,
                     cache_item.url,
@@ -596,7 +623,9 @@ pub async fn cache_content(conn: &Db, cacheable: Result<Cacheable>) {
                 if let Ok(cache_item) = cache_item
                     .download(
                         conn,
-                        get_actor_by_username(conn, (*crate::SYSTEM_USER).clone()).await,
+                        get_actor_by_username(Some(conn), (*crate::SYSTEM_USER).clone())
+                            .await
+                            .ok(),
                     )
                     .await
                 {

@@ -36,7 +36,7 @@ pub async fn handle_remote_question(
     let profile = guaranteed_actor(conn, None).await;
 
     let _ = get_actor(
-        conn,
+        Some(conn),
         question.attributed_to.to_string(),
         Some(profile),
         true,

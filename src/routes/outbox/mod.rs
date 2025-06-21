@@ -77,7 +77,7 @@ pub async fn outbox_get(
             )
             .await,
         )))
-    } else if let Some(profile) = get_actor_by_username(&conn, username.clone()).await {
+    } else if let Ok(profile) = get_actor_by_username(Some(&conn), username.clone()).await {
         Ok(ActivityJson(Json(
             retrieve::outbox_collection(&conn, profile, Some(base_url)).await,
         )))

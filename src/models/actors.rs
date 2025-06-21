@@ -850,50 +850,87 @@ pub async fn get_actor(conn: &Db, id: i32) -> Option<Actor> {
         .ok()
 }
 
-pub async fn get_actor_by_username(conn: &Db, username: String) -> Option<Actor> {
-    conn.run(move |c| {
+pub async fn get_actor_by_username(conn_opt: Option<&Db>, username: String) -> Result<Actor> {
+    let operation = move |c: &mut PgConnection| {
         actors::table
             .filter(actors::ek_username.eq(username))
             .first::<Actor>(c)
-    })
-    .await
-    .ok()
+            .map_err(anyhow::Error::from)
+    };
+    match conn_opt {
+        Some(conn) => conn.run(operation).await,
+        None => {
+            tokio::task::spawn_blocking(move || {
+                let mut pool_conn = POOL.get().map_err(anyhow::Error::msg)?;
+                operation(&mut pool_conn)
+            })
+            .await?
+        }
+    }
 }
 
-pub async fn get_actor_by_webfinger(conn: &Db, webfinger: String) -> Option<Actor> {
-    conn.run(move |c| {
+pub async fn get_actor_by_webfinger(conn_opt: Option<&Db>, webfinger: String) -> Result<Actor> {
+    let operation = move |c: &mut PgConnection| {
         actors::table
             .filter(actors::ek_webfinger.eq(webfinger))
             .first::<Actor>(c)
-    })
-    .await
-    .ok()
+            .map_err(anyhow::Error::from)
+    };
+
+    match conn_opt {
+        Some(conn) => conn.run(operation).await,
+        None => {
+            tokio::task::spawn_blocking(move || {
+                let mut pool_conn = POOL.get().map_err(anyhow::Error::msg)?;
+                operation(&mut pool_conn)
+            })
+            .await?
+        }
+    }
 }
 
-pub async fn get_actor_by_uuid(conn: &Db, uuid: String) -> Option<Actor> {
-    conn.run(move |c| {
+pub async fn get_actor_by_uuid(conn_opt: Option<&Db>, uuid: String) -> Result<Actor> {
+    let operation = move |c: &mut PgConnection| {
         actors::table
             .filter(actors::ek_uuid.eq(uuid))
             .first::<Actor>(c)
-    })
-    .await
-    .ok()
+            .map_err(anyhow::Error::from)
+    };
+    match conn_opt {
+        Some(conn) => conn.run(operation).await,
+        None => {
+            tokio::task::spawn_blocking(move || {
+                let mut pool_conn = POOL.get().map_err(anyhow::Error::msg)?;
+                operation(&mut pool_conn)
+            })
+            .await?
+        }
+    }
 }
 
-pub async fn get_actor_by_as_id(conn: &Db, as_id: String) -> Result<Actor> {
-    conn.run(move |c| {
+pub async fn get_actor_by_as_id(conn_opt: Option<&Db>, as_id: String) -> Result<Actor> {
+    let operation = move |c: &mut PgConnection| {
         actors::table
             .filter(actors::as_id.eq(as_id))
             .first::<Actor>(c)
-    })
-    .await
-    .map_err(anyhow::Error::msg)
+            .map_err(anyhow::Error::from)
+    };
+    match conn_opt {
+        Some(conn) => conn.run(operation).await,
+        None => {
+            tokio::task::spawn_blocking(move || {
+                let mut pool_conn = POOL.get().map_err(anyhow::Error::msg)?;
+                operation(&mut pool_conn)
+            })
+            .await?
+        }
+    }
 }
 
 pub async fn get_follower_inboxes(conn: &Db, actor: Actor) -> Vec<ApAddress> {
     let mut inboxes: HashSet<ApAddress> = HashSet::new();
 
-    for (_follower, actor) in get_followers_by_actor_id(conn, actor.id, None).await {
+    for (_follower, actor) in get_followers_by_actor_id(Some(conn), actor.id, None).await {
         inboxes.insert(ApAddress::Address(actor.as_inbox));
     }
 
@@ -903,8 +940,9 @@ pub async fn get_follower_inboxes(conn: &Db, actor: Actor) -> Vec<ApAddress> {
 pub async fn guaranteed_actor(conn: &Db, profile: Option<Actor>) -> Actor {
     match profile {
         Some(profile) => profile,
-        None => get_actor_by_username(conn, (*crate::SYSTEM_USER).clone())
-            .await
+        // Pass Some(conn) here as guaranteed_actor is likely called from server context
+        None => get_actor_by_username(Some(conn), (*crate::SYSTEM_USER).clone())
+            .await // get_actor_by_username now returns Result<Actor>
             .expect("Unable to retrieve system user"),
     }
 }

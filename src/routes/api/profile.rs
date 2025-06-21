@@ -239,12 +239,13 @@ pub async fn user_activity_json(
     conn: Db,
     username: String,
 ) -> Result<ActivityJson<ApActor>, Status> {
-    match get_actor_by_username(&conn, username).await {
-        Some(profile) => Ok(ActivityJson(Json(
+    if let Ok(profile) = get_actor_by_username(Some(&conn), username).await {
+        Ok(ActivityJson(Json(
             ApActor::from(profile)
                 .load_ephemeral(&conn, signed.profile())
                 .await,
-        ))),
-        None => Err(Status::NotFound),
+        )))
+    } else {
+        Err(Status::NotFound)
     }
 }

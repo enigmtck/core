@@ -141,28 +141,49 @@ pub async fn delete_follower_by_ap_id(conn: Option<&Db>, ap_id: String) -> bool 
 }
 
 pub async fn get_followers_by_actor_id(
-    conn: &Db,
+    conn_opt: Option<&Db>,
     actor_id: i32,
     paging: Option<OffsetPaging>,
 ) -> Vec<(Follower, Actor)> {
     // inner join is used to exclude Actor records that have been deleted
-    conn.run(move |c| {
+    let operation = move |c: &mut PgConnection| {
         let mut query = followers::table
             .filter(followers::actor_id.eq(actor_id))
             .inner_join(actors::table.on(followers::actor.eq(actors::as_id)))
             .order_by(followers::created_at.desc())
             .into_boxed();
-
+ 
         if let Some(paging) = paging {
             query = query
                 .limit(paging.limit as i64)
                 .offset((paging.page * paging.limit) as i64);
         }
-
+ 
         query.get_results::<(Follower, Actor)>(c)
-    })
-    .await
-    .unwrap_or(vec![])
+            .map_err(anyhow::Error::from)
+    };
+
+    match conn_opt {
+        Some(conn) => conn.run(operation).await.unwrap_or_else(|e| {
+            log::error!("Failed to get followers by actor id (with DB conn): {:?}", e);
+            vec![]
+        }),
+        None => {
+            tokio::task::spawn_blocking(move || {
+                let mut pool_conn = POOL.get().map_err(anyhow::Error::msg)?;
+                operation(&mut pool_conn)
+            })
+            .await
+            .unwrap_or_else(|e| { // Handles JoinError
+                log::error!("Failed to get followers by actor id (spawn_blocking task failed): {:?}", e);
+                Ok(vec![]) // Ok because the outer unwrap_or_else expects Result<Vec, _>
+            })
+            .unwrap_or_else(|e| { // Handles error from operation itself
+                log::error!("Failed to get followers by actor id (DB operation failed): {:?}", e);
+                vec![]
+            })
+        }
+    }
 }
 
 pub async fn get_follower_count_by_actor_id(conn: &Db, actor_id: i32) -> Result<i64> {

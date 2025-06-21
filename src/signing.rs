@@ -223,9 +223,9 @@ pub async fn verify(
 
     if local && key_selector == Some("client-key".to_string()) {
         let username = username.ok_or(VerificationError::ProfileNotFound)?;
-        let profile = get_actor_by_username(conn, username)
+        let profile = get_actor_by_username(Some(conn), username)
             .await
-            .ok_or(VerificationError::ProfileNotFound)?;
+            .map_err(|_| VerificationError::ProfileNotFound)?;
 
         let public_key = profile
             .ek_client_public_key

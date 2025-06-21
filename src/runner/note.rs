@@ -118,7 +118,7 @@ pub async fn handle_object(
 
     if let ApObject::Note(note) = ap_object {
         let _ = get_actor(
-            conn,
+            Some(conn),
             note.attributed_to.to_string(),
             Some(profile.await),
             true,

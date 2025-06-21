@@ -1,15 +1,15 @@
 use crate::db::Db;
+use crate::db::DbType;
 use crate::schema::instances;
 use crate::schema::instances::dsl;
 use crate::POOL;
 use chrono::{DateTime, Utc};
-use diesel::OptionalExtension;
 use diesel::prelude::*;
+use diesel::OptionalExtension;
 use diesel::{AsChangeset, Identifiable, Insertable, Queryable};
 use jdt_activity_pub::ApAddress;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use crate::db::DbType;
 
 // --- Sort-related types ---
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -31,7 +31,6 @@ pub struct SortParam {
     pub direction: SortDirection,
 }
 // --- End of Sort-related types ---
-
 
 #[derive(Serialize, Deserialize, Insertable, AsChangeset, Default, Debug, Clone)]
 #[diesel(table_name = instances)]
@@ -84,30 +83,38 @@ impl From<DomainInbox> for NewInstance {
     }
 }
 
-pub async fn get_instance_inboxes(conn: &Db) -> Vec<ApAddress> {
-    let cutoff = Utc::now().naive_utc() - chrono::Duration::days(14);
-
-    conn.run(move |c| {
+pub async fn get_instance_inboxes(conn_opt: Option<&Db>) -> Result<Vec<ApAddress>, anyhow::Error> {
+    let operation = move |c: &mut PgConnection| {
+        let cutoff = Utc::now().naive_utc() - chrono::Duration::days(14);
         instances::table
             .filter(instances::blocked.eq(false))
             .filter(instances::shared_inbox.is_not_null())
             .filter(instances::last_message_at.gt(cutoff))
             .select(instances::shared_inbox.assume_not_null())
             .get_results::<String>(c)
-    })
-    .await
-    .unwrap_or_default()
-    .into_iter()
-    .map(ApAddress::from)
-    .collect()
+            .map_err(anyhow::Error::from)
+    };
+
+    let results = match conn_opt {
+        Some(conn) => conn.run(operation).await?,
+        None => {
+            tokio::task::spawn_blocking(move || {
+                let mut pool_conn = POOL.get().map_err(anyhow::Error::msg)?;
+                operation(&mut pool_conn)
+            })
+            .await?? // First ? for JoinError, second for the operation's Result
+        }
+    };
+
+    Ok(results.into_iter().map(ApAddress::from).collect())
 }
 
-// Modify get_instance_by_domain_name:
 pub async fn get_instance_by_domain_name(
     conn_opt: Option<&Db>,
     domain_name_val: String,
 ) -> Result<Option<Instance>, anyhow::Error> {
-    let query = move |c: &mut _| { // Type of c will be inferred by conn.run()
+    let query = move |c: &mut _| {
+        // Type of c will be inferred by conn.run()
         dsl::instances
             .filter(dsl::domain_name.eq(domain_name_val))
             .first::<Instance>(c)
@@ -117,7 +124,9 @@ pub async fn get_instance_by_domain_name(
     if let Some(conn) = conn_opt {
         conn.run(query).await.map_err(anyhow::Error::from)
     } else {
-        let mut pool_conn = POOL.get().map_err(|e| anyhow::anyhow!("Failed to get DB connection: {e}"))?;
+        let mut pool_conn = POOL
+            .get()
+            .map_err(|e| anyhow::anyhow!("Failed to get DB connection: {e}"))?;
         query(&mut pool_conn).map_err(anyhow::Error::from)
     }
 }
@@ -163,21 +172,21 @@ pub async fn get_all_instances_paginated(
             query = query.order(dsl::domain_name.asc());
         }
 
-        query
-            .limit(page_size)
-            .offset(offset)
-            .load::<Instance>(c)
+        query.limit(page_size).offset(offset).load::<Instance>(c)
     };
 
     if let Some(conn) = conn_opt {
-        conn.run(query_builder_fn).await.map_err(anyhow::Error::from)
+        conn.run(query_builder_fn)
+            .await
+            .map_err(anyhow::Error::from)
     } else {
-        let mut pool_conn = POOL.get().map_err(|e| anyhow::anyhow!("Failed to get DB connection: {e}"))?;
+        let mut pool_conn = POOL
+            .get()
+            .map_err(|e| anyhow::anyhow!("Failed to get DB connection: {e}"))?;
         query_builder_fn(&mut pool_conn).map_err(anyhow::Error::from)
     }
 }
 
-// Add this new function:
 pub async fn set_block_status(
     conn_opt: Option<&Db>,
     domain_name_val: String,
@@ -187,11 +196,9 @@ pub async fn set_block_status(
     // We pass conn_opt here, so it correctly uses the provided transaction or a new pool connection.
     match get_instance_by_domain_name(conn_opt, domain_name_val.clone()).await {
         Ok(Some(instance)) => {
-            // Instance exists
             if instance.blocked == should_be_blocked {
-                Ok(instance) // No change needed, return current state
+                Ok(instance)
             } else {
-                // Update block status and updated_at timestamp
                 let query_update = move |c: &mut _| {
                     diesel::update(dsl::instances.find(instance.id))
                         .set((
@@ -203,7 +210,9 @@ pub async fn set_block_status(
                 if let Some(conn) = conn_opt {
                     conn.run(query_update).await.map_err(anyhow::Error::from)
                 } else {
-                    let mut pool_conn = POOL.get().map_err(|e| anyhow::anyhow!("Failed to get DB connection: {e}"))?;
+                    let mut pool_conn = POOL
+                        .get()
+                        .map_err(|e| anyhow::anyhow!("Failed to get DB connection: {e}"))?;
                     query_update(&mut pool_conn).map_err(anyhow::Error::from)
                 }
             }
@@ -214,7 +223,7 @@ pub async fn set_block_status(
                 // Create new instance with specified block status
                 let new_instance_data = NewInstance {
                     domain_name: domain_name_val,
-                    blocked: true, // should_be_blocked is true here
+                    blocked: true,
                     json: None,
                     shared_inbox: None,
                 };
@@ -236,7 +245,9 @@ pub async fn set_block_status(
                 if let Some(conn) = conn_opt {
                     conn.run(query_upsert).await.map_err(anyhow::Error::from)
                 } else {
-                    let mut pool_conn = POOL.get().map_err(|e| anyhow::anyhow!("Failed to get DB connection: {e}"))?;
+                    let mut pool_conn = POOL
+                        .get()
+                        .map_err(|e| anyhow::anyhow!("Failed to get DB connection: {e}"))?;
                     query_upsert(&mut pool_conn).map_err(anyhow::Error::from)
                 }
             } else {

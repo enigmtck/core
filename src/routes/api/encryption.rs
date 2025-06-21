@@ -272,9 +272,9 @@ pub async fn keys_get(
     username: String,
     otk: Option<bool>,
 ) -> Result<ActivityJson<ApObject>, Status> {
-    let profile = get_actor_by_username(&conn, username.clone())
+    let profile = get_actor_by_username(Some(&conn), username.clone())
         .await
-        .ok_or(Status::NotFound)?;
+        .map_err(|_| Status::NotFound)?;
 
     // Requests for OTKs should come via the external path (i.e., signed.actor() not
     // signed.profile()). The WASM login process does call this endpoint to check for the
@@ -337,9 +337,9 @@ pub async fn keys_mkp_get(
     mkp: Option<bool>,
     count: Option<bool>,
 ) -> Result<ActivityJson<ApObject>, Status> {
-    let profile = get_actor_by_username(&conn, username.clone())
+    let profile = get_actor_by_username(Some(&conn), username.clone())
         .await
-        .ok_or(Status::NotFound)?;
+        .map_err(|_| Status::NotFound)?;
 
     // Requests for KeyPackages should come via the external path (i.e., signed.actor() not
     // signed.profile()). The WASM login process does call this endpoint to check for the

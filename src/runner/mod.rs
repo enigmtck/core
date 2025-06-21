@@ -38,7 +38,7 @@ pub fn clean_text(text: String) -> String {
 }
 
 #[derive(Serialize, Clone)]
-struct RequestInfo {
+pub struct RequestInfo {
     method: String,
     url: String,
     headers: HashMap<String, String>,
@@ -67,7 +67,7 @@ fn request_builder_to_info(request: &Request) -> RequestInfo {
 }
 
 #[derive(Clone, Serialize)]
-struct LogMessage {
+pub struct LogMessage {
     pub code: Option<i32>,
     pub request: Option<RequestInfo>,
     pub response: Option<String>,
@@ -75,7 +75,7 @@ struct LogMessage {
 
 use tokio::task::JoinHandle;
 
-async fn process_inbox(
+pub async fn process_inbox(
     inbox: ApAddress,
     body: String,
     profile: Actor,
@@ -148,7 +148,7 @@ async fn process_all_inboxes(
     inboxes: Vec<ApAddress>,
     body: String,
     profile: Actor,
-    conn: &Db,
+    conn: Option<&Db>,
     as_id: String,
 ) -> Result<(), anyhow::Error> {
     let client = Client::builder()
@@ -183,7 +183,7 @@ async fn process_all_inboxes(
 }
 
 pub async fn send_to_inboxes(
-    conn: &Db,
+    conn: Option<&Db>,
     inboxes: Vec<ApAddress>,
     profile: Actor,
     message: ApActivity,
@@ -200,20 +200,20 @@ pub async fn send_to_inboxes(
 }
 
 async fn handle_recipients(
-    conn: &Db,
+    conn_opt: Option<&Db>,
     inboxes: &mut HashSet<ApAddress>,
     sender: &Actor,
     address: &ApAddress,
-) {
+) -> Result<()> {
     let actor = ApActor::from(sender.clone());
 
     if address.is_public() {
-        inboxes.extend(get_instance_inboxes(conn).await.into_iter());
+        inboxes.extend(get_instance_inboxes(conn_opt).await?.into_iter());
     } else if let Some(followers) = actor.followers {
         if address.to_string() == followers {
-            inboxes.extend(get_follower_inboxes(conn, sender.clone()).await);
+            inboxes.extend(get_follower_inboxes(conn_opt, sender.clone()).await);
         } else if let Ok(actor) = get_actor(
-            conn,
+            conn_opt,
             address.clone().to_string(),
             Some(sender.clone()),
             true,
@@ -223,15 +223,21 @@ async fn handle_recipients(
             inboxes.insert(ApAddress::Address(actor.inbox));
         }
     }
+    Ok(())
 }
 
-pub async fn get_inboxes(conn: &Db, activity: ApActivity, sender: Actor) -> Vec<ApAddress> {
+pub async fn get_inboxes(
+    conn_opt: Option<&Db>,
+    activity: ApActivity,
+    sender: Actor,
+) -> Vec<ApAddress> {
     let mut inboxes = HashSet::<ApAddress>::new();
 
     let (to, cc) = match activity {
         ApActivity::Create(activity) => (activity.to.option(), activity.cc.option()),
         ApActivity::Delete(activity) => (activity.to.option(), activity.cc.option()),
         ApActivity::Announce(activity) => (activity.to.option(), activity.cc.option()),
+        ApActivity::Update(activity) => (activity.to.option(), None),
         ApActivity::Like(activity) => (activity.to.option(), None),
         ApActivity::Follow(activity) => {
             if let MaybeReference::Reference(id) = activity.object {
@@ -241,10 +247,10 @@ pub async fn get_inboxes(conn: &Db, activity: ApActivity, sender: Actor) -> Vec<
             }
         }
         ApActivity::Undo(activity) => {
-            if let MaybeReference::Actual(target_activity) = activity.object {
+            if let MaybeReference::Actual(ref target_activity) = activity.object {
                 match target_activity {
                     ApActivity::Follow(follow) => {
-                        if let MaybeReference::Reference(target) = follow.object {
+                        if let MaybeReference::Reference(target) = follow.object.clone() {
                             (Some(vec![ApAddress::Address(target)]), None)
                         } else {
                             (None, None)
@@ -272,7 +278,10 @@ pub async fn get_inboxes(conn: &Db, activity: ApActivity, sender: Actor) -> Vec<
 
     if let Some(consolidated) = consolidated {
         for address in consolidated.iter() {
-            handle_recipients(conn, &mut inboxes, &sender, address).await;
+            if let Err(e) = handle_recipients(conn_opt, &mut inboxes, &sender, address).await {
+                log::error!("Error handling recipient {}: {:?}", address.to_string(), e);
+                // Decide if you want to stop or continue. For now, we continue.
+            }
         }
     }
 

@@ -58,9 +58,10 @@ pub async fn send_announce_task(
         })?
         .formalize();
 
-        let inboxes: Vec<ApAddress> = get_inboxes(&conn, activity.clone(), sender.clone()).await;
+        let inboxes: Vec<ApAddress> =
+            get_inboxes(Some(&conn), activity.clone(), sender.clone()).await;
 
-        send_to_inboxes(&conn, inboxes, sender, activity.clone())
+        send_to_inboxes(Some(&conn), inboxes, sender, activity.clone())
             .await
             .map_err(|e| {
                 log::error!("Failed to send Announce: {e}");
@@ -124,7 +125,8 @@ pub async fn remote_announce_task(
         if get_instance_by_domain_name(Some(&conn), domain_name.clone())
             .await
             .map(|option_instance| option_instance.map_or(false, |instance| instance.blocked))
-            .unwrap_or(false) // If DB query fails or instance not found, default to not blocked
+            .unwrap_or(false)
+        // If DB query fails or instance not found, default to not blocked
         {
             log::debug!("Instance is explicitly blocked: {domain_name}");
             return Err(TaskError::Prohibited);

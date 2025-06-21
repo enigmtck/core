@@ -166,7 +166,8 @@ pub async fn shared_inbox_post(
 
     let is_authorized = if let Some(deferred) = signed.deferred() {
         let actor =
-            match retriever::get_actor(&conn, activity.actor().to_string(), None, true).await {
+            match retriever::get_actor(Some(&conn), activity.actor().to_string(), None, true).await
+            {
                 Ok(actor) => {
                     if let Some(id) = actor.id.clone() {
                         log::debug!("Deferred Actor retrieved: {id}");

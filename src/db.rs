@@ -1,8 +1,8 @@
+use anyhow::Result;
 use diesel::prelude::*;
 use diesel::r2d2::ConnectionManager;
-use rocket_sync_db_pools::database;
-use anyhow::Result;
 use log;
+use rocket_sync_db_pools::database;
 use tokio::task::spawn_blocking;
 // Remove: use diesel::Connection as DieselConnection; // No longer needed for the generic C
 
@@ -21,23 +21,27 @@ macro_rules! define_run_db_op {
             if let Some(db_conn_wrapper) = db_opt {
                 // .0 accesses the rocket_sync_db_pools::Connection wrapper inside your Db struct
                 // This wrapper's run method expects a closure taking &mut $conn_type
-                db_conn_wrapper.0.run(operation).await.map_err(|diesel_err| {
-                    match diesel_err {
-                        diesel::result::Error::NotFound => {
-                            log::debug!(
-                                "Db operation reported NotFound (Rocket Db wrapper): {:?}",
-                                diesel_err
-                            );
+                db_conn_wrapper
+                    .0
+                    .run(operation)
+                    .await
+                    .map_err(|diesel_err| {
+                        match diesel_err {
+                            diesel::result::Error::NotFound => {
+                                log::debug!(
+                                    "Db operation reported NotFound (Rocket Db wrapper): {:?}",
+                                    diesel_err
+                                );
+                            }
+                            _ => {
+                                log::error!(
+                                    "Error executing Db operation via Rocket Db wrapper: {:?}",
+                                    diesel_err
+                                );
+                            }
                         }
-                        _ => {
-                            log::error!(
-                                "Error executing Db operation via Rocket Db wrapper: {:?}",
-                                diesel_err
-                            );
-                        }
-                    }
-                    anyhow::anyhow!("Db operation failed (Rocket Db wrapper): {}", diesel_err)
-                })
+                        anyhow::anyhow!("Db operation failed (Rocket Db wrapper): {}", diesel_err)
+                    })
             } else {
                 let pool_clone = pool_ref.clone(); // r2d2::Pool is cheap to clone (Arc-based)
                 spawn_blocking(move || {
@@ -49,17 +53,24 @@ macro_rules! define_run_db_op {
                     operation(&mut *pooled_conn).map_err(|diesel_err| {
                         match diesel_err {
                             diesel::result::Error::NotFound => {
-                                log::debug!("Db operation reported NotFound (POOL): {:?}", diesel_err);
+                                log::debug!(
+                                    "Db operation reported NotFound (POOL): {:?}",
+                                    diesel_err
+                                );
                             }
                             _ => {
-                                log::error!("Error executing Db operation via POOL: {:?}", diesel_err);
+                                log::error!(
+                                    "Error executing Db operation via POOL: {:?}",
+                                    diesel_err
+                                );
                             }
                         }
                         anyhow::anyhow!("DB operation failed (POOL): {}", diesel_err)
                     })
                 })
                 .await
-                .map_err(|e| { // Handles JoinError if spawn_blocking panics or is cancelled
+                .map_err(|e| {
+                    // Handles JoinError if spawn_blocking panics or is cancelled
                     log::error!("Task for Db operation via POOL failed: {:?}", e);
                     anyhow::anyhow!("Db task failed (POOL): {}", e)
                 })? // This '?' unwraps the JoinError Result, then the inner Result<R, anyhow::Error>
@@ -84,7 +95,7 @@ cfg_if::cfg_if! {
     } else if #[cfg(feature = "sqlite")] {
         use diesel::sqlite::Sqlite;
         pub type DbType = Sqlite;
-        
+
         #[database("enigmatick")]
         pub struct Db(SqliteConnection); // Generated Db is effectively Db(rocket_sync_db_pools::Connection<SqliteConnection>)
         pub type Pool = r2d2::Pool<ConnectionManager<SqliteConnection>>;

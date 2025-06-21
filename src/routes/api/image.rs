@@ -20,9 +20,9 @@ pub async fn upload_media(
     mut media: Data<'_>,
 ) -> Result<Json<ApAttachment>, Status> {
     if signed.local() {
-        let _profile = get_actor_by_username(&conn, username)
+        let _profile = get_actor_by_username(Some(&conn), username)
             .await
-            .ok_or(Status::NotFound)?;
+            .map_err(|_| Status::NotFound)?;
 
         let header = media.peek(512).await;
         let kind = infer::get(header).ok_or(Status::UnsupportedMediaType)?;
