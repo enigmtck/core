@@ -1,49 +1,41 @@
-FROM ubuntu:22.04 AS builder
-
-# Use bash for the shell
+FROM debian:bookworm AS base
 SHELL ["/bin/bash", "-c"]
-RUN echo 'debconf debconf/frontend select Noninteractive' | debconf-set-selections
+RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+  libpq-dev libsqlite3-dev ssl-cert ca-certificates curl apt-transport-https \
+  lsb-release file git-core build-essential libssl-dev libssl3 libgexiv2-dev \
+  cmake clang ffmpeg nasm pkg-config \
+  && apt-get clean && rm -rf /var/lib/apt/lists/*
 
-RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y \
-  libpq-dev \
-  libsqlite3-dev \
-  ssl-cert \
-  ca-certificates \
-  curl \
-  apt-transport-https \
-  lsb-release \
-  file \
-  git-core \
-  build-essential \
-  libssl-dev \
-  libssl3 \
-  libgexiv2-dev \
-  cmake \
-  clang \
-  ffmpeg \
-  nasm \
-  pkg-config
-
-RUN mkdir -p /opt/build
-WORKDIR /opt/build
+FROM base AS rust-setup
 RUN curl https://sh.rustup.rs -sSf | sh -s -- -y
-RUN source /root/.cargo/env && rustup +nightly default
+ENV PATH="/root/.cargo/bin:${PATH}"
+RUN rustup +nightly default
 
-COPY Cargo.* /opt/build/
-COPY src /opt/build/src
-COPY client /opt/build/client
-COPY bundled /opt/build/bundled
-COPY migrations.pg /opt/build/migrations.pg
-COPY rust-toolchain.toml /opt/build
+FROM rust-setup AS dependencies
+WORKDIR /opt/build
+COPY Cargo.toml Cargo.lock rust-toolchain.toml ./
+# Create dummy main.rs to build dependencies only
+RUN mkdir src && echo "fn main() {}" > src/main.rs
+RUN cargo build --no-default-features -F pg --bin enigmatick --release
+# Remove dummy files but keep compiled dependencies
+RUN rm -rf src target/release/enigmatick* target/release/build/enigmatick*
 
-RUN source /root/.cargo/env && cargo build --no-default-features -F pg --bin enigmatick --release
+FROM dependencies AS builder
+# Copy source and assets - this layer rebuilds on code changes
+COPY src ./src
+COPY client ./client
+COPY bundled ./bundled
+COPY migrations.pg ./migrations.pg
+# Build only your code - dependencies already compiled
+RUN cargo build --no-default-features -F pg --bin enigmatick --release
 
-FROM ubuntu:22.04
-RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y \
+FROM debian:bookworm-slim AS runtime
+RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
   ssl-cert \
   ca-certificates \
   libgexiv2-dev \
-  libpq-dev
+  libpq-dev \
+  && apt-get clean && rm -rf /var/lib/apt/lists/*
 
 RUN mkdir -p /srv/enigmatick
 WORKDIR /srv/enigmatick

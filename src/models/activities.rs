@@ -1139,7 +1139,8 @@ WITH main AS (
         COALESCE(ta.ap_manually_approves_followers, ta2.ap_manually_approves_followers) AS actor_manually_approves_followers,
         COALESCE(ta.ek_mls_credentials, ta2.ek_mls_credentials) AS actor_mls_credentials,
         COALESCE(ta.ek_mls_storage, ta2.ek_mls_storage) AS actor_mls_storage,
-        COALESCE(ta.ek_mls_storage_hash, ta2.ek_mls_storage_hash) AS actor_mls_storage_hash
+        COALESCE(ta.ek_mls_storage_hash, ta2.ek_mls_storage_hash) AS actor_mls_storage_hash,
+        COALESCE(ta.ek_muted_terms, ta2.ek_muted_terms) AS actor_muted_terms
 "}.to_string()
 }
 
@@ -1276,6 +1277,7 @@ GROUP BY
     m.actor_mls_credentials,
     m.actor_mls_storage,
     m.actor_mls_storage_hash,
+    m.actor_muted_terms,
     announced.object_announced,
     liked.object_liked,
     vaulted.vault_id,
@@ -1331,21 +1333,37 @@ FROM activities a
     LEFT JOIN actors ac ON (a.actor_id = ac.id)
 "});
 
+    let mut combined_excluded_words = vec![];
+    if let Some(actor_profile) = profile {
+        if let Value::Array(muted_terms_array) = actor_profile.ek_muted_terms.clone() {
+            for term_value in muted_terms_array {
+                if let Value::String(term_str) = term_value {
+                    combined_excluded_words.push(term_str.clone());
+                }
+            }
+        }
+    }
+
+    query.push_str(&format!(
+        "WHERE COALESCE(o.as_content, o2.as_content, '') !~* ('\\m#?(' || {} || ')\\M') ",
+        param_gen()
+    ));
+
     if params.activity_as_id.is_some() {
-        query.push_str(&format!("WHERE a.ap_id = {}), ", param_gen()));
+        query.push_str(&format!("AND a.ap_id = {}), ", param_gen()));
     } else if params.activity_uuid.is_some() {
-        query.push_str(&format!("WHERE a.uuid = {}), ", param_gen()));
+        query.push_str(&format!("AND a.uuid = {}), ", param_gen()));
     } else if params.activity_id.is_some() {
-        query.push_str(&format!("WHERE a.id = {}), ", param_gen()));
+        query.push_str(&format!("AND a.id = {}), ", param_gen()));
     } else {
         if filters.clone().and_then(|x| x.view).is_some() {
             query.push_str(
-                "WHERE a.kind IN ('announce','create') \
+                "AND a.kind IN ('announce','create') \
                  AND NOT o.as_type IN ('tombstone') ",
             );
         } else {
             query.push_str(
-                "WHERE a.kind IN ('announce','create','undo','like','follow','accept','delete') ",
+                "AND a.kind IN ('announce','create','undo','like','follow','accept','delete') ",
             );
         }
 
@@ -1430,10 +1448,7 @@ FROM activities a
                 query.push_str(&format!("AND o.ek_hashtags ?| {} ", param_gen()));
             }
 
-            params.excluded_words.extend(filters.excluded_words.clone());
-            if !params.excluded_words.is_empty() {
-                query.push_str(&format!("AND o.as_content !~* '\\m({})\\M' ", param_gen()));
-            }
+            combined_excluded_words.extend(params.excluded_words);
         }
 
         if (min.is_some() && min.unwrap() == 0) || params.conversation.clone().is_some() {
@@ -1445,6 +1460,11 @@ FROM activities a
             ));
         }
     };
+
+    combined_excluded_words.sort_unstable();
+    combined_excluded_words.dedup();
+
+    params.excluded_words = combined_excluded_words;
 
     if profile.is_some() {
         query.push_str(&format!(
@@ -1627,7 +1647,7 @@ pub async fn add_log_by_as_id(conn: Option<&Db>, as_id: String, entry: Value) ->
                 query = query.bind::<Text, _>(as_id);
                 query.execute(&mut pool_conn).map_err(anyhow::Error::msg)
             })
-            .await? // For JoinError from spawn_blocking
+            .await?
         }
     }
 }
@@ -1646,7 +1666,7 @@ pub async fn get_activities_coalesced(
 ) -> Vec<CoalescedActivity> {
     let params = build_main_query(&filters, limit, min, max, &profile, as_id, uuid, id);
 
-    log::debug!("QUERY\n{params:#?}");
+    log::debug!("QUERY\n{}", params.query.clone().unwrap_or("".to_string()));
 
     let query = sql_query(params.query.clone().unwrap()).into_boxed::<DbType>();
     let query = bind_params(query, params, &profile);
@@ -1662,6 +1682,10 @@ fn bind_params<'a>(
 ) -> BoxedSqlQuery<'a, DbType, SqlQuery> {
     use diesel::sql_types::{Array, Integer, Jsonb, Text, Timestamptz};
     let mut query = query;
+
+    let terms = params.excluded_words.join("|");
+    log::debug!("SETTING EXCLUSIONS: {terms}");
+    query = query.bind::<Text, _>(terms);
 
     if let Some(activity_as_id) = params.activity_as_id.clone() {
         log::debug!("SETTING ACTIVITY AS_ID: |{activity_as_id}|");
@@ -1711,12 +1735,6 @@ fn bind_params<'a>(
             log::debug!("SETTING HASHTAGS: |{:#?}|", &params.hashtags);
             lowercase_hashtags.extend(params.hashtags.iter().map(|hashtag| hashtag.to_lowercase()));
             query = query.bind::<Array<Text>, _>(lowercase_hashtags);
-        }
-
-        if !params.excluded_words.is_empty() {
-            log::debug!("SETTING EXCLUSIONS: |{:#?}|", &params.excluded_words);
-            let terms = params.excluded_words.join("|");
-            query = query.bind::<Text, _>(terms);
         }
 
         log::debug!("SETTING LIMIT: |{}|", &params.limit);

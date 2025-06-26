@@ -81,7 +81,7 @@ diesel::table! {
         as_following -> Nullable<Varchar>,
         as_liked -> Nullable<Varchar>,
         as_public_key -> Jsonb,
-        as_featured -> Nullable<Varchar>,
+        as_featured -> Nullable<Jsonb>,
         as_featured_tags -> Nullable<Varchar>,
         as_url -> Nullable<Jsonb>,
         as_published -> Nullable<Timestamptz>,
@@ -99,6 +99,7 @@ diesel::table! {
         ek_mls_credentials -> Nullable<Text>,
         ek_mls_storage -> Nullable<Text>,
         ek_mls_storage_hash -> Nullable<Text>,
+        ek_muted_terms -> Jsonb,
     }
 }
 
@@ -267,7 +268,6 @@ diesel::table! {
         as_icon -> Nullable<Jsonb>,
         as_id -> Text,
         as_image -> Nullable<Jsonb>,
-        as_in_reply_to -> Nullable<Jsonb>,
         as_location -> Nullable<Jsonb>,
         as_media_type -> Nullable<Text>,
         as_name -> Nullable<Text>,
@@ -289,6 +289,15 @@ diesel::table! {
         ek_metadata -> Nullable<Jsonb>,
         ek_profile_id -> Nullable<Int4>,
         ek_uuid -> Nullable<Text>,
+        as_in_reply_to -> Nullable<Jsonb>,
+    }
+}
+
+diesel::table! {
+    objects_closure (ancestor, descendant) {
+        ancestor -> Text,
+        descendant -> Text,
+        depth -> Int4,
     }
 }
 
@@ -392,6 +401,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     mls_key_packages,
     notifications,
     objects,
+    objects_closure,
     olm_one_time_keys,
     olm_sessions,
     processing_queue,

@@ -1,2 +1,12 @@
-target
-log
+target/
+log/
+.git/
+*.md
+.env*
+docker-compose*.yml
+.DS_Store
+*.swp
+*.swo
+*~
+Dockerfile*
+.dockerignore

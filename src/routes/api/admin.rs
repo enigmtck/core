@@ -1,18 +1,24 @@
 use crate::{
     admin::{self, NewUser},
     db::Db,
-    models::actors::{get_actor_by_as_id, guaranteed_actor, Actor},
+    fairings::signatures::Signed,
+    models::actors::{
+        get_actor_by_as_id, get_muted_terms_by_username, guaranteed_actor,
+        update_muted_terms_by_username, Actor,
+    },
     retriever::get_actor,
 };
 use jdt_activity_pub::MaybeMultiple;
 use jdt_activity_pub::{ApActor, ApContext, ApFollow};
 use rocket::{
+    get,
     http::Status,
     post,
     request::{FromRequest, Outcome, Request},
     serde::json::Error,
     serde::json::Json,
 };
+use serde::Deserialize;
 use std::net::IpAddr;
 
 pub struct IpRestriction;
@@ -40,6 +46,19 @@ impl<'r> FromRequest<'r> for IpRestriction {
 
 fn is_allowed_ip(ip: IpAddr) -> bool {
     ip.is_loopback()
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum MutedTermsActionType {
+    Add,
+    Remove,
+}
+
+#[derive(Deserialize)]
+pub struct MutedTermsAction {
+    pub action: MutedTermsActionType,
+    pub terms: Vec<String>,
 }
 
 #[post("/api/user/create", format = "json", data = "<user>")]
@@ -94,4 +113,79 @@ pub async fn relay_post(_ip: IpRestriction, conn: Db, actor: String) -> Result<S
     }
 
     Ok(Status::Accepted)
+}
+
+#[get("/api/user/<username>/muted-terms")]
+pub async fn get_muted_terms(
+    conn: Db,
+    username: String,
+    signed: Signed,
+) -> Result<Json<Vec<String>>, Status> {
+    // Check if request is locally signed
+    if signed.profile().is_none() {
+        return Err(Status::Unauthorized);
+    }
+
+    let profile = signed.profile().unwrap();
+
+    // Check if the requesting user is retrieving their own muted terms
+    if profile.ek_username != Some(username.clone()) {
+        return Err(Status::Forbidden);
+    }
+
+    get_muted_terms_by_username(Some(&conn), username)
+        .await
+        .map(Json)
+        .map_err(|_| Status::InternalServerError)
+}
+
+#[post("/api/user/<username>/muted-terms", format = "json", data = "<action>")]
+pub async fn manage_muted_terms(
+    conn: Db,
+    username: String,
+    signed: Signed,
+    action: Result<Json<MutedTermsAction>, Error<'_>>,
+) -> Result<Status, Status> {
+    // Check if request is locally signed
+    if signed.profile().is_none() {
+        return Err(Status::Unauthorized);
+    }
+
+    let profile = signed.profile().unwrap();
+
+    // Check if the requesting user is updating their own muted terms
+    if profile.ek_username != Some(username.clone()) {
+        return Err(Status::Forbidden);
+    }
+
+    if let Ok(Json(action)) = action {
+        // Get current muted terms
+        let mut all_terms = get_muted_terms_by_username(Some(&conn), username.clone())
+            .await
+            .unwrap_or_default();
+
+        // Process based on action
+        match action.action {
+            MutedTermsActionType::Add => {
+                // Add new terms, avoiding duplicates
+                for term in action.terms {
+                    if !all_terms.contains(&term) {
+                        all_terms.push(term);
+                    }
+                }
+            }
+            MutedTermsActionType::Remove => {
+                // Remove specified terms
+                all_terms.retain(|term| !action.terms.contains(term));
+            }
+        }
+
+        // Update the muted terms
+        update_muted_terms_by_username(Some(&conn), username, all_terms)
+            .await
+            .map(|_| Status::Ok)
+            .map_err(|_| Status::InternalServerError)
+    } else {
+        Err(Status::BadRequest)
+    }
 }

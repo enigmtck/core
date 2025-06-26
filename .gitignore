@@ -13,3 +13,4 @@ media
 traces
 /dbdump
 .aider*
+local/*

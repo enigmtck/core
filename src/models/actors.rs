@@ -10,11 +10,11 @@ use convert_case::{Case, Casing};
 use diesel::prelude::*;
 use diesel::sql_query;
 use diesel::{AsChangeset, Identifiable, Insertable, Queryable};
-use jdt_activity_pub::ApAddress;
 use jdt_activity_pub::{
-    ApActor, ApActorTerse, ApActorType, ApContext, ApDateTime, ApInstrument, ApInstrumentType,
-    Ephemeral,
+    ApActor, ApActorTerse, ApActorType, ApCollection, ApContext, ApDateTime, ApInstrument,
+    ApInstrumentType, Ephemeral, MaybeReference,
 };
+use jdt_activity_pub::{ApAddress, MaybeMultiple};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use serde_json::Value;
@@ -208,7 +208,7 @@ pub struct NewActor {
     pub as_following: Option<String>,
     pub as_liked: Option<String>,
     pub as_public_key: Value,
-    pub as_featured: Option<String>,
+    pub as_featured: Option<Value>,
     pub as_featured_tags: Option<String>,
     pub as_url: Option<Value>,
     pub as_published: Option<DateTime<Utc>>,
@@ -277,7 +277,7 @@ pub struct Actor {
     pub as_following: Option<String>,
     pub as_liked: Option<String>,
     pub as_public_key: Value,
-    pub as_featured: Option<String>,
+    pub as_featured: Option<Value>,
     pub as_featured_tags: Option<String>,
     pub as_url: Option<Value>,
     pub as_published: Option<DateTime<Utc>>,
@@ -295,6 +295,7 @@ pub struct Actor {
     pub ek_mls_credentials: Option<String>,
     pub ek_mls_storage: Option<String>,
     pub ek_mls_storage_hash: Option<String>,
+    pub ek_muted_terms: Value,
 }
 
 impl fmt::Display for Actor {
@@ -372,7 +373,19 @@ impl From<Actor> for ApActor {
         let outbox = actor.as_outbox;
         let followers = actor.as_followers;
         let following = actor.as_following;
-        let featured = actor.as_featured;
+        let featured = match actor.as_featured {
+            Some(v) => match v {
+                Value::String(s) => MaybeReference::Reference(s),
+                _ => {
+                    if let Ok(collection) = serde_json::from_value::<ApCollection>(v) {
+                        MaybeReference::Actual(collection)
+                    } else {
+                        MaybeReference::None
+                    }
+                }
+            },
+            None => MaybeReference::None,
+        };
         let featured_tags = actor.as_featured_tags;
         let manually_approves_followers = Some(actor.ap_manually_approves_followers);
         let published = actor.as_published.map(ApDateTime::from);
@@ -395,6 +408,9 @@ impl From<Actor> for ApActor {
             webfinger: Some(webfinger),
             ..Default::default()
         });
+        let assertion_method = MaybeMultiple::None;
+        let generator = None;
+        let updated = None;
 
         ApActor {
             context,
@@ -425,6 +441,9 @@ impl From<Actor> for ApActor {
             endpoints,
             keys,
             ephemeral,
+            assertion_method,
+            generator,
+            updated,
         }
     }
 }
@@ -519,6 +538,9 @@ impl TryFrom<CoalescedActivity> for Actor {
         let ek_mls_credentials = activity.actor_mls_credentials;
         let ek_mls_storage = activity.actor_mls_storage;
         let ek_mls_storage_hash = activity.actor_mls_storage_hash;
+        let ek_muted_terms = activity
+            .actor_muted_terms
+            .ok_or(anyhow!("no muted terms"))?;
 
         Ok(Actor {
             id,
@@ -570,6 +592,7 @@ impl TryFrom<CoalescedActivity> for Actor {
             ek_mls_credentials,
             ek_mls_storage,
             ek_mls_storage_hash,
+            ek_muted_terms,
         })
     }
 }
@@ -599,7 +622,12 @@ impl TryFrom<ApActor> for NewActor {
         let as_following = actor.following;
         let as_liked = actor.liked;
         let as_public_key = json!(actor.public_key);
-        let as_featured = actor.featured;
+        let as_featured = match actor.featured {
+            MaybeReference::Reference(s) => Some(json!(s)),
+            MaybeReference::Actual(collection) => Some(json!(collection)),
+            MaybeReference::Identifier(id) => Some(json!(id)),
+            MaybeReference::None => None,
+        };
         let as_featured_tags = actor.featured_tags;
         let as_url = (&actor.url.clone()).into();
         let ap_manually_approves_followers = actor.manually_approves_followers.unwrap_or_default();
@@ -808,6 +836,65 @@ pub async fn update_password_by_username(
     })
     .await
     .ok()
+}
+
+pub async fn get_muted_terms_by_username(
+    conn_opt: Option<&Db>,
+    username: String,
+) -> Result<Vec<String>, anyhow::Error> {
+    let operation = move |c: &mut PgConnection| {
+        actors::table
+            .filter(actors::ek_username.eq(username))
+            .select(actors::ek_muted_terms)
+            .first::<Value>(c)
+            .map(|terms| {
+                terms
+                    .as_array()
+                    .unwrap_or(&vec![])
+                    .iter()
+                    .filter_map(|v| v.as_str().map(String::from))
+                    .collect()
+            })
+            .map_err(anyhow::Error::from)
+    };
+
+    match conn_opt {
+        Some(conn) => conn.run(operation).await,
+        None => {
+            tokio::task::spawn_blocking(move || {
+                let mut pool_conn = POOL.get().map_err(anyhow::Error::msg)?;
+                operation(&mut pool_conn)
+            })
+            .await?
+        }
+    }
+}
+
+pub async fn update_muted_terms_by_username(
+    conn_opt: Option<&Db>,
+    username: String,
+    terms: Vec<String>,
+) -> Result<Actor, anyhow::Error> {
+    let terms_json = json!(terms);
+
+    let operation = move |c: &mut PgConnection| {
+        diesel::update(actors::table)
+            .filter(actors::ek_username.eq(username))
+            .set(actors::ek_muted_terms.eq(terms_json))
+            .get_result::<Actor>(c)
+            .map_err(anyhow::Error::from)
+    };
+
+    match conn_opt {
+        Some(conn) => conn.run(operation).await,
+        None => {
+            tokio::task::spawn_blocking(move || {
+                let mut pool_conn = POOL.get().map_err(anyhow::Error::msg)?;
+                operation(&mut pool_conn)
+            })
+            .await?
+        }
+    }
 }
 
 pub async fn get_actor_by_key_id(conn: &Db, key_id: String) -> Result<Actor> {

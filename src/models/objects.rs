@@ -136,7 +136,6 @@ pub struct NewObject {
     pub as_icon: Option<Value>,
     pub as_id: String,
     pub as_image: Option<Value>,
-    pub as_in_reply_to: Option<Value>,
     pub as_location: Option<Value>,
     pub as_media_type: Option<String>,
     pub as_name: Option<String>,
@@ -164,6 +163,7 @@ pub struct NewObject {
     pub ek_metadata: Option<Value>,
     pub ek_profile_id: Option<i32>,
     pub ek_uuid: Option<String>,
+    pub as_in_reply_to: Option<Value>,
 }
 
 #[derive(Identifiable, Queryable, AsChangeset, Serialize, Deserialize, Clone, Default, Debug)]
@@ -197,7 +197,6 @@ pub struct Object {
     pub as_icon: Option<Value>,
     pub as_id: String,
     pub as_image: Option<Value>,
-    pub as_in_reply_to: Option<Value>,
     pub as_location: Option<Value>,
     pub as_media_type: Option<String>,
     pub as_name: Option<String>,
@@ -225,6 +224,7 @@ pub struct Object {
     pub ek_metadata: Option<Value>,
     pub ek_profile_id: Option<i32>,
     pub ek_uuid: Option<String>,
+    pub as_in_reply_to: Option<Value>,
 }
 
 impl Object {
@@ -362,11 +362,11 @@ impl From<ApNote> for NewObject {
             as_to: note.to.into(),
             as_cc: note.cc.into(),
             as_replies: note.replies.into(),
-            as_tag: note.tag.into(), // Ensure this is correct if ApNote.tag changed
+            as_tag: note.tag.into(),
             as_content: note.content.map(|c| ammonia.clean(&c).to_string()),
             as_summary: note.summary.map(|x| ammonia.clean(&x).to_string()),
             ap_sensitive: note.sensitive,
-            as_in_reply_to: note.in_reply_to.map(|x| json!(x)),
+            as_in_reply_to: note.in_reply_to.into(),
             ap_conversation: note.conversation,
             as_content_map: Some(json!(clean_content_map)),
             as_attachment: note.attachment.into(),
@@ -447,13 +447,13 @@ impl TryFrom<Object> for ApNote {
                 attributed_to: from_serde(
                     object.as_attributed_to.ok_or(anyhow!("no attributed_to"))?,
                 )
-                .ok_or(anyhow!("failed to convert from Value"))?, // Ensure this is correct if ApNote.attributed_to changed
+                .ok_or(anyhow!("failed to convert from Value"))?,
                 content: object.as_content.clone(),
                 replies: object
                     .as_replies
                     .clone()
                     .map_or_else(|| MaybeReference::None, |x| x.into()),
-                in_reply_to: object.as_in_reply_to.clone().and_then(from_serde),
+                in_reply_to: object.as_in_reply_to.clone().into(),
                 attachment: object.as_attachment.clone().into(),
                 conversation: object.ap_conversation.clone(),
                 ephemeral: Some(Ephemeral {
@@ -514,7 +514,13 @@ impl TryFrom<Object> for ApQuestion {
             tag: object.as_tag.into(),
             attachment: object.as_attachment.into(),
             sensitive: object.ap_sensitive,
-            in_reply_to: object.as_in_reply_to.and_then(from_serde),
+            in_reply_to: object.as_in_reply_to.and_then(|v| {
+                if let Value::String(s) = v {
+                    Some(s)
+                } else {
+                    None
+                }
+            }),
             ephemeral: Some(Ephemeral {
                 created_at: Some(object.created_at),
                 updated_at: Some(object.updated_at),

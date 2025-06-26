@@ -270,6 +270,8 @@ fn rocket() -> Rocket<Build> {
                 olm_account_get,
                 olm_session_get,
                 encrypted_activities_get,
+                get_muted_terms,
+                manage_muted_terms,
             ],
         )
 }

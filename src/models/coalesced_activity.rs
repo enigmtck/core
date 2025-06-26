@@ -187,9 +187,6 @@ pub struct CoalescedActivity {
     #[diesel(sql_type = Nullable<Jsonb>)]
     pub object_attributed_to: Option<Value>,
 
-    #[diesel(sql_type = Nullable<Jsonb>)]
-    pub object_in_reply_to: Option<Value>,
-
     #[diesel(sql_type = Nullable<Text>)]
     pub object_content: Option<String>,
 
@@ -222,6 +219,9 @@ pub struct CoalescedActivity {
 
     #[diesel(sql_type = Nullable<Integer>)]
     pub object_profile_id: Option<i32>,
+
+    #[diesel(sql_type = Nullable<Jsonb>)]
+    pub object_in_reply_to: Option<Value>,
 
     #[diesel(sql_type = Jsonb)]
     pub object_announcers: Value,
@@ -335,8 +335,8 @@ pub struct CoalescedActivity {
     #[diesel(sql_type = Nullable<Jsonb>)]
     pub actor_public_key: Option<Value>,
 
-    #[diesel(sql_type = Nullable<Text>)]
-    pub actor_featured: Option<String>,
+    #[diesel(sql_type = Nullable<Jsonb>)]
+    pub actor_featured: Option<Value>,
 
     #[diesel(sql_type = Nullable<Text>)]
     pub actor_featured_tags: Option<String>,
@@ -388,6 +388,9 @@ pub struct CoalescedActivity {
 
     #[diesel(sql_type = Nullable<Text>)]
     pub actor_mls_storage_hash: Option<String>,
+
+    #[diesel(sql_type = Nullable<Jsonb>)]
+    pub actor_muted_terms: Option<Value>,
 
     // Vault Fields
     #[diesel(sql_type = Nullable<Integer>)]
@@ -646,7 +649,7 @@ impl TryFrom<CoalescedActivity> for ApNote {
             .object_attributed_to
             .and_then(from_serde)
             .ok_or_else(|| anyhow::anyhow!("object_attributed_to is None"))?;
-        let in_reply_to = coalesced.object_in_reply_to.and_then(from_serde);
+        let in_reply_to: MaybeMultiple<ApAddress> = coalesced.object_in_reply_to.into();
         let content = coalesced.object_content;
         let conversation = coalesced.object_conversation;
         let attachment = coalesced.object_attachment.into();
@@ -717,7 +720,13 @@ impl TryFrom<CoalescedActivity> for ApQuestion {
             .object_attributed_to
             .and_then(from_serde)
             .ok_or_else(|| anyhow::anyhow!("object_attributed_to is None"))?;
-        let in_reply_to = coalesced.object_in_reply_to.and_then(from_serde);
+        let in_reply_to = coalesced.object_in_reply_to.and_then(|v| {
+            if let Value::String(s) = v {
+                Some(s)
+            } else {
+                None
+            }
+        });
         let content = coalesced.object_content;
         let conversation = coalesced.object_conversation;
         let attachment = coalesced.object_attachment.into();

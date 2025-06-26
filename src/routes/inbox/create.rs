@@ -4,7 +4,7 @@ use crate::{
     db::Db,
     models::{
         activities::{create_activity, get_activity_by_ap_id, ActivityTarget, NewActivity},
-        objects::{create_or_update_object, NewObject},
+        objects::{create_or_update_object, get_object_by_as_id, NewObject},
         unprocessable::create_unprocessable,
     },
     runner,
@@ -28,7 +28,25 @@ impl Inbox for ApCreate {
 
         match self.clone().object {
             MaybeReference::Actual(ApObject::Note(x)) => {
-                let object = create_or_update_object(&conn, NewObject::from(x.clone()))
+                let new_object = NewObject::from(x.clone());
+
+                // Check if this is a reply and if the parent exists
+                if let Some(reply_to_value) = &new_object.as_in_reply_to {
+                    if let Value::String(reply_to_id) = reply_to_value {
+                        if get_object_by_as_id(Some(&conn), reply_to_id.clone())
+                            .await
+                            .is_err()
+                        {
+                            log::warn!(
+                                "Skipping object creation - parent object not found: {}",
+                                reply_to_id
+                            );
+                            return Ok(Status::Accepted);
+                        }
+                    }
+                }
+
+                let object = create_or_update_object(&conn, new_object)
                     .await
                     .map_err(|e| {
                         log::error!("FAILED TO CREATE OR UPDATE OBJECT: {e:#?}");
@@ -56,7 +74,25 @@ impl Inbox for ApCreate {
                 }
             }
             MaybeReference::Actual(ApObject::Question(question)) => {
-                let object = create_or_update_object(&conn, NewObject::from(question.clone()))
+                let new_object = NewObject::from(question.clone());
+
+                // Check if this is a reply and if the parent exists
+                if let Some(reply_to_value) = &new_object.as_in_reply_to {
+                    if let Value::String(reply_to_id) = reply_to_value {
+                        if get_object_by_as_id(Some(&conn), reply_to_id.clone())
+                            .await
+                            .is_err()
+                        {
+                            log::warn!(
+                                "Skipping question creation - parent object not found: {}",
+                                reply_to_id
+                            );
+                            return Ok(Status::Accepted);
+                        }
+                    }
+                }
+
+                let object = create_or_update_object(&conn, new_object)
                     .await
                     .map_err(|e| {
                         log::error!("FAILED TO CREATE OR UPDATE Object: {e:#?}");

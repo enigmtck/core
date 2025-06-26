@@ -86,14 +86,33 @@ async fn process(
             .await
             .ok_or(TaskError::TaskFailed)?;
 
-        let follow = ApFollow::try_from_extended_activity(extended_follow).map_err(|e| {
-            log::error!("FAILED TO BUILD FOLLOW: {e:#?}");
-            TaskError::TaskFailed
-        })?;
+        let follow =
+            ApFollow::try_from_extended_activity(extended_follow.clone()).map_err(|e| {
+                log::error!("FAILED TO BUILD FOLLOW: {e:#?}");
+                TaskError::TaskFailed
+            })?;
         let accept = ApAccept::try_from(follow.clone()).map_err(|e| {
             log::error!("FAILED TO BUILD ACCEPT: {e:#?}");
             TaskError::TaskFailed
         })?;
+
+        let mut accept_activity = NewActivity::try_from((
+            ApActivity::Accept(Box::new(accept.clone())),
+            Some(ActivityTarget::Activity(extended_follow.0.clone())),
+        ))
+        .map_err(|e| {
+            log::error!("FAILED TO BUILD ACCEPT ACTIVITY: {e:#?}");
+            TaskError::TaskFailed
+        })?;
+
+        accept_activity.link_actor(&conn).await;
+
+        create_activity(Some(&conn), accept_activity)
+            .await
+            .map_err(|e| {
+                log::error!("FAILED TO CREATE ACCEPT ACTIVITY: {e:#?}");
+                TaskError::TaskFailed
+            })?;
 
         let accept_actor = get_actor_by_as_id(Some(&conn), accept.actor.clone().to_string())
             .await
