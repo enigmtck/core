@@ -31,18 +31,15 @@ impl Inbox for ApCreate {
                 let new_object = NewObject::from(x.clone());
 
                 // Check if this is a reply and if the parent exists
-                if let Some(reply_to_value) = &new_object.as_in_reply_to {
-                    if let Value::String(reply_to_id) = reply_to_value {
-                        if get_object_by_as_id(Some(&conn), reply_to_id.clone())
-                            .await
-                            .is_err()
-                        {
-                            log::warn!(
-                                "Skipping object creation - parent object not found: {}",
-                                reply_to_id
-                            );
-                            return Ok(Status::Accepted);
-                        }
+                if let Some(Value::String(reply_to_id)) = &new_object.as_in_reply_to {
+                    if get_object_by_as_id(Some(&conn), reply_to_id.clone())
+                        .await
+                        .is_err()
+                    {
+                        log::warn!(
+                            "Skipping object creation - parent object not found: {reply_to_id}"
+                        );
+                        return Ok(Status::Accepted);
                     }
                 }
 
@@ -77,18 +74,15 @@ impl Inbox for ApCreate {
                 let new_object = NewObject::from(question.clone());
 
                 // Check if this is a reply and if the parent exists
-                if let Some(reply_to_value) = &new_object.as_in_reply_to {
-                    if let Value::String(reply_to_id) = reply_to_value {
-                        if get_object_by_as_id(Some(&conn), reply_to_id.clone())
-                            .await
-                            .is_err()
-                        {
-                            log::warn!(
-                                "Skipping question creation - parent object not found: {}",
-                                reply_to_id
-                            );
-                            return Ok(Status::Accepted);
-                        }
+                if let Some(Value::String(reply_to_id)) = &new_object.as_in_reply_to {
+                    if get_object_by_as_id(Some(&conn), reply_to_id.clone())
+                        .await
+                        .is_err()
+                    {
+                        log::warn!(
+                            "Skipping question creation - parent object not found: {reply_to_id}"
+                        );
+                        return Ok(Status::Accepted);
                     }
                 }
 

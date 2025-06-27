@@ -21,6 +21,7 @@ use reqwest::StatusCode as ReqwestStatusCode;
 use rocket::tokio::time::{sleep, Duration as TokioDuration};
 use rocket_sync_db_pools::diesel;
 use serde::{Deserialize, Serialize};
+use std::error::Error;
 use std::time::Duration;
 use tokio::fs::{self, File};
 use tokio::io::AsyncWriteExt;
@@ -501,7 +502,7 @@ pub async fn download_image(
         // --- Primary (reqwest) attempt ---
         let primary_result: Result<NewCacheItem, PrimaryAttemptFailure> = async {
             match signed_get(signing_actor.clone(), cache_item.url.clone(), true).await {
-                Ok(response) => {
+                Ok(mut response) => {
                     let status = response.status();
                     log::debug!(
                         "Attempt {}/{}: Primary signed_get response status for {}: {}",
@@ -525,9 +526,16 @@ pub async fn download_image(
                         .to_lowercase();
 
                     if !(content_type.starts_with("image/")
-                        || content_type.starts_with("video/")
-                        || content_type.starts_with("audio/"))
+                         || content_type.starts_with("video/")
+                         || content_type.starts_with("audio/")
+                         || content_type.contains("*/*")
+                         || content_type.is_empty())
                     {
+                        log::error!(
+                            "Primary signed_get for {} returned unusable media content-type: {}. Returning.",
+                            cache_item.url,
+                            content_type
+                        );
                         return Err(PrimaryAttemptFailure::WrongContentType(content_type));
                     }
                     log::debug!(
@@ -535,11 +543,77 @@ pub async fn download_image(
                         cache_item.url,
                         content_type
                     );
-                    let data = response
-                        .bytes()
-                        .await
-                        .context("Failed to get bytes from primary signed_get response")
-                        .map_err(PrimaryAttemptFailure::NetworkOrOther)?;
+                    let data = if response
+                        .headers()
+                        .get("transfer-encoding")
+                        .and_then(|v| v.to_str().ok())
+                        .map(|v| v.contains("chunked"))
+                        .unwrap_or(false)
+                        || response.headers().get("content-length").is_none()
+                        || content_type.starts_with("video/")
+                    {
+                        // Try chunked reading first
+                        log::debug!("Using chunked reading for {}", cache_item.url);
+
+                        let mut data = Vec::new();
+                        let mut total_read = 0;
+                        const MAX_FILE_SIZE: usize = 100 * 1024 * 1024; // 100MB limit
+                        let mut chunked_success = true;
+
+                        while let Some(chunk_result) = response.chunk().await.transpose() {
+                            match chunk_result {
+                                Ok(chunk) => {
+                                    total_read += chunk.len();
+                                    if total_read > MAX_FILE_SIZE {
+                                        return Err(PrimaryAttemptFailure::NetworkOrOther(anyhow!(
+                                            "File too large: {} bytes", total_read
+                                        )));
+                                    }
+                                    data.extend_from_slice(&chunk);
+
+                                    // Add a small delay every 1MB to be gentler on the server
+                                    if total_read % (1024 * 1024) == 0 {
+                                        tokio::time::sleep(TokioDuration::from_millis(50)).await;
+                                    }
+                                }
+                                Err(e) => {
+                                    log::warn!(
+                                        "Chunked reading failed for {}: {}. Trying fallback with regular bytes()",
+                                        cache_item.url, e
+                                    );
+                                    chunked_success = false;
+                                    break;
+                                }
+                            }
+                        }
+
+                        if chunked_success {
+                            log::debug!("Successfully read {} bytes via chunked reading for {}",
+                                        total_read,
+                                        cache_item.url);
+                            ReqwestBytes::from(data)
+                        } else {
+                            // Fallback: make a fresh request without the enhanced headers
+                            log::debug!("Attempting fallback with basic request for {}", cache_item.url);
+                            let fallback_response = signed_get(signing_actor.clone(), cache_item.url.clone(),
+                                                               false).await
+                                .context("Failed to get fallback response")
+                                .map_err(PrimaryAttemptFailure::NetworkOrOther)?;
+                            fallback_response
+                                .bytes()
+                                .await
+                                .context("Failed to get bytes from fallback response")
+                                .map_err(PrimaryAttemptFailure::NetworkOrOther)?
+                        }
+                    } else {
+                        // Use regular bytes() for smaller files with known content length
+                        log::debug!("Using regular bytes reading for {}", cache_item.url);
+                        response
+                            .bytes()
+                            .await
+                            .context("Failed to get bytes from primary signed_get response")
+                            .map_err(PrimaryAttemptFailure::NetworkOrOther)?
+                    };
                     save_media_data(data, &cache_item, &cache_item.url)
                         .await
                         .map_err(PrimaryAttemptFailure::NetworkOrOther)

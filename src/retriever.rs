@@ -277,12 +277,22 @@ pub async fn signed_get(profile: Actor, url: String, accept_any: bool) -> Result
         method,
     })?;
 
-    let client = client
+    let mut request = client
         .get(url_str)
         .timeout(std::time::Duration::new(5, 0))
         .header("Accept", accept)
         .header("Signature", &signature.signature)
         .header("Date", signature.date);
 
-    client.send().await.map_err(anyhow::Error::msg)
+    // Add media-specific headers only when accept_any is true (media downloads)
+    if accept_any {
+        request = request
+            .header("Accept-Encoding", "identity") // Disable compression for video
+            .header("Connection", "keep-alive")
+            .timeout(std::time::Duration::from_secs(120)); // Longer timeout for large files
+        
+        // Don't add Range header for now - it's causing 206 responses that fail
+    }
+
+    request.send().await.map_err(anyhow::Error::msg)
 }

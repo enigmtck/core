@@ -8,16 +8,16 @@ use crossterm::{
     execute,
     terminal::{self, disable_raw_mode, enable_raw_mode, Clear, ClearType},
 };
-use diesel::prelude::*;
+
 use diesel_migrations::{embed_migrations, EmbeddedMigrations, MigrationHarness};
 use enigmatick::admin::create_user;
 use enigmatick::models::activities::{ActivityType, NewActivity};
 use enigmatick::models::actors::{self as actor_model_ops, ActorType};
+use enigmatick::models::actors::{get_muted_terms_by_username, update_muted_terms_by_username};
 use enigmatick::models::instances::{
     self as instance_model_ops, Instance, SortDirection as LibSortDirection,
     SortField as LibSortField, SortParam as LibSortParam,
 };
-use enigmatick::models::actors::{get_muted_terms_by_username, update_muted_terms_by_username};
 use enigmatick::{
     admin::NewUser,
     helper::get_activity_ap_id_from_uuid,
@@ -28,7 +28,6 @@ use jdt_activity_pub::{
     ApActivity, ApActor, ApAddress, ApContext, ApObject, ApUpdate, MaybeReference,
 };
 use rand::distributions::{Alphanumeric, DistString};
-use reqwest::Client;
 use rust_embed::RustEmbed;
 use serde_json::Value;
 use std::fs;
@@ -893,13 +892,25 @@ fn handle_muted_terms_command(args: MutedTermsArgs) -> Result<()> {
                             println!("Term '{term}' is already muted for user '{username}'.");
                         } else {
                             current_terms.push(term.clone());
-                            match update_muted_terms_by_username(None, username.clone(), current_terms).await {
-                                Ok(_) => println!("Successfully added muted term '{term}' for user '{username}'."),
-                                Err(e) => eprintln!("Error adding muted term '{term}' for user '{username}': {e}"),
+                            match update_muted_terms_by_username(
+                                None,
+                                username.clone(),
+                                current_terms,
+                            )
+                            .await
+                            {
+                                Ok(_) => println!(
+                                    "Successfully added muted term '{term}' for user '{username}'."
+                                ),
+                                Err(e) => eprintln!(
+                                    "Error adding muted term '{term}' for user '{username}': {e}"
+                                ),
                             }
                         }
                     }
-                    Err(e) => eprintln!("Error retrieving current muted terms for user '{username}': {e}"),
+                    Err(e) => {
+                        eprintln!("Error retrieving current muted terms for user '{username}': {e}")
+                    }
                 }
             });
         }
@@ -926,7 +937,9 @@ fn handle_muted_terms_command(args: MutedTermsArgs) -> Result<()> {
             println!("Clearing all muted terms for user: {username}...");
             handle.block_on(async {
                 match update_muted_terms_by_username(None, username.clone(), vec![]).await {
-                    Ok(_) => println!("Successfully cleared all muted terms for user '{username}'."),
+                    Ok(_) => {
+                        println!("Successfully cleared all muted terms for user '{username}'.")
+                    }
                     Err(e) => eprintln!("Error clearing muted terms for user '{username}': {e}"),
                 }
             });

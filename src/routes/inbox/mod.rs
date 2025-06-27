@@ -7,7 +7,7 @@ use rocket::outcome::Outcome;
 use rocket::request::Request;
 use rocket::serde::json::Json;
 use rocket::{get, post};
-use serde_json::Value;
+use serde_json::{Map, Value};
 
 use crate::db::Db;
 use crate::fairings::access_control::Permitted;
@@ -21,7 +21,12 @@ use crate::retriever;
 use crate::signing::{get_hash, verify, VerificationType};
 use crate::SERVER_URL;
 use jdt_activity_pub::{
-    verify_jsonld_signature, ActivityPub, ApActivity, ApActor, ApCollection, ApObject,
+    //verify_jsonld_signature,
+    ActivityPub,
+    ApActivity,
+    ApActor,
+    ApCollection,
+    ApObject,
 };
 use std::fmt;
 use urlencoding::encode;
@@ -38,6 +43,56 @@ pub mod follow;
 pub mod like;
 pub mod undo;
 pub mod update;
+
+fn sanitize_json_fields(mut value: Value) -> Value {
+    if let Value::Object(ref mut obj) = value {
+        // Handle top level: remove "attributedTo" if both exist and are identical
+        sanitize_level(obj, "actor", "attributedTo");
+
+        // Handle conversation/context overlap at top level
+        sanitize_level(obj, "conversation", "context");
+
+        // Handle one level deeper in "object" field
+        if let Some(Value::Object(ref mut object_obj)) = obj.get_mut("object") {
+            // In object level: remove "actor" if both exist and are identical
+            sanitize_level(object_obj, "attributedTo", "actor");
+            
+            // Handle conversation/context overlap in object level
+            sanitize_level(object_obj, "conversation", "context");
+        }
+    }
+    value
+}
+
+fn sanitize_level(obj: &mut Map<String, Value>, keep_field: &str, remove_field: &str) {
+    if let (Some(keep_val), Some(remove_val)) = (obj.get(keep_field), obj.get(remove_field)) {
+        // If both are identical, remove the unwanted field
+        if keep_val == remove_val {
+            obj.remove(remove_field);
+        }
+        // If one is null, consolidate to the desired survivor
+        else if keep_val.is_null() && !remove_val.is_null() {
+            obj.insert(keep_field.to_string(), remove_val.clone());
+            obj.remove(remove_field);
+        } 
+        // If remove_val is null (regardless of keep_val), remove the unwanted field
+        else if remove_val.is_null() {
+            obj.remove(remove_field);
+        }
+        // If they're different and neither is null, log warning and remove unwanted field
+        else {
+            log::warn!(
+                "Mismatch between {} and {}: {} vs {}",
+                keep_field,
+                remove_field,
+                keep_val,
+                remove_val
+            );
+            obj.remove(remove_field);
+        }
+    }
+    // If only one exists or neither exists - no action needed
+}
 
 #[derive(FromFormField, Eq, PartialEq, Debug, Clone)]
 pub enum InboxView {
@@ -133,6 +188,7 @@ pub async fn shared_inbox_post(
     }
 
     let raw = hashed.json;
+    let raw = sanitize_json_fields(raw);
 
     if let Some(signed_digest) = signed.digest() {
         let signed_digest = if signed_digest[..8].eq_ignore_ascii_case("sha-256=") {
@@ -157,12 +213,12 @@ pub async fn shared_inbox_post(
         }
     };
 
-    log::info!("{}", activity);
+    log::info!("{activity}");
     if activity.is_delete() && signed.deferred().is_some() {
         return Ok(Status::Accepted);
     }
 
-    let mut signer = signed.actor();
+    let mut _signer = signed.actor();
 
     let is_authorized = if let Some(deferred) = signed.deferred() {
         let actor =
@@ -180,7 +236,7 @@ pub async fn shared_inbox_post(
                 }
             };
 
-        signer = actor;
+        _signer = actor;
 
         matches!(
             verify(&conn, deferred).await,
@@ -241,7 +297,7 @@ pub async fn shared_inbox_get(
 
     let view_query = {
         if let Some(view) = view.clone() {
-            format!("&view={}", view)
+            format!("&view={view}")
         } else {
             String::new()
         }
