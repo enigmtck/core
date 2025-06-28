@@ -61,6 +61,8 @@ impl Inbox for ApActivity {
             ApActivity::Update(update) => update.inbox(conn, raw).await,
             ApActivity::Block(block) => block.inbox(conn, raw).await,
             ApActivity::Add(add) => add.inbox(conn, raw).await,
+            ApActivity::Remove(remove) => remove.inbox(conn, raw).await,
+            ApActivity::Move(move_activity) => move_activity.inbox(conn, raw).await,
         }
     }
 
@@ -76,6 +78,8 @@ impl Inbox for ApActivity {
             ApActivity::Update(update) => update.actor.clone(),
             ApActivity::Block(block) => block.actor.clone(),
             ApActivity::Add(add) => add.actor.clone(),
+            ApActivity::Remove(remove) => remove.actor.clone(),
+            ApActivity::Move(move_activity) => move_activity.actor.clone(),
         }
     }
 }
@@ -110,6 +114,8 @@ impl Outbox for ApActivity {
             ApActivity::Update(update) => update.outbox(conn, profile, raw).await,
             ApActivity::Block(block) => block.outbox(conn, profile, raw).await,
             ApActivity::Add(add) => add.outbox(conn, profile, raw).await,
+            ApActivity::Remove(remove) => remove.outbox(conn, profile, raw).await,
+            ApActivity::Move(move_activity) => move_activity.outbox(conn, profile, raw).await,
         }
     }
 }

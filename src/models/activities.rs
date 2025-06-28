@@ -17,6 +17,9 @@ use diesel::sql_types::Nullable;
 use diesel::{prelude::*, sql_query};
 use diesel::{AsChangeset, Identifiable, Insertable, Queryable};
 use indoc::indoc;
+use jdt_activity_pub::ApBlockType;
+use jdt_activity_pub::ApMoveType;
+use jdt_activity_pub::ApRemoveType;
 use jdt_activity_pub::MaybeMultiple;
 use jdt_activity_pub::MaybeReference;
 use jdt_activity_pub::{
@@ -46,6 +49,7 @@ pub enum ActivityType {
     Block,
     Add,
     Remove,
+    Move,
 }
 
 impl ActivityType {
@@ -79,6 +83,22 @@ impl ActivityType {
 
     pub fn is_accept(&self) -> bool {
         self == &ActivityType::Accept
+    }
+
+    pub fn is_block(&self) -> bool {
+        self == &ActivityType::Block
+    }
+
+    pub fn is_add(&self) -> bool {
+        self == &ActivityType::Add
+    }
+
+    pub fn is_remove(&self) -> bool {
+        self == &ActivityType::Remove
+    }
+
+    pub fn is_move(&self) -> bool {
+        self == &ActivityType::Move
     }
 }
 
@@ -132,6 +152,7 @@ impl TryFrom<String> for ActivityType {
             "block" => Ok(ActivityType::Block),
             "add" => Ok(ActivityType::Add),
             "remove" => Ok(ActivityType::Remove),
+            "move" => Ok(ActivityType::Move),
             _ => Err(anyhow!("unimplemented ActivityType")),
         }
     }
@@ -182,6 +203,24 @@ impl From<ApUpdateType> for ActivityType {
 impl From<ApLikeType> for ActivityType {
     fn from(_: ApLikeType) -> Self {
         ActivityType::Like
+    }
+}
+
+impl From<ApBlockType> for ActivityType {
+    fn from(_: ApBlockType) -> Self {
+        ActivityType::Block
+    }
+}
+
+impl From<ApRemoveType> for ActivityType {
+    fn from(_: ApRemoveType) -> Self {
+        ActivityType::Remove
+    }
+}
+
+impl From<ApMoveType> for ActivityType {
+    fn from(_: ApMoveType) -> Self {
+        ActivityType::Move
     }
 }
 

@@ -36,11 +36,13 @@ use super::{retrieve, ActivityJson};
 pub mod accept;
 pub mod add;
 pub mod announce;
+pub mod ap_move;
 pub mod block;
 pub mod create;
 pub mod delete;
 pub mod follow;
 pub mod like;
+pub mod remove;
 pub mod undo;
 pub mod update;
 
@@ -56,7 +58,7 @@ fn sanitize_json_fields(mut value: Value) -> Value {
         if let Some(Value::Object(ref mut object_obj)) = obj.get_mut("object") {
             // In object level: remove "actor" if both exist and are identical
             sanitize_level(object_obj, "attributedTo", "actor");
-            
+
             // Handle conversation/context overlap in object level
             sanitize_level(object_obj, "conversation", "context");
         }
@@ -74,7 +76,7 @@ fn sanitize_level(obj: &mut Map<String, Value>, keep_field: &str, remove_field: 
         else if keep_val.is_null() && !remove_val.is_null() {
             obj.insert(keep_field.to_string(), remove_val.clone());
             obj.remove(remove_field);
-        } 
+        }
         // If remove_val is null (regardless of keep_val), remove the unwanted field
         else if remove_val.is_null() {
             obj.remove(remove_field);

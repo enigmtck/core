@@ -398,7 +398,7 @@ impl From<ApQuestion> for NewObject {
             as_tag: question.tag.into(),
             as_attachment: question.attachment.into(),
             ap_sensitive: question.sensitive,
-            as_in_reply_to: question.in_reply_to.map(|x| json!(x)),
+            as_in_reply_to: question.in_reply_to.into(),
             as_attributed_to: Some(json!(question.attributed_to.to_string())),
             ..Default::default()
         }
@@ -514,13 +514,7 @@ impl TryFrom<Object> for ApQuestion {
             tag: object.as_tag.into(),
             attachment: object.as_attachment.into(),
             sensitive: object.ap_sensitive,
-            in_reply_to: object.as_in_reply_to.and_then(|v| {
-                if let Value::String(s) = v {
-                    Some(s)
-                } else {
-                    None
-                }
-            }),
+            in_reply_to: object.as_in_reply_to.into(),
             ephemeral: Some(Ephemeral {
                 created_at: Some(object.created_at),
                 updated_at: Some(object.updated_at),

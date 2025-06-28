@@ -10,12 +10,12 @@ use chrono::{DateTime, Utc};
 use diesel::prelude::*;
 use diesel::sql_types::{Bool, Integer, Jsonb, Nullable, Text, Timestamptz};
 use diesel::Queryable;
-use jdt_activity_pub::MaybeMultiple;
 use jdt_activity_pub::{
     ApActivity, ApAddress, ApAnnounce, ApContext, ApCreate, ApDateTime, ApDelete, ApDeleteType,
     ApFollow, ApFollowType, ApInstrument, ApInstrumentType, ApLike, ApLikeType, ApNote, ApObject,
-    ApQuestion, Ephemeral,
+    ApQuestion, Ephemeral, MaybeReference,
 };
+use jdt_activity_pub::{ApTimelineObject, MaybeMultiple};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -649,7 +649,8 @@ impl TryFrom<CoalescedActivity> for ApNote {
             .object_attributed_to
             .and_then(from_serde)
             .ok_or_else(|| anyhow::anyhow!("object_attributed_to is None"))?;
-        let in_reply_to: MaybeMultiple<ApAddress> = coalesced.object_in_reply_to.into();
+        let in_reply_to: MaybeMultiple<MaybeReference<ApTimelineObject>> =
+            coalesced.object_in_reply_to.into();
         let content = coalesced.object_content;
         let conversation = coalesced.object_conversation;
         let attachment = coalesced.object_attachment.into();
@@ -720,13 +721,8 @@ impl TryFrom<CoalescedActivity> for ApQuestion {
             .object_attributed_to
             .and_then(from_serde)
             .ok_or_else(|| anyhow::anyhow!("object_attributed_to is None"))?;
-        let in_reply_to = coalesced.object_in_reply_to.and_then(|v| {
-            if let Value::String(s) = v {
-                Some(s)
-            } else {
-                None
-            }
-        });
+        let in_reply_to: MaybeMultiple<MaybeReference<ApTimelineObject>> =
+            coalesced.object_in_reply_to.into();
         let content = coalesced.object_content;
         let conversation = coalesced.object_conversation;
         let attachment = coalesced.object_attachment.into();
