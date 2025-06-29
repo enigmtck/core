@@ -20,8 +20,8 @@ impl Outbox for ApMove {
     ) -> Result<ActivityJson<ApActivity>, Status> {
         log::debug!("{:?}", self.clone());
 
-        let mut activity = NewActivity::try_from((ApActivity::Move(self.clone()), None))
-            .map_err(|e| {
+        let mut activity =
+            NewActivity::try_from((ApActivity::Move(self.clone()), None)).map_err(|e| {
                 log::error!("FAILED TO BUILD ACTIVITY: {e:#?}");
                 Status::InternalServerError
             })?;

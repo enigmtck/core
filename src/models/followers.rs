@@ -6,7 +6,7 @@ use crate::POOL;
 use anyhow::Result;
 use chrono::{DateTime, Utc};
 use diesel::prelude::*;
-use diesel::Insertable;
+use diesel::{sql_query, Insertable};
 use diesel::{AsChangeset, Identifiable, Queryable};
 use jdt_activity_pub::ApFollow;
 use jdt_activity_pub::MaybeReference;
@@ -152,20 +152,24 @@ pub async fn get_followers_by_actor_id(
             .inner_join(actors::table.on(followers::actor.eq(actors::as_id)))
             .order_by(followers::created_at.desc())
             .into_boxed();
- 
+
         if let Some(paging) = paging {
             query = query
                 .limit(paging.limit as i64)
                 .offset((paging.page * paging.limit) as i64);
         }
- 
-        query.get_results::<(Follower, Actor)>(c)
+
+        query
+            .get_results::<(Follower, Actor)>(c)
             .map_err(anyhow::Error::from)
     };
 
     match conn_opt {
         Some(conn) => conn.run(operation).await.unwrap_or_else(|e| {
-            log::error!("Failed to get followers by actor id (with DB conn): {:?}", e);
+            log::error!(
+                "Failed to get followers by actor id (with DB conn): {:?}",
+                e
+            );
             vec![]
         }),
         None => {
@@ -174,12 +178,20 @@ pub async fn get_followers_by_actor_id(
                 operation(&mut pool_conn)
             })
             .await
-            .unwrap_or_else(|e| { // Handles JoinError
-                log::error!("Failed to get followers by actor id (spawn_blocking task failed): {:?}", e);
+            .unwrap_or_else(|e| {
+                // Handles JoinError
+                log::error!(
+                    "Failed to get followers by actor id (spawn_blocking task failed): {:?}",
+                    e
+                );
                 Ok(vec![]) // Ok because the outer unwrap_or_else expects Result<Vec, _>
             })
-            .unwrap_or_else(|e| { // Handles error from operation itself
-                log::error!("Failed to get followers by actor id (DB operation failed): {:?}", e);
+            .unwrap_or_else(|e| {
+                // Handles error from operation itself
+                log::error!(
+                    "Failed to get followers by actor id (DB operation failed): {:?}",
+                    e
+                );
                 vec![]
             })
         }
@@ -197,4 +209,16 @@ pub async fn get_follower_count_by_actor_id(conn: &Db, actor_id: i32) -> Result<
     })
     .await
     .map_err(anyhow::Error::msg)
+}
+
+pub async fn delete_followers_by_domain_pattern(conn: Option<&Db>, domain_pattern: String) -> Result<usize> {
+    let operation = move |c: &mut diesel::PgConnection| {
+        use diesel::sql_types::Text;
+        
+        sql_query("DELETE FROM followers WHERE actor COLLATE \"C\" LIKE $1")
+            .bind::<Text, _>(format!("https://{}/%", domain_pattern))
+            .execute(c)
+    };
+
+    crate::db::run_db_op(conn, &crate::POOL, operation).await
 }

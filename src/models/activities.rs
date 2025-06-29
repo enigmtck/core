@@ -506,7 +506,6 @@ impl TryFrom<ApActivityTarget> for NewActivity {
             .clone()),
             ApActivity::Accept(accept) => {
                 if let Some(ActivityTarget::Activity(follow)) = target.clone() {
-                    //if let MaybeReference::Actual(ApActivity::Follow(follow)) = accept.object {
                     Ok(NewActivity {
                         kind: accept.kind.into(),
                         uuid: uuid.clone(),
@@ -521,8 +520,9 @@ impl TryFrom<ApActivityTarget> for NewActivity {
                     .link_target(target)
                     .clone())
                 } else {
-                    //Err(anyhow!("ACCEPT OBJECT NOT AN ACTUAL"))
-                    Err(anyhow!("Unable to locate Follow"))
+                    Err(anyhow!(
+                        "Unable to locate Follow in TryFrom<ApActivityTarget> for NewActivity"
+                    ))
                 }
             }
             ApActivity::Update(update) => match update.object {
@@ -575,7 +575,9 @@ impl TryFrom<ApActivityTarget> for NewActivity {
                         .map_or(Some(get_activity_ap_id_from_uuid(uuid)), Some),
                     ..Default::default()
                 }),
-                _ => Err(anyhow!("UPDATE OBJECT NOT IMPLEMENTED")),
+                _ => Err(anyhow!(
+                    "Update object not implemented in TryFrom<ApActivityTarget> for NewActivity"
+                )),
             },
             ApActivity::Undo(undo) => match undo.object {
                 MaybeReference::Actual(ApActivity::Follow(follow)) => Ok(NewActivity {
@@ -617,7 +619,9 @@ impl TryFrom<ApActivityTarget> for NewActivity {
                 }
                 .link_target(target)
                 .clone()),
-                _ => Err(anyhow!("UNDO OBJECT NOT IMPLEMENTED")),
+                _ => Err(anyhow!(
+                    "Undo object not implemented in TryFrom<ApActivityTarget> for NewActivity"
+                )),
             },
             ApActivity::Like(like) => Ok(NewActivity {
                 kind: like.kind.into(),
@@ -633,8 +637,40 @@ impl TryFrom<ApActivityTarget> for NewActivity {
             }
             .link_target(target)
             .clone()),
+            ApActivity::Remove(remove) => Ok(NewActivity {
+                kind: remove.kind.into(),
+                uuid: uuid.clone(),
+                actor: remove.actor.to_string(),
+                ap_to: remove.to.into(),
+                cc: remove.cc.into(),
+                target_ap_id: remove.object.reference(),
+                revoked: false,
+                ap_id: remove
+                    .id
+                    .map_or(Some(get_activity_ap_id_from_uuid(uuid)), Some),
+                ..Default::default()
+            }
+            .link_target(target)
+            .clone()),
+            ApActivity::Move(move_activity) => Ok(NewActivity {
+                kind: move_activity.kind.into(),
+                uuid: uuid.clone(),
+                actor: move_activity.actor.to_string(),
+                ap_to: move_activity.to.into(),
+                cc: move_activity.cc.into(),
+                target_ap_id: move_activity.object.reference(),
+                revoked: false,
+                ap_id: move_activity
+                    .id
+                    .map_or(Some(get_activity_ap_id_from_uuid(uuid)), Some),
+                ..Default::default()
+            }
+            .link_target(target)
+            .clone()),
 
-            _ => Err(anyhow!("UNIMPLEMENTED ACTIVITY TYPE")),
+            _ => Err(anyhow!(
+                "Unimplemented Activity type in TryFrom<ApActivityTarget> for NewActivity"
+            )),
         }
     }
 }
@@ -2200,4 +2236,19 @@ pub async fn update_target_object(
                 .ok()
         }
     }
+}
+
+pub async fn delete_activities_by_domain_pattern(
+    conn: Option<&Db>,
+    domain_pattern: String,
+) -> Result<usize> {
+    let operation = move |c: &mut diesel::PgConnection| {
+        use diesel::sql_types::Text;
+
+        sql_query("DELETE FROM activities WHERE actor COLLATE \"C\" LIKE $1")
+            .bind::<Text, _>(format!("https://{}/%", domain_pattern))
+            .execute(c)
+    };
+
+    crate::db::run_db_op(conn, &crate::POOL, operation).await
 }

@@ -7,7 +7,7 @@ use anyhow::{anyhow, Result};
 use chrono::{DateTime, Utc};
 use convert_case::{Case, Casing};
 use diesel::prelude::*;
-use diesel::{AsChangeset, Identifiable, Insertable, Queryable};
+use diesel::{sql_query, AsChangeset, Identifiable, Insertable, Queryable};
 use jdt_activity_pub::MaybeMultiple;
 use jdt_activity_pub::MaybeReference;
 use jdt_activity_pub::{
@@ -644,4 +644,16 @@ pub async fn delete_object_by_uuid(conn: &Db, uuid: String) -> Result<usize> {
     conn.run(move |c| diesel::delete(objects::table.filter(objects::ek_uuid.eq(uuid))).execute(c))
         .await
         .map_err(anyhow::Error::msg)
+}
+
+pub async fn delete_objects_by_domain_pattern(conn: Option<&Db>, domain_pattern: String) -> Result<usize> {
+    let operation = move |c: &mut diesel::PgConnection| {
+        use diesel::sql_types::Text;
+        
+        sql_query("DELETE FROM objects WHERE as_attributed_to::text LIKE $1")
+            .bind::<Text, _>(format!("\"https://{}/%\"", domain_pattern))
+            .execute(c)
+    };
+
+    crate::db::run_db_op(conn, &crate::POOL, operation).await
 }

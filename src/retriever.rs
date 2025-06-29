@@ -290,7 +290,7 @@ pub async fn signed_get(profile: Actor, url: String, accept_any: bool) -> Result
             .header("Accept-Encoding", "identity") // Disable compression for video
             .header("Connection", "keep-alive")
             .timeout(std::time::Duration::from_secs(120)); // Longer timeout for large files
-        
+
         // Don't add Range header for now - it's causing 206 responses that fail
     }
 

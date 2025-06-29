@@ -1,5 +1,5 @@
 use anyhow::Result;
-use chrono::{DateTime, Duration, Utc};
+use chrono::{DateTime, Utc};
 use clap::{Parser, Subcommand};
 use comfy_table::{presets, Attribute, Cell, Color, ColumnConstraint, Table, Width};
 use crossterm::{
@@ -24,6 +24,7 @@ use enigmatick::{
     runner::{get_inboxes, send_to_inboxes},
     server, POOL, SYSTEM_USER,
 };
+use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use jdt_activity_pub::{
     ApActivity, ApActor, ApAddress, ApContext, ApObject, ApUpdate, MaybeReference,
 };
@@ -32,6 +33,7 @@ use rust_embed::RustEmbed;
 use serde_json::Value;
 use std::fs;
 use std::io::stdout;
+use std::time::Duration;
 use tokio::runtime::Runtime;
 use uuid::Uuid;
 
@@ -77,10 +79,15 @@ pub struct CacheArgs {
 
 #[derive(Subcommand)]
 pub enum CacheCommands {
-    /// Prune cached files older than the specified duration (e.g., 30d, 2m, 1y)
+    /// Prune cached files older than specified duration (e.g., 30d, 2m, 1y)
     Prune { duration: String },
-    /// Delete a specific cached item by its URL
+    /// Delete cached item by URL
     Delete { url: String },
+    /// Delete cached items from server/domain pattern
+    DeleteServer {
+        /// Server pattern to match (e.g., "domain.name")
+        pattern: String,
+    },
 }
 
 // Helper function to parse a single sort field string like "blocked" or "blocked:asc"
@@ -132,36 +139,22 @@ pub struct InstanceArgs {
 
 #[derive(Subcommand)]
 pub enum InstanceCommands {
-    /// List all instances with pagination
+    /// List instances with pagination
     List {
         #[clap(long, default_value = "1")]
         page: i64,
         #[clap(long)]
         page_size: Option<i64>,
-        /// Sort order for the instance list.
-        ///
-        /// Format: "field[:direction][,field[:direction]...]"
-        ///
-        /// - 'field' can be one of:
-        ///   - 'domain' (or 'name', 'domain_name')
-        ///   - 'blocked'
-        ///   - 'last' (or 'last_message_at')
-        /// - 'direction' can be 'asc' (ascending) or 'desc' (descending).
-        /// - If direction is omitted, 'asc' is assumed.
-        /// - Multiple sort criteria can be comma-separated.
-        ///
-        /// Examples:
-        ///   --sort blocked
-        ///   --sort last:desc
-        ///   --sort blocked:asc,domain:desc
+        /// Sort order: "field[:direction][,field[:direction]...]"
+        /// Fields: domain, blocked, last. Directions: asc, desc
         #[clap(long)]
         sort: Option<String>,
     },
-    /// Block an instance by its domain name
+    /// Block instance by domain name
     Block { domain_name: String },
-    /// Unblock an instance by its domain name
+    /// Unblock instance by domain name
     Unblock { domain_name: String },
-    /// Get details for a specific instance by its domain name
+    /// Get instance details by domain name
     Get { domain_name: String },
 }
 
@@ -173,8 +166,7 @@ pub struct SendArgs {
 
 #[derive(Subcommand)]
 pub enum SendCommands {
-    /// Send an Update activity for a local actor to all known instance inboxes.
-    /// The activity will be signed by the specified actor.
+    /// Send actor update to all known instances
     #[clap(name = "actor-update")]
     ActorUpdate { username: String },
 }
@@ -187,49 +179,42 @@ pub struct MutedTermsArgs {
 
 #[derive(Subcommand)]
 pub enum MutedTermsCommands {
-    /// List all muted terms for a user
+    /// List muted terms for user
     List { username: String },
-    /// Add a term to the muted terms list for a user
+    /// Add muted term for user
     Add { username: String, term: String },
-    /// Remove a term from the muted terms list for a user
+    /// Remove muted term for user
     Remove { username: String, term: String },
-    /// Clear all muted terms for a user
+    /// Clear all muted terms for user
     Clear { username: String },
 }
 
 #[derive(Parser)]
 pub enum Commands {
-    /// Initialize the necessary folder structure (e.g., for media).
-    /// This should be run once before starting the server for the first time.
+    /// Initialize folder structure for media files
     Init,
-    /// Generate a template .env file named '.env.template'.
-    /// Copy this to '.env' and fill in your configuration values.
+    /// Generate .env.template file
     Template,
-    /// Run database migrations to set up or update the database schema.
-    /// This is necessary before starting the server and after updates.
+    /// Run database migrations
     Migrate,
-    /// Manage cached media files.
-    /// Use subcommands like 'prune' or 'delete'.
+    /// Manage cached media files
     Cache(CacheArgs),
-    /// Create or ensure the system user exists in the database.
-    /// The system user is used for server-to-server activities and internal tasks.
+    /// Create or ensure system user exists
     SystemUser,
-    /// Start the Enigmatick web server and background task runners.
+    /// Start the web server and background tasks
     Server,
-    /// Manage known instances (other federated servers).
-    /// Allows listing, blocking, unblocking, and viewing details of instances.
+    /// Manage federated instances
     Instances(InstanceArgs),
-    /// Send various types of activities.
+    /// Send various activities
     Send(SendArgs),
-    /// Manage muted terms for users.
-    /// Allows listing, adding, removing, and clearing muted terms.
+    /// Manage user muted terms
     MutedTerms(MutedTermsArgs),
 }
 
 #[derive(Parser)] // requires `derive` feature
 #[command(name = "enigmatick")]
 #[command(version = env!("CARGO_PKG_VERSION"))]
-#[command(about = "Enigmatick: A federated communication platform server.", long_about = None)]
+#[command(about = "A federated communication platform server", long_about = None)]
 struct Cli {
     #[command(subcommand)]
     command: Commands,
@@ -284,7 +269,7 @@ fn handle_migrations() -> Result<()> {
     Ok(())
 }
 
-fn parse_duration(duration_str: &str) -> Result<Duration> {
+fn parse_duration(duration_str: &str) -> Result<chrono::Duration> {
     let duration_str = duration_str.trim();
     let numeric_part = duration_str
         .chars()
@@ -298,9 +283,9 @@ fn parse_duration(duration_str: &str) -> Result<Duration> {
     let value = numeric_part.parse::<i64>()?;
 
     match unit_part.as_str() {
-        "d" => Ok(Duration::days(value)),
-        "m" => Ok(Duration::days(value * 30)), // Approximate months
-        "y" => Ok(Duration::days(value * 365)), // Approximate years
+        "d" => Ok(chrono::Duration::days(value)),
+        "m" => Ok(chrono::Duration::days(value * 30)), // Approximate months
+        "y" => Ok(chrono::Duration::days(value * 365)), // Approximate years
         _ => Err(anyhow::anyhow!(
             "Invalid duration unit: '{}'. Use 'd' for days, 'm' for months, 'y' for years.",
             unit_part
@@ -317,10 +302,67 @@ fn handle_cache_command(args: CacheArgs) -> Result<()> {
 
             let rt = Runtime::new().unwrap();
             let handle = rt.handle();
+
+            // Variables for progress reporting
+            let show_progress = atty::is(atty::Stream::Stdout);
+            let _multi_progress_holder: Option<MultiProgress> = if show_progress {
+                Some(MultiProgress::new())
+            } else {
+                None
+            };
+
             handle.block_on(async {
-                match enigmatick::models::cache::prune_cache_items(None, cutoff).await {
-                    Ok(count) => println!("Successfully pruned {count} cache items."),
-                    Err(e) => eprintln!("Error pruning cache: {e}"),
+                // First, get the items that would be deleted to show progress
+                let old_items_result = enigmatick::db::run_db_op(None, &enigmatick::POOL, move |c: &mut diesel::PgConnection| {
+                    use enigmatick::schema::cache;
+                    use diesel::prelude::*;
+                    cache::table
+                        .filter(cache::created_at.lt(cutoff))
+                        .load::<enigmatick::models::cache::CacheItem>(c)
+                }).await;
+
+                match old_items_result {
+                    Ok(old_items) => {
+                        if old_items.is_empty() {
+                            println!("No cache items found older than {duration}.");
+                            return;
+                        }
+
+                        // Show progress if we're in a TTY
+                        if show_progress {
+                            let mp = MultiProgress::new();
+                            let pb = mp.add(ProgressBar::new(old_items.len() as u64));
+                            pb.set_style(ProgressStyle::default_bar()
+                                .template("{spinner:.green} [{elapsed_precise}] [{wide_bar:.cyan/blue}] {pos}/{len} ({percent}%)")
+                                .expect("Failed to create progress bar template")
+                                .progress_chars("=> "));
+                            let msg_pb = mp.add(ProgressBar::new(1));
+                            msg_pb.set_style(
+                                ProgressStyle::default_bar()
+                                    .template("{wide_msg}")
+                                    .expect("Failed to create message progress bar template"),
+                            );
+                            msg_pb.enable_steady_tick(Duration::from_millis(100));
+
+                            for item in &old_items {
+                                if let Some(ref path) = item.path {
+                                    msg_pb.set_message(format!("Processing: {path}"));
+                                } else {
+                                    msg_pb.set_message(format!("Processing item ID: {}", item.id));
+                                }
+                                pb.inc(1);
+                                tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
+                            }
+                            msg_pb.finish_and_clear();
+                            pb.finish_with_message(format!("Processed {} items", old_items.len()));
+                        }
+
+                        match enigmatick::models::cache::prune_cache_items(None, cutoff).await {
+                            Ok(count) => println!("Successfully pruned {count} cache items."),
+                            Err(e) => eprintln!("Error pruning cache: {e}"),
+                        }
+                    }
+                    Err(e) => eprintln!("Error fetching cache items for progress display: {e}"),
                 }
             });
         }
@@ -335,6 +377,60 @@ fn handle_cache_command(args: CacheArgs) -> Result<()> {
                 }
             });
         }
+        CacheCommands::DeleteServer { pattern } => {
+            println!("Attempting to delete cache items from server pattern: {pattern}...");
+            let rt = Runtime::new().unwrap();
+            let handle = rt.handle();
+
+            // Variables for progress reporting
+            let show_progress = atty::is(atty::Stream::Stdout);
+            let _multi_progress_holder: Option<MultiProgress> = if show_progress {
+                Some(MultiProgress::new())
+            } else {
+                None
+            };
+
+            handle.block_on(async {
+                match enigmatick::models::cache::delete_cache_items_by_server_pattern(None, pattern.clone()).await {
+                    Ok(deleted_items) => {
+                        if deleted_items.is_empty() {
+                            println!("No cache items found matching server pattern: {pattern}");
+                        } else {
+                            // Show progress if we're in a TTY
+                            if show_progress {
+                                let mp = MultiProgress::new();
+                                let pb = mp.add(ProgressBar::new(deleted_items.len() as u64));
+                                pb.set_style(ProgressStyle::default_bar()
+                                    .template("{spinner:.green} [{elapsed_precise}] [{wide_bar:.cyan/blue}] {pos}/{len} ({percent}%)")
+                                    .expect("Failed to create progress bar template")
+                                    .progress_chars("=> "));
+                                let msg_pb = mp.add(ProgressBar::new(1));
+                                msg_pb.set_style(
+                                    ProgressStyle::default_bar()
+                                        .template("{wide_msg}")
+                                        .expect("Failed to create message progress bar template"),
+                                );
+                                msg_pb.enable_steady_tick(Duration::from_millis(100));
+
+                                for item in &deleted_items {
+                                    if let Some(ref path) = item.path {
+                                        msg_pb.set_message(format!("Processed: {}", path));
+                                    } else {
+                                        msg_pb.set_message(format!("Processed item ID: {}", item.id));
+                                    }
+                                    pb.inc(1);
+                                    tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
+                                }
+                                msg_pb.finish_and_clear();
+                                pb.finish_with_message(format!("Deleted {} items from server pattern: {}", deleted_items.len(), pattern));
+                            }
+                            println!("Successfully deleted {} cache items matching server pattern: {pattern}", deleted_items.len());
+                        }
+                    },
+                    Err(e) => eprintln!("Error deleting cache items for server pattern {pattern}: {e}"),
+                }
+            });
+        }
     }
     Ok(())
 }
@@ -344,7 +440,7 @@ fn format_relative_time(datetime: DateTime<Utc>) -> String {
     let duration_since = now.signed_duration_since(datetime);
 
     // Handle cases where datetime is in the future (should ideally not happen for 'last_message_at')
-    if duration_since < Duration::zero() {
+    if duration_since < chrono::Duration::zero() {
         return "In the future".to_string(); // Or datetime.to_rfc3339() as a fallback
     }
 
@@ -779,7 +875,44 @@ fn handle_instance_command(args: InstanceArgs) -> Result<()> {
                             .await
                         {
                             Ok(instance) => {
-                                print_instance_detail(instance, "blocked successfully");
+                                println!("Instance blocked successfully. Cleaning up associated data...");
+                                // Clean up objects
+                                match enigmatick::models::objects::delete_objects_by_domain_pattern(None, domain_name.clone()).await {
+                                    Ok(count) => println!("Deleted {count} objects from blocked domain."),
+                                    Err(e) => eprintln!("Error deleting objects: {e}"),
+                                }
+                                // Clean up activities
+                                match enigmatick::models::activities::delete_activities_by_domain_pattern(None, domain_name.clone()).await {
+                                    Ok(count) => println!("Deleted {count} activities from blocked domain."),
+                                    Err(e) => eprintln!("Error deleting activities: {e}"),
+                                }
+                                // Clean up followers
+                                match enigmatick::models::followers::delete_followers_by_domain_pattern(None, domain_name.clone()).await {
+                                    Ok(count) => println!("Deleted {count} followers from blocked domain."),
+                                    Err(e) => eprintln!("Error deleting followers: {e}"),
+                                }
+                                // Clean up leaders
+                                match enigmatick::models::leaders::delete_leaders_by_domain_pattern(None, domain_name.clone()).await {
+                                    Ok(count) => println!("Deleted {count} leaders from blocked domain."),
+                                    Err(e) => eprintln!("Error deleting leaders: {e}"),
+                                }
+                                // Clean up actors
+                                match enigmatick::models::actors::delete_actors_by_domain_pattern(None, domain_name.clone()).await {
+                                    Ok(count) => println!("Deleted {count} actors from blocked domain."),
+                                    Err(e) => eprintln!("Error deleting actors: {e}"),
+                                }
+                                // Clean up cache
+                                match enigmatick::models::cache::delete_cache_items_by_server_pattern(None, domain_name.clone()).await {
+                                    Ok(deleted_items) => {
+                                        if deleted_items.is_empty() {
+                                            println!("No cache items found for blocked domain.");
+                                        } else {
+                                            println!("Deleted {} cache items from blocked domain.", deleted_items.len());
+                                        }
+                                    },
+                                    Err(e) => eprintln!("Error deleting cache items: {e}"),
+                                }
+                                print_instance_detail(instance, "blocked successfully with cleanup completed");
                             }
                             Err(e) => eprintln!("Error blocking instance {domain_name}: {e}"),
                         }

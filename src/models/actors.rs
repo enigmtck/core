@@ -931,6 +931,24 @@ pub async fn delete_actor_by_as_id(conn: &Db, as_id: String) -> bool {
     .is_ok()
 }
 
+pub async fn delete_actors_by_domain_pattern(conn: Option<&Db>, domain_pattern: String) -> Result<usize> {
+    let operation = move |c: &mut diesel::PgConnection| {
+        use diesel::sql_types::Text;
+        
+        // First delete activities that reference actors from this domain
+        sql_query("DELETE FROM activities WHERE target_actor_id IN (SELECT id FROM actors WHERE as_id COLLATE \"C\" LIKE $1)")
+            .bind::<Text, _>(format!("https://{}/%", domain_pattern.clone()))
+            .execute(c)?;
+            
+        // Then delete the actors themselves
+        sql_query("DELETE FROM actors WHERE as_id COLLATE \"C\" LIKE $1")
+            .bind::<Text, _>(format!("https://{}/%", domain_pattern))
+            .execute(c)
+    };
+
+    crate::db::run_db_op(conn, &crate::POOL, operation).await
+}
+
 pub async fn get_actor(conn: &Db, id: i32) -> Option<Actor> {
     conn.run(move |c| actors::table.find(id).first::<Actor>(c))
         .await

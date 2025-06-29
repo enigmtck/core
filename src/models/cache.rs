@@ -8,8 +8,7 @@ use chrono::{DateTime, Utc};
 use diesel::pg::PgConnection;
 use diesel::prelude::*;
 use diesel::Insertable;
-use diesel::{AsChangeset, Identifiable, Queryable};
-use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
+use diesel::{sql_query, sql_types::Text, AsChangeset, Identifiable, Queryable, QueryableByName};
 use jdt_activity_pub::MaybeMultiple;
 use jdt_activity_pub::MaybeReference;
 use jdt_activity_pub::{
@@ -28,7 +27,9 @@ use tokio::io::AsyncWriteExt;
 
 use super::actors::{get_actor_by_username, Actor};
 
-#[derive(Identifiable, Queryable, AsChangeset, Serialize, Clone, Default, Debug)]
+#[derive(
+    Identifiable, Queryable, QueryableByName, AsChangeset, Serialize, Clone, Default, Debug,
+)]
 #[diesel(table_name = cache)]
 pub struct CacheItem {
     #[serde(skip_serializing)]
@@ -177,46 +178,9 @@ pub async fn prune_cache_items(conn: Option<&Db>, cutoff: DateTime<Utc>) -> Resu
     let mut deleted_count = 0;
     let mut deleted_ids = Vec::new();
 
-    // Variables for progress reporting
-    let mut main_pb: Option<ProgressBar> = None;
-    let mut message_pb: Option<ProgressBar> = None;
-    // Determine if running in CLI mode and if stdout is a TTY
-    let show_progress = conn.is_none() && !old_items.is_empty() && atty::is(atty::Stream::Stdout);
-    let _multi_progress_holder: Option<MultiProgress> = if show_progress {
-        let mp = MultiProgress::new();
-
-        let p1 = mp.add(ProgressBar::new(old_items.len() as u64));
-        p1.set_style(ProgressStyle::default_bar()
-            .template("{spinner:.green} [{elapsed_precise}] [{wide_bar:.cyan/blue}] {pos}/{len} ({percent}%)")
-            .expect("Failed to create main progress bar template")
-            .progress_chars("=> "));
-        main_pb = Some(p1);
-
-        let p2 = mp.add(ProgressBar::new(1)); // Length 1, as it's just for messages
-        p2.set_style(
-            ProgressStyle::default_bar()
-                .template("{wide_msg}") // This will display the message across the available width
-                .expect("Failed to create message progress bar template"),
-        );
-        // Ensure the message bar redraws even if only the message changes
-        p2.enable_steady_tick(Duration::from_millis(100));
-        message_pb = Some(p2);
-
-        Some(mp) // Keep MultiProgress alive
-    } else {
-        None
-    };
-
     for item in old_items {
-        let file_operation_message: String;
-
         if let Some(ref path_suffix) = item.path {
             let file_path = format!("{}/cache/{}", &*crate::MEDIA_DIR, path_suffix);
-            file_operation_message = format!("Deleting: {file_path}");
-
-            if let Some(p_msg) = &message_pb {
-                p_msg.set_message(file_path.clone()); // Show file path on the message line
-            }
 
             match fs::remove_file(&file_path).await {
                 Ok(_) => {
@@ -232,37 +196,15 @@ pub async fn prune_cache_items(conn: Option<&Db>, cutoff: DateTime<Utc>) -> Resu
                 }
             }
         } else {
-            file_operation_message =
-                format!("Marking Item ID {} (no path) for DB deletion.", item.id);
-            if let Some(p_msg) = &message_pb {
-                p_msg.set_message(format!("Processing Item ID {} (no path)", item.id));
-            }
             log::warn!(
                 "Cache item ID {} has no path, marking for DB deletion.",
                 item.id
             );
             deleted_ids.push(item.id);
         }
-
-        // If not using progress bar, log the operation (optional, could be verbose)
-        if main_pb.is_none() {
-            // i.e. conn is Some, so not CLI
-            log::debug!("{file_operation_message}");
-        }
-
-        if let Some(p_main) = &main_pb {
-            p_main.inc(1);
-        }
     }
 
-    if let Some(p_msg) = &message_pb {
-        p_msg.finish_and_clear(); // Remove the message line
-    }
-    if let Some(p_main) = &main_pb {
-        p_main.finish_with_message("File deletion scan complete.");
-    }
-
-    // Database deletion part remains unchanged by indicatif
+    // Database deletion part
     if !deleted_ids.is_empty() {
         let ids_to_delete = deleted_ids.clone();
         deleted_count = crate::db::run_db_op(conn, &crate::POOL, move |c: &mut PgConnection| {
@@ -447,6 +389,78 @@ pub async fn delete_cache_item_by_url(conn: Option<&Db>, url: String) -> Result<
         item_to_delete.id
     );
     Ok(())
+}
+
+pub async fn delete_cache_items_by_server_pattern(
+    conn: Option<&Db>,
+    server_pattern: String,
+) -> Result<Vec<CacheItem>> {
+    log::info!("Finding cache items matching server pattern: {server_pattern}");
+
+    // Fetch items that match the server pattern
+    let server_pattern_for_query = server_pattern.clone();
+    let matching_items: Vec<CacheItem> =
+        crate::db::run_db_op(conn, &crate::POOL, move |c: &mut PgConnection| {
+            sql_query(
+                "SELECT id, created_at, updated_at, uuid, url, media_type, height, width, blurhash, path 
+                 FROM cache 
+                 WHERE url ~ $1"
+            )
+            .bind::<Text, _>(format!(r"^https://(\w+\.)*{}/.+", regex::escape(&server_pattern_for_query)))
+            .load::<CacheItem>(c)
+        })
+        .await
+        .context("Failed to load cache items matching server pattern")?;
+
+    let mut deleted_ids = Vec::new();
+
+    for item in &matching_items {
+        if let Some(ref path_suffix) = item.path {
+            let file_path = format!("{}/cache/{}", &*crate::MEDIA_DIR, path_suffix);
+
+            match fs::remove_file(&file_path).await {
+                Ok(_) => {
+                    log::debug!("Deleted cached file: {file_path}");
+                    deleted_ids.push(item.id);
+                }
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                    log::warn!("Cached file not found, marking for DB deletion: {file_path}");
+                    deleted_ids.push(item.id);
+                }
+                Err(e) => {
+                    log::error!("Failed to delete cached file {file_path}: {e}");
+                }
+            }
+        } else {
+            log::warn!(
+                "Cache item ID {} has no path, marking for DB deletion.",
+                item.id
+            );
+            deleted_ids.push(item.id);
+        }
+    }
+
+    // Database deletion part
+    if !deleted_ids.is_empty() {
+        let ids_to_delete = deleted_ids.clone();
+        let deleted_count =
+            crate::db::run_db_op(conn, &crate::POOL, move |c: &mut PgConnection| {
+                diesel::delete(cache::table.filter(cache::id.eq_any(ids_to_delete))).execute(c)
+            })
+            .await
+            .context("Failed to delete cache records from database")?;
+        log::info!(
+            "Deleted {deleted_count} cache records from database matching server pattern '{}'.",
+            server_pattern
+        );
+    } else {
+        log::info!(
+            "No cache records needed database deletion for server pattern '{}'.",
+            server_pattern
+        );
+    }
+
+    Ok(matching_items)
 }
 
 // Enum to categorize failures from the primary download attempt (using reqwest)
