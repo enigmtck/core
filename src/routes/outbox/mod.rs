@@ -27,6 +27,7 @@ pub mod update;
 
 // Objects
 pub mod actor;
+pub mod article;
 pub mod collection;
 pub mod complex;
 pub mod identifier;

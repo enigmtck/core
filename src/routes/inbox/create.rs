@@ -41,6 +41,7 @@ impl Inbox for ApCreate {
                         MaybeReference::Actual(timeline_obj) => match timeline_obj {
                             ApTimelineObject::Note(note) => note.id.clone(),
                             ApTimelineObject::Question(question) => Some(question.id.clone()),
+                            ApTimelineObject::Article(article) => article.id.clone(),
                         },
                         MaybeReference::Identifier(identifier) => Some(identifier.id.clone()),
                         MaybeReference::None => None,
@@ -86,6 +87,65 @@ impl Inbox for ApCreate {
                     Err(Status::NoContent)
                 }
             }
+            MaybeReference::Actual(ApObject::Article(article)) => {
+                let new_object = NewObject::from(article.clone());
+
+                // Check if this is a reply and if the parent exists
+                let reply_to_multiple: MaybeMultiple<MaybeReference<ApTimelineObject>> =
+                    article.in_reply_to.clone();
+
+                // Get the first reply target
+                if let Some(first_reply) = reply_to_multiple.multiple().first() {
+                    let parent_id = match first_reply {
+                        MaybeReference::Reference(id) => Some(id.clone()),
+                        MaybeReference::Actual(timeline_obj) => match timeline_obj {
+                            ApTimelineObject::Note(note) => note.id.clone(),
+                            ApTimelineObject::Question(question) => Some(question.id.clone()),
+                            ApTimelineObject::Article(article) => article.id.clone(),
+                        },
+                        MaybeReference::Identifier(identifier) => Some(identifier.id.clone()),
+                        MaybeReference::None => None,
+                    };
+
+                    if let Some(parent_id) = parent_id {
+                        if get_object_by_as_id(Some(&conn), parent_id.clone())
+                            .await
+                            .is_err()
+                        {
+                            log::warn!(
+                                "Skipping article creation - parent object not found: {parent_id}"
+                            );
+                            return Ok(Status::Accepted);
+                        }
+                    }
+                }
+
+                let object = create_or_update_object(&conn, new_object)
+                    .await
+                    .map_err(|e| {
+                        log::error!("FAILED TO CREATE OR UPDATE ARTICLE: {e:#?}");
+                        Status::InternalServerError
+                    })?;
+
+                let mut activity = NewActivity::try_from((
+                    ApActivity::Create(self.clone()),
+                    Some(ActivityTarget::from(object.clone())),
+                ))
+                .map_err(|e| {
+                    log::error!("FAILED TO BUILD ACTIVITY: {e:#?}");
+                    Status::InternalServerError
+                })?;
+
+                activity.raw = Some(raw);
+
+                if create_activity((&conn).into(), activity).await.is_ok() {
+                    runner::run(runner::note::object_task, conn, None, vec![object.as_id]).await;
+                    Ok(Status::Accepted)
+                } else {
+                    log::error!("FAILED TO INSERT ACTIVITY");
+                    Err(Status::InternalServerError)
+                }
+            }
             MaybeReference::Actual(ApObject::Question(question)) => {
                 let new_object = NewObject::from(question.clone());
 
@@ -100,6 +160,7 @@ impl Inbox for ApCreate {
                         MaybeReference::Actual(timeline_obj) => match timeline_obj {
                             ApTimelineObject::Note(note) => note.id.clone(),
                             ApTimelineObject::Question(question) => Some(question.id.clone()),
+                            ApTimelineObject::Article(article) => article.id.clone(),
                         },
                         MaybeReference::Identifier(identifier) => Some(identifier.id.clone()),
                         MaybeReference::None => None,

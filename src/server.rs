@@ -12,7 +12,7 @@ use rust_embed::RustEmbed;
 
 use crate::{
     db::Db,
-    fairings::{access_control::BlockList, events::EventChannels},
+    fairings::{access_control::BlockList, events::EventChannels, proxy::ProxyFairing},
     routes::{
         api::{
             admin::*, authentication::*, encryption::*, image::*, profile::*, remote::*, stream::*,
@@ -193,8 +193,19 @@ fn rocket() -> Rocket<Build> {
         .attach(EventChannels::fairing())
         .attach(Db::fairing())
         .attach(BlockList::fairing())
-        .mount("/media/avatars", FileServer::from("media/avatars").rank(5))
-        .mount("/media/banners", FileServer::from("media/banners").rank(6))
+        .attach(ProxyFairing::fairing())
+        .mount(
+            "/media/avatars",
+            FileServer::from(format!("{}/avatars", *crate::MEDIA_DIR)).rank(5),
+        )
+        .mount(
+            "/media/banners",
+            FileServer::from(format!("{}/banners", *crate::MEDIA_DIR)).rank(6),
+        )
+        .mount(
+            "/media/uploads",
+            FileServer::from(format!("{}/uploads", *crate::MEDIA_DIR)).rank(7),
+        )
         .mount(
             "/",
             routes![

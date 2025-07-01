@@ -10,7 +10,7 @@ use crate::{
     routes::ActivityJson,
     runner, LoadEphemeral,
 };
-use image::{imageops::FilterType, io::Reader, DynamicImage, ImageFormat};
+use image::{imageops::FilterType, io::Reader, DynamicImage};
 use jdt_activity_pub::{ApActor, ApImage};
 use rocket::{
     data::{Data, ToByteUnit},
@@ -20,6 +20,7 @@ use rocket::{
     serde::json::Json,
 };
 use serde::Deserialize;
+use serde_json::json;
 
 use crate::fairings::signatures::Signed;
 
@@ -89,7 +90,7 @@ fn banner(mut image: DynamicImage) -> DynamicImage {
     }
 }
 
-fn process_banner(filename: String) -> Option<ApImage> {
+fn process_banner(filename: String, media_type: String) -> Option<ApImage> {
     let path = &format!("{}/banners/{}", *crate::MEDIA_DIR, filename);
 
     let meta = rexiv2::Metadata::new_from_path(path).ok()?;
@@ -101,9 +102,9 @@ fn process_banner(filename: String) -> Option<ApImage> {
     let decode = banner(decode);
     let decode = decode.resize(1500, 500, FilterType::CatmullRom);
 
-    if decode.save_with_format(path, ImageFormat::Png).is_ok() {
+    if decode.save(path).is_ok() {
         let mut image = ApImage::from(format!("{}/media/banners/{}", *crate::SERVER_URL, filename));
-        image.media_type = Some("image/png".to_string());
+        image.media_type = Some(media_type);
         Some(image)
     } else {
         None
@@ -129,7 +130,7 @@ fn square(mut image: DynamicImage) -> DynamicImage {
     }
 }
 
-fn process_avatar(filename: String) -> Option<ApImage> {
+fn process_avatar(filename: String, media_type: String) -> Option<ApImage> {
     let path = &format!("{}/avatars/{}", *crate::MEDIA_DIR, filename);
 
     let meta = rexiv2::Metadata::new_from_path(path).ok()?;
@@ -141,9 +142,9 @@ fn process_avatar(filename: String) -> Option<ApImage> {
     let decode = square(decode);
     let decode = decode.resize(400, 400, FilterType::CatmullRom);
 
-    if decode.save_with_format(path, ImageFormat::Png).is_ok() {
+    if decode.save(path).is_ok() {
         let mut image = ApImage::from(format!("{}/media/avatars/{}", *crate::SERVER_URL, filename));
-        image.media_type = Some("image/png".to_string());
+        image.media_type = Some(media_type);
         Some(image)
     } else {
         None
@@ -157,16 +158,22 @@ pub async fn upload_avatar(
     conn: Db,
     username: String,
     extension: String,
-    media: Data<'_>,
+    mut media: Data<'_>,
 ) -> Result<Status, Status> {
     if !signed.local() {
         return Err(Status::Forbidden);
     }
-    let filename = uuid::Uuid::new_v4().to_string();
+    let header = media.peek(512).await;
+    let kind = infer::get(header).ok_or(Status::UnsupportedMediaType)?;
+    let mime_type_str = kind.mime_type().to_string();
+    let filename = format!("{}.{}", uuid::Uuid::new_v4(), kind.extension());
+    let path = format!("{}/avatars/{}", *crate::MEDIA_DIR, filename);
+    let url = format!("{}/media/avatars/{}", *crate::SERVER_URL, filename);
+    let as_image: ApImage = url.clone().into();
 
     let file = media
         .open(20.mebibytes())
-        .into_file(&format!("{}/avatars/{}", *crate::MEDIA_DIR, filename))
+        .into_file(&path.clone())
         .await
         .map_err(|e| {
             log::error!("FAILED TO SAVE FILE: {e:#?}");
@@ -177,11 +184,11 @@ pub async fn upload_avatar(
         return Err(Status::PayloadTooLarge);
     }
 
-    if process_avatar(filename.clone()).is_none() {
+    if process_avatar(filename.clone(), mime_type_str).is_none() {
         return Err(Status::NoContent);
     }
 
-    if update_avatar_by_username(&conn, username, filename)
+    if update_avatar_by_username(&conn, username, filename, json!(as_image))
         .await
         .is_none()
     {
@@ -198,17 +205,24 @@ pub async fn upload_banner(
     conn: Db,
     username: String,
     extension: String,
-    media: Data<'_>,
+    mut media: Data<'_>,
 ) -> Result<Status, Status> {
     if !signed.local() {
         return Err(Status::Forbidden);
     }
 
     let filename = uuid::Uuid::new_v4().to_string();
+    let header = media.peek(512).await;
+    let kind = infer::get(header).ok_or(Status::UnsupportedMediaType)?;
+    let mime_type_str = kind.mime_type().to_string();
+    let filename = format!("{}.{}", uuid::Uuid::new_v4(), kind.extension());
+    let path = format!("{}/banners/{}", *crate::MEDIA_DIR, filename);
+    let url = format!("{}/media/banners/{}", *crate::SERVER_URL, filename);
+    let as_image: ApImage = url.clone().into();
 
     let file = media
         .open(20.mebibytes())
-        .into_file(&format!("{}/banners/{}", *crate::MEDIA_DIR, filename))
+        .into_file(&path.clone())
         .await
         .map_err(|e| {
             log::error!("FAILED TO SAVE FILE: {e:#?}");
@@ -219,11 +233,11 @@ pub async fn upload_banner(
         return Err(Status::PayloadTooLarge);
     }
 
-    if process_banner(filename.clone()).is_none() {
+    if process_banner(filename.clone(), mime_type_str).is_none() {
         return Err(Status::NoContent);
     }
 
-    if update_banner_by_username(&conn, username, filename)
+    if update_banner_by_username(&conn, username, filename, json!(as_image))
         .await
         .is_none()
     {

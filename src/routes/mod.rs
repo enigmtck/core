@@ -132,6 +132,7 @@ impl Outbox for ApObject {
             ApObject::Session(x) => x.outbox(conn, profile, raw).await,
             ApObject::Instrument(x) => x.outbox(conn, profile, raw).await,
             ApObject::Note(x) => x.outbox(conn, profile, raw).await,
+            ApObject::Article(x) => x.outbox(conn, profile, raw).await,
             ApObject::Question(x) => x.outbox(conn, profile, raw).await,
             ApObject::Actor(x) => x.outbox(conn, profile, raw).await,
             ApObject::Collection(x) => x.outbox(conn, profile, raw).await,

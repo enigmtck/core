@@ -1,6 +1,6 @@
 [package]
 name = "enigmatick"
-version = "0.3.1"
+version = "0.3.2"
 edition = "2021"
 license = "GPL-3.0-only"
 description = "Enigmatick is a social media platform that integrates with servers that implement the ActivityPub protocol (e.g., Mastodon)"
@@ -58,11 +58,15 @@ cfg-if = "1.0.0"
 atty = "0.2"
 convert_case = "0.6.0"
 #jdt_activity_pub = { path = "../../libs/activity_pub/", features = ["ffmpeg"] }
-jdt_activity_pub = { version = "0.2.47", features = ["ffmpeg"] }
+jdt_activity_pub = { version = "0.2.49", features = ["ffmpeg"] }
 indoc = "2.0.5"
 indicatif = "0.17"
 comfy-table = "7.1.0"
 infer = "0.19.0"
+axum-reverse-proxy = "1.0.2"
+axum = "0.8.4"
+axum-server = { version = "0.7", features = ["tls-rustls"] }
+rustls-acme = { version = "0.14.0", features = ["axum"] }
 
 [dependencies.rocket_sync_db_pools]
 version = "0.1.0"
@@ -76,6 +80,7 @@ opt-level = 3
 
 [[bin]]
 name = "enigmatick"
+path = "src/bin/enigmatick/mod.rs"
 
 [features]
 default = ["pg"]

@@ -44,12 +44,14 @@ impl TryFrom<Actor> for Profile {
             public_key: actor.as_public_key.to_string(),
             client_public_key: actor.ek_client_public_key,
             client_private_key: actor.ek_client_private_key,
-            avatar_filename: Some(
-                actor
-                    .ek_avatar_filename
-                    .unwrap_or((*crate::DEFAULT_AVATAR).clone()),
-            ),
-            banner_filename: actor.ek_banner_filename,
+            avatar_filename: actor
+                .ek_avatar_filename
+                .map_or(Some((*crate::DEFAULT_AVATAR).clone()), |x| {
+                    Some(format!("media/avatars/{x}"))
+                }),
+            banner_filename: actor
+                .ek_banner_filename
+                .map(|x| format!("media/banners/{x}")),
             salt: actor.ek_salt,
             olm_pickled_account: actor.ek_olm_pickled_account,
             olm_pickled_account_hash: actor.ek_olm_pickled_account_hash,

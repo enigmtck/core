@@ -9,6 +9,7 @@ use diesel::pg::PgConnection;
 use diesel::prelude::*;
 use diesel::Insertable;
 use diesel::{sql_query, sql_types::Text, AsChangeset, Identifiable, Queryable, QueryableByName};
+use jdt_activity_pub::ApArticle;
 use jdt_activity_pub::MaybeMultiple;
 use jdt_activity_pub::MaybeReference;
 use jdt_activity_pub::{
@@ -101,6 +102,38 @@ impl Cache for ApNote {
     }
 }
 
+impl Cache for ApArticle {
+    async fn cache(&self, conn: &Db) -> &Self {
+        log::debug!("Checking for attachments");
+        for attachment in self.attachment.multiple() {
+            log::debug!("{attachment}");
+            cache_content(conn, attachment.clone().try_into()).await;
+        }
+
+        log::debug!("Checking for tags");
+        for tag in self.tag.multiple() {
+            log::debug!("{tag}");
+            cache_content(conn, tag.clone().try_into()).await;
+        }
+
+        if let Some(ephemeral) = self.ephemeral.clone() {
+            if let Some(metadata_vec) = ephemeral.metadata.clone() {
+                for metadata in metadata_vec {
+                    if let Some(og_image) = metadata.og_image.clone() {
+                        cache_content(conn, Ok(ApImage::from(og_image).into())).await;
+                    }
+
+                    if let Some(twitter_image) = metadata.twitter_image.clone() {
+                        cache_content(conn, Ok(ApImage::from(twitter_image).into())).await;
+                    }
+                }
+            }
+        }
+
+        self
+    }
+}
+
 impl Cache for ApObject {
     async fn cache(&self, conn: &Db) -> &Self {
         match self {
@@ -109,6 +142,9 @@ impl Cache for ApObject {
             }
             ApObject::Question(question) => {
                 question.cache(conn).await;
+            }
+            ApObject::Article(article) => {
+                article.cache(conn).await;
             }
             _ => (),
         }

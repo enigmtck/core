@@ -28,6 +28,9 @@ pub async fn fetch_remote_object(conn: &Db, id: String, profile: Actor) -> Resul
                 Ok(ApObject::Question(question)) => {
                     create_or_update_object(conn, question.cache(conn).await.clone().into()).await
                 }
+                Ok(ApObject::Article(article)) => {
+                    create_or_update_object(conn, article.cache(conn).await.clone().into()).await
+                }
                 Err(e) => {
                     log::error!("Failed to decode remote Object: {e}");
                     Err(e.into())

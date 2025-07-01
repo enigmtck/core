@@ -774,10 +774,14 @@ pub async fn update_avatar_by_username(
     conn: &Db,
     username: String,
     filename: String,
+    as_image: Value,
 ) -> Option<Actor> {
     conn.run(move |c| {
         diesel::update(actors::table.filter(actors::ek_username.eq(username)))
-            .set(actors::ek_avatar_filename.eq(filename))
+            .set((
+                actors::ek_avatar_filename.eq(filename),
+                actors::as_icon.eq(as_image),
+            ))
             .get_result::<Actor>(c)
     })
     .await
@@ -788,10 +792,14 @@ pub async fn update_banner_by_username(
     conn: &Db,
     username: String,
     filename: String,
+    as_image: Value,
 ) -> Option<Actor> {
     conn.run(move |c| {
         diesel::update(actors::table.filter(actors::ek_username.eq(username)))
-            .set(actors::ek_banner_filename.eq(filename))
+            .set((
+                actors::ek_banner_filename.eq(filename),
+                actors::as_image.eq(as_image),
+            ))
             .get_result::<Actor>(c)
     })
     .await
@@ -931,15 +939,18 @@ pub async fn delete_actor_by_as_id(conn: &Db, as_id: String) -> bool {
     .is_ok()
 }
 
-pub async fn delete_actors_by_domain_pattern(conn: Option<&Db>, domain_pattern: String) -> Result<usize> {
+pub async fn delete_actors_by_domain_pattern(
+    conn: Option<&Db>,
+    domain_pattern: String,
+) -> Result<usize> {
     let operation = move |c: &mut diesel::PgConnection| {
         use diesel::sql_types::Text;
-        
+
         // First delete activities that reference actors from this domain
         sql_query("DELETE FROM activities WHERE target_actor_id IN (SELECT id FROM actors WHERE as_id COLLATE \"C\" LIKE $1)")
             .bind::<Text, _>(format!("https://{}/%", domain_pattern.clone()))
             .execute(c)?;
-            
+
         // Then delete the actors themselves
         sql_query("DELETE FROM actors WHERE as_id COLLATE \"C\" LIKE $1")
             .bind::<Text, _>(format!("https://{}/%", domain_pattern))

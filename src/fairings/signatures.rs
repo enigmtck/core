@@ -129,7 +129,8 @@ impl<'r> FromRequest<'r> for Signed {
         match request.guard::<Db>().await {
             Outcome::Success(conn) => {
                 let method = request.method().to_string();
-                let host = request.host().expect("Host not found").to_string();
+                let host = (*crate::SERVER_NAME).clone();
+                //let host = request.host().expect("Host not found").to_string();
                 let path = request.uri().path().to_string();
                 let path = path.trim_end_matches('&');
                 let request_target = format!("{} {}", method.to_lowercase(), path);
@@ -178,7 +179,7 @@ impl<'r> FromRequest<'r> for Signed {
                                 // the Fairing (i.e., it's not in the header), so we defer the verification
                                 // to the receiving route that decodes the whole request
                                 VerificationError::ActorNotFound(ref verify_map_params) => {
-                                    log::debug!("Signature verification deferred: {}", e);
+                                    log::debug!("Signature verification deferred: {e}");
                                     Outcome::Success(Signed(
                                         false,
                                         VerificationType::Deferred(verify_map_params.clone()),

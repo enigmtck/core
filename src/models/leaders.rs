@@ -220,10 +220,13 @@ pub async fn get_leader_count_by_actor_id(conn: &Db, actor_id: i32) -> Result<i6
     .map_err(anyhow::Error::msg)
 }
 
-pub async fn delete_leaders_by_domain_pattern(conn: Option<&Db>, domain_pattern: String) -> Result<usize> {
+pub async fn delete_leaders_by_domain_pattern(
+    conn: Option<&Db>,
+    domain_pattern: String,
+) -> Result<usize> {
     let operation = move |c: &mut diesel::PgConnection| {
         use diesel::sql_types::Text;
-        
+
         sql_query("DELETE FROM leaders WHERE leader_ap_id COLLATE \"C\" LIKE $1")
             .bind::<Text, _>(format!("https://{}/%", domain_pattern))
             .execute(c)

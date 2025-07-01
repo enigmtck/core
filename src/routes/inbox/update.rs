@@ -89,6 +89,34 @@ impl Inbox for ApUpdate {
                         Err(Status::Unauthorized)
                     }
                 }
+                ApObject::Article(article) => {
+                    log::debug!("{article}");
+                    if article.clone().attributed_to == self.actor.clone() {
+                        let object = create_or_update_object(&conn, article.into())
+                            .await
+                            .map_err(|e| {
+                                log::error!("Failed to create or update Article: {e}");
+                                Status::InternalServerError
+                            })?;
+
+                        let mut activity = NewActivity::try_from((activity, Some(object.into())))
+                            .map_err(|e| {
+                            log::error!("Failed to build NewActivity: {e}");
+                            Status::InternalServerError
+                        })?;
+                        activity.raw = Some(raw);
+
+                        create_activity(Some(&conn), activity).await.map_err(|e| {
+                            log::error!("Failed to create Activity: {e}");
+                            Status::InternalServerError
+                        })?;
+
+                        Ok(Status::Accepted)
+                    } else {
+                        log::error!("attributed_to does not match Actor");
+                        Err(Status::Unauthorized)
+                    }
+                }
                 ApObject::Question(question) => {
                     log::debug!("{question}");
                     if question.clone().attributed_to == self.actor.clone() {

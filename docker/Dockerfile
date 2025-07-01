@@ -15,8 +15,8 @@ FROM rust-setup AS dependencies
 WORKDIR /opt/build
 COPY Cargo.toml Cargo.lock rust-toolchain.toml ./
 # Create dummy main.rs to build dependencies only
-RUN mkdir src && echo "fn main() {}" > src/main.rs
-RUN cargo build --no-default-features -F pg --bin enigmatick --release
+RUN mkdir src && touch src/lib.rs
+RUN cargo build --no-default-features -F pg --lib
 # Remove dummy files but keep compiled dependencies
 RUN rm -rf src target/release/enigmatick* target/release/build/enigmatick*
 

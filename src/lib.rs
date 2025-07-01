@@ -34,6 +34,7 @@ pub mod db;
 pub mod fairings;
 pub mod helper;
 pub mod models;
+pub mod proxy;
 pub mod retriever;
 pub mod routes;
 pub mod runner;
@@ -91,6 +92,22 @@ lazy_static! {
                     .expect("failed to create db pool")
             }
         }
+    };
+    pub static ref ACME_PROXY: bool = {
+        dotenv().ok();
+        env::var("ACME_PROXY").is_ok_and(|x| x.parse().expect("ACME_PROXY must be \"true\" or \"false\""))
+    };
+    pub static ref ACME_EMAILS: Option<Vec<String>> = {
+        dotenv().ok();
+        if let Ok(emails) = env::var("ACME_EMAIL") {
+            serde_json::from_str(&emails).ok()
+        } else {
+            None
+        }
+    };
+    pub static ref ROCKET_PORT: String = {
+        dotenv().ok();
+        env::var("ROCKET_PORT").unwrap_or("8000".to_string())
     };
     pub static ref DEFAULT_AVATAR: String = {
         dotenv().ok();

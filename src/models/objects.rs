@@ -11,8 +11,8 @@ use diesel::{sql_query, AsChangeset, Identifiable, Insertable, Queryable};
 use jdt_activity_pub::MaybeMultiple;
 use jdt_activity_pub::MaybeReference;
 use jdt_activity_pub::{
-    ApAddress, ApDateTime, ApHashtag, ApNote, ApNoteType, ApObject, ApQuestion, ApQuestionType,
-    Ephemeral,
+    ApAddress, ApArticle, ApDateTime, ApHashtag, ApNote, ApNoteType, ApObject, ApQuestion,
+    ApQuestionType, Ephemeral,
 };
 use maplit::{hashmap, hashset};
 use serde::{Deserialize, Serialize};
@@ -299,6 +299,7 @@ impl TryFrom<ApObject> for NewObject {
     fn try_from(object: ApObject) -> Result<Self, Self::Error> {
         match object {
             ApObject::Note(note) => Ok(note.into()),
+            ApObject::Article(article) => Ok(article.into()),
             ApObject::Question(question) => Ok(question.into()),
             _ => Err(anyhow!(
                 "conversion to NewObject not implemented: {object:#?}"
@@ -312,6 +313,17 @@ type AttributedApNote = (ApNote, Actor);
 impl From<AttributedApNote> for NewObject {
     fn from((note, actor): AttributedApNote) -> NewObject {
         let mut object: NewObject = note.into();
+        object.ek_profile_id = Some(actor.id);
+
+        object.clone()
+    }
+}
+
+type AttributedApArticle = (ApArticle, Actor);
+
+impl From<AttributedApArticle> for NewObject {
+    fn from((article, actor): AttributedApArticle) -> NewObject {
+        let mut object: NewObject = article.into();
         object.ek_profile_id = Some(actor.id);
 
         object.clone()
@@ -373,6 +385,74 @@ impl From<ApNote> for NewObject {
             ek_uuid: note.ephemeral.and_then(|x| x.internal_uuid),
             ek_instrument: note.instrument.option().map(|x| json!(x)),
             ek_hashtags,
+            ..Default::default()
+        }
+    }
+}
+
+impl From<ApArticle> for NewObject {
+    fn from(article: ApArticle) -> NewObject {
+        let mut ammonia = ammonia::Builder::default();
+
+        ammonia
+            .add_tag_attributes("span", &["class"])
+            .add_tag_attributes("a", &["class"])
+            .tag_attribute_values(hashmap![
+                "span" => hashmap![
+                    "class" => hashset!["h-card"],
+                ],
+                "a" => hashmap![
+                    "class" => hashset!["u-url mention"],
+                ],
+            ]);
+
+        let published: Option<DateTime<Utc>> = Some(*article.clone().published);
+
+        let clean_content_map = {
+            let mut content_map = HashMap::<String, String>::new();
+            if let Some(map) = article.clone().content_map {
+                for (key, value) in map {
+                    content_map.insert(key, ammonia.clean(&value).to_string());
+                }
+            }
+
+            content_map
+        };
+
+        let hashtags: Vec<ApHashtag> = article.clone().into();
+        let ek_hashtags = json!(hashtags
+            .iter()
+            .map(|x| x.name.clone().to_lowercase())
+            .collect::<Vec<String>>());
+
+        NewObject {
+            as_url: Some(json!(article.clone().url)),
+            as_published: published,
+            as_updated: article.updated.map(|u| *u),
+            as_type: ObjectType::Article,
+            as_id: article.id.clone().expect("article id should not be None"),
+            as_attributed_to: Some(json!(article.attributed_to)),
+            as_to: article.to.into(),
+            as_cc: article.cc.into(),
+            as_bcc: article.bcc.into(),
+            as_bto: article.bto.into(),
+            as_audience: article.audience.into(),
+            as_replies: article.replies.into(),
+            as_tag: article.tag.into(),
+            as_content: article.content.map(|c| ammonia.clean(&c).to_string()),
+            as_summary: article.summary.map(|x| ammonia.clean(&x).to_string()),
+            ap_sensitive: article.sensitive,
+            as_in_reply_to: article.in_reply_to.into(),
+            as_content_map: Some(json!(clean_content_map)),
+            as_attachment: article.attachment.into(),
+            as_image: article.image.into(),
+            as_context: article.context_property.into(),
+            as_generator: article.generator.map(|g| json!(g)),
+            as_preview: article.preview.into(),
+            ek_uuid: article.ephemeral.and_then(|x| x.internal_uuid),
+            ek_instrument: article.instrument.option().map(|x| json!(x)),
+            ek_hashtags,
+            as_name: article.name,
             ..Default::default()
         }
     }
@@ -470,12 +550,74 @@ impl TryFrom<Object> for ApNote {
     }
 }
 
+impl TryFrom<Object> for ApArticle {
+    type Error = anyhow::Error;
+
+    fn try_from(object: Object) -> Result<ApArticle> {
+        if object.as_type.is_article() {
+            Ok(ApArticle {
+                id: Some(object.as_id.clone()),
+                kind: jdt_activity_pub::ApArticleType::Article,
+                published: object.as_published.unwrap_or(Utc::now()).into(),
+                updated: object.as_updated.map(|u| u.into()),
+                url: object.as_url.clone().and_then(from_serde),
+                to: object
+                    .as_to
+                    .clone()
+                    .and_then(from_serde)
+                    .unwrap_or(vec![].into()),
+                cc: object.as_cc.clone().into(),
+                bcc: object.as_bcc.clone().into(),
+                bto: object.as_bto.clone().into(),
+                audience: object.as_audience.clone().into(),
+                tag: object.as_tag.clone().into(),
+                attributed_to: from_serde(
+                    object.as_attributed_to.ok_or(anyhow!("no attributed_to"))?,
+                )
+                .ok_or(anyhow!("failed to convert from Value"))?,
+                name: object.as_name.clone(),
+                content: object.as_content.clone(),
+                summary: object.as_summary.clone(),
+                replies: object
+                    .as_replies
+                    .clone()
+                    .map_or_else(|| MaybeReference::None, |x| x.into()),
+                in_reply_to: object.as_in_reply_to.clone().into(),
+                attachment: object.as_attachment.clone().into(),
+                image: object.as_image.clone().into(),
+                context_property: object.as_context.clone().into(),
+                generator: object.as_generator.clone().and_then(from_serde),
+                preview: match object.as_preview {
+                    Some(value) => MaybeReference::from(value),
+                    None => MaybeReference::None,
+                },
+                sensitive: object.ap_sensitive,
+                content_map: object.as_content_map.clone().and_then(from_serde),
+                source: None,                         // Not stored in database
+                dcterms_subject: MaybeMultiple::None, // Not stored in database
+                ephemeral: Some(Ephemeral {
+                    timestamp: Some(object.created_at),
+                    metadata: object.ek_metadata.and_then(from_serde),
+                    internal_uuid: object.ek_uuid.clone(),
+                    ..Default::default()
+                }),
+                instrument: object.ek_instrument.clone().into(),
+                context: None, // ActivityPub context, not stored
+            })
+        } else {
+            Err(anyhow!("ObjectType is not Article"))
+        }
+    }
+}
+
 impl TryFrom<Object> for ApObject {
     type Error = anyhow::Error;
 
     fn try_from(object: Object) -> Result<Self> {
         match object.as_type {
             ObjectType::Note => Ok(ApObject::Note(object.try_into()?)),
+            ObjectType::Article => Ok(ApObject::Article(object.try_into()?)),
+            ObjectType::Question => Ok(ApObject::Question(object.try_into()?)),
             _ => Err(anyhow!("unimplemented Object -> ApObject conversion")),
         }
     }
@@ -485,6 +627,7 @@ impl From<Object> for Vec<ApHashtag> {
     fn from(object: Object) -> Self {
         match ApObject::try_from(object) {
             Ok(ApObject::Note(note)) => note.into(),
+            Ok(ApObject::Article(article)) => article.into(),
             _ => vec![],
         }
     }
@@ -646,10 +789,13 @@ pub async fn delete_object_by_uuid(conn: &Db, uuid: String) -> Result<usize> {
         .map_err(anyhow::Error::msg)
 }
 
-pub async fn delete_objects_by_domain_pattern(conn: Option<&Db>, domain_pattern: String) -> Result<usize> {
+pub async fn delete_objects_by_domain_pattern(
+    conn: Option<&Db>,
+    domain_pattern: String,
+) -> Result<usize> {
     let operation = move |c: &mut diesel::PgConnection| {
         use diesel::sql_types::Text;
-        
+
         sql_query("DELETE FROM objects WHERE as_attributed_to::text LIKE $1")
             .bind::<Text, _>(format!("\"https://{}/%\"", domain_pattern))
             .execute(c)
