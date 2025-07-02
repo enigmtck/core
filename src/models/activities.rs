@@ -525,16 +525,18 @@ impl TryFrom<ApActivityTarget> for NewActivity {
                     ))
                 }
             }
-            ApActivity::Update(update) => match update.object {
+            ApActivity::Update(update) => match update.object.clone() {
                 MaybeReference::Actual(ApObject::Actor(actor)) => Ok(NewActivity {
-                    kind: update.kind.into(),
+                    kind: update.kind.clone().into(),
                     uuid: uuid.clone(),
                     actor: update.actor.to_string(),
                     target_ap_id: actor.id.map(|x| x.to_string()),
                     revoked: false,
                     ap_id: update
                         .id
+                        .clone()
                         .map_or(Some(get_activity_ap_id_from_uuid(uuid)), Some),
+                    raw: Some(json!(update)),
                     ..Default::default()
                 }
                 .link_target(target)
@@ -2246,7 +2248,19 @@ pub async fn delete_activities_by_domain_pattern(
         use diesel::sql_types::Text;
 
         sql_query("DELETE FROM activities WHERE actor COLLATE \"C\" LIKE $1")
-            .bind::<Text, _>(format!("https://{}/%", domain_pattern))
+            .bind::<Text, _>(format!("https://{domain_pattern}/%"))
+            .execute(c)
+    };
+
+    crate::db::run_db_op(conn, &crate::POOL, operation).await
+}
+
+pub async fn delete_activities_by_actor(conn: Option<&Db>, actor: String) -> Result<usize> {
+    let operation = move |c: &mut diesel::PgConnection| {
+        use diesel::sql_types::Text;
+
+        sql_query("DELETE FROM activities WHERE actor = $1")
+            .bind::<Text, _>(actor)
             .execute(c)
     };
 

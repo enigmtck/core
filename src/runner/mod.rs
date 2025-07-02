@@ -194,6 +194,8 @@ pub async fn send_to_inboxes(
     })?;
 
     let body = serde_json::to_string(&message).map_err(anyhow::Error::msg)?;
+
+    log::debug!("Processing inboxes: {inboxes:?}");
     process_all_inboxes(inboxes, body, profile, conn, as_id).await?;
 
     Ok(())

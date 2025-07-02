@@ -5,10 +5,15 @@ use crate::{
     db::Db,
     models::{
         activities::{
-            create_activity, revoke_activities_by_object_as_id, ActivityTarget, NewActivity,
+            create_activity, delete_activities_by_actor, revoke_activities_by_object_as_id,
+            ActivityTarget, NewActivity,
         },
         actors::{get_actor_by_as_id, tombstone_actor_by_as_id},
-        objects::{get_object_by_as_id, tombstone_object_by_as_id},
+        followers::{delete_followers_by_actor, delete_followers_by_followed_ap_id},
+        leaders::{delete_leaders_by_actor, delete_leaders_by_leader_ap_id},
+        objects::{
+            delete_objects_by_attributed_to, get_object_by_as_id, tombstone_object_by_as_id,
+        },
         Tombstone,
     },
 };
@@ -102,22 +107,60 @@ impl Inbox for Box<ApDelete> {
 
         activity.raw = Some(raw);
 
-        let activity = create_activity(Some(&conn), activity).await.map_err(|e| {
-            log::error!("Failed to create Activity: {e}");
-            Status::InternalServerError
-        })?;
-
-        log::debug!(
-            "Tombstone Activity: {}",
-            activity.ap_id.unwrap_or("no id".to_string())
-        );
-
         match tombstone {
             Tombstone::Actor(actor) => {
                 log::debug!("Setting Actor to Tombstone");
                 if self.actor.to_string() == actor.as_id {
+                    let as_id = actor.as_id;
+
                     log::debug!("Running database updates");
-                    tombstone_actor_by_as_id(&conn, actor.as_id)
+                    log::debug!("Deleting Followers of {as_id}...");
+                    delete_followers_by_followed_ap_id(Some(&conn), as_id.clone())
+                        .await
+                        .map_err(|e| {
+                            log::error!("Failed to delete Followers: {e}");
+                            Status::InternalServerError
+                        })?;
+
+                    delete_followers_by_actor(Some(&conn), as_id.clone())
+                        .await
+                        .map_err(|e| {
+                            log::error!("Failed to delete Followers by Actor: {e}");
+                            Status::InternalServerError
+                        })?;
+
+                    log::debug!("Deleting Leaders of {as_id}...");
+                    delete_leaders_by_leader_ap_id(Some(&conn), as_id.clone())
+                        .await
+                        .map_err(|e| {
+                            log::error!("Failed to delete Leaders: {e}");
+                            Status::InternalServerError
+                        })?;
+
+                    delete_leaders_by_actor(Some(&conn), as_id.clone())
+                        .await
+                        .map_err(|e| {
+                            log::error!("Failed to delete Leaders by Actor: {e}");
+                            Status::InternalServerError
+                        })?;
+
+                    log::debug!("Deleting Objects owned by {as_id}...");
+                    delete_objects_by_attributed_to(Some(&conn), as_id.clone())
+                        .await
+                        .map_err(|e| {
+                            log::error!("Failed to delete Objects: {e}");
+                            Status::InternalServerError
+                        })?;
+
+                    log::debug!("Deleting Activities created by {as_id}...");
+                    delete_activities_by_actor(Some(&conn), as_id.clone())
+                        .await
+                        .map_err(|e| {
+                            log::error!("Failed to delete Activities: {e}");
+                            Status::InternalServerError
+                        })?;
+
+                    tombstone_actor_by_as_id(Some(&conn), as_id)
                         .await
                         .map_err(|e| {
                             log::error!("Failed to delete Actor: {e}");
@@ -153,6 +196,16 @@ impl Inbox for Box<ApDelete> {
                 }
             }
         }
+
+        let activity = create_activity(Some(&conn), activity).await.map_err(|e| {
+            log::error!("Failed to create Activity: {e}");
+            Status::InternalServerError
+        })?;
+
+        log::debug!(
+            "Tombstone Activity: {}",
+            activity.ap_id.unwrap_or("no id".to_string())
+        );
 
         Ok(Status::Accepted)
     }

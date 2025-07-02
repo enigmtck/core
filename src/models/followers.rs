@@ -166,10 +166,7 @@ pub async fn get_followers_by_actor_id(
 
     match conn_opt {
         Some(conn) => conn.run(operation).await.unwrap_or_else(|e| {
-            log::error!(
-                "Failed to get followers by actor id (with DB conn): {:?}",
-                e
-            );
+            log::error!("Failed to get followers by actor id (with DB conn): {e:?}");
             vec![]
         }),
         None => {
@@ -181,17 +178,13 @@ pub async fn get_followers_by_actor_id(
             .unwrap_or_else(|e| {
                 // Handles JoinError
                 log::error!(
-                    "Failed to get followers by actor id (spawn_blocking task failed): {:?}",
-                    e
+                    "Failed to get followers by actor id (spawn_blocking task failed): {e:?}"
                 );
                 Ok(vec![]) // Ok because the outer unwrap_or_else expects Result<Vec, _>
             })
             .unwrap_or_else(|e| {
                 // Handles error from operation itself
-                log::error!(
-                    "Failed to get followers by actor id (DB operation failed): {:?}",
-                    e
-                );
+                log::error!("Failed to get followers by actor id (DB operation failed): {e:?}");
                 vec![]
             })
         }
@@ -219,7 +212,31 @@ pub async fn delete_followers_by_domain_pattern(
         use diesel::sql_types::Text;
 
         sql_query("DELETE FROM followers WHERE actor COLLATE \"C\" LIKE $1")
-            .bind::<Text, _>(format!("https://{}/%", domain_pattern))
+            .bind::<Text, _>(format!("https://{domain_pattern}/%"))
+            .execute(c)
+    };
+
+    crate::db::run_db_op(conn, &crate::POOL, operation).await
+}
+
+pub async fn delete_followers_by_followed_ap_id(conn: Option<&Db>, ap_id: String) -> Result<usize> {
+    let operation = move |c: &mut diesel::PgConnection| {
+        use diesel::sql_types::Text;
+
+        sql_query("DELETE FROM followers WHERE followed_ap_id = $1")
+            .bind::<Text, _>(ap_id)
+            .execute(c)
+    };
+
+    crate::db::run_db_op(conn, &crate::POOL, operation).await
+}
+
+pub async fn delete_followers_by_actor(conn: Option<&Db>, actor: String) -> Result<usize> {
+    let operation = move |c: &mut diesel::PgConnection| {
+        use diesel::sql_types::Text;
+
+        sql_query("DELETE FROM followers WHERE actor = $1")
+            .bind::<Text, _>(actor)
             .execute(c)
     };
 

@@ -797,7 +797,22 @@ pub async fn delete_objects_by_domain_pattern(
         use diesel::sql_types::Text;
 
         sql_query("DELETE FROM objects WHERE as_attributed_to::text LIKE $1")
-            .bind::<Text, _>(format!("\"https://{}/%\"", domain_pattern))
+            .bind::<Text, _>(format!("\"https://{domain_pattern}/%\""))
+            .execute(c)
+    };
+
+    crate::db::run_db_op(conn, &crate::POOL, operation).await
+}
+
+pub async fn delete_objects_by_attributed_to(
+    conn: Option<&Db>,
+    attributed_to: String,
+) -> Result<usize> {
+    let operation = move |c: &mut diesel::PgConnection| {
+        use diesel::sql_types::Jsonb;
+
+        sql_query("DELETE FROM objects WHERE as_attributed_to @> $1")
+            .bind::<Jsonb, _>(json!(attributed_to))
             .execute(c)
     };
 

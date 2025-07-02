@@ -228,7 +228,31 @@ pub async fn delete_leaders_by_domain_pattern(
         use diesel::sql_types::Text;
 
         sql_query("DELETE FROM leaders WHERE leader_ap_id COLLATE \"C\" LIKE $1")
-            .bind::<Text, _>(format!("https://{}/%", domain_pattern))
+            .bind::<Text, _>(format!("https://{domain_pattern}/%"))
+            .execute(c)
+    };
+
+    crate::db::run_db_op(conn, &crate::POOL, operation).await
+}
+
+pub async fn delete_leaders_by_leader_ap_id(conn: Option<&Db>, ap_id: String) -> Result<usize> {
+    let operation = move |c: &mut diesel::PgConnection| {
+        use diesel::sql_types::Text;
+
+        sql_query("DELETE FROM leaders WHERE leader_ap_id = $1")
+            .bind::<Text, _>(ap_id)
+            .execute(c)
+    };
+
+    crate::db::run_db_op(conn, &crate::POOL, operation).await
+}
+
+pub async fn delete_leaders_by_actor(conn: Option<&Db>, actor: String) -> Result<usize> {
+    let operation = move |c: &mut diesel::PgConnection| {
+        use diesel::sql_types::Text;
+
+        sql_query("DELETE FROM leaders WHERE actor = $1")
+            .bind::<Text, _>(actor)
             .execute(c)
     };
 

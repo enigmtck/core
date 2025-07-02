@@ -917,14 +917,47 @@ pub async fn get_actor_by_key_id(conn: &Db, key_id: String) -> Result<Actor> {
     .map_err(anyhow::Error::msg)
 }
 
-pub async fn tombstone_actor_by_as_id(conn: &Db, as_id: String) -> Result<Actor> {
-    conn.run(move |c| {
+pub async fn tombstone_actor_by_as_id(conn_opt: Option<&Db>, as_id: String) -> Result<Actor> {
+    let operation = move |c: &mut PgConnection| {
         diesel::update(actors::table.filter(actors::as_id.eq(as_id)))
-            .set(actors::as_type.eq(ActorType::Tombstone))
+            .set((
+                actors::as_type.eq(ActorType::Tombstone),
+                // Clear user-supplied content fields
+                actors::as_name.eq(None::<String>),
+                actors::as_summary.eq(None::<String>),
+                actors::ek_summary_markdown.eq(None::<String>),
+                actors::as_attachment.eq(json!([])),
+                actors::as_tag.eq(json!([])),
+                actors::ek_hashtags.eq(json!([])),
+                // Clear avatar and banner
+                actors::ek_avatar_filename.eq(None::<String>),
+                actors::ek_banner_filename.eq(None::<String>),
+                actors::as_icon.eq(json!({})),
+                actors::as_image.eq(json!({})),
+                // Clear discovery and social fields
+                actors::as_discoverable.eq(false),
+                actors::as_featured.eq(None::<Value>),
+                actors::as_featured_tags.eq(None::<String>),
+                actors::as_also_known_as.eq(json!([])),
+                // Clear capabilities
+                actors::ap_capabilities.eq(json!({})),
+                // Clear encryption-related fields
+                actors::ek_client_public_key.eq(None::<String>),
+                actors::ek_client_private_key.eq(None::<String>),
+                actors::ek_olm_pickled_account.eq(None::<String>),
+                actors::ek_olm_pickled_account_hash.eq(None::<String>),
+                actors::ek_olm_identity_key.eq(None::<String>),
+                actors::ek_mls_credentials.eq(None::<String>),
+                actors::ek_mls_storage.eq(None::<String>),
+                actors::ek_mls_storage_hash.eq(None::<String>),
+                actors::ek_keys.eq(None::<String>),
+                // Clear muted terms
+                actors::ek_muted_terms.eq(json!([])),
+            ))
             .get_result(c)
-    })
-    .await
-    .map_err(anyhow::Error::msg)
+    };
+
+    crate::db::run_db_op(conn_opt, &crate::POOL, operation).await
 }
 
 pub async fn delete_actor_by_as_id(conn: &Db, as_id: String) -> bool {
@@ -953,7 +986,7 @@ pub async fn delete_actors_by_domain_pattern(
 
         // Then delete the actors themselves
         sql_query("DELETE FROM actors WHERE as_id COLLATE \"C\" LIKE $1")
-            .bind::<Text, _>(format!("https://{}/%", domain_pattern))
+            .bind::<Text, _>(format!("https://{domain_pattern}/%"))
             .execute(c)
     };
 

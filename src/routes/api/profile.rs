@@ -61,10 +61,10 @@ pub async fn update_summary(
         })?;
 
     runner::run(
-        runner::user::send_profile_update_task,
+        runner::user::send_actor_update_task,
         conn,
         Some(channels),
-        vec![profile.ek_uuid.clone().ok_or(Status::NoContent)?],
+        vec![profile.ek_uuid.clone().ok_or(Status::InternalServerError)?],
     )
     .await;
 
@@ -188,11 +188,17 @@ pub async fn upload_avatar(
         return Err(Status::NoContent);
     }
 
-    if update_avatar_by_username(&conn, username, filename, json!(as_image))
-        .await
-        .is_none()
+    if let Some(actor) = update_avatar_by_username(&conn, username, filename, json!(as_image)).await
     {
-        return Err(Status::NoContent);
+        runner::run(
+            runner::user::send_actor_update_task,
+            conn,
+            None,
+            vec![actor.ek_uuid.clone().ok_or(Status::InternalServerError)?],
+        )
+        .await;
+    } else {
+        return Err(Status::InternalServerError);
     }
 
     Ok(Status::Accepted)
@@ -237,11 +243,17 @@ pub async fn upload_banner(
         return Err(Status::NoContent);
     }
 
-    if update_banner_by_username(&conn, username, filename, json!(as_image))
-        .await
-        .is_none()
+    if let Some(actor) = update_banner_by_username(&conn, username, filename, json!(as_image)).await
     {
-        return Err(Status::NoContent);
+        runner::run(
+            runner::user::send_actor_update_task,
+            conn,
+            None,
+            vec![actor.ek_uuid.clone().ok_or(Status::InternalServerError)?],
+        )
+        .await;
+    } else {
+        return Err(Status::InternalServerError);
     }
 
     Ok(Status::Accepted)

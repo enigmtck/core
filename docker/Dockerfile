@@ -14,10 +14,12 @@ RUN rustup +nightly default
 FROM rust-setup AS dependencies
 WORKDIR /opt/build
 COPY Cargo.toml Cargo.lock rust-toolchain.toml ./
-# Create dummy main.rs to build dependencies only
-RUN mkdir src && touch src/lib.rs
-RUN cargo build --no-default-features -F pg --lib
-# Remove dummy files but keep compiled dependencies
+# Create dummy source structure
+RUN mkdir -p src/bin/enigmatick
+RUN echo "fn main() {}" > src/bin/enigmatick/mod.rs
+RUN echo "fn main() {}" > src/main.rs
+# Build dependencies only (this will still cache most dependencies)
+RUN cargo build --no-default-features -F pg --release
 RUN rm -rf src target/release/enigmatick* target/release/build/enigmatick*
 
 FROM dependencies AS builder

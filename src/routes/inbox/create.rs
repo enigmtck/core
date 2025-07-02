@@ -40,6 +40,7 @@ impl Inbox for ApCreate {
                         MaybeReference::Reference(id) => Some(id.clone()),
                         MaybeReference::Actual(timeline_obj) => match timeline_obj {
                             ApTimelineObject::Note(note) => note.id.clone(),
+                            ApTimelineObject::MinimalNote(note) => note.id.clone(),
                             ApTimelineObject::Question(question) => Some(question.id.clone()),
                             ApTimelineObject::Article(article) => article.id.clone(),
                         },
@@ -100,6 +101,7 @@ impl Inbox for ApCreate {
                         MaybeReference::Reference(id) => Some(id.clone()),
                         MaybeReference::Actual(timeline_obj) => match timeline_obj {
                             ApTimelineObject::Note(note) => note.id.clone(),
+                            ApTimelineObject::MinimalNote(note) => note.id.clone(),
                             ApTimelineObject::Question(question) => Some(question.id.clone()),
                             ApTimelineObject::Article(article) => article.id.clone(),
                         },
@@ -159,6 +161,7 @@ impl Inbox for ApCreate {
                         MaybeReference::Reference(id) => Some(id.clone()),
                         MaybeReference::Actual(timeline_obj) => match timeline_obj {
                             ApTimelineObject::Note(note) => note.id.clone(),
+                            ApTimelineObject::MinimalNote(note) => note.id.clone(),
                             ApTimelineObject::Question(question) => Some(question.id.clone()),
                             ApTimelineObject::Article(article) => article.id.clone(),
                         },

@@ -1,5 +1,10 @@
+use std::sync::Arc;
+
 use anyhow::Result;
 use chrono::Utc;
+use identicon_rs::color::RGB;
+use identicon_rs::theme::HSLRange;
+use identicon_rs::Identicon;
 use orion::pwhash;
 use rsa::{
     pkcs8::EncodePrivateKey, pkcs8::EncodePublicKey, pkcs8::LineEnding, RsaPrivateKey, RsaPublicKey,
@@ -45,6 +50,7 @@ pub async fn authenticate(conn: &Db, username: String, password_str: String) -> 
     let password_hash = pwhash::PasswordHash::from_encoded(&encoded_password_hash).ok()?;
 
     pwhash::hash_password_verify(&password_hash, &password).ok()?;
+
     profile.try_into().ok()
 }
 
@@ -57,10 +63,7 @@ pub async fn verify_and_generate_password(
     authenticate(conn, username, current_password).await?;
 
     let password = pwhash::Password::from_slice(new_password.as_bytes()).ok()?;
-    // the example memory cost is 1<<16 (64MB); that taxes my system quite a bit,
-    // so I'm using 8MB - this should be increased as available power permits
-
-    let hash = pwhash::hash_password(&password, 3, 1 << 4).ok()?;
+    let hash = pwhash::hash_password(&password, 3, 1 << 16).ok()?;
 
     Some(hash.unprotected_as_encoded().to_string())
 }
@@ -79,18 +82,67 @@ pub struct NewUser {
     pub kind: Option<ActorType>,
 }
 
+async fn generate_avatar(username: String) -> Result<String> {
+    let filename = format!("{}.png", Uuid::new_v4());
+    let media_dir = crate::MEDIA_DIR.as_str();
+    let server_name = crate::SERVER_NAME.as_str();
+    let local_path = format!("{media_dir}/avatars/{filename}");
+    let handle = format!("@{username}@{server_name}");
+
+    let security_background_colors = vec![
+        RGB::from((54, 57, 63)), // Discord dark (professional)
+        RGB::from((45, 48, 54)), // Darker variant
+        RGB::from((48, 51, 57)), // Medium variant
+        RGB::from((51, 54, 60)), // Lighter variant
+    ];
+
+    let security_theme = Arc::new(HSLRange::new(
+        200.0,                      // hue_min: Blue-gray
+        220.0,                      // hue_max: Blue-gray
+        5.0,                        // saturation_min: Very desaturated
+        20.0,                       // saturation_max: Subtle color
+        15.0,                       // lightness_min: Very dark
+        35.0,                       // lightness_max: Dark range
+        security_background_colors, // background: Vec<RGB>
+    )?);
+
+    let cyberpunk_background_colors = vec![
+        RGB::from((20, 20, 25)), // Dark blue-gray
+        RGB::from((25, 20, 25)), // Dark magenta tint
+        RGB::from((20, 25, 30)), // Dark cyan tint
+        RGB::from((22, 22, 22)), // Neutral dark gray
+    ];
+
+    let cyberpunk_theme = Arc::new(HSLRange::new(
+        180.0,                       // hue_min: Cyan
+        320.0,                       // hue_max: Magenta
+        40.0,                        // saturation_min: Vibrant colors
+        70.0,                        // saturation_max: High saturation
+        25.0,                        // lightness_min: Dark but visible
+        40.0,                        // lightness_max: Bright enough for contrast
+        cyberpunk_background_colors, // background: Vec<RGB>
+    )?);
+
+    Identicon::new(&handle)
+        .set_border(50)
+        .set_size(7)?
+        .set_mirrored(true)
+        .set_theme(security_theme)
+        .save_image(&local_path)?;
+
+    Ok(filename)
+}
+
 pub async fn create_user(conn: Option<&Db>, user: NewUser) -> Result<Actor> {
     let key_pair = get_key_pair();
     let owner = get_ap_id_from_username(user.username.clone());
-    let server_url = crate::SERVER_URL.clone();
-    let server_name = crate::SERVER_NAME.clone();
-    let avatar = crate::DEFAULT_AVATAR.clone();
+    let server_url = crate::SERVER_URL.as_str();
+    let server_name = crate::SERVER_NAME.as_str();
     let password = pwhash::Password::from_slice(user.password.as_bytes())?;
     let username = user.username.clone();
+    let avatar = generate_avatar(username.clone()).await?;
+    let hash = pwhash::hash_password(&password, 3, 1 << 16)?;
 
-    // the example memory cost is 1<<16 (64MB); that taxes my system quite a bit,
-    // so I'm using 8MB - this should be increased as available power permits
-    let hash = pwhash::hash_password(&password, 3, 1 << 4)?;
     let new_profile = NewActor {
         ek_uuid: Some(Uuid::new_v4().to_string()),
         ek_username: Some(username.clone()),
@@ -143,13 +195,13 @@ pub async fn create_user(conn: Option<&Db>, user: NewUser) -> Result<Actor> {
         as_tag: json!([]),
         as_id: owner,
         as_icon: {
-            let mut image = ApImage::from(format!("{server_url}/{avatar}"));
+            let mut image = ApImage::from(format!("{server_url}/media/avatars/{avatar}"));
             image.media_type = Some("image/png".to_string());
             json!(image)
         },
         as_image: json!("{}"),
         ek_webfinger: Some(format!("@{username}@{server_name}")),
-        ek_avatar_filename: None,
+        ek_avatar_filename: Some(avatar),
         ek_banner_filename: None,
         ek_checked_at: Utc::now(),
         ek_hashtags: json!([]),
