@@ -1,5 +1,4 @@
-use anyhow::Result;
-use clap::{Parser, Subcommand};
+use clap::Parser;
 
 use enigmatick::server;
 
