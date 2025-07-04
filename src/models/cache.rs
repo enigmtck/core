@@ -21,8 +21,6 @@ use reqwest::StatusCode as ReqwestStatusCode;
 use rocket::tokio::time::{sleep, Duration as TokioDuration};
 use rocket_sync_db_pools::diesel;
 use serde::{Deserialize, Serialize};
-use std::error::Error;
-use std::time::Duration;
 use tokio::fs::{self, File};
 use tokio::io::AsyncWriteExt;
 
@@ -485,15 +483,9 @@ pub async fn delete_cache_items_by_server_pattern(
             })
             .await
             .context("Failed to delete cache records from database")?;
-        log::info!(
-            "Deleted {deleted_count} cache records from database matching server pattern '{}'.",
-            server_pattern
-        );
+        log::info!("Deleted {deleted_count} records matching server pattern '{server_pattern}'.");
     } else {
-        log::info!(
-            "No cache records needed database deletion for server pattern '{}'.",
-            server_pattern
-        );
+        log::info!("No cache records match server pattern '{server_pattern}'.");
     }
 
     Ok(matching_items)

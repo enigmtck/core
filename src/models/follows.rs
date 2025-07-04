@@ -332,7 +332,7 @@ pub async fn delete_follows_by_follower_ap_id(
     let operation = move |c: &mut diesel::PgConnection| {
         use diesel::sql_types::Text;
 
-        sql_query("DELETE FROM leaders WHERE follower_ap_id = $1")
+        sql_query("DELETE FROM follows WHERE follower_ap_id = $1")
             .bind::<Text, _>(follower_ap_id)
             .execute(c)
     };
