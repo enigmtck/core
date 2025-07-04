@@ -7,8 +7,10 @@ use crate::{
             get_actor_by_username, set_mls_credentials_by_username, update_mls_storage_by_username,
             Actor,
         },
-        followers::{get_follower_count_by_actor_id, get_followers_by_actor_id},
-        leaders::{get_leader_count_by_actor_id, get_leaders_by_actor_id},
+        follows::{
+            get_follower_count_by_actor_id, get_followers_by_actor_id,
+            get_leader_count_by_follower_actor_id, get_leaders_by_follower_actor_id,
+        },
         mls_group_conversations::create_mls_group_conversation,
         mls_key_packages::create_mls_key_package,
         unprocessable::create_unprocessable,
@@ -282,8 +284,10 @@ pub async fn get_followers(
     let followers = results
         .iter()
         .map(|(follower, _)| {
-            ActivityPub::try_from(MaybeReference::<ApActor>::Reference(follower.clone().actor))
-                .unwrap()
+            ActivityPub::try_from(MaybeReference::<ApActor>::Reference(
+                follower.clone().follower_ap_id,
+            ))
+            .unwrap()
         })
         .collect();
 
@@ -323,7 +327,7 @@ pub async fn get_leaders(
         .await
         .map_err(|_| Status::NotFound)?;
 
-    let total_items = get_leader_count_by_actor_id(&conn, profile.id)
+    let total_items = get_leader_count_by_follower_actor_id(Some(&conn), profile.id)
         .await
         .map_err(|e| {
             log::error!("FAILED TO RETRIEVE LEADER COUNT: {e:#?}");
@@ -331,17 +335,16 @@ pub async fn get_leaders(
         })?;
 
     let results = match page {
-        Some(p) if p > 0 => {
-            get_leaders_by_actor_id(
-                &conn,
-                profile.id,
-                Some(OffsetPaging {
-                    page: p - 1,
-                    limit: 20,
-                }),
-            )
-            .await
-        }
+        Some(p) if p > 0 => get_leaders_by_follower_actor_id(
+            Some(&conn),
+            profile.id,
+            Some(OffsetPaging {
+                page: p - 1,
+                limit: 20,
+            }),
+        )
+        .await
+        .map_err(|_| Status::InternalServerError)?,
         _ => vec![],
     };
 

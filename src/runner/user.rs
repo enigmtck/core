@@ -6,7 +6,8 @@ use crate::{
     models::{
         activities::{create_activity, NewActivity},
         actors::{get_actor_by_as_id, get_actor_by_uuid, Actor},
-        followers::get_followers_by_actor_id,
+        follows::get_followers_by_actor_id,
+        //followers::get_followers_by_actor_id,
     },
     runner::{get_inboxes, send_to_inboxes},
 };
@@ -18,8 +19,8 @@ use super::TaskError;
 pub async fn get_follower_inboxes(conn_opt: Option<&Db>, profile: Actor) -> Vec<ApAddress> {
     let mut inboxes: HashSet<ApAddress> = HashSet::new();
 
-    for (follower, _) in get_followers_by_actor_id(conn_opt, profile.id, None).await {
-        match get_actor_by_as_id(conn_opt, follower.actor).await {
+    for (follow, _) in get_followers_by_actor_id(conn_opt, profile.id, None).await {
+        match get_actor_by_as_id(conn_opt, follow.follower_ap_id.clone()).await {
             Ok(actor_model) => {
                 let ap_actor = ApActor::from(actor_model);
                 if let Some(endpoints) = ap_actor.endpoints {
@@ -31,7 +32,7 @@ pub async fn get_follower_inboxes(conn_opt: Option<&Db>, profile: Actor) -> Vec<
             Err(e) => {
                 log::warn!(
                     "Failed to get actor for follower {}: {:?}",
-                    follower.ap_id,
+                    follow.follower_ap_id,
                     e
                 );
             }

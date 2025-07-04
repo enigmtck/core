@@ -57,8 +57,8 @@ impl WebFinger {
 // It's not useful to get a WebFinger for a remote Actor.
 impl From<Actor> for WebFinger {
     fn from(profile: Actor) -> Self {
-        let server_url = &*crate::SERVER_URL;
-        let server_name = &*crate::SERVER_NAME;
+        let server_url = format!("https://{}", *crate::SERVER_NAME);
+        let server_name = crate::SERVER_NAME.as_str();
 
         WebFinger {
             subject: format!(

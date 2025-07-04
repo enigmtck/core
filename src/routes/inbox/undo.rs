@@ -6,7 +6,8 @@ use crate::{
             create_activity, get_activity_by_ap_id, revoke_activity_by_apid, ActivityTarget,
             NewActivity,
         },
-        followers::delete_follower_by_ap_id,
+        follows::delete_follow,
+        //followers::delete_follower_by_ap_id,
     },
     runner::{self},
 };
@@ -78,8 +79,24 @@ async fn inbox(conn: Db, target: &ApActivity, undo: &ApUndo, raw: Value) -> Resu
                 })?;
             Ok(Status::Accepted)
         }
-        ApActivity::Follow(_) => {
-            if delete_follower_by_ap_id(Some(&conn), target_ap_id.clone()).await {
+        ApActivity::Follow(follow) => {
+            if delete_follow(
+                Some(&conn),
+                follow.actor.to_string(),
+                follow
+                    .object
+                    .reference()
+                    .ok_or(Status::InternalServerError)?,
+            )
+            .await
+            .is_ok()
+                && revoke_activity_by_apid(
+                    Some(&conn),
+                    follow.id.clone().ok_or(Status::BadRequest)?,
+                )
+                .await
+                .is_ok()
+            {
                 log::info!("Follower record deleted: {target_ap_id}");
             }
 

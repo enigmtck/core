@@ -6,8 +6,8 @@ extern crate log;
 extern crate rocket;
 
 use crate::models::actors::{get_actor_by_as_id, Actor};
-use crate::models::followers::get_follower_count_by_actor_id;
-use crate::models::leaders::{get_leader_by_actor_id_and_ap_id, get_leader_count_by_actor_id};
+//use crate::models::followers::get_follower_count_by_actor_id;
+//use crate::models::leaders::{get_leader_by_actor_id_and_ap_id, get_leader_count_by_actor_id};
 use crate::webfinger::retrieve_webfinger;
 use atty as _;
 use clap as _;
@@ -22,6 +22,9 @@ use jdt_activity_pub::MaybeMultiple;
 use jdt_activity_pub::MaybeReference;
 use jdt_activity_pub::{ApActivity, ApActor, ApCollection, ApNote, ApObject, ApTag, Ephemeral};
 use lazy_static::lazy_static;
+use models::follows::{
+    get_follow, get_follower_count_by_actor_id, get_leader_count_by_follower_actor_id,
+};
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -68,8 +71,8 @@ lazy_static! {
     pub static ref DOMAIN_RE: Regex =
         Regex::new(r#"https://([\w\.-]+)/?(.*)"#).expect("invalid domain regex");
     pub static ref LOCAL_URL_RE: Regex = Regex::new(&format!(
-        r#"^{}/(user|notes|session|collections|activities|objects|instruments)/(.+)$"#,
-        *SERVER_URL
+        r#"^https://{}/(user|notes|session|collections|activities|objects|instruments)/(.+)$"#,
+        *SERVER_NAME
     ))
     .expect("invalid local url regex");
     pub static ref LOCAL_USER_KEY_ID_RE: Regex =
@@ -105,17 +108,17 @@ lazy_static! {
             None
         }
     };
+    pub static ref ACME_PORT: String = {
+        dotenv().ok();
+        env::var("ACME_PORT").unwrap_or("443".to_string())
+    };
     pub static ref ROCKET_PORT: String = {
         dotenv().ok();
         env::var("ROCKET_PORT").unwrap_or("8000".to_string())
     };
-    pub static ref DEFAULT_AVATAR: String = {
+    pub static ref ROCKET_ADDRESS: String = {
         dotenv().ok();
-        env::var("DEFAULT_AVATAR").expect("DEFAULT_AVATAR must be set")
-    };
-    pub static ref SERVER_URL: String = {
-        dotenv().ok();
-        env::var("SERVER_URL").expect("SERVER_URL must be set")
+        env::var("ROCKET_ADDRESS").unwrap_or("0.0.0.0".to_string())
     };
     pub static ref SERVER_NAME: String = {
         dotenv().ok();
@@ -267,23 +270,28 @@ impl LoadEphemeral for ApActor {
     async fn load_ephemeral(&mut self, conn: &Db, requester: Option<Actor>) -> Self {
         if let Some(ap_id) = self.id.clone() {
             if let Ok(profile) = get_actor_by_as_id(Some(conn), ap_id.to_string()).await {
+                let follow = if let (Some(requester), Some(id)) = (requester, self.id.clone()) {
+                    get_follow(Some(conn), requester.as_id, id.to_string()).await
+                } else {
+                    None
+                };
+
                 self.ephemeral = Some(Ephemeral {
-                    followers: get_follower_count_by_actor_id(conn, profile.id).await.ok(),
-                    leaders: get_leader_count_by_actor_id(conn, profile.id).await.ok(),
-                    summary_markdown: profile.ek_summary_markdown,
-                    following: {
-                        if let Some(requester) = requester {
-                            if let Some(id) = self.id.clone() {
-                                get_leader_by_actor_id_and_ap_id(conn, requester.id, id.to_string())
-                                    .await
-                                    .and_then(|x| x.accepted)
-                            } else {
-                                None
-                            }
-                        } else {
-                            None
-                        }
+                    follow_activity_as_id: follow.clone().and_then(|x| x.follow_activity_ap_id),
+                    followers: if profile.ek_username.is_some() {
+                        get_follower_count_by_actor_id(conn, profile.id).await.ok()
+                    } else {
+                        None
                     },
+                    leaders: if profile.ek_username.is_some() {
+                        get_leader_count_by_follower_actor_id(Some(conn), profile.id)
+                            .await
+                            .ok()
+                    } else {
+                        None
+                    },
+                    summary_markdown: profile.ek_summary_markdown,
+                    following: follow.map(|x| x.accepted),
                     ..Default::default()
                 });
             }

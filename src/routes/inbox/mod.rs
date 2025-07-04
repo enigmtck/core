@@ -15,11 +15,11 @@ use crate::fairings::events::EventChannels;
 use crate::fairings::signatures::Signed;
 use crate::models::activities::get_announcers;
 use crate::models::activities::{TimelineFilters, TimelineView};
-use crate::models::leaders::get_leaders_by_actor_id;
+use crate::models::follows::get_leaders_by_follower_actor_id;
+//use crate::models::leaders::get_leaders_by_actor_id;
 use crate::models::unprocessable::create_unprocessable;
 use crate::retriever;
 use crate::signing::{get_hash, verify, VerificationType};
-use crate::SERVER_URL;
 use jdt_activity_pub::{
     //verify_jsonld_signature,
     ActivityPub,
@@ -295,7 +295,7 @@ pub async fn shared_inbox_get(
     hashtags: Option<Vec<String>>,
 ) -> Result<ActivityJson<ApObject>, Status> {
     let profile = signed.profile();
-    let server_url = &*SERVER_URL;
+    let server_url = format!("https://{}", *crate::SERVER_NAME);
 
     let view_query = {
         if let Some(view) = view.clone() {
@@ -336,8 +336,9 @@ pub async fn shared_inbox_get(
                 InboxView::Home => TimelineFilters {
                     view: if let Some(profile) = profile.clone() {
                         Some(TimelineView::Home(
-                            get_leaders_by_actor_id(&conn, profile.id, None)
+                            get_leaders_by_follower_actor_id(Some(&conn), profile.id, None)
                                 .await
+                                .map_err(|_| Status::InternalServerError)?
                                 .iter()
                                 .filter_map(|leader| leader.1.clone()?.as_followers.clone())
                                 .collect(),
@@ -412,7 +413,7 @@ pub async fn announcers_get(
         return Err(Status::Unauthorized);
     }
 
-    let server_url = &*SERVER_URL;
+    let server_url = format!("https://{}", *crate::SERVER_NAME);
     let limit = limit.unwrap_or(50);
     let base_url = format!("{server_url}/api/announcers?limit={limit}&target={target}");
 
@@ -448,7 +449,7 @@ pub async fn conversation_get(
     })?;
 
     let limit = limit.unwrap_or(20);
-    let server_url = &*SERVER_URL;
+    let server_url = format!("https://{}", *crate::SERVER_NAME);
     let base_url = format!("{server_url}/api/conversation?id={id}&limit={limit}");
 
     let filters = TimelineFilters {

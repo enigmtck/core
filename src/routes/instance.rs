@@ -50,7 +50,7 @@ impl Default for InstanceInformation {
     fn default() -> Self {
         InstanceInformation {
             domain: (*crate::SERVER_NAME).to_string(),
-            url: (*crate::SERVER_URL).to_string(),
+            url: format!("https://{}", *crate::SERVER_NAME),
             title: (*crate::INSTANCE_TITLE).to_string(),
             version: (*crate::INSTANCE_VERSION).to_string(),
             source_url: (*crate::INSTANCE_SOURCE_URL).to_string(),

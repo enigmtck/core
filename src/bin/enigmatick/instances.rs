@@ -13,8 +13,8 @@ use enigmatick::models::instances::{
 };
 use enigmatick::models::{
     activities::delete_activities_by_domain_pattern, actors::delete_actors_by_domain_pattern,
-    cache::delete_cache_items_by_server_pattern, followers::delete_followers_by_domain_pattern,
-    leaders::delete_leaders_by_domain_pattern, objects::delete_objects_by_domain_pattern,
+    cache::delete_cache_items_by_server_pattern, follows::delete_follows_by_domain_pattern,
+    objects::delete_objects_by_domain_pattern,
 };
 use std::io::stdout;
 use tokio::runtime::Runtime;
@@ -399,25 +399,13 @@ pub fn handle_instance_command(args: InstanceArgs) -> Result<()> {
                                         Err(e) => eprintln!("Error deleting activities: {e}"),
                                     }
 
-                                    match delete_followers_by_domain_pattern(
-                                        None,
-                                        domain.to_string(),
-                                    )
-                                    .await
+                                    match delete_follows_by_domain_pattern(None, domain.to_string())
+                                        .await
                                     {
                                         Ok(count) => println!(
                                             "Deleted {count} followers from blocked domain."
                                         ),
                                         Err(e) => eprintln!("Error deleting followers: {e}"),
-                                    }
-
-                                    match delete_leaders_by_domain_pattern(None, domain.to_string())
-                                        .await
-                                    {
-                                        Ok(count) => {
-                                            println!("Deleted {count} leaders from blocked domain.")
-                                        }
-                                        Err(e) => eprintln!("Error deleting leaders: {e}"),
                                     }
 
                                     match delete_actors_by_domain_pattern(None, domain.to_string())

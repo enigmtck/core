@@ -5,7 +5,6 @@ use crate::models::activities::{TimelineFilters, TimelineView};
 use crate::models::actors::get_actor_by_username;
 use crate::models::unprocessable::create_unprocessable;
 use crate::routes::Outbox;
-use crate::SERVER_URL;
 use jdt_activity_pub::{ActivityPub, ApActivity, ApObject};
 use rocket::{get, http::Status, post, serde::json::Json, serde::json::Value};
 
@@ -50,7 +49,7 @@ pub async fn outbox_get(
     page: Option<bool>,
 ) -> Result<ActivityJson<ApObject>, Status> {
     let profile = signed.profile();
-    let server_url = &*SERVER_URL;
+    let server_url = format!("https://{}", *crate::SERVER_NAME);
     let limit = limit.unwrap_or(10);
     let page = page.unwrap_or_default();
 

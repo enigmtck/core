@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 
 use crate::db::Db;
-use crate::models::leaders::Leader;
+//use crate::models::leaders::Leader;
 use crate::schema::actors;
 use crate::{GetHashtags, POOL};
 use anyhow::{anyhow, Result};
@@ -21,7 +21,8 @@ use serde_json::Value;
 use std::fmt::{self, Debug};
 
 use super::coalesced_activity::CoalescedActivity;
-use super::followers::get_followers_by_actor_id;
+use super::follows::{get_followers_by_actor_id, Follow};
+//use super::followers::get_followers_by_actor_id;
 
 #[derive(
     diesel_derive_enum::DbEnum, Debug, Serialize, Deserialize, Default, Clone, Eq, PartialEq,
@@ -342,18 +343,15 @@ pub trait FromExtendedActor {
     fn from_extended_actor(actor: ExtendedActor) -> Self;
 }
 
-type ExtendedActor = (Actor, Option<Leader>);
+type ExtendedActor = (Actor, Option<Follow>);
 
 impl FromExtendedActor for ApActor {
-    fn from_extended_actor((actor, leader): ExtendedActor) -> Self {
+    fn from_extended_actor((actor, follow): ExtendedActor) -> Self {
         let mut actor = ApActor::from(actor);
 
         actor.ephemeral = Some(Ephemeral {
-            following: leader.clone().and_then(|x| x.accepted),
-            leader_as_id: leader
-                .clone()
-                .and_then(|x| format!("{}/leader/{}", *crate::SERVER_URL, x.uuid).into()),
-            follow_activity_as_id: leader.and_then(|x| x.follow_ap_id),
+            following: follow.clone().map(|x| x.accepted),
+            follow_activity_as_id: follow.and_then(|x| x.follow_activity_ap_id),
             ..Default::default()
         });
 
@@ -458,16 +456,13 @@ pub trait FromActorAndLeader {
     fn from_actor_and_leader(actor: ActorAndLeader) -> Self;
 }
 
-type ActorAndLeader = (ApActor, Option<Leader>);
+type ActorAndLeader = (ApActor, Option<Follow>);
 
 impl FromActorAndLeader for ApActor {
-    fn from_actor_and_leader((mut actor, leader): ActorAndLeader) -> Self {
+    fn from_actor_and_leader((mut actor, follow): ActorAndLeader) -> Self {
         actor.ephemeral = Some(Ephemeral {
-            following: leader.clone().and_then(|x| x.accepted),
-            leader_as_id: leader
-                .clone()
-                .and_then(|x| format!("{}/leader/{}", *crate::SERVER_URL, x.uuid).into()),
-            follow_activity_as_id: leader.and_then(|x| x.follow_ap_id),
+            following: follow.clone().map(|x| x.accepted),
+            follow_activity_as_id: follow.and_then(|x| x.follow_activity_ap_id),
             ..Default::default()
         });
 

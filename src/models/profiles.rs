@@ -46,9 +46,7 @@ impl TryFrom<Actor> for Profile {
             client_private_key: actor.ek_client_private_key,
             avatar_filename: actor
                 .ek_avatar_filename
-                .map_or(Some((*crate::DEFAULT_AVATAR).clone()), |x| {
-                    Some(format!("media/avatars/{x}"))
-                }),
+                .map(|x| format!("media/avatars/{x}")),
             banner_filename: actor
                 .ek_banner_filename
                 .map(|x| format!("media/banners/{x}")),

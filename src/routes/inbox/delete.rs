@@ -9,8 +9,7 @@ use crate::{
             ActivityTarget, NewActivity,
         },
         actors::{get_actor_by_as_id, tombstone_actor_by_as_id},
-        followers::{delete_followers_by_actor, delete_followers_by_followed_ap_id},
-        leaders::{delete_leaders_by_actor, delete_leaders_by_leader_ap_id},
+        follows::{delete_follows_by_follower_ap_id, delete_follows_by_leader_ap_id},
         objects::{
             delete_objects_by_attributed_to, get_object_by_as_id, tombstone_object_by_as_id,
         },
@@ -114,33 +113,19 @@ impl Inbox for Box<ApDelete> {
                     let as_id = actor.as_id;
 
                     log::debug!("Running database updates");
-                    log::debug!("Deleting Followers of {as_id}...");
-                    delete_followers_by_followed_ap_id(Some(&conn), as_id.clone())
+                    log::debug!("Deleting Followers: {as_id}...");
+                    delete_follows_by_leader_ap_id(Some(&conn), as_id.clone())
                         .await
                         .map_err(|e| {
                             log::error!("Failed to delete Followers: {e}");
                             Status::InternalServerError
                         })?;
 
-                    delete_followers_by_actor(Some(&conn), as_id.clone())
+                    log::debug!("Deleting Leaders: {as_id}...");
+                    delete_follows_by_follower_ap_id(Some(&conn), as_id.clone())
                         .await
                         .map_err(|e| {
                             log::error!("Failed to delete Followers by Actor: {e}");
-                            Status::InternalServerError
-                        })?;
-
-                    log::debug!("Deleting Leaders of {as_id}...");
-                    delete_leaders_by_leader_ap_id(Some(&conn), as_id.clone())
-                        .await
-                        .map_err(|e| {
-                            log::error!("Failed to delete Leaders: {e}");
-                            Status::InternalServerError
-                        })?;
-
-                    delete_leaders_by_actor(Some(&conn), as_id.clone())
-                        .await
-                        .map_err(|e| {
-                            log::error!("Failed to delete Leaders by Actor: {e}");
                             Status::InternalServerError
                         })?;
 

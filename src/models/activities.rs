@@ -872,8 +872,8 @@ impl TryFromExtendedActivity for ApAnnounce {
                 kind: ApAnnounceType::default(),
                 actor: activity.clone().actor.into(),
                 id: Some(format!(
-                    "{}/activities/{}",
-                    *crate::SERVER_URL,
+                    "https://{}/activities/{}",
+                    *crate::SERVER_NAME,
                     activity.uuid
                 )),
                 to: activity.clone().ap_to.into(),
@@ -2096,24 +2096,13 @@ pub async fn revoke_activity_by_uuid(conn: Option<&Db>, uuid: String) -> Result<
 }
 
 pub async fn revoke_activity_by_apid(conn: Option<&Db>, ap_id: String) -> Result<Activity> {
-    match conn {
-        Some(conn) => {
-            conn.run(move |c| {
-                diesel::update(activities::table.filter(activities::ap_id.eq(ap_id)))
-                    .set(activities::revoked.eq(true))
-                    .get_result::<Activity>(c)
-                    .map_err(anyhow::Error::msg)
-            })
-            .await
-        }
-        None => {
-            let mut pool = POOL.get().map_err(anyhow::Error::msg)?;
-            diesel::update(activities::table.filter(activities::ap_id.eq(ap_id)))
-                .set(activities::revoked.eq(true))
-                .get_result::<Activity>(&mut pool)
-                .map_err(anyhow::Error::msg)
-        }
-    }
+    let operation = move |c: &mut diesel::PgConnection| {
+        diesel::update(activities::table.filter(activities::ap_id.eq(ap_id)))
+            .set(activities::revoked.eq(true))
+            .get_result::<Activity>(c)
+    };
+
+    crate::db::run_db_op(conn, &crate::POOL, operation).await
 }
 
 pub async fn set_activity_log_by_apid(
@@ -2147,6 +2136,27 @@ pub async fn get_activity_by_ap_id(conn: &Db, ap_id: String) -> Option<ExtendedA
         .first()
         .cloned()
         .map(ExtendedActivity::from)
+}
+
+pub async fn get_unrevoked_activity_by_kind_actor_id_and_target_ap_id(
+    conn: &Db,
+    kind: ActivityType,
+    actor_id: i32,
+    target_ap_id: String,
+) -> Option<Activity> {
+    conn.run(move |c| {
+        activities::table
+            .filter(activities::revoked.eq(false))
+            .filter(activities::kind.eq(kind))
+            .filter(activities::actor_id.eq(actor_id))
+            .filter(activities::target_ap_id.eq(target_ap_id))
+            .filter(activities::revoked.eq(false))
+            .load::<Activity>(c)
+    })
+    .await
+    .ok()?
+    .first()
+    .cloned()
 }
 
 pub async fn get_activity_by_kind_actor_id_and_target_ap_id(

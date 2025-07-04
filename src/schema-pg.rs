@@ -150,10 +150,13 @@ diesel::table! {
         id -> Int4,
         created_at -> Timestamptz,
         updated_at -> Timestamptz,
-        uuid -> Varchar,
-        profile_id -> Nullable<Int4>,
-        ap_object -> Varchar,
-        actor -> Varchar,
+        follower_ap_id -> Varchar,
+        leader_ap_id -> Varchar,
+        follow_activity_ap_id -> Nullable<Varchar>,
+        accept_activity_ap_id -> Nullable<Varchar>,
+        accepted -> Bool,
+        follower_actor_id -> Nullable<Int4>,
+        leader_actor_id -> Nullable<Int4>,
     }
 }
 

@@ -10,7 +10,8 @@ use crate::models::actors::{
     NewActor,
 };
 use crate::models::cache::Cache;
-use crate::models::leaders::{get_leader_by_actor_ap_id_and_profile, Leader};
+use crate::models::follows::get_follow;
+//use crate::models::leaders::{get_leader_by_actor_ap_id_and_profile, Leader};
 use crate::models::objects::{create_or_update_object, get_object_by_as_id, NewObject};
 use crate::signing::{sign, Method, SignParams};
 use crate::webfinger::WebFinger;
@@ -218,12 +219,7 @@ async fn actor_ret(db_conn: &Db, requester: Option<Actor>, target: Actor) -> ApA
     if let Some(requester_actor) = requester.clone() {
         ApActor::from_actor_and_leader((
             target.clone().into(),
-            get_leader_by_actor_ap_id_and_profile(
-                db_conn,
-                target.as_id.clone(),
-                requester_actor.id,
-            )
-            .await,
+            get_follow(Some(db_conn), requester_actor.as_id, target.as_id.clone()).await,
         ))
     } else {
         target.into()

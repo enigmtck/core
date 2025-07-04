@@ -136,8 +136,8 @@ async fn generate_avatar(username: String) -> Result<String> {
 pub async fn create_user(conn: Option<&Db>, user: NewUser) -> Result<Actor> {
     let key_pair = get_key_pair();
     let owner = get_ap_id_from_username(user.username.clone());
-    let server_url = crate::SERVER_URL.as_str();
     let server_name = crate::SERVER_NAME.as_str();
+    let server_url = format!("https://{server_name}");
     let password = pwhash::Password::from_slice(user.password.as_bytes())?;
     let username = user.username.clone();
     let avatar = generate_avatar(username.clone()).await?;

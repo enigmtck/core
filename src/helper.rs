@@ -67,39 +67,39 @@ pub fn get_local_identifier(ap_id: String) -> Option<LocalIdentifier> {
 }
 
 pub fn get_session_as_id_from_uuid(uuid: String) -> String {
-    format!("{}/sessions/{uuid}", *crate::SERVER_URL)
+    format!("https://{}/sessions/{uuid}", *crate::SERVER_NAME)
 }
 
 pub fn get_instrument_as_id_from_uuid(uuid: String) -> String {
-    format!("{}/instruments/{uuid}", *crate::SERVER_URL)
+    format!("https://{}/instruments/{uuid}", *crate::SERVER_NAME)
 }
 
 pub fn get_followers_ap_id_from_username(username: String) -> String {
-    format!("{}/user/{username}/followers", *crate::SERVER_URL)
+    format!("https://{}/user/{username}/followers", *crate::SERVER_NAME)
 }
 
 pub fn get_following_ap_id_from_username(username: String) -> String {
-    format!("{}/user/{username}/following", *crate::SERVER_URL)
+    format!("https://{}/user/{username}/following", *crate::SERVER_NAME)
 }
 
 pub fn get_ap_id_from_username(username: String) -> String {
-    format!("{}/user/{username}", *crate::SERVER_URL)
+    format!("https://{}/user/{username}", *crate::SERVER_NAME)
 }
 
 pub fn get_object_ap_id_from_uuid(uuid: String) -> String {
-    format!("{}/objects/{uuid}", *crate::SERVER_URL)
+    format!("https://{}/objects/{uuid}", *crate::SERVER_NAME)
 }
 
 pub fn get_conversation_ap_id_from_uuid(uuid: String) -> String {
-    format!("{}/conversations/{uuid}", *crate::SERVER_URL)
+    format!("https://{}/conversations/{uuid}", *crate::SERVER_NAME)
 }
 
 pub fn get_object_url_from_uuid(uuid: String) -> String {
-    format!("{}/objects?uuid={uuid}", *crate::SERVER_URL)
+    format!("https://{}/objects?uuid={uuid}", *crate::SERVER_NAME)
 }
 
 pub fn get_activity_ap_id_from_uuid(uuid: String) -> String {
-    format!("{}/activities/{uuid}", *crate::SERVER_URL)
+    format!("https://{}/activities/{uuid}", *crate::SERVER_NAME)
 }
 
 cfg_if::cfg_if! {

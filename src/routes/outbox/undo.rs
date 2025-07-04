@@ -1,4 +1,7 @@
-use crate::routes::Outbox;
+use crate::{
+    models::{activities::revoke_activity_by_apid, follows::delete_follow},
+    routes::Outbox,
+};
 use jdt_activity_pub::{ApActivity, ApAddress, ApUndo};
 
 use crate::{
@@ -11,7 +14,7 @@ use crate::{
             NewActivity, TryFromExtendedActivity,
         },
         actors::{get_actor, Actor},
-        leaders::delete_leader_by_ap_id_and_actor_id,
+        //leaders::delete_leader_by_ap_id_and_actor_id,
     },
     routes::ActivityJson,
     runner::{self, get_inboxes, send_to_inboxes, TaskError},
@@ -137,19 +140,18 @@ async fn send_task(
 
         match target_activity {
             ApActivity::Follow(follow) => {
-                let id = follow.id.ok_or(TaskError::TaskFailed)?;
-                log::debug!("FOLLOW ID: {id}");
-                let identifier = get_local_identifier(id).ok_or(TaskError::TaskFailed)?;
-                log::debug!("FOLLOW IDENTIFIER: {identifier:#?}");
-                let profile_id = activity.actor_id.ok_or(TaskError::TaskFailed)?;
-                if let MaybeReference::Reference(ap_id) = follow.object {
-                    if delete_leader_by_ap_id_and_actor_id(Some(&conn), ap_id, profile_id).await
-                        && revoke_activity_by_uuid(Some(&conn), identifier.identifier)
-                            .await
-                            .is_ok()
-                    {
-                        log::info!("LEADER DELETED");
-                    }
+                let follow_activity_ap_id = follow.id.ok_or(TaskError::TaskFailed)?;
+                log::debug!("ApFollow ID to Undo: {follow_activity_ap_id}");
+
+                let leader_ap_id = follow.object.reference().ok_or(TaskError::TaskFailed)?;
+                if delete_follow(Some(&conn), follow.actor.to_string(), leader_ap_id)
+                    .await
+                    .is_ok()
+                    && revoke_activity_by_apid(Some(&conn), follow_activity_ap_id)
+                        .await
+                        .is_ok()
+                {
+                    log::info!("Leader deleted");
                 }
             }
             ApActivity::Like(like) => {

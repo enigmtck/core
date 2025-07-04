@@ -103,7 +103,11 @@ fn process_banner(filename: String, media_type: String) -> Option<ApImage> {
     let decode = decode.resize(1500, 500, FilterType::CatmullRom);
 
     if decode.save(path).is_ok() {
-        let mut image = ApImage::from(format!("{}/media/banners/{}", *crate::SERVER_URL, filename));
+        let mut image = ApImage::from(format!(
+            "https://{}/media/banners/{}",
+            *crate::SERVER_NAME,
+            filename
+        ));
         image.media_type = Some(media_type);
         Some(image)
     } else {
@@ -143,7 +147,11 @@ fn process_avatar(filename: String, media_type: String) -> Option<ApImage> {
     let decode = decode.resize(400, 400, FilterType::CatmullRom);
 
     if decode.save(path).is_ok() {
-        let mut image = ApImage::from(format!("{}/media/avatars/{}", *crate::SERVER_URL, filename));
+        let mut image = ApImage::from(format!(
+            "https://{}/media/avatars/{}",
+            *crate::SERVER_NAME,
+            filename
+        ));
         image.media_type = Some(media_type);
         Some(image)
     } else {
@@ -168,7 +176,7 @@ pub async fn upload_avatar(
     let mime_type_str = kind.mime_type().to_string();
     let filename = format!("{}.{}", uuid::Uuid::new_v4(), kind.extension());
     let path = format!("{}/avatars/{}", *crate::MEDIA_DIR, filename);
-    let url = format!("{}/media/avatars/{}", *crate::SERVER_URL, filename);
+    let url = format!("https://{}/media/avatars/{}", *crate::SERVER_NAME, filename);
     let as_image: ApImage = url.clone().into();
 
     let file = media
@@ -223,7 +231,7 @@ pub async fn upload_banner(
     let mime_type_str = kind.mime_type().to_string();
     let filename = format!("{}.{}", uuid::Uuid::new_v4(), kind.extension());
     let path = format!("{}/banners/{}", *crate::MEDIA_DIR, filename);
-    let url = format!("{}/media/banners/{}", *crate::SERVER_URL, filename);
+    let url = format!("https://{}/media/banners/{}", *crate::SERVER_NAME, filename);
     let as_image: ApImage = url.clone().into();
 
     let file = media
