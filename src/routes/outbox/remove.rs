@@ -7,7 +7,7 @@ use crate::{
     },
     routes::ActivityJson,
 };
-use jdt_activity_pub::{ApActivity, ApAddress, ApRemove};
+use jdt_activity_pub::{ApActivity, ApRemove};
 use rocket::http::Status;
 use serde_json::Value;
 

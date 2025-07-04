@@ -1,13 +1,10 @@
 use crate::{
-    models::{
-        actors::{self, update_mls_storage_by_username},
-        mls_group_conversations::create_mls_group_conversation,
-    },
+    models::actors::{self},
     retriever::get_actor,
     routes::{user::process_instrument, Outbox},
 };
 use jdt_activity_pub::{
-    ApActivity, ApAddress, ApArticle, ApArticleType, ApAttachment, ApContext, ApCreate, ApImage,
+    ApActivity, ApAddress, ApArticle, ApAttachment, ApContext, ApCreate, ApImage,
     ApInstrument, ApObject, Ephemeral,
 };
 
@@ -15,7 +12,7 @@ use crate::{
     db::Db,
     fairings::events::EventChannels,
     helper::{
-        get_conversation_ap_id_from_uuid, get_instrument_as_id_from_uuid,
+        get_instrument_as_id_from_uuid,
         get_object_ap_id_from_uuid, get_object_url_from_uuid,
     },
     models::{
@@ -25,7 +22,6 @@ use crate::{
         actors::Actor,
         cache::{cache_content, Cacheable},
         objects::{create_or_update_object, Object},
-        vault::create_vault_item,
     },
     routes::ActivityJson,
     runner::{self, get_inboxes, send_to_inboxes, TaskError},

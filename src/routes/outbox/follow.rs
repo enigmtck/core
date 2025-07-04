@@ -8,7 +8,7 @@ use crate::{
     fairings::events::EventChannels,
     models::{
         activities::{
-            create_activity, get_activity_by_ap_id, get_activity_by_kind_actor_id_and_target_ap_id,
+            create_activity, get_activity_by_ap_id,
             ActivityType, NewActivity, TryFromExtendedActivity,
         },
         actors::{get_actor, get_actor_by_as_id, Actor},
@@ -17,7 +17,6 @@ use crate::{
     routes::ActivityJson,
     runner::{self, get_inboxes, send_to_inboxes, TaskError},
 };
-use jdt_activity_pub::MaybeReference;
 use rocket::http::Status;
 use serde_json::Value;
 

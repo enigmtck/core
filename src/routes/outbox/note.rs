@@ -1,8 +1,5 @@
 use crate::{
-    models::{
-        actors::{self, update_mls_storage_by_username},
-        mls_group_conversations::create_mls_group_conversation,
-    },
+    models::actors::{self},
     retriever::get_actor,
     routes::{user::process_instrument, Outbox},
 };
@@ -25,7 +22,6 @@ use crate::{
         actors::Actor,
         cache::{cache_content, Cacheable},
         objects::{create_or_update_object, Object},
-        vault::create_vault_item,
     },
     routes::ActivityJson,
     runner::{self, get_inboxes, send_to_inboxes, TaskError},
