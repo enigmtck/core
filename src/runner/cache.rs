@@ -1,5 +1,5 @@
 use crate::db::Db;
- // Ensure this is imported if SYSTEM_USER is used for downloads
+// Ensure this is imported if SYSTEM_USER is used for downloads
 use crate::models::cache::{
     create_cache_item, get_cache_item_by_url, CacheItem, Cacheable, NewCacheItem,
 };

@@ -35,7 +35,8 @@ regex = "1"
 async-mutex = "1.4"
 crossbeam-channel = "0.5"
 r2d2 = "0.8"
-tokio = { version = "1.36", features = ["rt"] }
+# Modify tokio to enable the full runtime
+tokio = { version = "1.36", features = ["full"] }
 orion = "0.17"
 urlencoding = "2.1"
 ammonia = "3.3"
@@ -64,8 +65,14 @@ indicatif = "0.17"
 comfy-table = "7.1.0"
 infer = "0.19.0"
 axum-reverse-proxy = "1.0.2"
-axum = "0.8.4"
+# Modify axum to enable macros for state extraction
+axum = { version = "0.8.4", features = ["macros"] }
 axum-server = { version = "0.7", features = ["tls-rustls"] }
+# Add these new dependencies
+tower = { version = "0.4", features = ["util", "timeout"] }
+tower-http = { version = "0.5.2", features = ["fs", "trace", "cors"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 rustls-acme = { version = "0.14.0", features = ["axum"] }
 identicon-rs = "7.0.0"
 
@@ -73,6 +80,11 @@ identicon-rs = "7.0.0"
 version = "0.1.0"
 default-features = false
 features = ["diesel_postgres_pool", "diesel_sqlite_pool"]
+
+# Add deadpool-diesel for async database connection pooling
+[dependencies.deadpool-diesel]
+version = "0.6.1"
+features = ["postgres", "rt_tokio_1"]
 
 [profile.dev]
 opt-level = 1

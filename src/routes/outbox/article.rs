@@ -4,16 +4,15 @@ use crate::{
     routes::{user::process_instrument, Outbox},
 };
 use jdt_activity_pub::{
-    ApActivity, ApAddress, ApArticle, ApAttachment, ApContext, ApCreate, ApImage,
-    ApInstrument, ApObject, Ephemeral,
+    ApActivity, ApAddress, ApArticle, ApAttachment, ApContext, ApCreate, ApImage, ApInstrument,
+    ApObject, Ephemeral,
 };
 
 use crate::{
     db::Db,
     fairings::events::EventChannels,
     helper::{
-        get_instrument_as_id_from_uuid,
-        get_object_ap_id_from_uuid, get_object_url_from_uuid,
+        get_instrument_as_id_from_uuid, get_object_ap_id_from_uuid, get_object_url_from_uuid,
     },
     models::{
         activities::{

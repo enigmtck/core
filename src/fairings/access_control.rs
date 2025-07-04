@@ -4,6 +4,7 @@ use std::{collections::HashMap, sync::Arc};
 use crate::{db::Db, models::instances::Instance, schema::instances, ASSIGNMENT_RE, DOMAIN_RE};
 
 use async_mutex::Mutex;
+use deadpool_diesel::postgres::Pool as AxumPool; // Add this import
 use rocket::{
     fairing::{self, Fairing, Info, Kind},
     http::Status,
@@ -74,6 +75,31 @@ pub struct BlockList {
 struct BlockListFairing;
 
 impl BlockList {
+    // Add this new async function specifically for Axum's pool type
+    pub async fn new_axum(pool: &AxumPool) -> anyhow::Result<Self> {
+        let conn = pool.get().await?;
+        // The `??` operator fails here because the error type returned by `interact`
+        // is not `Sync`, which is required by `anyhow`'s `From` trait implementation.
+        // We handle it in two steps to manually convert the error.
+        let query_result = conn
+            .interact(move |c| {
+                instances::table
+                    .filter(instances::blocked.eq(true))
+                    .get_results::<Instance>(c)
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("Database interaction failed: {:?}", e))?;
+
+        let instances = query_result?;
+
+        log::debug!("loading {:?} blocked servers for Axum", instances.len());
+        let blocked_servers: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(
+            instances.iter().map(|x| x.domain_name.clone()).collect(),
+        ));
+
+        Ok(BlockList { blocked_servers })
+    }
+
     pub fn fairing() -> impl Fairing {
         BlockListFairing
     }

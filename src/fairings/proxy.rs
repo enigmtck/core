@@ -14,12 +14,17 @@ impl ProxyFairing {
 impl Fairing for ProxyFairing {
     fn info(&self) -> Info {
         Info {
-            name: "Proxy Background Task",
+            name: "Proxy and Axum Server Background Tasks",
             kind: Kind::Liftoff,
         }
     }
 
     async fn on_liftoff(&self, _rocket: &Rocket<Orbit>) {
+        // Spawn the Axum server task
+        task::spawn(async {
+            crate::axum_server::start().await;
+        });
+
         if *crate::ACME_PROXY {
             log::info!("Starting proxy background task...");
 

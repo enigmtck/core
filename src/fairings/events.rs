@@ -52,6 +52,14 @@ pub struct EventChannels {
 }
 
 impl EventChannels {
+    // Add this new function
+    pub fn new() -> Self {
+        EventChannels {
+            receiving_channels: Arc::new(Mutex::new(HashMap::new())),
+            sending_channels: Arc::new(Mutex::new(HashMap::new())),
+        }
+    }
+
     pub fn fairing() -> impl Fairing {
         EventChannelsFairing
     }
@@ -144,12 +152,7 @@ impl Fairing for EventChannelsFairing {
 
     async fn on_ignite(&self, rocket: Rocket<Build>) -> fairing::Result {
         log::debug!("igniting EventsChannel");
-        Ok(rocket.manage({
-            EventChannels {
-                receiving_channels: Arc::new(Mutex::new(HashMap::new())),
-                sending_channels: Arc::new(Mutex::new(HashMap::new())),
-            }
-        }))
+        Ok(rocket.manage(EventChannels::new())) // Use the new function here
     }
 }
 

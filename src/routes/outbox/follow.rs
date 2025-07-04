@@ -8,8 +8,8 @@ use crate::{
     fairings::events::EventChannels,
     models::{
         activities::{
-            create_activity, get_activity_by_ap_id,
-            ActivityType, NewActivity, TryFromExtendedActivity,
+            create_activity, get_activity_by_ap_id, ActivityType, NewActivity,
+            TryFromExtendedActivity,
         },
         actors::{get_actor, get_actor_by_as_id, Actor},
         follows::{create_follow, NewFollow},

@@ -30,6 +30,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::cmp::Ordering;
 use std::env;
+use tower_http as _;
+use tracing_subscriber as _;
 
 //pub mod activity_pub;
 pub mod admin;
@@ -53,6 +55,7 @@ pub mod schema;
 #[path = "schema-sqlite.rs"]
 pub mod schema;
 
+pub mod axum_server; // Add this line
 pub mod server;
 pub mod signing;
 pub mod webfinger;
