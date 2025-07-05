@@ -1,6 +1,7 @@
 use std::collections::HashSet;
 
 use crate::db::Db;
+use deadpool_diesel::postgres::Object as DbConnection;
 //use crate::models::leaders::Leader;
 use crate::schema::actors;
 use crate::{GetHashtags, POOL};
@@ -1089,4 +1090,26 @@ pub async fn guaranteed_actor(conn: &Db, profile: Option<Actor>) -> Actor {
             .await // get_actor_by_username now returns Result<Actor>
             .expect("Unable to retrieve system user"),
     }
+}
+
+pub async fn get_actor_by_key_id_axum(conn: &DbConnection, key_id: String) -> Result<Actor> {
+    conn.interact(move |c| {
+        use diesel::sql_types::Text;
+        diesel::sql_query("SELECT * FROM actors WHERE as_public_key->>'id' = $1 LIMIT 1")
+            .bind::<Text, _>(key_id)
+            .get_result::<Actor>(c)
+    })
+    .await
+    .map_err(|e| anyhow::anyhow!("Interact error: {:?}", e))?
+    .map_err(anyhow::Error::from)
+}
+
+pub async fn get_actor_by_username_axum(conn: &DbConnection, username: String) -> Result<Actor> {
+    conn.interact(move |c| {
+        use crate::schema::actors::dsl::*;
+        actors.filter(ek_username.eq(username)).first::<Actor>(c)
+    })
+    .await
+    .map_err(|e| anyhow::anyhow!("Interact error: {:?}", e))?
+    .map_err(anyhow::Error::from)
 }

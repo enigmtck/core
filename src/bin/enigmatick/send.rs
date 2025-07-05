@@ -3,9 +3,7 @@ use clap::{Parser, Subcommand};
 use enigmatick::models::activities::NewActivity;
 use enigmatick::models::actors as actor_model_ops;
 use enigmatick::runner::{get_inboxes, send_to_inboxes};
-use jdt_activity_pub::{
-    ApActivity, ApActor, ApDelete, ApUpdate,
-};
+use jdt_activity_pub::{ApActivity, ApActor, ApDelete, ApUpdate};
 use tokio::runtime::Runtime;
 
 #[derive(Parser)]

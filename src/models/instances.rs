@@ -4,6 +4,7 @@ use crate::schema::instances;
 use crate::schema::instances::dsl;
 use crate::POOL;
 use chrono::{DateTime, Utc};
+use deadpool_diesel::postgres::Object as DbConnection;
 use diesel::prelude::*;
 use diesel::OptionalExtension;
 use diesel::{AsChangeset, Identifiable, Insertable, Queryable};
@@ -285,4 +286,22 @@ pub async fn get_blocked_instances(conn: Option<&Db>) -> Vec<Instance> {
             }
         }
     }
+}
+
+pub async fn create_or_update_instance_axum(
+    conn: &DbConnection,
+    instance: NewInstance,
+) -> Result<Instance, anyhow::Error> {
+    conn.interact(move |c| {
+        use crate::schema::instances::dsl::*;
+        diesel::insert_into(instances)
+            .values(&instance)
+            .on_conflict(domain_name)
+            .do_update()
+            .set((last_message_at.eq(Utc::now()), &instance))
+            .get_result::<Instance>(c)
+    })
+    .await
+    .map_err(|e| anyhow::anyhow!("Interact error: {:?}", e))?
+    .map_err(anyhow::Error::from)
 }

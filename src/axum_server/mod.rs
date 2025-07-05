@@ -1,8 +1,13 @@
+// Declare the submodule first
+pub mod extractors;
+
+// Now, include the server logic
+use crate::axum_server::extractors::AxumSigned; // Use the new AxumSigned type
 use crate::fairings::{access_control::BlockList, events::EventChannels};
 use axum::{routing::get, Router};
 use deadpool_diesel::postgres::{Manager, Pool};
+use dotenvy::dotenv;
 use std::net::SocketAddr;
-//use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 // This struct will hold all shared state for the Axum part of the application.
 #[derive(Clone)]
@@ -14,15 +19,7 @@ pub struct AppState {
 
 // The entry point for our Axum server task.
 pub async fn start() {
-    // Initialize logging (tracing is the standard in the Axum ecosystem)
-    // tracing_subscriber::registry()
-    //     .with(
-    //         tracing_subscriber::EnvFilter::try_from_default_env()
-    //             .unwrap_or_else(|_| "enigmatick=debug,tower_http=debug".into()),
-    //     )
-    //     .with(tracing_subscriber::fmt::layer())
-    //     .init();
-
+    dotenv().ok();
     // --- Database Pool Setup for Axum ---
     let database_url = std::env::var("DATABASE_URL").expect("DATABASE_URL must be set");
     let manager = Manager::new(database_url, deadpool_diesel::Runtime::Tokio1);
@@ -51,14 +48,16 @@ pub async fn start() {
 
     // Run the Axum server on an internal-only port.
     let addr = SocketAddr::from(([127, 0, 0, 1], 8001));
-    tracing::debug!("Axum server listening on {}", addr);
+    log::debug!("Axum server listening on {addr}");
     let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
     axum::serve(listener, app.into_make_service())
         .await
         .unwrap();
 }
 
-// A temporary handler to prove the Axum server is reachable.
-async fn hello_axum() -> &'static str {
+// Update the test handler to use the new extractor.
+async fn hello_axum(signed: AxumSigned) -> &'static str {
+    // The log will still work due to Deref and Debug on the inner type
+    log::info!("Request received with signature status: {signed:?}");
     "Hello from the Axum side!"
 }

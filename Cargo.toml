@@ -8,6 +8,12 @@ repository = "https://gitlab.com/enigmatick"
 documentation = "https://docs.rs/enigmatick/latest/enigmatick/"
 homepage = "https://enigmatick.social/@jdt"
 
+[workspace]
+members = [
+    ".",
+    "proxy"
+]
+
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
@@ -27,7 +33,7 @@ rand = "0.8"
 sha2 = { version = "0.10", features = ["oid"] }
 base64 = "0.21.7"
 bytes = "1"
-reqwest = { version = "0.12", features = ["json", "blocking", "http2", "native-tls", "native-tls-alpn"] }
+reqwest = { version = "0.12", features = ["json", "blocking", "http2", "native-tls", "native-tls-alpn", "stream"] }
 url = "2.5"
 #hex = "0.4"
 httpdate = "1"
@@ -63,18 +69,15 @@ jdt_activity_pub = { version = "0.2.53", features = ["ffmpeg"] }
 indoc = "2.0.5"
 indicatif = "0.17"
 comfy-table = "7.1.0"
+ctrlc = "3.4"
 infer = "0.19.0"
-axum-reverse-proxy = "1.0.2"
 # Modify axum to enable macros for state extraction
-axum = { version = "0.8.4", features = ["macros"] }
-axum-server = { version = "0.7", features = ["tls-rustls"] }
+axum = { version = "0.7.5", features = ["macros"] }
 # Add these new dependencies
 tower = { version = "0.4", features = ["util", "timeout"] }
 tower-http = { version = "0.5.2", features = ["fs", "trace", "cors"] }
-tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-rustls-acme = { version = "0.14.0", features = ["axum"] }
 identicon-rs = "7.0.0"
+async-trait = "0.1.79"
 
 [dependencies.rocket_sync_db_pools]
 version = "0.1.0"

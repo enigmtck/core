@@ -58,12 +58,12 @@ impl std::fmt::Display for VerifyMapParams {
 
 #[derive(Clone, Debug)]
 pub struct VerifyParams {
-    verify_string: String,
-    signature: String,
-    key_id: String,
-    key_selector: Option<String>,
-    local: bool,
-    signer_username: Option<String>,
+    pub verify_string: String,
+    pub signature: String,
+    pub key_id: String,
+    pub key_selector: Option<String>,
+    pub local: bool,
+    pub signer_username: Option<String>,
 }
 
 impl std::fmt::Display for VerifyParams {
@@ -85,7 +85,7 @@ impl std::fmt::Display for VerifyParams {
     }
 }
 
-fn build_verify_string(params: VerifyMapParams) -> VerifyParams {
+pub fn build_verify_string(params: VerifyMapParams) -> VerifyParams {
     let mut signature_map = HashMap::<String, String>::new();
 
     for cap in ASSIGNMENT_RE.captures_iter(&params.signature) {
@@ -167,6 +167,7 @@ pub enum VerificationError {
     ActorNotFound(Box<VerifyMapParams>),
     ProfileNotFound,
     ClientKeyNotFound,
+    NoKeyId,
 }
 
 impl std::fmt::Display for VerificationError {
@@ -181,8 +182,30 @@ impl std::fmt::Display for VerificationError {
             }
             VerificationError::ProfileNotFound => write!(f, "profile not found"),
             VerificationError::ClientKeyNotFound => write!(f, "client key not found"),
+            VerificationError::NoKeyId => write!(f, "keyId not found in signature"),
         }
     }
+}
+
+pub fn verify_signature_crypto(
+    public_key_pem: &str,
+    signature_str: &str,
+    verify_string: &str,
+) -> Result<(), VerificationError> {
+    let public_key = RsaPublicKey::from_public_key_pem(public_key_pem.trim_end())
+        .map_err(|e| VerificationError::PublicKeyError(anyhow!(e)))?;
+    let verifying_key = rsa::pkcs1v15::VerifyingKey::<Sha256>::new(public_key);
+
+    let signature_bytes = general_purpose::STANDARD
+        .decode(signature_str.as_bytes())
+        .map_err(|e| VerificationError::DecodeError(anyhow!(e)))?;
+
+    let signature = rsa::pkcs1v15::Signature::try_from(signature_bytes.as_slice())
+        .map_err(|e| VerificationError::SignatureError(anyhow!(e)))?;
+
+    verifying_key
+        .verify(verify_string.as_bytes(), &signature)
+        .map_err(|e| VerificationError::VerificationFailed(anyhow!(e)))
 }
 
 pub async fn verify(
@@ -200,26 +223,7 @@ pub async fn verify(
         signer_username: username,
     } = verify_params.clone();
 
-    fn verify(
-        public_key: &RsaPublicKey,
-        signature_str: &str,
-        verify_string: &str,
-    ) -> Result<(), VerificationError> {
-        let verifying_key = rsa::pkcs1v15::VerifyingKey::<Sha256>::new(public_key.clone());
-
-        general_purpose::STANDARD
-            .decode(signature_str.as_bytes())
-            .map_err(|e| VerificationError::DecodeError(anyhow!(e)))
-            .and_then(|signature_bytes| {
-                rsa::pkcs1v15::Signature::try_from(signature_bytes.as_slice())
-                    .map_err(|e| VerificationError::SignatureError(anyhow!(e)))
-            })
-            .and_then(|signature| {
-                verifying_key
-                    .verify(verify_string.as_bytes(), &signature)
-                    .map_err(|e| VerificationError::VerificationFailed(anyhow!(e)))
-            })
-    }
+    // The old inner `verify` function is no longer needed.
 
     if local && key_selector == Some("client-key".to_string()) {
         let username = username.ok_or(VerificationError::ProfileNotFound)?;
@@ -227,23 +231,25 @@ pub async fn verify(
             .await
             .map_err(|_| VerificationError::ProfileNotFound)?;
 
-        let public_key = profile
+        let public_key_pem = profile
             .ek_client_public_key
             .clone()
             .ok_or(VerificationError::ClientKeyNotFound)?;
 
-        RsaPublicKey::from_public_key_pem(public_key.trim_end())
-            .map_err(|e| VerificationError::PublicKeyError(anyhow!(e)))
-            .and_then(|pk| verify(&pk, &signature_str, &verify_string))?;
+        // Use the new helper function
+        verify_signature_crypto(&public_key_pem, &signature_str, &verify_string)?;
 
         Ok(VerificationType::Local((Box::from(profile), params.digest)))
     } else if let Ok(actor) = get_actor_by_key_id(conn, key_id).await {
-        let actor = ApActor::from(actor.clone());
+        let ap_actor = ApActor::from(actor.clone());
+        let public_key_pem = ap_actor.clone().public_key.public_key_pem;
 
-        RsaPublicKey::from_public_key_pem(actor.clone().public_key.public_key_pem.trim_end())
-            .map_err(|e| VerificationError::PublicKeyError(anyhow!(e)))
-            .and_then(|pk| verify(&pk, &signature_str, &verify_string))?;
-        Ok(VerificationType::Remote((Box::new(actor), params.digest)))
+        // Use the new helper function
+        verify_signature_crypto(&public_key_pem, &signature_str, &verify_string)?;
+        Ok(VerificationType::Remote((
+            Box::new(ap_actor),
+            params.digest,
+        )))
     } else {
         Err(VerificationError::ActorNotFound(params.into()))
     }

@@ -12,7 +12,7 @@ use rust_embed::RustEmbed;
 
 use crate::{
     db::Db,
-    fairings::{access_control::BlockList, events::EventChannels, proxy::ProxyFairing},
+    fairings::{access_control::BlockList, events::EventChannels},
     routes::{
         api::{
             admin::*, authentication::*, encryption::*, image::*, profile::*, remote::*, stream::*,
@@ -193,7 +193,6 @@ fn rocket() -> Rocket<Build> {
         .attach(EventChannels::fairing())
         .attach(Db::fairing())
         .attach(BlockList::fairing())
-        .attach(ProxyFairing::fairing())
         .mount(
             "/media/avatars",
             FileServer::from(format!("{}/avatars", *crate::MEDIA_DIR)).rank(5),
@@ -287,6 +286,12 @@ fn rocket() -> Rocket<Build> {
         )
 }
 
-pub fn start() {
-    main()
+pub async fn start() {
+    // Spawn the Axum server task in the background
+    tokio::spawn(async {
+        crate::axum_server::start().await;
+    });
+
+    // Launch the Rocket server, which will block this thread
+    let _ = rocket().launch().await;
 }

@@ -1,4 +1,3 @@
-
 use anyhow::Result;
 use clap::{Parser, Subcommand};
 use enigmatick::models::actors::{get_muted_terms_by_username, update_muted_terms_by_username};

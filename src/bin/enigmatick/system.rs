@@ -1,4 +1,3 @@
-
 use anyhow::Result;
 use diesel_migrations::{embed_migrations, EmbeddedMigrations, MigrationHarness};
 use enigmatick::admin::create_user;
