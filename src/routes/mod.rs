@@ -17,7 +17,7 @@ pub mod webfinger;
 
 #[derive(Responder)]
 #[response(content_type = "application/activity+json")]
-pub struct ActivityJson<T>(Json<T>);
+pub struct ActivityJson<T>(pub Json<T>);
 
 impl From<ApActivity> for ActivityJson<ApActivity> {
     fn from(activity: ApActivity) -> Self {

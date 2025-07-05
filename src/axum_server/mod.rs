@@ -1,5 +1,6 @@
 // Declare the submodule first
 pub mod extractors;
+mod routes;
 
 // Now, include the server logic
 use crate::axum_server::extractors::AxumSigned; // Use the new AxumSigned type
@@ -44,6 +45,7 @@ pub async fn start() {
     // For now, a simple test route proves it's working.
     let app = Router::new()
         .route("/hello", get(hello_axum))
+        .route("/inbox", get(routes::inbox::axum_shared_inbox_get))
         .with_state(app_state);
 
     // Run the Axum server on an internal-only port.

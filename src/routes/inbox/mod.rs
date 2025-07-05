@@ -7,6 +7,7 @@ use rocket::outcome::Outcome;
 use rocket::request::Request;
 use rocket::serde::json::Json;
 use rocket::{get, post};
+use serde::Deserialize;
 use serde_json::{Map, Value};
 
 use crate::db::Db;
@@ -96,11 +97,15 @@ fn sanitize_level(obj: &mut Map<String, Value>, keep_field: &str, remove_field: 
     // If only one exists or neither exists - no action needed
 }
 
-#[derive(FromFormField, Eq, PartialEq, Debug, Clone)]
+#[derive(FromFormField, Eq, PartialEq, Debug, Clone, Deserialize)]
 pub enum InboxView {
+    #[serde(alias = "home")]
     Home,
+    #[serde(alias = "local")]
     Local,
+    #[serde(alias = "global")]
     Global,
+    #[serde(alias = "direct")]
     Direct,
 }
 
