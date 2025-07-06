@@ -1,11 +1,13 @@
 use std::collections::HashSet;
 
+use crate::db::runner::DbRunner;
 use crate::db::Db;
 use deadpool_diesel::postgres::Object as DbConnection;
 //use crate::models::leaders::Leader;
 use crate::schema::actors;
-use crate::{GetHashtags, POOL};
-use anyhow::{anyhow, Result};
+use crate::db::POOL;
+use crate::{GetHashtags};
+use anyhow::{anyhow, Context, Result};
 use chrono::{DateTime, Duration, Utc};
 use convert_case::{Case, Casing};
 use diesel::prelude::*;
@@ -671,34 +673,20 @@ impl TryFrom<ApActor> for NewActor {
     }
 }
 
-pub async fn create_or_update_actor(conn: Option<&Db>, actor: NewActor) -> Result<Actor> {
-    match conn {
-        Some(conn) => conn
-            .run(move |c| {
-                diesel::insert_into(actors::table)
-                    .values(&actor)
-                    .on_conflict(actors::as_id)
-                    .do_update()
-                    .set(&actor)
-                    .get_result(c)
-            })
-            .await
-            .map_err(anyhow::Error::msg),
-        None => {
-            let mut pool = POOL.get().map_err(anyhow::Error::msg)?;
-            diesel::insert_into(actors::table)
-                .values(&actor)
-                .on_conflict(actors::as_id)
-                .do_update()
-                .set(&actor)
-                .get_result(&mut pool)
-                .map_err(anyhow::Error::msg)
-        }
-    }
+pub async fn create_or_update_actor<C: DbRunner>(conn: &C, actor: NewActor) -> Result<Actor> {
+    conn.run(move |c| {
+        diesel::insert_into(actors::table)
+            .values(&actor)
+            .on_conflict(actors::as_id)
+            .do_update()
+            .set(&actor)
+            .get_result(c)
+    })
+    .await
 }
 
-pub async fn set_mls_credentials_by_username(
-    conn: &Db,
+pub async fn set_mls_credentials_by_username<C: DbRunner>(
+    conn: &C,
     username: String,
     credentials: String,
 ) -> Result<Actor> {
@@ -713,11 +701,10 @@ pub async fn set_mls_credentials_by_username(
             .get_result::<Actor>(c)
     })
     .await
-    .map_err(anyhow::Error::msg)
 }
 
-pub async fn update_mls_storage_by_username(
-    conn: &Db,
+pub async fn update_mls_storage_by_username<C: DbRunner>(
+    conn: &C,
     username: String,
     storage: String,
     storage_hash: String,
@@ -739,11 +726,10 @@ pub async fn update_mls_storage_by_username(
             .get_result::<Actor>(c)
     })
     .await
-    .map_err(anyhow::Error::msg)
 }
 
-pub async fn update_olm_account_by_username(
-    conn: &Db,
+pub async fn update_olm_account_by_username<C: DbRunner>(
+    conn: &C,
     username: String,
     account: String,
     account_hash: String,
@@ -763,15 +749,14 @@ pub async fn update_olm_account_by_username(
             .get_result::<Actor>(c)
     })
     .await
-    .map_err(anyhow::Error::msg)
 }
 
-pub async fn update_avatar_by_username(
-    conn: &Db,
+pub async fn update_avatar_by_username<C: DbRunner>(
+    conn: &C,
     username: String,
     filename: String,
     as_image: Value,
-) -> Option<Actor> {
+) -> Result<Actor> {
     conn.run(move |c| {
         diesel::update(actors::table.filter(actors::ek_username.eq(username)))
             .set((
@@ -781,15 +766,14 @@ pub async fn update_avatar_by_username(
             .get_result::<Actor>(c)
     })
     .await
-    .ok()
 }
 
-pub async fn update_banner_by_username(
-    conn: &Db,
+pub async fn update_banner_by_username<C: DbRunner>(
+    conn: &C,
     username: String,
     filename: String,
     as_image: Value,
-) -> Option<Actor> {
+) -> Result<Actor> {
     conn.run(move |c| {
         diesel::update(actors::table.filter(actors::ek_username.eq(username)))
             .set((
@@ -799,15 +783,14 @@ pub async fn update_banner_by_username(
             .get_result::<Actor>(c)
     })
     .await
-    .ok()
 }
 
-pub async fn update_summary_by_username(
-    conn: &Db,
+pub async fn update_summary_by_username<C: DbRunner>(
+    conn: &C,
     username: String,
     summary: String,
     summary_markdown: String,
-) -> Option<Actor> {
+) -> Result<Actor> {
     conn.run(move |c| {
         diesel::update(actors::table.filter(actors::ek_username.eq(username)))
             .set((
@@ -817,17 +800,16 @@ pub async fn update_summary_by_username(
             .get_result::<Actor>(c)
     })
     .await
-    .ok()
 }
 
-pub async fn update_password_by_username(
-    conn: &Db,
+pub async fn update_password_by_username<C: DbRunner>(
+    conn: &C,
     username: String,
     password: String,
     client_private_key: String,
     olm_pickled_account: String,
     olm_pickled_account_hash: String,
-) -> Option<Actor> {
+) -> Result<Actor> {
     conn.run(move |c| {
         diesel::update(actors::table.filter(actors::ek_username.eq(username)))
             .set((
@@ -839,14 +821,13 @@ pub async fn update_password_by_username(
             .get_result::<Actor>(c)
     })
     .await
-    .ok()
 }
 
-pub async fn get_muted_terms_by_username(
-    conn_opt: Option<&Db>,
+pub async fn get_muted_terms_by_username<C: DbRunner>(
+    conn: &C,
     username: String,
-) -> Result<Vec<String>, anyhow::Error> {
-    let operation = move |c: &mut PgConnection| {
+) -> Result<Vec<String>> {
+    conn.run(move |c: &mut PgConnection| {
         actors::table
             .filter(actors::ek_username.eq(username))
             .select(actors::ek_muted_terms)
@@ -859,49 +840,27 @@ pub async fn get_muted_terms_by_username(
                     .filter_map(|v| v.as_str().map(String::from))
                     .collect()
             })
-            .map_err(anyhow::Error::from)
-    };
-
-    match conn_opt {
-        Some(conn) => conn.run(operation).await,
-        None => {
-            tokio::task::spawn_blocking(move || {
-                let mut pool_conn = POOL.get().map_err(anyhow::Error::msg)?;
-                operation(&mut pool_conn)
-            })
-            .await?
-        }
-    }
+    })
+    .await
 }
 
-pub async fn update_muted_terms_by_username(
-    conn_opt: Option<&Db>,
+pub async fn update_muted_terms_by_username<C: DbRunner>(
+    conn: &C,
     username: String,
     terms: Vec<String>,
-) -> Result<Actor, anyhow::Error> {
+) -> Result<Actor> {
     let terms_json = json!(terms);
 
-    let operation = move |c: &mut PgConnection| {
+    conn.run(move |c: &mut PgConnection| {
         diesel::update(actors::table)
             .filter(actors::ek_username.eq(username))
             .set(actors::ek_muted_terms.eq(terms_json))
             .get_result::<Actor>(c)
-            .map_err(anyhow::Error::from)
-    };
-
-    match conn_opt {
-        Some(conn) => conn.run(operation).await,
-        None => {
-            tokio::task::spawn_blocking(move || {
-                let mut pool_conn = POOL.get().map_err(anyhow::Error::msg)?;
-                operation(&mut pool_conn)
-            })
-            .await?
-        }
-    }
+    })
+    .await
 }
 
-pub async fn get_actor_by_key_id(conn: &Db, key_id: String) -> Result<Actor> {
+pub async fn get_actor_by_key_id<C: DbRunner>(conn: &C, key_id: String) -> Result<Actor> {
     use diesel::sql_types::Text;
 
     conn.run(move |c: &mut PgConnection| {
@@ -910,11 +869,10 @@ pub async fn get_actor_by_key_id(conn: &Db, key_id: String) -> Result<Actor> {
             .get_result::<Actor>(c)
     })
     .await
-    .map_err(anyhow::Error::msg)
 }
 
-pub async fn tombstone_actor_by_as_id(conn_opt: Option<&Db>, as_id: String) -> Result<Actor> {
-    let operation = move |c: &mut PgConnection| {
+pub async fn tombstone_actor_by_as_id<C: DbRunner>(conn: &C, as_id: String) -> Result<Actor> {
+    conn.run(move |c: &mut PgConnection| {
         diesel::update(actors::table.filter(actors::as_id.eq(as_id)))
             .set((
                 actors::as_type.eq(ActorType::Tombstone),
@@ -951,12 +909,11 @@ pub async fn tombstone_actor_by_as_id(conn_opt: Option<&Db>, as_id: String) -> R
                 actors::ek_muted_terms.eq(json!([])),
             ))
             .get_result(c)
-    };
-
-    crate::db::run_db_op(conn_opt, &crate::POOL, operation).await
+    })
+    .await
 }
 
-pub async fn delete_actor_by_as_id(conn: &Db, as_id: String) -> bool {
+pub async fn delete_actor_by_as_id<C: DbRunner>(conn: &C, as_id: String) -> Result<usize> {
     // This function checks if ek_username is null to avoid deleting local user records
     conn.run(move |c| {
         diesel::delete(
@@ -965,14 +922,13 @@ pub async fn delete_actor_by_as_id(conn: &Db, as_id: String) -> bool {
         .execute(c)
     })
     .await
-    .is_ok()
 }
 
-pub async fn delete_actors_by_domain_pattern(
-    conn: Option<&Db>,
+pub async fn delete_actors_by_domain_pattern<C: DbRunner>(
+    conn: &C,
     domain_pattern: String,
 ) -> Result<usize> {
-    let operation = move |c: &mut diesel::PgConnection| {
+    conn.run(move |c: &mut diesel::PgConnection| {
         use diesel::sql_types::Text;
 
         // First delete activities that reference actors from this domain
@@ -984,110 +940,68 @@ pub async fn delete_actors_by_domain_pattern(
         sql_query("DELETE FROM actors WHERE as_id COLLATE \"C\" LIKE $1")
             .bind::<Text, _>(format!("https://{domain_pattern}/%"))
             .execute(c)
-    };
-
-    crate::db::run_db_op(conn, &crate::POOL, operation).await
+    })
+    .await
 }
 
-pub async fn get_actor(conn: &Db, id: i32) -> Option<Actor> {
+pub async fn get_actor<C: DbRunner>(conn: &C, id: i32) -> Result<Actor> {
     conn.run(move |c| actors::table.find(id).first::<Actor>(c))
         .await
-        .ok()
 }
 
-pub async fn get_actor_by_username(conn_opt: Option<&Db>, username: String) -> Result<Actor> {
-    let operation = move |c: &mut PgConnection| {
+pub async fn get_actor_by_username<C: DbRunner>(conn: &C, username: String) -> Result<Actor> {
+    conn.run(move |c| {
         actors::table
             .filter(actors::ek_username.eq(username))
             .first::<Actor>(c)
-            .map_err(anyhow::Error::from)
-    };
-    match conn_opt {
-        Some(conn) => conn.run(operation).await,
-        None => {
-            tokio::task::spawn_blocking(move || {
-                let mut pool_conn = POOL.get().map_err(anyhow::Error::msg)?;
-                operation(&mut pool_conn)
-            })
-            .await?
-        }
-    }
+    })
+    .await
 }
 
-pub async fn get_actor_by_webfinger(conn_opt: Option<&Db>, webfinger: String) -> Result<Actor> {
-    let operation = move |c: &mut PgConnection| {
+pub async fn get_actor_by_webfinger<C: DbRunner>(conn: &C, webfinger: String) -> Result<Actor> {
+    conn.run(move |c: &mut PgConnection| {
         actors::table
             .filter(actors::ek_webfinger.eq(webfinger))
             .first::<Actor>(c)
-            .map_err(anyhow::Error::from)
-    };
-
-    match conn_opt {
-        Some(conn) => conn.run(operation).await,
-        None => {
-            tokio::task::spawn_blocking(move || {
-                let mut pool_conn = POOL.get().map_err(anyhow::Error::msg)?;
-                operation(&mut pool_conn)
-            })
-            .await?
-        }
-    }
+    })
+    .await
 }
 
-pub async fn get_actor_by_uuid(conn_opt: Option<&Db>, uuid: String) -> Result<Actor> {
-    let operation = move |c: &mut PgConnection| {
+pub async fn get_actor_by_uuid<C: DbRunner>(conn: &C, uuid: String) -> Result<Actor> {
+    conn.run(move |c: &mut PgConnection| {
         actors::table
             .filter(actors::ek_uuid.eq(uuid))
             .first::<Actor>(c)
-            .map_err(anyhow::Error::from)
-    };
-    match conn_opt {
-        Some(conn) => conn.run(operation).await,
-        None => {
-            tokio::task::spawn_blocking(move || {
-                let mut pool_conn = POOL.get().map_err(anyhow::Error::msg)?;
-                operation(&mut pool_conn)
-            })
-            .await?
-        }
-    }
+    })
+    .await
 }
 
-pub async fn get_actor_by_as_id(conn_opt: Option<&Db>, as_id: String) -> Result<Actor> {
-    let operation = move |c: &mut PgConnection| {
+pub async fn get_actor_by_as_id<C: DbRunner>(conn: &C, as_id: String) -> Result<Actor> {
+    conn.run(move |c| {
         actors::table
             .filter(actors::as_id.eq(as_id))
             .first::<Actor>(c)
-            .map_err(anyhow::Error::from)
-    };
-    match conn_opt {
-        Some(conn) => conn.run(operation).await,
-        None => {
-            tokio::task::spawn_blocking(move || {
-                let mut pool_conn = POOL.get().map_err(anyhow::Error::msg)?;
-                operation(&mut pool_conn)
-            })
-            .await?
-        }
-    }
+    })
+    .await
 }
 
-pub async fn get_follower_inboxes(conn: &Db, actor: Actor) -> Vec<ApAddress> {
+pub async fn get_follower_inboxes<C: DbRunner>(conn: &C, actor: Actor) -> Vec<ApAddress> {
     let mut inboxes: HashSet<ApAddress> = HashSet::new();
 
-    for (_follower, actor) in get_followers_by_actor_id(Some(conn), actor.id, None).await {
-        inboxes.insert(ApAddress::Address(actor.as_inbox));
+    if let Ok(followers) = get_followers_by_actor_id(conn, actor.id, None).await {
+        for (_follower, actor) in followers {
+            inboxes.insert(ApAddress::Address(actor.as_inbox));
+        }
     }
 
     Vec::from_iter(inboxes)
 }
 
-pub async fn guaranteed_actor(conn: &Db, profile: Option<Actor>) -> Actor {
+pub async fn guaranteed_actor<C: DbRunner>(conn: &C, profile: Option<Actor>) -> Actor {
     match profile {
         Some(profile) => profile,
-        // Pass Some(conn) here as guaranteed_actor is likely called from server context
-        None => get_actor_by_username(Some(conn), (*crate::SYSTEM_USER).clone())
-            .await // get_actor_by_username now returns Result<Actor>
+        None => get_actor_by_username(conn, (*crate::SYSTEM_USER).clone())
+            .await
             .expect("Unable to retrieve system user"),
     }
 }

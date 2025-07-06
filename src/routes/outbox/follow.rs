@@ -67,7 +67,7 @@ async fn follow_outbox(
     log::debug!("Follow Object: {as_id}");
 
     // Retrieve the actor being followed.
-    let actor_to_follow = get_actor_by_as_id(Some(&conn), as_id.clone())
+    let actor_to_follow = get_actor_by_as_id(&conn, as_id.clone())
         .await
         .map_err(|e| {
             log::error!("Failed to retrieve actor to follow '{as_id}': {e:#?}");
@@ -77,13 +77,14 @@ async fn follow_outbox(
     log::debug!("Follow Actor: {actor_to_follow}");
 
     // Check if a follow activity already exists. If not, create one.
-    let activity = if let Some(activity) = get_unrevoked_activity_by_kind_actor_id_and_target_ap_id(
-        &conn,
-        ActivityType::Follow,
-        profile.id,
-        as_id.clone(),
-    )
-    .await
+    let activity = if let Ok(Some(activity)) =
+        get_unrevoked_activity_by_kind_actor_id_and_target_ap_id(
+            &conn,
+            ActivityType::Follow,
+            profile.id,
+            as_id.clone(),
+        )
+        .await
     {
         activity
     } else {
@@ -100,7 +101,7 @@ async fn follow_outbox(
         new_activity.raw = Some(raw);
 
         // Save the new activity to the database.
-        let created_activity = create_activity(Some(&conn), new_activity.clone())
+        let created_activity = create_activity(&conn, new_activity.clone())
             .await
             .map_err(|e| {
                 log::error!("Failed to create Follow activity in DB: {e:#?}");
@@ -122,7 +123,7 @@ async fn follow_outbox(
         new_follow.follower_actor_id = Some(profile.id);
         new_follow.leader_actor_id = Some(actor_to_follow.id);
 
-        create_follow(Some(&conn), new_follow).await.map_err(|e| {
+        create_follow(&conn, new_follow).await.map_err(|e| {
             log::error!("Failed to create Follow record in DB: {e:#?}");
             Status::InternalServerError
         })?;
@@ -162,8 +163,12 @@ async fn send(
         let (activity, target_activity, target_object, target_actor) =
             get_activity_by_ap_id(&conn, ap_id.clone())
                 .await
+                .map_err(|e| {
+                    log::error!("Failed to retrieve Activity: {e}");
+                    TaskError::TaskFailed
+                })?
                 .ok_or_else(|| {
-                    log::error!("Failed to retrieve Activity");
+                    log::error!("Activity not found: {ap_id}");
                     TaskError::TaskFailed
                 })?;
 
@@ -175,7 +180,7 @@ async fn send(
             })?,
         )
         .await
-        .ok_or(TaskError::TaskFailed)?;
+        .map_err(|_| TaskError::TaskFailed)?;
 
         let activity = ApActivity::try_from_extended_activity((
             activity,
@@ -188,10 +193,9 @@ async fn send(
             TaskError::TaskFailed
         })?;
 
-        let inboxes: Vec<ApAddress> =
-            get_inboxes(Some(&conn), activity.clone(), sender.clone()).await;
+        let inboxes: Vec<ApAddress> = get_inboxes(&conn, activity.clone(), sender.clone()).await;
 
-        send_to_inboxes(Some(&conn), inboxes, sender, activity.clone())
+        send_to_inboxes(&conn, inboxes, sender, activity.clone())
             .await
             .map_err(|e| {
                 log::error!("Failed to send to inboxes: {e:#?}");

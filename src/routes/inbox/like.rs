@@ -23,12 +23,10 @@ impl Inbox for Box<ApLike> {
 
         let note_apid = note_apid.ok_or(Status::BadRequest)?;
 
-        let target = get_object_by_as_id(Some(&conn), note_apid)
-            .await
-            .map_err(|e| {
-                log::debug!("LIKE TARGET NOT FOUND: {e:#?}");
-                Status::NotFound
-            })?;
+        let target = get_object_by_as_id(&conn, note_apid).await.map_err(|e| {
+            log::debug!("LIKE TARGET NOT FOUND: {e:#?}");
+            Status::NotFound
+        })?;
 
         let mut activity = NewActivity::try_from((
             ApActivity::Like(self.clone()),
@@ -40,7 +38,7 @@ impl Inbox for Box<ApLike> {
         })?;
         activity.raw = Some(raw.clone());
 
-        create_activity((&conn).into(), activity.clone())
+        create_activity(&conn, activity.clone())
             .await
             .map_err(|e| {
                 log::error!("FAILED TO CREATE ACTIVITY: {e:#?}");

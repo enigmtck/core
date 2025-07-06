@@ -48,13 +48,17 @@ async fn undo_outbox(
     let (activity, _target_activity, target_object, _target_actor) =
         get_activity_by_ap_id(&conn, target_ap_id.ok_or(Status::InternalServerError)?)
             .await
+            .map_err(|e| {
+                log::error!("FAILED TO RETRIEVE ACTIVITY: {e}");
+                Status::NotFound
+            })?
             .ok_or_else(|| {
-                log::error!("FAILED TO RETRIEVE ACTIVITY");
+                log::error!("Activity not found");
                 Status::NotFound
             })?;
 
     let mut undo = create_activity(
-        Some(&conn),
+        &conn,
         NewActivity::from((
             activity.clone(),
             ActivityType::Undo,
@@ -98,13 +102,17 @@ async fn send_task(
         let (activity, target_activity, target_object, target_actor) =
             get_activity_by_ap_id(&conn, ap_id.clone())
                 .await
-                .ok_or(TaskError::TaskFailed)?;
+                .map_err(|_| TaskError::TaskFailed)?
+                .ok_or_else(|| {
+                    log::error!("Activity not found: {ap_id}");
+                    TaskError::TaskFailed
+                })?;
 
         let profile_id = activity.actor_id.ok_or(TaskError::TaskFailed)?;
 
         let sender = get_actor(&conn, profile_id)
             .await
-            .ok_or(TaskError::TaskFailed)?;
+            .map_err(|_| TaskError::TaskFailed)?;
 
         let ap_activity = ApActivity::try_from_extended_activity((
             activity.clone(),
@@ -117,10 +125,9 @@ async fn send_task(
             TaskError::TaskFailed
         })?;
 
-        let inboxes: Vec<ApAddress> =
-            get_inboxes(Some(&conn), ap_activity.clone(), sender.clone()).await;
+        let inboxes: Vec<ApAddress> = get_inboxes(&conn, ap_activity.clone(), sender.clone()).await;
 
-        send_to_inboxes(Some(&conn), inboxes, sender, ap_activity.clone())
+        send_to_inboxes(&conn, inboxes, sender, ap_activity.clone())
             .await
             .map_err(|e| {
                 log::error!("FAILED TO SEND TO INBOXES: {e:#?}");
@@ -144,10 +151,10 @@ async fn send_task(
                 log::debug!("ApFollow ID to Undo: {follow_activity_ap_id}");
 
                 let leader_ap_id = follow.object.reference().ok_or(TaskError::TaskFailed)?;
-                if delete_follow(Some(&conn), follow.actor.to_string(), leader_ap_id)
+                if delete_follow(&conn, follow.actor.to_string(), leader_ap_id)
                     .await
                     .is_ok()
-                    && revoke_activity_by_apid(Some(&conn), follow_activity_ap_id)
+                    && revoke_activity_by_apid(&conn, follow_activity_ap_id)
                         .await
                         .is_ok()
                 {
@@ -160,7 +167,7 @@ async fn send_task(
                 let identifier = get_local_identifier(id).ok_or(TaskError::TaskFailed)?;
                 log::debug!("LIKE IDENTIFIER: {identifier:#?}");
                 if identifier.kind == LocalIdentifierType::Activity {
-                    revoke_activity_by_uuid(Some(&conn), identifier.identifier)
+                    revoke_activity_by_uuid(&conn, identifier.identifier)
                         .await
                         .map_err(|e| {
                             log::error!("LIKE REVOCATION FAILED: {e:#?}");
@@ -175,7 +182,7 @@ async fn send_task(
                 let identifier = get_local_identifier(id).ok_or(TaskError::TaskFailed)?;
                 log::debug!("ANNOUNCE IDENTIFIER: {identifier:#?}");
                 if identifier.kind == LocalIdentifierType::Activity {
-                    revoke_activity_by_uuid(Some(&conn), identifier.identifier)
+                    revoke_activity_by_uuid(&conn, identifier.identifier)
                         .await
                         .map_err(|e| {
                             log::error!("ANNOUNCE REVOCATION FAILED: {e:#?}");

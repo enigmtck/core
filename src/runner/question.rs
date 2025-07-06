@@ -18,7 +18,7 @@ pub async fn remote_question_task(
 
     log::debug!("LOOKING FOR QUESTION AP_ID: {ap_id}");
 
-    if let Ok(remote_question) = get_object_by_as_id(Some(&conn), ap_id).await {
+    if let Ok(remote_question) = get_object_by_as_id(&conn, ap_id).await {
         let _ = handle_remote_question(&conn, channels, remote_question.clone()).await;
     }
 
@@ -36,7 +36,7 @@ pub async fn handle_remote_question(
     let profile = guaranteed_actor(conn, None).await;
 
     let _ = get_actor(
-        Some(conn),
+        conn,
         question.attributed_to.to_string(),
         Some(profile),
         true,

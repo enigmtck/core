@@ -159,15 +159,12 @@ async fn note_outbox(
 
     let create = build_ap_create(&object)?;
 
-    let activity = create_activity(
-        Some(&conn),
-        build_activity(create, &conn, &object, raw).await?,
-    )
-    .await
-    .map_err(|e| {
-        log::error!("Failed to create Activity: {e:#?}");
-        Status::InternalServerError
-    })?;
+    let activity = create_activity(&conn, build_activity(create, &conn, &object, raw).await?)
+        .await
+        .map_err(|e| {
+            log::error!("Failed to create Activity: {e:#?}");
+            Status::InternalServerError
+        })?;
 
     for instrument in process_instruments(note.clone()).await? {
         process_instrument(&conn, &profile, &instrument).await?;
@@ -195,8 +192,12 @@ async fn send_note(
         let (activity, target_activity, target_object, target_actor) =
             get_activity_by_ap_id(&conn, ap_id.clone())
                 .await
+                .map_err(|e| {
+                    log::error!("Failed to retrieve Activity: {e}");
+                    TaskError::TaskFailed
+                })?
                 .ok_or_else(|| {
-                    log::error!("Failed to retrieve Activity");
+                    log::error!("Activity not found: {ap_id}");
                     TaskError::TaskFailed
                 })?;
 
@@ -205,8 +206,8 @@ async fn send_note(
             TaskError::TaskFailed
         })?;
 
-        let sender = actors::get_actor(&conn, profile_id).await.ok_or_else(|| {
-            log::error!("Failed to retrieve sending Actor");
+        let sender = actors::get_actor(&conn, profile_id).await.map_err(|e| {
+            log::error!("Failed to retrieve sending Actor: {e}");
             TaskError::TaskFailed
         })?;
 
@@ -275,7 +276,7 @@ async fn send_note(
         }
 
         let _ = get_actor(
-            Some(&conn),
+            &conn,
             note.clone().attributed_to.to_string(),
             Some(sender.clone()),
             true,
@@ -287,14 +288,13 @@ async fn send_note(
             TaskError::TaskFailed
         })?;
 
-        let inboxes: Vec<ApAddress> =
-            get_inboxes(Some(&conn), activity.clone(), sender.clone()).await;
+        let inboxes: Vec<ApAddress> = get_inboxes(&conn, activity.clone(), sender.clone()).await;
 
         log::debug!("SENDING ACTIVITY\n{activity:#?}");
         log::debug!("SENDER\n{sender:#?}");
         log::debug!("INBOXES\n{inboxes:#?}");
 
-        send_to_inboxes(Some(&conn), inboxes, sender, activity)
+        send_to_inboxes(&conn, inboxes, sender, activity)
             .await
             .map_err(|e| {
                 log::error!("Failed to send ApActivity: {e:#?}");

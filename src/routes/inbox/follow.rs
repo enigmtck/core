@@ -43,7 +43,7 @@ impl Inbox for ApFollow {
             return Err(Status::UnprocessableEntity);
         };
 
-        let actor = get_actor_by_as_id(Some(&conn), actor_as_id.clone())
+        let actor = get_actor_by_as_id(&conn, actor_as_id.clone())
             .await
             .map_err(|e| {
                 log::error!("FAILED TO RETRIEVE ACTOR: {e:#?}");
@@ -61,12 +61,10 @@ impl Inbox for ApFollow {
 
         activity.raw = Some(raw);
 
-        let activity = create_activity((&conn).into(), activity)
-            .await
-            .map_err(|e| {
-                log::error!("FAILED TO CREATE FOLLOW ACTIVITY: {e:#?}");
-                Status::InternalServerError
-            })?;
+        let activity = create_activity(&conn, activity).await.map_err(|e| {
+            log::error!("FAILED TO CREATE FOLLOW ACTIVITY: {e:#?}");
+            Status::InternalServerError
+        })?;
 
         runner::run(
             process,
@@ -105,7 +103,11 @@ async fn process(
         // 1. Retrieve the Follow activity and the actors involved.
         let extended_follow = get_activity_by_ap_id(&conn, ap_id.clone())
             .await
-            .ok_or(TaskError::TaskFailed)?;
+            .map_err(|_| TaskError::TaskFailed)?
+            .ok_or_else(|| {
+                log::error!("Activity not found: {ap_id}");
+                TaskError::TaskFailed
+            })?;
 
         let follow =
             ApFollow::try_from_extended_activity(extended_follow.clone()).map_err(|e| {
@@ -118,14 +120,12 @@ async fn process(
             TaskError::TaskFailed
         })?;
 
-        let leader_actor = get_actor_by_as_id(Some(&conn), leader_as_id)
-            .await
-            .map_err(|e| {
-                log::error!("Failed to retrieve leader actor: {e:#?}");
-                TaskError::TaskFailed
-            })?;
+        let leader_actor = get_actor_by_as_id(&conn, leader_as_id).await.map_err(|e| {
+            log::error!("Failed to retrieve leader actor: {e:#?}");
+            TaskError::TaskFailed
+        })?;
 
-        let follower_actor = get_actor_by_as_id(Some(&conn), follow.actor.clone().to_string())
+        let follower_actor = get_actor_by_as_id(&conn, follow.actor.clone().to_string())
             .await
             .map_err(|e| {
                 log::error!("Failed to retrieve follower actor: {e:#?}");
@@ -138,13 +138,13 @@ async fn process(
                 log::error!("Failed to build NewFollow from ApFollow: {e:#?}");
                 TaskError::TaskFailed
             })?
-            .link(Some(&conn))
+            .link(&conn)
             .await;
 
         // The follow activity ID comes from the activity we just stored.
         new_follow.follow_activity_ap_id = Some(ap_id);
 
-        if create_follow(Some(&conn), new_follow).await.is_err() {
+        if create_follow(&conn, new_follow).await.is_err() {
             // This could be a race condition where the follow already exists.
             // We can probably ignore this error and continue, as the goal is to ensure the follow exists.
             log::warn!("Failed to create Follow record, it might already exist. Continuing.");
@@ -178,16 +178,15 @@ async fn process(
         accept_activity.link_actor(&conn).await;
         accept.id = accept_activity.ap_id.clone();
 
-        let created_accept_activity = create_activity(Some(&conn), accept_activity)
-            .await
-            .map_err(|e| {
+        let created_accept_activity =
+            create_activity(&conn, accept_activity).await.map_err(|e| {
                 log::error!("Failed to create Accept activity in DB: {e:#?}");
                 TaskError::TaskFailed
             })?;
 
         // 5. Update the Follow record to mark it as accepted.
         mark_follow_accepted(
-            Some(&conn),
+            &conn,
             follower_actor.as_id.clone(),
             leader_actor.as_id.clone(),
             created_accept_activity.ap_id.clone().unwrap(),
@@ -198,7 +197,7 @@ async fn process(
 
         // 6. Send the Accept activity to the follower.
         send_to_inboxes(
-            Some(&conn),
+            &conn,
             vec![follower_actor.as_inbox.clone().into()],
             leader_actor.clone(),
             ApActivity::Accept(Box::new(accept)),

@@ -70,8 +70,9 @@ fn handle_update_command(args: UpdateArgs, handle: &tokio::runtime::Handle) -> R
 }
 
 async fn execute_send_actor_delete(username: String) -> Result<()> {
+    let conn = enigmatick::db::POOL.get().await?;
     // Get the actor record
-    let actor_record = actor_model_ops::get_actor_by_username(None, username.clone()).await?;
+    let actor_record = actor_model_ops::get_actor_by_username(&conn, username.clone()).await?;
 
     let ap_actor_to_delete: ApActor = ApActor::from(actor_record.clone());
     let mut delete_ap_object =
@@ -81,30 +82,17 @@ async fn execute_send_actor_delete(username: String) -> Result<()> {
     let new_activity_to_save =
         NewActivity::try_from((delete_activity.clone(), Some(actor_record.clone().into())))?;
 
-    let save_activity_result = tokio::task::spawn_blocking(move || {
-        let rt = tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()?;
-        rt.block_on(enigmatick::models::activities::create_activity(
-            None,
-            new_activity_to_save,
-        ))
-    })
-    .await?;
+    let save_activity_result =
+        enigmatick::models::activities::create_activity(&conn, new_activity_to_save).await?;
 
-    match save_activity_result {
-        Ok(activity) => {
-            delete_ap_object.id = Some(
-                activity
-                    .ap_id
-                    .ok_or(anyhow!("CLI: Saved Activity does not have an ID."))?,
-            );
-            println!("CLI: Successfully saved Delete activity for '{username}' locally.")
-        }
-        Err(e) => eprintln!("CLI: Failed to save Delete activity for '{username}' locally: {e:?}"),
-    }
+    delete_ap_object.id = Some(
+        save_activity_result
+            .ap_id
+            .ok_or(anyhow!("CLI: Saved Activity does not have an ID."))?,
+    );
+    println!("CLI: Successfully saved Delete activity for '{username}' locally.");
 
-    let delivery_inboxes = get_inboxes(None, delete_activity.clone(), actor_record.clone()).await;
+    let delivery_inboxes = get_inboxes(&conn, delete_activity.clone(), actor_record.clone()).await;
 
     if delivery_inboxes.is_empty() {
         println!("CLI: No active instance inboxes found to send the delete to.");
@@ -119,7 +107,7 @@ async fn execute_send_actor_delete(username: String) -> Result<()> {
     // Capture the updated ID in delete_ap_object as an ApActivity enum (shadows previous definition)
     let delete_activity = ApActivity::Delete(Box::new(delete_ap_object.clone()));
     match send_to_inboxes(
-        None,
+        &conn,
         delivery_inboxes,
         actor_record.clone(),
         delete_activity,
@@ -130,7 +118,7 @@ async fn execute_send_actor_delete(username: String) -> Result<()> {
             println!(
                 "CLI: Actor delete for '{username}' has been successfully queued for sending to instance inboxes."
             );
-            if enigmatick::models::actors::tombstone_actor_by_as_id(None, actor_record.as_id)
+            if enigmatick::models::actors::tombstone_actor_by_as_id(&conn, actor_record.as_id)
                 .await
                 .is_ok()
             {
@@ -161,8 +149,9 @@ fn handle_delete_command(args: DeleteArgs, handle: &tokio::runtime::Handle) -> R
 }
 
 async fn execute_send_actor_update(username: String) -> Result<()> {
+    let conn = enigmatick::db::POOL.get().await?;
     // Call the async function directly. It will use its internal spawn_blocking for the DB query.
-    let actor_record = actor_model_ops::get_actor_by_username(None, username.clone()).await?;
+    let actor_record = actor_model_ops::get_actor_by_username(&conn, username.clone()).await?;
 
     let ap_actor_to_update: ApActor = ApActor::from(actor_record.clone());
     let mut update_ap_object =
@@ -172,16 +161,8 @@ async fn execute_send_actor_update(username: String) -> Result<()> {
     let new_activity_to_save =
         NewActivity::try_from((update_activity.clone(), Some(actor_record.clone().into())))?;
 
-    let save_activity_result = tokio::task::spawn_blocking(move || {
-        let rt = tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()?;
-        rt.block_on(enigmatick::models::activities::create_activity(
-            None,
-            new_activity_to_save,
-        ))
-    })
-    .await?;
+    let save_activity_result =
+        enigmatick::models::activities::create_activity(&conn, new_activity_to_save).await;
 
     match save_activity_result {
         Ok(activity) => {
@@ -195,7 +176,7 @@ async fn execute_send_actor_update(username: String) -> Result<()> {
         Err(e) => eprintln!("CLI: Failed to save Update activity for '{username}' locally: {e:?}"),
     }
 
-    let delivery_inboxes = get_inboxes(None, update_activity.clone(), actor_record.clone()).await;
+    let delivery_inboxes = get_inboxes(&conn, update_activity.clone(), actor_record.clone()).await;
 
     if delivery_inboxes.is_empty() {
         println!("CLI: No active instance inboxes found to send the update to.");
@@ -209,7 +190,7 @@ async fn execute_send_actor_update(username: String) -> Result<()> {
 
     // Capture the updated ID in update_ap_object as an ApActivity enum (shadows previous definition)
     let update_activity = ApActivity::Update(update_ap_object.clone());
-    match send_to_inboxes(None, delivery_inboxes, actor_record, update_activity).await {
+    match send_to_inboxes(&conn, delivery_inboxes, actor_record, update_activity).await {
         Ok(_) => println!(
             "CLI: Actor update for '{username}' has been successfully queued for sending to instance inboxes."
         ),

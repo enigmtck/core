@@ -6,7 +6,7 @@ use super::ActivityJson;
 
 #[get("/objects/<uuid>")]
 pub async fn object_get(conn: Db, uuid: String) -> Result<ActivityJson<ApObject>, Status> {
-    get_object_by_uuid(Some(&conn), uuid)
+    get_object_by_uuid(&conn, uuid)
         .await
         .map_err(|e| {
             log::error!("UNABLE TO RETRIEVE OBJECT: {e:#?}");

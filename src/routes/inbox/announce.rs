@@ -20,10 +20,7 @@ impl Inbox for ApAnnounce {
 
         activity.raw = Some(raw.clone());
 
-        if create_activity((&conn).into(), activity.clone())
-            .await
-            .is_ok()
-        {
+        if create_activity(&conn, activity.clone()).await.is_ok() {
             runner::run(
                 runner::announce::remote_announce_task,
                 conn,

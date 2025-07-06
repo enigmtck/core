@@ -73,7 +73,7 @@ pub async fn create_user(
     if let Ok(Json(user)) = user {
         log::debug!("CREATING USER\n{user:#?}");
 
-        if let Ok(profile) = admin::create_user(Some(&conn), user).await {
+        if let Ok(profile) = admin::create_user(&conn, user).await {
             Ok(Json(profile))
         } else {
             Err(Status::NoContent)
@@ -87,10 +87,10 @@ pub async fn create_user(
 pub async fn relay_post(_ip: IpRestriction, conn: Db, actor: String) -> Result<Status, Status> {
     let profile = guaranteed_actor(&conn, None).await;
 
-    let actor = if let Ok(actor) = get_actor_by_as_id(Some(&conn), actor.clone()).await {
+    let actor = if let Ok(actor) = get_actor_by_as_id(&conn, actor.clone()).await {
         Some(ApActor::from(actor))
     } else {
-        (get_actor(Some(&conn), actor, None, true).await).ok()
+        (get_actor(&conn, actor, None, true).await).ok()
     };
 
     let inbox = if let Some(actor) = actor.clone() {
@@ -133,7 +133,7 @@ pub async fn get_muted_terms(
         return Err(Status::Forbidden);
     }
 
-    get_muted_terms_by_username(Some(&conn), username)
+    get_muted_terms_by_username(&conn, username)
         .await
         .map(Json)
         .map_err(|_| Status::InternalServerError)
@@ -160,7 +160,7 @@ pub async fn manage_muted_terms(
 
     if let Ok(Json(action)) = action {
         // Get current muted terms
-        let mut all_terms = get_muted_terms_by_username(Some(&conn), username.clone())
+        let mut all_terms = get_muted_terms_by_username(&conn, username.clone())
             .await
             .unwrap_or_default();
 
@@ -181,7 +181,7 @@ pub async fn manage_muted_terms(
         }
 
         // Update the muted terms
-        update_muted_terms_by_username(Some(&conn), username, all_terms)
+        update_muted_terms_by_username(&conn, username, all_terms)
             .await
             .map(|_| Status::Ok)
             .map_err(|_| Status::InternalServerError)

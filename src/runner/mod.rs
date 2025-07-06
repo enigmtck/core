@@ -1,5 +1,6 @@
 use std::{collections::HashSet, error::Error, fmt::Debug};
 
+use crate::db::runner::DbRunner;
 use anyhow::{anyhow, Result};
 use diesel::{r2d2::ConnectionManager, PgConnection};
 use futures_lite::Future;
@@ -144,11 +145,11 @@ pub async fn process_inbox(
     }
 }
 
-async fn process_all_inboxes(
+async fn process_all_inboxes<C: DbRunner>(
     inboxes: Vec<ApAddress>,
     body: String,
     profile: Actor,
-    conn: Option<&Db>,
+    conn: &C,
     as_id: String,
 ) -> Result<(), anyhow::Error> {
     let client = Client::builder()
@@ -182,8 +183,8 @@ async fn process_all_inboxes(
     Ok(())
 }
 
-pub async fn send_to_inboxes(
-    conn: Option<&Db>,
+pub async fn send_to_inboxes<C: DbRunner>(
+    conn: &C,
     inboxes: Vec<ApAddress>,
     profile: Actor,
     message: ApActivity,
@@ -201,8 +202,8 @@ pub async fn send_to_inboxes(
     Ok(())
 }
 
-async fn handle_recipients(
-    conn_opt: Option<&Db>,
+async fn handle_recipients<C: DbRunner>(
+    conn: &C,
     inboxes: &mut HashSet<ApAddress>,
     sender: &Actor,
     address: &ApAddress,
@@ -210,12 +211,12 @@ async fn handle_recipients(
     let actor = ApActor::from(sender.clone());
 
     if address.is_public() {
-        inboxes.extend(get_instance_inboxes(conn_opt).await?.into_iter());
+        inboxes.extend(get_instance_inboxes(conn).await?.into_iter());
     } else if let Some(followers) = actor.followers {
         if address.to_string() == followers {
-            inboxes.extend(get_follower_inboxes(conn_opt, sender.clone()).await);
+            inboxes.extend(get_follower_inboxes(conn, sender.clone()).await);
         } else if let Ok(actor) = get_actor(
-            conn_opt,
+            conn,
             address.clone().to_string(),
             Some(sender.clone()),
             true,
@@ -228,8 +229,8 @@ async fn handle_recipients(
     Ok(())
 }
 
-pub async fn get_inboxes(
-    conn_opt: Option<&Db>,
+pub async fn get_inboxes<C: DbRunner>(
+    conn: &C,
     activity: ApActivity,
     sender: Actor,
 ) -> Vec<ApAddress> {
@@ -280,7 +281,7 @@ pub async fn get_inboxes(
 
     if let Some(consolidated) = consolidated {
         for address in consolidated.iter() {
-            if let Err(e) = handle_recipients(conn_opt, &mut inboxes, &sender, address).await {
+            if let Err(e) = handle_recipients(conn, &mut inboxes, &sender, address).await {
                 log::error!("Error handling recipient {}: {:?}", address.to_string(), e);
                 // Decide if you want to stop or continue. For now, we continue.
             }

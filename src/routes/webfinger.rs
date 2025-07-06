@@ -16,7 +16,7 @@ pub async fn webfinger_xml(conn: Db, resource: String) -> Result<XrdXml, Status>
 
         let server_url = format!("https://{}", *crate::SERVER_NAME);
 
-        if get_actor_by_username(Some(&conn), username.to_string())
+        if get_actor_by_username(&conn, username.to_string())
             .await
             .is_ok()
         {
@@ -65,7 +65,7 @@ async fn webfinger(conn: Db, resource: String) -> Result<WebFinger, Status> {
         let handle = parts[1].split('@').collect::<Vec<&str>>();
         let username = handle[0];
 
-        if let Ok(profile) = get_actor_by_username(Some(&conn), username.to_string()).await {
+        if let Ok(profile) = get_actor_by_username(&conn, username.to_string()).await {
             Ok(WebFinger::from(profile))
         } else {
             Err(Status::NoContent)

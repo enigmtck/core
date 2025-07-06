@@ -20,7 +20,7 @@ pub async fn upload_media(
     mut media: Data<'_>,
 ) -> Result<Json<ApAttachment>, Status> {
     if signed.local() {
-        let _profile = get_actor_by_username(Some(&conn), username)
+        let _profile = get_actor_by_username(&conn, username)
             .await
             .map_err(|_| Status::NotFound)?;
 
@@ -103,12 +103,12 @@ pub async fn cached_image(conn: Db, url: String) -> Result<(ContentType, NamedFi
     log::debug!("Decoded cache URL: {decoded_url_string}");
 
     // Attempt to get the item from cache, or download and cache if not found
-    let cache_item = match get_cache_item_by_url(Some(&conn), decoded_url_string.clone()).await {
-        Some(item) => {
+    let cache_item = match get_cache_item_by_url(&conn, decoded_url_string.clone()).await {
+        Ok(item) => {
             log::info!("Serving from cache: {decoded_url_string}");
             item
         }
-        None => {
+        _ => {
             log::info!("Not in cache, attempting to download and cache: {decoded_url_string}");
 
             // Construct ApImage and Cacheable for the runner's cache_content function

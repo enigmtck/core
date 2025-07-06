@@ -29,21 +29,40 @@ pub async fn send_announce_task(
     channels: Option<EventChannels>,
     ap_ids: Vec<String>,
 ) -> Result<(), TaskError> {
-    let _channels = channels.as_ref();
-
+    // ... existing code
     for ap_id in ap_ids {
         let (activity, target_activity, target_object, target_actor) =
             get_activity_by_ap_id(&conn, ap_id.clone())
                 .await
+                .map_err(|e| {
+                    log::error!("DB error retrieving activity {ap_id}: {e}");
+                    TaskError::TaskFailed
+                })?
                 .ok_or_else(|| {
                     log::error!("Failed to retrieve Activity: {ap_id}");
                     TaskError::TaskFailed
                 })?;
 
+        // pub async fn send_announce_task(
+        //     conn: Db,
+        //     channels: Option<EventChannels>,
+        //     ap_ids: Vec<String>,
+        // ) -> Result<(), TaskError> {
+        //     let _channels = channels.as_ref();
+
+        //     for ap_id in ap_ids {
+        //         let (activity, target_activity, target_object, target_actor) =
+        //             get_activity_by_ap_id(&conn, ap_id.clone())
+        //                 .await
+        //                 .ok_or_else(|| {
+        //                     log::error!("Failed to retrieve Activity: {ap_id}");
+        //                     TaskError::TaskFailed
+        //                 })?;
+
         let profile_id = activity.actor_id.ok_or(TaskError::TaskFailed)?;
-        let sender = get_actor(&conn, profile_id).await.ok_or_else(|| {
+        let sender = get_actor(&conn, profile_id).await.or_else(|_| {
             log::error!("Failed to retrieve Actor: {profile_id}");
-            TaskError::TaskFailed
+            Err(TaskError::TaskFailed)
         })?;
 
         let activity = ApActivity::try_from_extended_activity((
@@ -58,10 +77,9 @@ pub async fn send_announce_task(
         })?
         .formalize();
 
-        let inboxes: Vec<ApAddress> =
-            get_inboxes(Some(&conn), activity.clone(), sender.clone()).await;
+        let inboxes: Vec<ApAddress> = get_inboxes(&conn, activity.clone(), sender.clone()).await;
 
-        send_to_inboxes(Some(&conn), inboxes, sender, activity.clone())
+        send_to_inboxes(&conn, inboxes, sender, activity.clone())
             .await
             .map_err(|e| {
                 log::error!("Failed to send Announce: {e}");
@@ -78,16 +96,30 @@ pub async fn remote_undo_announce_task(
     ap_ids: Vec<String>,
 ) -> Result<(), TaskError> {
     for ap_id in ap_ids {
-        if revoke_activity_by_apid(Some(&conn), ap_id.clone())
-            .await
-            .is_ok()
-        {
+        if revoke_activity_by_apid(&conn, ap_id.clone()).await.is_ok() {
             log::debug!("Announce revoked: {ap_id}");
         }
     }
 
     Ok(())
 }
+
+// pub async fn remote_undo_announce_task(
+//     conn: Db,
+//     _channels: Option<EventChannels>,
+//     ap_ids: Vec<String>,
+// ) -> Result<(), TaskError> {
+//     for ap_id in ap_ids {
+//         if revoke_activity_by_apid(Some(&conn), ap_id.clone())
+//             .await
+//             .is_ok()
+//         {
+//             log::debug!("Announce revoked: {ap_id}");
+//         }
+//     }
+
+//     Ok(())
+// }
 
 pub async fn remote_announce_task(
     conn: Db,
@@ -103,6 +135,10 @@ pub async fn remote_announce_task(
     let (activity, _target_activity, _target_object, _target_actor) =
         get_activity_by_ap_id(&conn, ap_id.clone())
             .await
+            .map_err(|e| {
+                log::error!("DB error retrieving activity {ap_id}: {e}");
+                TaskError::TaskFailed
+            })?
             .ok_or_else(|| {
                 log::error!("Failed to retrieve Activity: {ap_id}");
                 TaskError::TaskFailed
@@ -113,19 +149,32 @@ pub async fn remote_announce_task(
         TaskError::TaskFailed
     })?;
 
-    if let Ok(object) = get_object_by_as_id(Some(&conn), target_ap_id.clone()).await {
-        update_target_object(Some(&conn), activity, object)
+    if let Ok(object) = get_object_by_as_id(&conn, target_ap_id.clone()).await {
+        update_target_object(&conn, activity, object)
             .await
-            .ok_or_else(|| {
-                log::error!("Failed to update target Object: {target_ap_id}");
+            .map_err(|e| {
+                log::error!("Failed to update target Object: {e}");
                 TaskError::TaskFailed
             })?;
     } else {
         let domain_name = get_domain_from_url(target_ap_id.clone()).ok_or(TaskError::TaskFailed)?;
-        if get_instance_by_domain_name(Some(&conn), domain_name.clone())
+        if get_instance_by_domain_name(&conn, domain_name.clone())
             .await
             .map(|option_instance| option_instance.map_or(false, |instance| instance.blocked))
             .unwrap_or(false)
+        // if let Ok(object) = get_object_by_as_id(Some(&conn), target_ap_id.clone()).await {
+        //     update_target_object(Some(&conn), activity, object)
+        //         .await
+        //         .or_else(|| {
+        //             log::error!("Failed to update target Object: {target_ap_id}");
+        //             Err(TaskError::TaskFailed)
+        //         })?;
+        // } else {
+        //     let domain_name = get_domain_from_url(target_ap_id.clone()).ok_or(TaskError::TaskFailed)?;
+        //     if get_instance_by_domain_name(Some(&conn), domain_name.clone())
+        //         .await
+        //         .map(|option_instance| option_instance.map_or(false, |instance| instance.blocked))
+        //         .unwrap_or(false)
         // If DB query fails or instance not found, default to not blocked
         {
             log::debug!("Instance is explicitly blocked: {domain_name}");
@@ -162,7 +211,7 @@ pub async fn remote_announce_task(
             })?;
 
         update_target_object(
-            Some(&conn),
+            &conn,
             activity.clone(),
             handle_object(
                 &conn,

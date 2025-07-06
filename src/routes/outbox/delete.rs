@@ -43,7 +43,7 @@ async fn delete_outbox(
             return Err(Status::BadRequest);
         }
 
-        let object = get_object_by_as_id(Some(&conn), as_id).await.map_err(|e| {
+        let object = get_object_by_as_id(&conn, as_id).await.map_err(|e| {
             log::error!("Target object for deletion not found: {e:#?}");
             Status::NotFound
         })?;
@@ -59,7 +59,7 @@ async fn delete_outbox(
 
         activity.raw = Some(raw);
 
-        let activity = create_activity(Some(&conn), activity.clone())
+        let activity = create_activity(&conn, activity.clone())
             .await
             .map_err(|e| {
                 log::error!("Failed to create activity: {e:#?}");
@@ -97,18 +97,24 @@ async fn send_task(
 ) -> Result<(), TaskError> {
     for ap_id in ap_ids {
         let (activity, target_activity, target_object, target_actor) =
-            get_activity_by_ap_id(&conn, ap_id).await.ok_or_else(|| {
-                log::error!("Failed to retrieve activity");
-                TaskError::TaskFailed
-            })?;
+            get_activity_by_ap_id(&conn, ap_id.clone())
+                .await
+                .map_err(|e| {
+                    log::error!("Failed to retrieve activity: {e}");
+                    TaskError::TaskFailed
+                })?
+                .ok_or_else(|| {
+                    log::error!("Activity not found: {ap_id}");
+                    TaskError::TaskFailed
+                })?;
 
         let profile_id = activity.actor_id.ok_or_else(|| {
             log::error!("actor_id can not be None");
             TaskError::TaskFailed
         })?;
 
-        let sender = get_actor(&conn, profile_id).await.ok_or_else(|| {
-            log::error!("Failed to retrieve Actor");
+        let sender = get_actor(&conn, profile_id).await.map_err(|e| {
+            log::error!("Failed to retrieve Actor: {e}");
             TaskError::TaskFailed
         })?;
 
@@ -128,10 +134,9 @@ async fn send_task(
             TaskError::TaskFailed
         })?;
 
-        let inboxes: Vec<ApAddress> =
-            get_inboxes(Some(&conn), activity.clone(), sender.clone()).await;
+        let inboxes: Vec<ApAddress> = get_inboxes(&conn, activity.clone(), sender.clone()).await;
 
-        send_to_inboxes(Some(&conn), inboxes, sender, activity.clone())
+        send_to_inboxes(&conn, inboxes, sender, activity.clone())
             .await
             .map_err(|e| {
                 log::error!("Failed to send to inboxes: {e:#?}");

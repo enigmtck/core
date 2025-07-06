@@ -55,8 +55,8 @@ pub async fn update_summary(
 
     let profile = update_summary_by_username(&conn, username, summary.content, summary.markdown)
         .await
-        .ok_or_else(|| {
-            log::error!("FAILED TO UPDATE Summary");
+        .map_err(|e| {
+            log::error!("FAILED TO UPDATE Summary: {e}");
             Status::NoContent
         })?;
 
@@ -196,8 +196,7 @@ pub async fn upload_avatar(
         return Err(Status::NoContent);
     }
 
-    if let Some(actor) = update_avatar_by_username(&conn, username, filename, json!(as_image)).await
-    {
+    if let Ok(actor) = update_avatar_by_username(&conn, username, filename, json!(as_image)).await {
         runner::run(
             runner::user::send_actor_update_task,
             conn,
@@ -251,8 +250,7 @@ pub async fn upload_banner(
         return Err(Status::NoContent);
     }
 
-    if let Some(actor) = update_banner_by_username(&conn, username, filename, json!(as_image)).await
-    {
+    if let Ok(actor) = update_banner_by_username(&conn, username, filename, json!(as_image)).await {
         runner::run(
             runner::user::send_actor_update_task,
             conn,
@@ -273,7 +271,7 @@ pub async fn user_activity_json(
     conn: Db,
     username: String,
 ) -> Result<ActivityJson<ApActor>, Status> {
-    if let Ok(profile) = get_actor_by_username(Some(&conn), username).await {
+    if let Ok(profile) = get_actor_by_username(&conn, username).await {
         Ok(ActivityJson(Json(
             ApActor::from(profile)
                 .load_ephemeral(&conn, signed.profile())

@@ -29,7 +29,14 @@ pub fn handle_muted_terms_command(args: MutedTermsArgs) -> Result<()> {
         MutedTermsCommands::List { username } => {
             println!("Listing muted terms for user: {username}...");
             handle.block_on(async {
-                match get_muted_terms_by_username(None, username.clone()).await {
+                let conn = match enigmatick::db::POOL.get().await {
+                    Ok(c) => c,
+                    Err(e) => {
+                        eprintln!("Failed to get DB connection: {}", e);
+                        return;
+                    }
+                };
+                match get_muted_terms_by_username(&conn, username.clone()).await {
                     Ok(terms) => {
                         if terms.is_empty() {
                             println!("No muted terms found for user '{username}'.");
@@ -48,14 +55,21 @@ pub fn handle_muted_terms_command(args: MutedTermsArgs) -> Result<()> {
         MutedTermsCommands::Add { username, term } => {
             println!("Adding muted term '{term}' for user: {username}...");
             handle.block_on(async {
-                match get_muted_terms_by_username(None, username.clone()).await {
+                let conn = match enigmatick::db::POOL.get().await {
+                    Ok(c) => c,
+                    Err(e) => {
+                        eprintln!("Failed to get DB connection: {}", e);
+                        return;
+                    }
+                };
+                match get_muted_terms_by_username(&conn, username.clone()).await {
                     Ok(mut current_terms) => {
                         if current_terms.contains(&term) {
                             println!("Term '{term}' is already muted for user '{username}'.");
                         } else {
                             current_terms.push(term.clone());
                             match update_muted_terms_by_username(
-                                None,
+                                &conn,
                                 username.clone(),
                                 current_terms,
                             )
@@ -79,11 +93,18 @@ pub fn handle_muted_terms_command(args: MutedTermsArgs) -> Result<()> {
         MutedTermsCommands::Remove { username, term } => {
             println!("Removing muted term '{term}' for user: {username}...");
             handle.block_on(async {
-                match get_muted_terms_by_username(None, username.clone()).await {
+                let conn = match enigmatick::db::POOL.get().await {
+                    Ok(c) => c,
+                    Err(e) => {
+                        eprintln!("Failed to get DB connection: {}", e);
+                        return;
+                    }
+                };
+                match get_muted_terms_by_username(&conn, username.clone()).await {
                     Ok(mut current_terms) => {
                         if let Some(pos) = current_terms.iter().position(|x| x == &term) {
                             current_terms.remove(pos);
-                            match update_muted_terms_by_username(None, username.clone(), current_terms).await {
+                            match update_muted_terms_by_username(&conn, username.clone(), current_terms).await {
                                 Ok(_) => println!("Successfully removed muted term '{term}' for user '{username}'."),
                                 Err(e) => eprintln!("Error removing muted term '{term}' for user '{username}': {e}"),
                             }
@@ -98,7 +119,14 @@ pub fn handle_muted_terms_command(args: MutedTermsArgs) -> Result<()> {
         MutedTermsCommands::Clear { username } => {
             println!("Clearing all muted terms for user: {username}...");
             handle.block_on(async {
-                match update_muted_terms_by_username(None, username.clone(), vec![]).await {
+                let conn = match enigmatick::db::POOL.get().await {
+                    Ok(c) => c,
+                    Err(e) => {
+                        eprintln!("Failed to get DB connection: {}", e);
+                        return;
+                    }
+                };
+                match update_muted_terms_by_username(&conn, username.clone(), vec![]).await {
                     Ok(_) => {
                         println!("Successfully cleared all muted terms for user '{username}'.")
                     }

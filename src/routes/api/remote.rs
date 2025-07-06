@@ -26,7 +26,7 @@ pub async fn remote_id(blocks: BlockList, conn: Db, id: &str) -> Result<String, 
     if blocks.is_blocked(get_domain_from_url(id.clone()).ok_or(Status::InternalServerError)?) {
         Err(Status::Forbidden)
     } else {
-        let actor = get_actor(Some(&conn), id, None, true).await.map_err(|e| {
+        let actor = get_actor(&conn, id, None, true).await.map_err(|e| {
             log::error!("Failed to retrieve Actor: {e:#?}");
             Status::NotFound
         })?;
@@ -52,11 +52,11 @@ pub async fn remote_id_authenticated(
     if blocks.is_blocked(get_domain_from_url(id.clone()).ok_or(Status::InternalServerError)?) {
         Err(Status::Forbidden)
     } else if signed.local() {
-        let profile = get_actor_by_username(Some(&conn), username.to_string())
+        let profile = get_actor_by_username(&conn, username.to_string())
             .await
             .map_err(|_| Status::NotFound)?;
 
-        let actor = get_actor(Some(&conn), id, Some(profile), true)
+        let actor = get_actor(&conn, id, Some(profile), true)
             .await
             .map_err(|e| {
                 log::error!("Failed to retrieve Actor: {e:#?}");
@@ -74,14 +74,14 @@ async fn remote_actor_response(
     webfinger: String,
     requester: Option<Actor>,
 ) -> Result<Json<ApActor>, Status> {
-    if let Ok(actor) = get_actor_by_webfinger(Some(conn), webfinger.clone()).await {
+    if let Ok(actor) = get_actor_by_webfinger(conn, webfinger.clone()).await {
         log::debug!("FOUND REMOTE ACTOR LOCALLY");
         Ok(Json(
             ApActor::from(actor).load_ephemeral(conn, requester).await,
         ))
     } else if let Ok(ap_id) = get_ap_id_from_webfinger(webfinger).await {
         log::debug!("RETRIEVING ACTOR WEBFINGER FROM REMOTE OR LOCAL PROFILE");
-        if let Ok(actor) = get_actor(Some(conn), ap_id, None, true).await {
+        if let Ok(actor) = get_actor(conn, ap_id, None, true).await {
             Ok(Json(actor))
         } else {
             log::error!("FAILED TO RETRIEVE ACTOR BY AP_ID");
@@ -480,8 +480,7 @@ pub async fn remote_object(
             .is_blocked(get_domain_from_url(id.to_string()).ok_or(Status::InternalServerError)?)
         {
             Err(Status::Forbidden)
-        } else if let Ok(object) = get_object(Some(&conn), signed.profile(), url.to_string()).await
-        {
+        } else if let Ok(object) = get_object(&conn, signed.profile(), url.to_string()).await {
             Ok(Json(object))
         } else {
             Err(Status::NotFound)

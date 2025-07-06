@@ -33,7 +33,7 @@ async fn announce_outbox(
     raw: Value,
 ) -> Result<ActivityJson<ApActivity>, Status> {
     if let MaybeReference::Reference(as_id) = announce.clone().object {
-        let object = get_object_by_as_id(Some(&conn), as_id).await.map_err(|e| {
+        let object = get_object_by_as_id(&conn, as_id).await.map_err(|e| {
             log::error!("FAILED TO RETRIEVE Object: {e:#?}");
             Status::NotFound
         })?;
@@ -48,7 +48,7 @@ async fn announce_outbox(
 
         activity.raw = Some(raw);
 
-        let activity = create_activity(Some(&conn), activity).await.map_err(|e| {
+        let activity = create_activity(&conn, activity).await.map_err(|e| {
             log::error!("FAILED TO CREATE Activity: {e:#?}");
             Status::InternalServerError
         })?;

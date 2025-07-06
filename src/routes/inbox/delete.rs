@@ -28,12 +28,9 @@ impl Inbox for Box<ApDelete> {
         let tombstone = match self.object.clone() {
             MaybeReference::Actual(actual) => match actual {
                 ApObject::Tombstone(tombstone) => Ok(async {
-                    match get_actor_by_as_id(Some(&conn), tombstone.id.clone())
-                        .await
-                        .ok()
-                    {
+                    match get_actor_by_as_id(&conn, tombstone.id.clone()).await.ok() {
                         Some(actor) => Some(Tombstone::Actor(actor)),
-                        None => get_object_by_as_id(Some(&conn), tombstone.id.clone())
+                        None => get_object_by_as_id(&conn, tombstone.id.clone())
                             .await
                             .ok()
                             .map(Tombstone::Object),
@@ -45,9 +42,9 @@ impl Inbox for Box<ApDelete> {
                     Status::NotFound
                 })?),
                 ApObject::Identifier(obj) => Ok(async {
-                    match get_actor_by_as_id(Some(&conn), obj.id.clone()).await.ok() {
+                    match get_actor_by_as_id(&conn, obj.id.clone()).await.ok() {
                         Some(actor) => Some(Tombstone::Actor(actor)),
-                        None => get_object_by_as_id(Some(&conn), obj.id.clone())
+                        None => get_object_by_as_id(&conn, obj.id.clone())
                             .await
                             .ok()
                             .map(Tombstone::Object),
@@ -64,9 +61,9 @@ impl Inbox for Box<ApDelete> {
                 }
             },
             MaybeReference::Reference(ap_id) => Ok(async {
-                match get_actor_by_as_id(Some(&conn), ap_id.clone()).await.ok() {
+                match get_actor_by_as_id(&conn, ap_id.clone()).await.ok() {
                     Some(actor) => Some(Tombstone::Actor(actor)),
-                    None => get_object_by_as_id(Some(&conn), ap_id.clone())
+                    None => get_object_by_as_id(&conn, ap_id.clone())
                         .await
                         .ok()
                         .map(Tombstone::Object),
@@ -114,7 +111,7 @@ impl Inbox for Box<ApDelete> {
 
                     log::debug!("Running database updates");
                     log::debug!("Deleting Followers: {as_id}...");
-                    delete_follows_by_leader_ap_id(Some(&conn), as_id.clone())
+                    delete_follows_by_leader_ap_id(&conn, as_id.clone())
                         .await
                         .map_err(|e| {
                             log::error!("Failed to delete Followers: {e}");
@@ -122,7 +119,7 @@ impl Inbox for Box<ApDelete> {
                         })?;
 
                     log::debug!("Deleting Leaders: {as_id}...");
-                    delete_follows_by_follower_ap_id(Some(&conn), as_id.clone())
+                    delete_follows_by_follower_ap_id(&conn, as_id.clone())
                         .await
                         .map_err(|e| {
                             log::error!("Failed to delete Followers by Actor: {e}");
@@ -130,7 +127,7 @@ impl Inbox for Box<ApDelete> {
                         })?;
 
                     log::debug!("Deleting Objects owned by {as_id}...");
-                    delete_objects_by_attributed_to(Some(&conn), as_id.clone())
+                    delete_objects_by_attributed_to(&conn, as_id.clone())
                         .await
                         .map_err(|e| {
                             log::error!("Failed to delete Objects: {e}");
@@ -138,19 +135,17 @@ impl Inbox for Box<ApDelete> {
                         })?;
 
                     log::debug!("Deleting Activities created by {as_id}...");
-                    delete_activities_by_actor(Some(&conn), as_id.clone())
+                    delete_activities_by_actor(&conn, as_id.clone())
                         .await
                         .map_err(|e| {
                             log::error!("Failed to delete Activities: {e}");
                             Status::InternalServerError
                         })?;
 
-                    tombstone_actor_by_as_id(Some(&conn), as_id)
-                        .await
-                        .map_err(|e| {
-                            log::error!("Failed to delete Actor: {e}");
-                            Status::InternalServerError
-                        })?;
+                    tombstone_actor_by_as_id(&conn, as_id).await.map_err(|e| {
+                        log::error!("Failed to delete Actor: {e}");
+                        Status::InternalServerError
+                    })?;
                 }
             }
             Tombstone::Object(object) => {
@@ -182,7 +177,7 @@ impl Inbox for Box<ApDelete> {
             }
         }
 
-        let activity = create_activity(Some(&conn), activity).await.map_err(|e| {
+        let activity = create_activity(&conn, activity).await.map_err(|e| {
             log::error!("Failed to create Activity: {e}");
             Status::InternalServerError
         })?;

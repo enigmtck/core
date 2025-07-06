@@ -272,7 +272,7 @@ pub async fn keys_get(
     username: String,
     otk: Option<bool>,
 ) -> Result<ActivityJson<ApObject>, Status> {
-    let profile = get_actor_by_username(Some(&conn), username.clone())
+    let profile = get_actor_by_username(&conn, username.clone())
         .await
         .map_err(|_| Status::NotFound)?;
 
@@ -337,7 +337,7 @@ pub async fn keys_mkp_get(
     mkp: Option<bool>,
     count: Option<bool>,
 ) -> Result<ActivityJson<ApObject>, Status> {
-    let profile = get_actor_by_username(Some(&conn), username.clone())
+    let profile = get_actor_by_username(&conn, username.clone())
         .await
         .map_err(|_| Status::NotFound)?;
 

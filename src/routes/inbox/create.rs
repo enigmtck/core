@@ -20,7 +20,7 @@ impl Inbox for ApCreate {
         log::debug!("{:?}", self.clone());
 
         if let Some(id) = self.id.clone() {
-            if get_activity_by_ap_id(&conn, id).await.is_some() {
+            if get_activity_by_ap_id(&conn, id).await.is_ok() {
                 return Ok(Status::Accepted);
             }
         }
@@ -47,7 +47,7 @@ impl Inbox for ApCreate {
 
                 activity.raw = Some(raw);
 
-                if create_activity((&conn).into(), activity).await.is_ok() {
+                if create_activity(&conn, activity).await.is_ok() {
                     runner::run(runner::note::object_task, conn, None, vec![object.as_id]).await;
 
                     Ok(Status::Accepted)
@@ -77,7 +77,7 @@ impl Inbox for ApCreate {
 
                 activity.raw = Some(raw);
 
-                if create_activity((&conn).into(), activity).await.is_ok() {
+                if create_activity(&conn, activity).await.is_ok() {
                     runner::run(runner::note::object_task, conn, None, vec![object.as_id]).await;
                     Ok(Status::Accepted)
                 } else {
@@ -106,7 +106,7 @@ impl Inbox for ApCreate {
 
                 activity.raw = Some(raw);
 
-                if create_activity((&conn).into(), activity).await.is_ok() {
+                if create_activity(&conn, activity).await.is_ok() {
                     runner::run(runner::note::object_task, conn, None, vec![object.as_id]).await;
                     Ok(Status::Accepted)
                 } else {

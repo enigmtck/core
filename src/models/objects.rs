@@ -1,8 +1,8 @@
 use super::actors::Actor;
 use super::{coalesced_activity::CoalescedActivity, from_serde};
+use crate::db::runner::DbRunner;
 use crate::db::Db;
 use crate::schema::objects;
-use crate::POOL;
 use anyhow::{anyhow, Result};
 use chrono::{DateTime, Utc};
 use convert_case::{Case, Casing};
@@ -668,7 +668,7 @@ impl TryFrom<Object> for ApQuestion {
     }
 }
 
-pub async fn create_or_update_object(conn: &Db, object: NewObject) -> Result<Object> {
+pub async fn create_or_update_object<C: DbRunner>(conn: &C, object: NewObject) -> Result<Object> {
     conn.run(move |c| {
         diesel::insert_into(objects::table)
             .values(&object)
@@ -678,119 +678,79 @@ pub async fn create_or_update_object(conn: &Db, object: NewObject) -> Result<Obj
             .get_result(c)
     })
     .await
-    .map_err(anyhow::Error::msg)
 }
 
-pub async fn update_metadata(conn: &Db, id: i32, metadata: Value) -> Result<Object> {
+pub async fn update_metadata<C: DbRunner>(conn: &C, id: i32, metadata: Value) -> Result<Object> {
     conn.run(move |c| {
         diesel::update(objects::table.filter(objects::id.eq(id)))
             .set(objects::ek_metadata.eq(Some(metadata)))
             .get_result::<Object>(c)
     })
     .await
-    .map_err(anyhow::Error::msg)
 }
 
-pub async fn update_hashtags(conn: &Db, id: i32, hashtags: Value) -> Result<Object> {
+pub async fn update_hashtags<C: DbRunner>(conn: &C, id: i32, hashtags: Value) -> Result<Object> {
     conn.run(move |c| {
         diesel::update(objects::table.filter(objects::id.eq(id)))
             .set(objects::ek_hashtags.eq(hashtags))
             .get_result::<Object>(c)
     })
     .await
-    .map_err(anyhow::Error::msg)
 }
 
-pub async fn get_object(conn: Option<&Db>, id: i32) -> Result<Object> {
-    match conn {
-        Some(conn) => conn
-            .run(move |c| objects::table.find(id).first::<Object>(c))
-            .await
-            .map_err(anyhow::Error::msg),
-        None => {
-            let mut pool = POOL.get().map_err(anyhow::Error::msg)?;
-            objects::table
-                .find(id)
-                .first::<Object>(&mut pool)
-                .map_err(anyhow::Error::msg)
-        }
-    }
+pub async fn get_object<C: DbRunner>(conn: &C, id: i32) -> Result<Object> {
+    conn.run(move |c| objects::table.find(id).first::<Object>(c))
+        .await
 }
 
-pub async fn get_object_by_as_id(conn: Option<&Db>, as_id: String) -> Result<Object> {
-    match conn {
-        Some(conn) => conn
-            .run(move |c| {
-                objects::table
-                    .filter(objects::as_id.eq(as_id))
-                    .first::<Object>(c)
-            })
-            .await
-            .map_err(anyhow::Error::msg),
-        None => {
-            let mut pool = POOL.get().map_err(anyhow::Error::msg)?;
-            objects::table
-                .filter(objects::as_id.eq(as_id))
-                .first::<Object>(&mut pool)
-                .map_err(anyhow::Error::msg)
-        }
-    }
+pub async fn get_object_by_as_id<C: DbRunner>(conn: &C, as_id: String) -> Result<Object> {
+    conn.run(move |c| {
+        objects::table
+            .filter(objects::as_id.eq(as_id))
+            .first::<Object>(c)
+    })
+    .await
 }
 
-pub async fn get_object_by_uuid(conn: Option<&Db>, uuid: String) -> Result<Object> {
-    match conn {
-        Some(conn) => conn
-            .run(move |c| {
-                objects::table
-                    .filter(objects::ek_uuid.eq(uuid))
-                    .first::<Object>(c)
-            })
-            .await
-            .map_err(anyhow::Error::msg),
-        None => {
-            let mut pool = POOL.get().map_err(anyhow::Error::msg)?;
-            objects::table
-                .filter(objects::ek_uuid.eq(uuid))
-                .first::<Object>(&mut pool)
-                .map_err(anyhow::Error::msg)
-        }
-    }
+pub async fn get_object_by_uuid<C: DbRunner>(conn: &C, uuid: String) -> Result<Object> {
+    conn.run(move |c| {
+        objects::table
+            .filter(objects::ek_uuid.eq(uuid))
+            .first::<Object>(c)
+    })
+    .await
 }
 
-pub async fn tombstone_object_by_as_id(conn: &Db, as_id: String) -> Result<Object> {
+pub async fn tombstone_object_by_as_id<C: DbRunner>(conn: &C, as_id: String) -> Result<Object> {
     conn.run(move |c| {
         diesel::update(objects::table.filter(objects::as_id.eq(as_id)))
             .set(objects::as_type.eq(ObjectType::Tombstone))
             .get_result(c)
     })
     .await
-    .map_err(anyhow::Error::msg)
 }
 
-pub async fn tombstone_object_by_uuid(conn: &Db, uuid: String) -> Result<Object> {
+pub async fn tombstone_object_by_uuid<C: DbRunner>(conn: &C, uuid: String) -> Result<Object> {
     conn.run(move |c| {
         diesel::update(objects::table.filter(objects::ek_uuid.eq(uuid)))
             .set(objects::as_type.eq(ObjectType::Tombstone))
             .get_result(c)
     })
     .await
-    .map_err(anyhow::Error::msg)
 }
 
-pub async fn delete_object_by_as_id(conn: &Db, as_id: String) -> Result<usize> {
+pub async fn delete_object_by_as_id<C: DbRunner>(conn: &C, as_id: String) -> Result<usize> {
     conn.run(move |c| diesel::delete(objects::table.filter(objects::as_id.eq(as_id))).execute(c))
         .await
-        .map_err(anyhow::Error::msg)
 }
 
-pub async fn delete_object_by_uuid(conn: &Db, uuid: String) -> Result<usize> {
+pub async fn delete_object_by_uuid<C: DbRunner>(conn: &C, uuid: String) -> Result<usize> {
     conn.run(move |c| diesel::delete(objects::table.filter(objects::ek_uuid.eq(uuid))).execute(c))
         .await
-        .map_err(anyhow::Error::msg)
 }
 
-pub async fn delete_objects_by_domain_pattern(
-    conn: Option<&Db>,
+pub async fn delete_objects_by_domain_pattern<C: DbRunner>(
+    conn: &C,
     domain_pattern: String,
 ) -> Result<usize> {
     let operation = move |c: &mut diesel::PgConnection| {
@@ -801,11 +761,11 @@ pub async fn delete_objects_by_domain_pattern(
             .execute(c)
     };
 
-    crate::db::run_db_op(conn, &crate::POOL, operation).await
+    conn.run(operation).await
 }
 
-pub async fn delete_objects_by_attributed_to(
-    conn: Option<&Db>,
+pub async fn delete_objects_by_attributed_to<C: DbRunner>(
+    conn: &C,
     attributed_to: String,
 ) -> Result<usize> {
     let operation = move |c: &mut diesel::PgConnection| {
@@ -816,5 +776,35 @@ pub async fn delete_objects_by_attributed_to(
             .execute(c)
     };
 
-    crate::db::run_db_op(conn, &crate::POOL, operation).await
+    conn.run(operation).await
 }
+
+// pub async fn delete_objects_by_domain_pattern(
+//     conn: Option<&Db>,
+//     domain_pattern: String,
+// ) -> Result<usize> {
+//     let operation = move |c: &mut diesel::PgConnection| {
+//         use diesel::sql_types::Text;
+
+//         sql_query("DELETE FROM objects WHERE as_attributed_to::text LIKE $1")
+//             .bind::<Text, _>(format!("\"https://{domain_pattern}/%\""))
+//             .execute(c)
+//     };
+
+//     crate::db::run_db_op(conn, &crate::POOL, operation).await
+// }
+
+// pub async fn delete_objects_by_attributed_to(
+//     conn: Option<&Db>,
+//     attributed_to: String,
+// ) -> Result<usize> {
+//     let operation = move |c: &mut diesel::PgConnection| {
+//         use diesel::sql_types::Jsonb;
+
+//         sql_query("DELETE FROM objects WHERE as_attributed_to @> $1")
+//             .bind::<Jsonb, _>(json!(attributed_to))
+//             .execute(c)
+//     };
+
+//     crate::db::run_db_op(conn, &crate::POOL, operation).await
+// }

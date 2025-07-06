@@ -66,7 +66,7 @@ pub async fn process_instrument(
                 Status::UnprocessableEntity
             })?;
 
-            create_mls_group_conversation(conn, (profile.id, content, conversation).into())
+            create_mls_group_conversation(&conn, (profile.id, content, conversation).into())
                 .await
                 .map_err(|e| {
                     log::error!("Failed to create or update GroupId: {e:#?}");
@@ -78,7 +78,7 @@ pub async fn process_instrument(
                 log::debug!("MlsCredentials content must be Some");
                 Status::UnprocessableEntity
             })?;
-            set_mls_credentials_by_username(conn, username, content)
+            set_mls_credentials_by_username(&conn, username, content)
                 .await
                 .map_err(|e| {
                     log::debug!("Failed to set Credentials: {e:#?}");
@@ -95,7 +95,7 @@ pub async fn process_instrument(
                 Status::UnprocessableEntity
             })?;
             update_mls_storage_by_username(
-                conn,
+                &conn,
                 username,
                 content,
                 hash,
@@ -112,7 +112,7 @@ pub async fn process_instrument(
                 log::debug!("MlsKeyPackage content must be Some");
                 Status::UnprocessableEntity
             })?;
-            create_mls_key_package(conn, (profile.id, content).into())
+            create_mls_key_package(&conn, (profile.id, content).into())
                 .await
                 .map_err(|e| {
                     log::debug!("Failed to create KeyPackage: {e:#?}");
@@ -121,7 +121,7 @@ pub async fn process_instrument(
         }
         ApInstrumentType::VaultItem => {
             let activity_id = lookup_activity_id_by_as_id(
-                conn,
+                &conn,
                 instrument.activity.clone().ok_or_else(|| {
                     log::error!("VaultItem Instrument must have an Activity");
                     Status::UnprocessableEntity
@@ -136,7 +136,7 @@ pub async fn process_instrument(
             log::debug!("Activity ID: {activity_id}");
 
             let result = create_vault_item(
-                conn,
+                &conn,
                 VaultItemParams {
                     instrument: instrument.clone(),
                     owner: profile.clone(),
@@ -202,7 +202,7 @@ pub async fn person_activity_json(
     conn: Db,
     username: String,
 ) -> Result<ActivityJson<ApActor>, Status> {
-    if let Ok(profile) = get_actor_by_username(Some(&conn), username).await {
+    if let Ok(profile) = get_actor_by_username(&conn, username).await {
         let actor = if signed.local() {
             ApActor::from(profile)
                 .load_ephemeral(&conn, signed.profile())
@@ -223,7 +223,7 @@ pub async fn person_ld_json(
     conn: Db,
     username: String,
 ) -> Result<LdJson<ApActor>, Status> {
-    if let Ok(profile) = get_actor_by_username(Some(&conn), username).await {
+    if let Ok(profile) = get_actor_by_username(&conn, username).await {
         let actor = if signed.local() {
             ApActor::from(profile)
                 .load_ephemeral(&conn, signed.profile())
@@ -241,7 +241,7 @@ pub async fn person_ld_json(
 #[get("/user/<username>/liked")]
 pub async fn liked_get(conn: Db, username: String) -> Result<ActivityJson<ApCollection>, Status> {
     // I should make this real at some point.
-    if let Ok(_profile) = get_actor_by_username(Some(&conn), username).await {
+    if let Ok(_profile) = get_actor_by_username(&conn, username).await {
         Ok(ActivityJson(Json(ApCollection::default())))
     } else {
         Err(Status::NotFound)
@@ -255,7 +255,7 @@ pub async fn get_followers(
     username: String,
     page: Option<u32>,
 ) -> Result<ActivityJson<ApCollection>, Status> {
-    let profile = get_actor_by_username(Some(&conn), username)
+    let profile = get_actor_by_username(&conn, username)
         .await
         .map_err(|_| Status::NotFound)?;
 
@@ -267,17 +267,19 @@ pub async fn get_followers(
         })?;
 
     let results = match page {
-        Some(p) if p > 0 => {
-            get_followers_by_actor_id(
-                Some(&conn),
-                profile.id,
-                Some(OffsetPaging {
-                    page: p - 1,
-                    limit: 20,
-                }),
-            )
-            .await
-        }
+        Some(p) if p > 0 => get_followers_by_actor_id(
+            &conn,
+            profile.id,
+            Some(OffsetPaging {
+                page: p - 1,
+                limit: 20,
+            }),
+        )
+        .await
+        .map_err(|e| {
+            log::error!("Failed to get followers: {e}");
+            Status::InternalServerError
+        })?,
         _ => vec![],
     };
 
@@ -323,11 +325,11 @@ pub async fn get_leaders(
     username: String,
     page: Option<u32>, // page starts at 1; must be adjusted to 0 for query
 ) -> Result<ActivityJson<ApCollection>, Status> {
-    let profile = get_actor_by_username(Some(&conn), username)
+    let profile = get_actor_by_username(&conn, username)
         .await
         .map_err(|_| Status::NotFound)?;
 
-    let total_items = get_leader_count_by_follower_actor_id(Some(&conn), profile.id)
+    let total_items = get_leader_count_by_follower_actor_id(&conn, profile.id)
         .await
         .map_err(|e| {
             log::error!("FAILED TO RETRIEVE LEADER COUNT: {e:#?}");
@@ -336,7 +338,7 @@ pub async fn get_leaders(
 
     let results = match page {
         Some(p) if p > 0 => get_leaders_by_follower_actor_id(
-            Some(&conn),
+            &conn,
             profile.id,
             Some(OffsetPaging {
                 page: p - 1,

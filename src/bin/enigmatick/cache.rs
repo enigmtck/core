@@ -1,6 +1,7 @@
 use anyhow::Result;
 use chrono::Utc;
 use clap::{Parser, Subcommand};
+use enigmatick::db::runner::DbRunner;
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use std::time::Duration;
 use tokio::runtime::Runtime;
@@ -67,8 +68,16 @@ pub fn handle_cache_command(args: CacheArgs) -> Result<()> {
             };
 
             handle.block_on(async {
+                let conn = match enigmatick::db::POOL.get().await {
+                    Ok(c) => c,
+                    Err(e) => {
+                        eprintln!("Failed to get DB connection: {}", e);
+                        return;
+                    }
+                };
+
                 // First, get the items that would be deleted to show progress
-                let old_items_result = enigmatick::db::run_db_op(None, &enigmatick::POOL, move |c: &mut diesel::PgConnection| {
+                let old_items_result: Result<Vec<enigmatick::models::cache::CacheItem>, _> = conn.run(move |c: &mut diesel::PgConnection| {
                     use enigmatick::schema::cache;
                     use diesel::prelude::*;
                     cache::table
@@ -112,7 +121,7 @@ pub fn handle_cache_command(args: CacheArgs) -> Result<()> {
                             pb.finish_with_message(format!("Processed {} items", old_items.len()));
                         }
 
-                        match enigmatick::models::cache::prune_cache_items(None, cutoff).await {
+                        match enigmatick::models::cache::prune_cache_items(&conn, cutoff).await {
                             Ok(count) => println!("Successfully pruned {count} cache items."),
                             Err(e) => eprintln!("Error pruning cache: {e}"),
                         }
@@ -126,7 +135,15 @@ pub fn handle_cache_command(args: CacheArgs) -> Result<()> {
             let rt = Runtime::new().unwrap();
             let handle = rt.handle();
             handle.block_on(async {
-                match enigmatick::models::cache::delete_cache_item_by_url(None, url.clone()).await {
+                let conn = match enigmatick::db::POOL.get().await {
+                    Ok(c) => c,
+                    Err(e) => {
+                        eprintln!("Failed to get DB connection: {}", e);
+                        return;
+                    }
+                };
+                match enigmatick::models::cache::delete_cache_item_by_url(&conn, url.clone()).await
+                {
                     Ok(_) => println!("Successfully deleted cache item for URL: {url}."),
                     Err(e) => eprintln!("Error deleting cache item for URL {url}: {e}"),
                 }
@@ -146,7 +163,14 @@ pub fn handle_cache_command(args: CacheArgs) -> Result<()> {
             };
 
             handle.block_on(async {
-                match enigmatick::models::cache::delete_cache_items_by_server_pattern(None, pattern.clone()).await {
+                let conn = match enigmatick::db::POOL.get().await {
+                    Ok(c) => c,
+                    Err(e) => {
+                        eprintln!("Failed to get DB connection: {}", e);
+                        return;
+                    }
+                };
+                match enigmatick::models::cache::delete_cache_items_by_server_pattern(&conn, pattern.clone()).await {
                     Ok(deleted_items) => {
                         if deleted_items.is_empty() {
                             println!("No cache items found matching server pattern: {pattern}");

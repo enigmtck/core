@@ -36,7 +36,7 @@ async fn like_outbox(
     raw: Value,
 ) -> Result<ActivityJson<ApActivity>, Status> {
     if let MaybeReference::Reference(as_id) = like.clone().object {
-        let object = get_object_by_as_id(Some(&conn), as_id).await.map_err(|e| {
+        let object = get_object_by_as_id(&conn, as_id).await.map_err(|e| {
             log::error!("FAILED TO RETRIEVE OBJECT: {e:#?}");
             Status::NotFound
         })?;
@@ -52,7 +52,7 @@ async fn like_outbox(
 
         activity.raw = Some(raw.clone());
 
-        let activity = create_activity(Some(&conn), activity.clone())
+        let activity = create_activity(&conn, activity.clone())
             .await
             .map_err(|e| {
                 log::error!("FAILED TO CREATE ACTIVITY: {e:#?}");
@@ -89,13 +89,17 @@ async fn send_task(
         let (activity, target_activity, target_object, target_actor) =
             get_activity_by_ap_id(&conn, ap_id.clone())
                 .await
-                .ok_or(TaskError::TaskFailed)?;
+                .map_err(|_| TaskError::TaskFailed)?
+                .ok_or_else(|| {
+                    log::error!("Activity not found: {ap_id}");
+                    TaskError::TaskFailed
+                })?;
 
         let profile_id = activity.actor_id.ok_or(TaskError::TaskFailed)?;
 
         let sender = get_actor(&conn, profile_id)
             .await
-            .ok_or(TaskError::TaskFailed)?;
+            .map_err(|_| TaskError::TaskFailed)?;
 
         let activity = ApActivity::try_from_extended_activity((
             activity,
@@ -108,10 +112,9 @@ async fn send_task(
             TaskError::TaskFailed
         })?;
 
-        let inboxes: Vec<ApAddress> =
-            get_inboxes(Some(&conn), activity.clone(), sender.clone()).await;
+        let inboxes: Vec<ApAddress> = get_inboxes(&conn, activity.clone(), sender.clone()).await;
 
-        send_to_inboxes(Some(&conn), inboxes, sender, activity.clone())
+        send_to_inboxes(&conn, inboxes, sender, activity.clone())
             .await
             .map_err(|e| {
                 log::error!("FAILED TO SEND TO INBOXES: {e:#?}");

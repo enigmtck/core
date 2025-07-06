@@ -229,8 +229,7 @@ pub async fn shared_inbox_post(
 
     let is_authorized = if let Some(deferred) = signed.deferred() {
         let actor =
-            match retriever::get_actor(Some(&conn), activity.actor().to_string(), None, true).await
-            {
+            match retriever::get_actor(&conn, activity.actor().to_string(), None, true).await {
                 Ok(actor) => {
                     if let Some(id) = actor.id.clone() {
                         log::debug!("Deferred Actor retrieved: {id}");
@@ -341,11 +340,11 @@ pub async fn shared_inbox_get(
                 InboxView::Home => TimelineFilters {
                     view: if let Some(profile) = profile.clone() {
                         Some(TimelineView::Home(
-                            get_leaders_by_follower_actor_id(Some(&conn), profile.id, None)
+                            get_leaders_by_follower_actor_id(&conn, profile.id, None)
                                 .await
                                 .map_err(|_| Status::InternalServerError)?
                                 .iter()
-                                .filter_map(|leader| leader.1.clone()?.as_followers.clone())
+                                .filter_map(|leader| leader.1.clone()?.as_followers)
                                 .collect(),
                         ))
                     } else {
@@ -429,6 +428,7 @@ pub async fn announcers_get(
 
     let actors = get_announcers(&conn, min, max, Some(limit), decoded.to_string())
         .await
+        .map_err(|_| Status::InternalServerError)?
         .iter()
         .map(ApActor::from)
         .map(ActivityPub::from)

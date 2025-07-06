@@ -1,3 +1,4 @@
+use crate::db::runner::DbRunner;
 use crate::db::Db;
 use crate::db::DbType;
 use crate::helper::get_activity_ap_id_from_uuid;
@@ -8,7 +9,7 @@ use crate::models::olm_sessions::OlmSession;
 use crate::models::parameter_generator;
 use crate::routes::inbox::InboxView;
 use crate::schema::{activities, actors, objects, olm_sessions, vault};
-use crate::POOL;
+use crate::db::POOL;
 use anyhow::{anyhow, Result};
 use chrono::{DateTime, Utc};
 use convert_case::{Case, Casing};
@@ -342,8 +343,12 @@ pub struct Activity {
 }
 
 impl Activity {
-    pub async fn extend(&self, conn: &Db) -> Option<ExtendedActivity> {
-        get_activity(Some(conn), self.id).await
+    // pub async fn extend(&self, conn: &Db) -> Option<ExtendedActivity> {
+    //     get_activity(Some(conn), self.id).await
+    // }
+
+    pub async fn extend<C: DbRunner>(&self, conn: &C) -> Option<ExtendedActivity> {
+        get_activity(conn, self.id).await.ok().flatten()
     }
 }
 
@@ -399,8 +404,16 @@ impl Default for NewActivity {
 }
 
 impl NewActivity {
-    pub async fn link_actor(&mut self, conn: &Db) -> Self {
-        if let Ok(actor) = get_actor_by_as_id(Some(conn), self.clone().actor).await {
+    // pub async fn link_actor(&mut self, conn: &Db) -> Self {
+    //     if let Ok(actor) = get_actor_by_as_id(conn, self.clone().actor).await {
+    //         self.actor_id = Some(actor.id);
+    //     };
+
+    //     self.clone()
+    // }
+
+    pub async fn link_actor<C: DbRunner>(&mut self, conn: &C) -> Self {
+        if let Ok(actor) = get_actor_by_as_id(conn, self.clone().actor).await {
             self.actor_id = Some(actor.id);
         };
 
@@ -1696,42 +1709,53 @@ attributed_actors AS (
     params
 }
 
-pub async fn add_log_by_as_id(conn: Option<&Db>, as_id: String, entry: Value) -> Result<usize> {
+//pub async fn add_log_by_as_id(conn: Option<&Db>, as_id: String, entry: Value) -> Result<usize> {
+pub async fn add_log_by_as_id<C: DbRunner>(conn: &C, as_id: String, entry: Value) -> Result<usize> {
     use diesel::sql_types::{Jsonb, Text};
 
-    match conn {
-        Some(db_conn) => {
-            let mut query = sql_query(
-                "UPDATE activities a SET log = COALESCE(a.log, '[]'::jsonb) || $1::jsonb WHERE ap_id = $2",
-            )
-            .into_boxed::<DbType>();
-            query = query.bind::<Jsonb, _>(entry);
-            query = query.bind::<Text, _>(as_id);
+    conn.run(move |c| {
+        let mut query = sql_query(
+            "UPDATE activities a SET log = COALESCE(a.log, '[]'::jsonb) || $1::jsonb WHERE ap_id = $2",
+        )
+        .into_boxed::<DbType>();
+        query = query.bind::<Jsonb, _>(entry);
+        query = query.bind::<Text, _>(as_id);
+        query.execute(c)
+    })
+    .await
+    // match conn {
+    //     Some(db_conn) => {
+    //         let mut query = sql_query(
+    //             "UPDATE activities a SET log = COALESCE(a.log, '[]'::jsonb) || $1::jsonb WHERE ap_id = $2",
+    //         )
+    //         .into_boxed::<DbType>();
+    //         query = query.bind::<Jsonb, _>(entry);
+    //         query = query.bind::<Text, _>(as_id);
 
-            db_conn
-                .run(move |c| query.execute(c))
-                .await
-                .map_err(anyhow::Error::msg)
-        }
-        None => {
-            tokio::task::spawn_blocking(move || {
-                let mut pool_conn = POOL.get().map_err(anyhow::Error::msg)?;
-                let mut query = sql_query(
-                    "UPDATE activities a SET log = COALESCE(a.log, '[]'::jsonb) || $1::jsonb WHERE ap_id = $2",
-                )
-                .into_boxed::<DbType>();
-                query = query.bind::<Jsonb, _>(entry);
-                query = query.bind::<Text, _>(as_id);
-                query.execute(&mut pool_conn).map_err(anyhow::Error::msg)
-            })
-            .await?
-        }
-    }
+    //         db_conn
+    //             .run(move |c| query.execute(c))
+    //             .await
+    //             .map_err(anyhow::Error::msg)
+    //     }
+    //     None => {
+    //         tokio::task::spawn_blocking(move || {
+    //             let mut pool_conn = POOL.get().map_err(anyhow::Error::msg)?;
+    //             let mut query = sql_query(
+    //                 "UPDATE activities a SET log = COALESCE(a.log, '[]'::jsonb) || $1::jsonb WHERE ap_id = $2",
+    //             )
+    //             .into_boxed::<DbType>();
+    //             query = query.bind::<Jsonb, _>(entry);
+    //             query = query.bind::<Text, _>(as_id);
+    //             query.execute(&mut pool_conn).map_err(anyhow::Error::msg)
+    //         })
+    //         .await?
+    //     }
+    // }
 }
 
 #[allow(clippy::too_many_arguments)]
-pub async fn get_activities_coalesced(
-    conn: &Db,
+pub async fn get_activities_coalesced<C: DbRunner>(
+    conn: &C,
     limit: i32,
     min: Option<i64>,
     max: Option<i64>,
@@ -1740,16 +1764,18 @@ pub async fn get_activities_coalesced(
     as_id: Option<String>,
     uuid: Option<String>,
     id: Option<i32>,
-) -> Vec<CoalescedActivity> {
+) -> Result<Vec<CoalescedActivity>> {
     let params = build_main_query(&filters, limit, min, max, &profile, as_id, uuid, id);
 
     log::debug!("QUERY\n{}", params.query.clone().unwrap_or("".to_string()));
 
     let query = sql_query(params.query.clone().unwrap()).into_boxed::<DbType>();
-    let query = bind_params(query, params, &profile);
 
-    conn.run(move |c| query.load::<CoalescedActivity>(c).expect("bad sql query"))
-        .await
+    conn.run(move |c| {
+        let query = bind_params(query, params, &profile);
+        query.load::<CoalescedActivity>(c)
+    })
+    .await
 }
 
 fn bind_params<'a>(
@@ -1834,40 +1860,28 @@ fn bind_params<'a>(
     query
 }
 
-pub async fn create_activity(conn: Option<&Db>, activity: NewActivity) -> Result<Activity> {
-    let activity = match conn {
-        Some(conn) => {
-            conn.run(move |c| {
-                diesel::insert_into(activities::table)
-                    .values(&activity)
-                    .on_conflict(activities::ap_id)
-                    .do_update()
-                    .set(&activity)
-                    .get_result::<Activity>(c)
-            })
-            .await?
-        }
-        None => {
-            let mut pool = POOL.get()?;
-            diesel::insert_into(activities::table)
-                .values(&activity)
-                .on_conflict(activities::ap_id)
-                .do_update()
-                .set(&activity)
-                .get_result::<Activity>(&mut pool)?
-        }
+pub async fn create_activity<C: DbRunner>(conn: &C, mut activity: NewActivity) -> Result<Activity> {
+    activity = activity.link_actor(conn).await;
+
+    let operation = move |c: &mut PgConnection| {
+        diesel::insert_into(activities::table)
+            .values(&activity)
+            .on_conflict(activities::ap_id)
+            .do_update()
+            .set(&activity)
+            .get_result::<Activity>(c)
     };
 
-    Ok(activity)
+    conn.run(operation).await
 }
 
-pub async fn get_announcers(
-    conn: &Db,
+pub async fn get_announcers<C: DbRunner>(
+    conn: &C,
     min: Option<i64>,
     max: Option<i64>,
     limit: Option<u8>,
     target_ap_id: String,
-) -> Vec<Actor> {
+) -> Result<Vec<Actor>> {
     conn.run(move |c| {
         let mut query = actors::table
             .select(actors::all_columns)
@@ -1891,7 +1905,7 @@ pub async fn get_announcers(
         }
 
         query = query.order(activities::created_at.desc());
-        query.get_results(c).unwrap_or(vec![])
+        query.get_results(c)
     })
     .await
 }
@@ -1970,8 +1984,8 @@ impl TryFromEncryptedActivity for ApCreate {
     }
 }
 
-pub async fn get_encrypted_activities(
-    conn: &Db,
+pub async fn get_encrypted_activities<C: DbRunner>(
+    conn: &C,
     since: DateTime<Utc>,
     limit: u8,
     as_to: Value,
@@ -2018,16 +2032,15 @@ pub async fn get_encrypted_activities(
             .get_results(c)
     })
     .await
-    .map_err(anyhow::Error::msg)
 }
 
-pub async fn get_likers(
-    conn: &Db,
+pub async fn get_likers<C: DbRunner>(
+    conn: &C,
     min: Option<i64>,
     max: Option<i64>,
     limit: Option<u8>,
     target_ap_id: String,
-) -> Vec<Actor> {
+) -> Result<Vec<Actor>> {
     conn.run(move |c| {
         let mut query = actors::table
             .select(actors::all_columns)
@@ -2051,12 +2064,15 @@ pub async fn get_likers(
         }
 
         query = query.order(activities::created_at.desc());
-        query.get_results(c).unwrap_or(vec![])
+        query.get_results(c)
     })
     .await
 }
 
-pub async fn revoke_activities_by_object_as_id(conn: &Db, as_id: String) -> Result<Vec<Activity>> {
+pub async fn revoke_activities_by_object_as_id<C: DbRunner>(
+    conn: &C,
+    as_id: String,
+) -> Result<Vec<Activity>> {
     conn.run(move |c| {
         diesel::update(
             activities::table.filter(
@@ -2069,81 +2085,62 @@ pub async fn revoke_activities_by_object_as_id(conn: &Db, as_id: String) -> Resu
         )
         .set(activities::revoked.eq(true))
         .get_results::<Activity>(c)
-        .map_err(anyhow::Error::msg)
     })
     .await
 }
 
-pub async fn revoke_activity_by_uuid(conn: Option<&Db>, uuid: String) -> Result<Activity> {
-    match conn {
-        Some(conn) => {
-            conn.run(move |c| {
-                diesel::update(activities::table.filter(activities::uuid.eq(uuid)))
-                    .set(activities::revoked.eq(true))
-                    .get_result::<Activity>(c)
-                    .map_err(anyhow::Error::msg)
-            })
-            .await
-        }
-        None => {
-            let mut pool = POOL.get().map_err(anyhow::Error::msg)?;
-            diesel::update(activities::table.filter(activities::uuid.eq(uuid)))
-                .set(activities::revoked.eq(true))
-                .get_result::<Activity>(&mut pool)
-                .map_err(anyhow::Error::msg)
-        }
-    }
+pub async fn revoke_activity_by_uuid<C: DbRunner>(conn: &C, uuid: String) -> Result<Activity> {
+    //pub async fn revoke_activity_by_uuid(conn: Option<&Db>, uuid: String) -> Result<Activity> {
+    let operation = move |c: &mut PgConnection| {
+        diesel::update(activities::table.filter(activities::uuid.eq(uuid)))
+            .set(activities::revoked.eq(true))
+            .get_result::<Activity>(c)
+    };
+
+    //crate::db::run_db_op(conn, &crate::POOL, operation).await
+    conn.run(operation).await
 }
 
-pub async fn revoke_activity_by_apid(conn: Option<&Db>, ap_id: String) -> Result<Activity> {
+pub async fn revoke_activity_by_apid<C: DbRunner>(conn: &C, ap_id: String) -> Result<Activity> {
+    //pub async fn revoke_activity_by_apid(conn: Option<&Db>, ap_id: String) -> Result<Activity> {
     let operation = move |c: &mut diesel::PgConnection| {
         diesel::update(activities::table.filter(activities::ap_id.eq(ap_id)))
             .set(activities::revoked.eq(true))
             .get_result::<Activity>(c)
     };
 
-    crate::db::run_db_op(conn, &crate::POOL, operation).await
+    conn.run(operation).await
+    //crate::db::run_db_op(conn, &crate::POOL, operation).await
 }
 
-pub async fn set_activity_log_by_apid(
-    conn: Option<&Db>,
+pub async fn set_activity_log_by_apid<C: DbRunner>(
+    conn: &C,
     ap_id: String,
     log: Value,
 ) -> Result<Activity> {
-    match conn {
-        Some(conn) => {
-            conn.run(move |c| {
-                diesel::update(activities::table.filter(activities::ap_id.eq(ap_id)))
-                    .set(activities::log.eq(log))
-                    .get_result::<Activity>(c)
-                    .map_err(anyhow::Error::msg)
-            })
-            .await
-        }
-        None => {
-            let mut pool = POOL.get().map_err(anyhow::Error::msg)?;
-            diesel::update(activities::table.filter(activities::ap_id.eq(ap_id)))
-                .set(activities::log.eq(log))
-                .get_result::<Activity>(&mut pool)
-                .map_err(anyhow::Error::msg)
-        }
-    }
+    conn.run(move |c| {
+        diesel::update(activities::table.filter(activities::ap_id.eq(ap_id)))
+            .set(activities::log.eq(log))
+            .get_result::<Activity>(c)
+    })
+    .await
 }
 
-pub async fn get_activity_by_ap_id(conn: &Db, ap_id: String) -> Option<ExtendedActivity> {
-    get_activities_coalesced(conn, 1, None, None, None, None, Some(ap_id), None, None)
-        .await
-        .first()
-        .cloned()
-        .map(ExtendedActivity::from)
+pub async fn get_activity_by_ap_id<C: DbRunner>(
+    conn: &C,
+    ap_id: String,
+) -> Result<Option<ExtendedActivity>> {
+    let activities =
+        get_activities_coalesced(conn, 1, None, None, None, None, Some(ap_id), None, None).await?;
+    Ok(activities.first().cloned().map(ExtendedActivity::from))
 }
 
-pub async fn get_unrevoked_activity_by_kind_actor_id_and_target_ap_id(
-    conn: &Db,
+pub async fn get_unrevoked_activity_by_kind_actor_id_and_target_ap_id<C: DbRunner>(
+    conn: &C,
     kind: ActivityType,
     actor_id: i32,
     target_ap_id: String,
-) -> Option<Activity> {
+) -> Result<Option<Activity>> {
     conn.run(move |c| {
         activities::table
             .filter(activities::revoked.eq(false))
@@ -2151,64 +2148,47 @@ pub async fn get_unrevoked_activity_by_kind_actor_id_and_target_ap_id(
             .filter(activities::actor_id.eq(actor_id))
             .filter(activities::target_ap_id.eq(target_ap_id))
             .filter(activities::revoked.eq(false))
-            .load::<Activity>(c)
+            .first::<Activity>(c)
+            .optional()
     })
     .await
-    .ok()?
-    .first()
-    .cloned()
 }
 
-pub async fn get_activity_by_kind_actor_id_and_target_ap_id(
-    conn: &Db,
+pub async fn get_activity_by_kind_actor_id_and_target_ap_id<C: DbRunner>(
+    conn: &C,
     kind: ActivityType,
     actor_id: i32,
     target_ap_id: String,
-) -> Option<Activity> {
+) -> Result<Option<Activity>> {
     conn.run(move |c| {
         activities::table
             .filter(activities::revoked.eq(false))
             .filter(activities::kind.eq(kind))
             .filter(activities::actor_id.eq(actor_id))
             .filter(activities::target_ap_id.eq(target_ap_id))
-            .load::<Activity>(c)
+            .first::<Activity>(c)
+            .optional()
     })
     .await
-    .ok()?
-    .first()
-    .cloned()
 }
 
-pub async fn lookup_activity_id_by_as_id(conn: &Db, as_id: String) -> Result<i32> {
+pub async fn lookup_activity_id_by_as_id<C: DbRunner>(conn: &C, as_id: String) -> Result<i32> {
     conn.run(move |c| {
         activities::table
             .filter(activities::ap_id.eq(as_id))
             .select(activities::id)
             .first::<i32>(c)
-            .map_err(anyhow::Error::msg)
     })
     .await
 }
 
-pub async fn get_activity(conn: Option<&Db>, id: i32) -> Option<ExtendedActivity> {
-    get_activities_coalesced(
-        conn.unwrap(),
-        1,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        Some(id),
-    )
-    .await
-    .first()
-    .cloned()
-    .map(ExtendedActivity::from)
+pub async fn get_activity<C: DbRunner>(conn: &C, id: i32) -> Result<Option<ExtendedActivity>> {
+    let activities =
+        get_activities_coalesced(conn, 1, None, None, None, None, None, None, Some(id)).await?;
+    Ok(activities.first().cloned().map(ExtendedActivity::from))
 }
 
-pub async fn get_outbox_count_by_actor_id(conn: &Db, actor_id: i32) -> Option<i64> {
+pub async fn get_outbox_count_by_actor_id<C: DbRunner>(conn: &C, actor_id: i32) -> Result<i64> {
     conn.run(move |c| {
         activities::table
             .filter(activities::revoked.eq(false))
@@ -2222,36 +2202,24 @@ pub async fn get_outbox_count_by_actor_id(conn: &Db, actor_id: i32) -> Option<i6
             .get_result::<i64>(c)
     })
     .await
-    .ok()
 }
 
-pub async fn update_target_object(
-    conn: Option<&Db>,
+pub async fn update_target_object<C: DbRunner>(
+    conn: &C,
     activity: Activity,
     object: Object,
-) -> Option<usize> {
-    match conn {
-        Some(conn) => {
-            conn.run(move |c| {
-                diesel::update(activities::table.find(activity.id))
-                    .set(activities::target_object_id.eq(object.id))
-                    .execute(c)
-                    .ok()
-            })
-            .await
-        }
-        None => {
-            let mut pool = POOL.get().ok()?;
-            diesel::update(activities::table.find(activity.id))
-                .set(activities::target_object_id.eq(object.id))
-                .execute(&mut pool)
-                .ok()
-        }
-    }
+) -> Result<usize> {
+    let operation = move |c: &mut PgConnection| {
+        diesel::update(activities::table.find(activity.id))
+            .set(activities::target_object_id.eq(object.id))
+            .execute(c)
+    };
+
+    conn.run(operation).await
 }
 
-pub async fn delete_activities_by_domain_pattern(
-    conn: Option<&Db>,
+pub async fn delete_activities_by_domain_pattern<C: DbRunner>(
+    conn: &C,
     domain_pattern: String,
 ) -> Result<usize> {
     let operation = move |c: &mut diesel::PgConnection| {
@@ -2262,10 +2230,10 @@ pub async fn delete_activities_by_domain_pattern(
             .execute(c)
     };
 
-    crate::db::run_db_op(conn, &crate::POOL, operation).await
+    conn.run(operation).await
 }
 
-pub async fn delete_activities_by_actor(conn: Option<&Db>, actor: String) -> Result<usize> {
+pub async fn delete_activities_by_actor<C: DbRunner>(conn: &C, actor: String) -> Result<usize> {
     let operation = move |c: &mut diesel::PgConnection| {
         use diesel::sql_types::Text;
 
@@ -2274,5 +2242,46 @@ pub async fn delete_activities_by_actor(conn: Option<&Db>, actor: String) -> Res
             .execute(c)
     };
 
-    crate::db::run_db_op(conn, &crate::POOL, operation).await
+    conn.run(operation).await
 }
+
+// pub async fn update_target_object(
+//     conn: Option<&Db>,
+//     activity: Activity,
+//     object: Object,
+// ) -> Result<usize> {
+//     let operation = move |c: &mut PgConnection| {
+//         diesel::update(activities::table.find(activity.id))
+//             .set(activities::target_object_id.eq(object.id))
+//             .execute(c)
+//     };
+
+//     crate::db::run_db_op(conn, &crate::POOL, operation).await
+// }
+
+// pub async fn delete_activities_by_domain_pattern(
+//     conn: Option<&Db>,
+//     domain_pattern: String,
+// ) -> Result<usize> {
+//     let operation = move |c: &mut diesel::PgConnection| {
+//         use diesel::sql_types::Text;
+
+//         sql_query("DELETE FROM activities WHERE actor COLLATE \"C\" LIKE $1")
+//             .bind::<Text, _>(format!("https://{domain_pattern}/%"))
+//             .execute(c)
+//     };
+
+//     crate::db::run_db_op(conn, &crate::POOL, operation).await
+// }
+
+// pub async fn delete_activities_by_actor(conn: Option<&Db>, actor: String) -> Result<usize> {
+//     let operation = move |c: &mut diesel::PgConnection| {
+//         use diesel::sql_types::Text;
+
+//         sql_query("DELETE FROM activities WHERE actor = $1")
+//             .bind::<Text, _>(actor)
+//             .execute(c)
+//     };
+
+//     crate::db::run_db_op(conn, &crate::POOL, operation).await
+// }

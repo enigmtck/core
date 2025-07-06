@@ -37,7 +37,8 @@ pub async fn activities(
         None,
         None,
     )
-    .await;
+    .await
+    .unwrap_or_default();
 
     let activities = activities
         .into_iter()

@@ -1,3 +1,4 @@
+use crate::db::runner::DbRunner;
 use crate::db::Db;
 use crate::models::actors::guaranteed_actor;
 use crate::retriever::signed_get;
@@ -45,7 +46,7 @@ pub struct CacheItem {
 }
 
 pub trait Cache {
-    async fn cache(&self, conn: &Db) -> &Self;
+    async fn cache<C: DbRunner + Send + Sync>(&self, conn: &C) -> &Self;
 }
 
 pub enum Cacheable {
@@ -54,7 +55,7 @@ pub enum Cacheable {
 }
 
 impl Cache for ApCollection {
-    async fn cache(&self, conn: &Db) -> &Self {
+    async fn cache<C: DbRunner + Send + Sync>(&self, conn: &C) -> &Self {
         let items = self.items().unwrap_or_default();
         for item in items {
             if let ActivityPub::Activity(ApActivity::Create(create)) = item {
@@ -69,7 +70,7 @@ impl Cache for ApCollection {
 }
 
 impl Cache for ApNote {
-    async fn cache(&self, conn: &Db) -> &Self {
+    async fn cache<C: DbRunner + Send + Sync>(&self, conn: &C) -> &Self {
         log::debug!("Checking for attachments");
         for attachment in self.attachment.multiple() {
             log::debug!("{attachment}");
@@ -101,7 +102,7 @@ impl Cache for ApNote {
 }
 
 impl Cache for ApArticle {
-    async fn cache(&self, conn: &Db) -> &Self {
+    async fn cache<C: DbRunner + Send + Sync>(&self, conn: &C) -> &Self {
         log::debug!("Checking for attachments");
         for attachment in self.attachment.multiple() {
             log::debug!("{attachment}");
@@ -133,7 +134,7 @@ impl Cache for ApArticle {
 }
 
 impl Cache for ApObject {
-    async fn cache(&self, conn: &Db) -> &Self {
+    async fn cache<C: DbRunner + Send + Sync>(&self, conn: &C) -> &Self {
         match self {
             ApObject::Note(note) => {
                 note.cache(conn).await;
@@ -152,7 +153,7 @@ impl Cache for ApObject {
 }
 
 impl Cache for ApQuestion {
-    async fn cache(&self, conn: &Db) -> &Self {
+    async fn cache<C: DbRunner + Send + Sync>(&self, conn: &C) -> &Self {
         if let MaybeMultiple::Multiple(attachments) = self.attachment.clone() {
             for attachment in attachments {
                 cache_content(conn, attachment.clone().try_into()).await;
@@ -195,19 +196,33 @@ impl TryFrom<ApAttachment> for Cacheable {
     }
 }
 
-pub async fn prune_cache_items(conn: Option<&Db>, cutoff: DateTime<Utc>) -> Result<usize> {
+pub async fn prune_cache_items<C: DbRunner>(conn: &C, cutoff: DateTime<Utc>) -> Result<usize> {
     log::info!("Pruning cache items created before {cutoff}");
 
     // Fetch items to potentially delete
     // Capture 'cutoff' for the closure. DateTime<Utc> is Copy.
-    let old_items: Vec<CacheItem> =
-        crate::db::run_db_op(conn, &crate::POOL, move |c: &mut PgConnection| {
+    let old_items: Vec<CacheItem> = conn
+        .run(move |c: &mut PgConnection| {
             cache::table
                 .filter(cache::created_at.lt(cutoff))
                 .load::<CacheItem>(c)
         })
         .await
         .context("Failed to load old cache items")?;
+
+    // pub async fn prune_cache_items(conn: Option<&Db>, cutoff: DateTime<Utc>) -> Result<usize> {
+    //     log::info!("Pruning cache items created before {cutoff}");
+
+    //     // Fetch items to potentially delete
+    //     // Capture 'cutoff' for the closure. DateTime<Utc> is Copy.
+    //     let old_items: Vec<CacheItem> =
+    //         crate::db::run_db_op(conn, &crate::POOL, move |c: &mut PgConnection| {
+    //             cache::table
+    //                 .filter(cache::created_at.lt(cutoff))
+    //                 .load::<CacheItem>(c)
+    //         })
+    //         .await
+    //         .context("Failed to load old cache items")?;
 
     let mut deleted_count = 0;
     let mut deleted_ids = Vec::new();
@@ -241,13 +256,24 @@ pub async fn prune_cache_items(conn: Option<&Db>, cutoff: DateTime<Utc>) -> Resu
     // Database deletion part
     if !deleted_ids.is_empty() {
         let ids_to_delete = deleted_ids.clone();
-        deleted_count = crate::db::run_db_op(conn, &crate::POOL, move |c: &mut PgConnection| {
-            diesel::delete(cache::table.filter(cache::id.eq_any(ids_to_delete))).execute(c)
-        })
-        .await
-        .context("Failed to delete cache records from database")?;
+        deleted_count = conn
+            .run(move |c: &mut PgConnection| {
+                diesel::delete(cache::table.filter(cache::id.eq_any(ids_to_delete))).execute(c)
+            })
+            .await
+            .context("Failed to delete cache records from database")?;
         log::info!("Deleted {deleted_count} cache records from database.");
     } else {
+        // // Database deletion part
+        // if !deleted_ids.is_empty() {
+        //     let ids_to_delete = deleted_ids.clone();
+        //     deleted_count = crate::db::run_db_op(conn, &crate::POOL, move |c: &mut PgConnection| {
+        //         diesel::delete(cache::table.filter(cache::id.eq_any(ids_to_delete))).execute(c)
+        //     })
+        //     .await
+        //     .context("Failed to delete cache records from database")?;
+        //     log::info!("Deleted {deleted_count} cache records from database.");
+        // } else {
         log::info!("No cache records needed database deletion.");
     }
 
@@ -303,7 +329,11 @@ pub struct NewCacheItem {
 }
 
 impl NewCacheItem {
-    pub async fn download(&self, conn: &Db, profile: Option<Actor>) -> Result<Self> {
+    pub async fn download<C: DbRunner + Send + Sync>(
+        &self,
+        conn: &C,
+        profile: Option<Actor>,
+    ) -> Result<Self> {
         download_image(conn, profile, self.clone()).await
     }
 }
@@ -345,7 +375,7 @@ impl From<ApImage> for NewCacheItem {
 }
 
 impl Cache for ApActor {
-    async fn cache(&self, conn: &Db) -> &Self {
+    async fn cache<C: DbRunner + Send + Sync>(&self, conn: &C) -> &Self {
         if let MaybeMultiple::Multiple(tags) = self.tag.clone() {
             for tag in tags {
                 cache_content(conn, tag.try_into()).await;
@@ -363,24 +393,27 @@ impl Cache for ApActor {
     }
 }
 
-pub async fn create_cache_item(conn: Option<&Db>, cache_item: NewCacheItem) -> Option<CacheItem> {
-    let operation = move |c: &mut PgConnection| {
+pub async fn create_cache_item<C: DbRunner + Send + Sync>(
+    conn: &C,
+    cache_item: NewCacheItem,
+) -> Result<CacheItem> {
+    conn.run(move |c: &mut PgConnection| {
         diesel::insert_into(cache::table)
             .values(&cache_item)
             .on_conflict_do_nothing()
             .get_result::<CacheItem>(c)
-    };
-
-    crate::db::run_db_op(conn, &crate::POOL, operation)
-        .await
-        .ok()
+    })
+    .await
 }
 
-pub async fn delete_cache_item_by_url(conn: Option<&Db>, url: String) -> Result<()> {
+pub async fn delete_cache_item_by_url<C: DbRunner + Send + Sync>(
+    conn: &C,
+    url: String,
+) -> Result<()> {
     // 1. Find the cache item by URL
     let item_to_delete = get_cache_item_by_url(conn, url.clone())
         .await
-        .ok_or_else(|| anyhow!("Cache item with URL '{url}' not found"))?;
+        .map_err(|_| anyhow!("Cache item with URL '{url}' not found"))?;
 
     // 2. If it has a path, delete the file from disk
     if let Some(ref path_suffix) = item_to_delete.path {
@@ -410,31 +443,26 @@ pub async fn delete_cache_item_by_url(conn: Option<&Db>, url: String) -> Result<
         item_to_delete.id
     );
     let item_id = item_to_delete.id; // Capture id for the closure
-    crate::db::run_db_op(conn, &crate::POOL, move |c: &mut PgConnection| {
+    conn.run(move |c: &mut PgConnection| {
         diesel::delete(cache::table.filter(cache::id.eq(item_id))).execute(c)
     })
     .await
+    .map(|_| ())
     .context(format!(
         "Failed to delete cache record from database for URL: {url}"
-    ))?;
-
-    log::info!(
-        "Successfully deleted database record for cache item ID: {}",
-        item_to_delete.id
-    );
-    Ok(())
+    ))
 }
 
-pub async fn delete_cache_items_by_server_pattern(
-    conn: Option<&Db>,
+pub async fn delete_cache_items_by_server_pattern<C: DbRunner>(
+    conn: &C,
     server_pattern: String,
 ) -> Result<Vec<CacheItem>> {
     log::info!("Finding cache items matching server pattern: {server_pattern}");
 
     // Fetch items that match the server pattern
     let server_pattern_for_query = server_pattern.clone();
-    let matching_items: Vec<CacheItem> =
-        crate::db::run_db_op(conn, &crate::POOL, move |c: &mut PgConnection| {
+    let matching_items: Vec<CacheItem> = conn
+        .run(move |c: &mut PgConnection| {
             sql_query(
                 "SELECT id, created_at, updated_at, uuid, url, media_type, height, width, blurhash, path 
                  FROM cache 
@@ -445,6 +473,27 @@ pub async fn delete_cache_items_by_server_pattern(
         })
         .await
         .context("Failed to load cache items matching server pattern")?;
+
+    // pub async fn delete_cache_items_by_server_pattern(
+    //     conn: Option<&Db>,
+    //     server_pattern: String,
+    // ) -> Result<Vec<CacheItem>> {
+    //     log::info!("Finding cache items matching server pattern: {server_pattern}");
+
+    //     // Fetch items that match the server pattern
+    //     let server_pattern_for_query = server_pattern.clone();
+    //     let matching_items: Vec<CacheItem> =
+    //         crate::db::run_db_op(conn, &crate::POOL, move |c: &mut PgConnection| {
+    //             sql_query(
+    //                 "SELECT id, created_at, updated_at, uuid, url, media_type, height, width, blurhash, path
+    //                  FROM cache
+    //                  WHERE url ~ $1"
+    //             )
+    //             .bind::<Text, _>(format!(r"^https://(\w+\.)*{}/.+", regex::escape(&server_pattern_for_query)))
+    //             .load::<CacheItem>(c)
+    //         })
+    //         .await
+    //         .context("Failed to load cache items matching server pattern")?;
 
     let mut deleted_ids = Vec::new();
 
@@ -477,14 +526,25 @@ pub async fn delete_cache_items_by_server_pattern(
     // Database deletion part
     if !deleted_ids.is_empty() {
         let ids_to_delete = deleted_ids.clone();
-        let deleted_count =
-            crate::db::run_db_op(conn, &crate::POOL, move |c: &mut PgConnection| {
+        let deleted_count = conn
+            .run(move |c: &mut PgConnection| {
                 diesel::delete(cache::table.filter(cache::id.eq_any(ids_to_delete))).execute(c)
             })
             .await
             .context("Failed to delete cache records from database")?;
         log::info!("Deleted {deleted_count} records matching server pattern '{server_pattern}'.");
     } else {
+        // // Database deletion part
+        // if !deleted_ids.is_empty() {
+        //     let ids_to_delete = deleted_ids.clone();
+        //     let deleted_count =
+        //         crate::db::run_db_op(conn, &crate::POOL, move |c: &mut PgConnection| {
+        //             diesel::delete(cache::table.filter(cache::id.eq_any(ids_to_delete))).execute(c)
+        //         })
+        //         .await
+        //         .context("Failed to delete cache records from database")?;
+        //     log::info!("Deleted {deleted_count} records matching server pattern '{server_pattern}'.");
+        // } else {
         log::info!("No cache records match server pattern '{server_pattern}'.");
     }
 
@@ -500,8 +560,8 @@ enum PrimaryAttemptFailure {
     WrongContentType(String),      // Correct HTTP status, but not media
 }
 
-pub async fn download_image(
-    conn: &Db,
+pub async fn download_image<C: DbRunner + Send + Sync>(
+    conn: &C,
     profile: Option<Actor>,
     cache_item: NewCacheItem,
 ) -> Result<NewCacheItem> {
@@ -726,50 +786,52 @@ pub async fn download_image(
 // I can streamline the calls from the TryFrom bits above. E.g.,
 // cache_content(conn, attachment.try_into()).await;
 // And the From bits just need to wrap themselves in Ok(). That seems desirable right now.
-pub async fn cache_content(conn: &Db, cacheable: Result<Cacheable>) {
+pub async fn cache_content<C: DbRunner + Send + Sync>(conn: &C, cacheable: Result<Cacheable>) {
     if let Ok(cacheable) = cacheable {
         if let Ok(cache_item) = match cacheable {
             Cacheable::Document(document) => NewCacheItem::try_from(document),
             Cacheable::Image(image) => Ok(NewCacheItem::from(image)),
         } {
-            if get_cache_item_by_url(conn.into(), cache_item.url.clone())
+            if get_cache_item_by_url(conn, cache_item.url.clone())
                 .await
-                .is_none()
+                .is_err()
             {
                 if let Ok(cache_item) = cache_item
                     .download(
                         conn,
-                        get_actor_by_username(Some(conn), (*crate::SYSTEM_USER).clone())
+                        get_actor_by_username(conn, (*crate::SYSTEM_USER).clone())
                             .await
                             .ok(),
                     )
                     .await
                 {
-                    create_cache_item(conn.into(), cache_item).await;
+                    let _ = create_cache_item(conn, cache_item).await;
                 }
             }
         }
     }
 }
 
-pub async fn get_cache_item_by_uuid(conn: &Db, uuid: String) -> Option<CacheItem> {
+pub async fn get_cache_item_by_uuid<C: DbRunner + Send + Sync>(
+    conn: &C,
+    uuid: String,
+) -> Result<CacheItem> {
     conn.run(move |c| {
         let query = cache::table.filter(cache::uuid.eq(uuid));
 
         query.first::<CacheItem>(c)
     })
     .await
-    .ok()
 }
 
-pub async fn get_cache_item_by_url(conn: Option<&Db>, url: String) -> Option<CacheItem> {
-    let operation = move |c: &mut PgConnection| {
+pub async fn get_cache_item_by_url<C: DbRunner + Send + Sync>(
+    conn: &C,
+    url: String,
+) -> Result<CacheItem> {
+    conn.run(move |c: &mut PgConnection| {
         cache::table
             .filter(cache::url.eq(url))
             .first::<CacheItem>(c)
-    };
-
-    crate::db::run_db_op(conn, &crate::POOL, operation)
-        .await
-        .ok()
+    })
+    .await
 }

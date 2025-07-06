@@ -227,7 +227,7 @@ pub async fn verify(
 
     if local && key_selector == Some("client-key".to_string()) {
         let username = username.ok_or(VerificationError::ProfileNotFound)?;
-        let profile = get_actor_by_username(Some(conn), username)
+        let profile = get_actor_by_username(conn, username)
             .await
             .map_err(|_| VerificationError::ProfileNotFound)?;
 

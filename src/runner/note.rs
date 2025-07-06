@@ -121,7 +121,7 @@ pub async fn handle_object(
 
     if let ApObject::Note(note) = ap_object {
         let _ = get_actor(
-            Some(conn),
+            conn,
             note.attributed_to.to_string(),
             Some(profile.await),
             true,
@@ -151,7 +151,7 @@ pub async fn object_task(
 ) -> Result<(), TaskError> {
     let ap_id = ap_ids.first().unwrap().clone();
 
-    if let Ok(object) = get_object_by_as_id(Some(&conn), ap_id).await {
+    if let Ok(object) = get_object_by_as_id(&conn, ap_id).await {
         cfg_if::cfg_if! {
             if #[cfg(feature = "pg")] {
                 use crate::models::objects::ObjectType;

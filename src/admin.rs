@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use chrono::Utc;
 use identicon_rs::color::RGB;
 use identicon_rs::theme::HSLRange;
@@ -13,6 +13,7 @@ use serde::Deserialize;
 use serde_json::json;
 use uuid::Uuid;
 
+use crate::db::runner::DbRunner;
 use crate::db::Db;
 use crate::helper::get_ap_id_from_username;
 use crate::models::actors::{
@@ -40,12 +41,14 @@ fn get_key_pair() -> KeyPair {
     }
 }
 
-pub async fn authenticate(conn: &Db, username: String, password_str: String) -> Option<Profile> {
+pub async fn authenticate<C: DbRunner>(
+    conn: &C,
+    username: String,
+    password_str: String,
+) -> Option<Profile> {
     log::debug!("AUTHENTICATING {username} {password_str}");
     let password = pwhash::Password::from_slice(password_str.clone().as_bytes()).ok()?;
-    let profile = get_actor_by_username(Some(conn), username.clone())
-        .await
-        .ok()?;
+    let profile = get_actor_by_username(conn, username.clone()).await.ok()?;
     let encoded_password_hash = profile.clone().ek_password?;
     let password_hash = pwhash::PasswordHash::from_encoded(&encoded_password_hash).ok()?;
 
@@ -54,8 +57,8 @@ pub async fn authenticate(conn: &Db, username: String, password_str: String) -> 
     profile.try_into().ok()
 }
 
-pub async fn verify_and_generate_password(
-    conn: &Db,
+pub async fn verify_and_generate_password<C: DbRunner>(
+    conn: &C,
     username: String,
     current_password: String,
     new_password: String,
@@ -133,7 +136,7 @@ async fn generate_avatar(username: String) -> Result<String> {
     Ok(filename)
 }
 
-pub async fn create_user(conn: Option<&Db>, user: NewUser) -> Result<Actor> {
+pub async fn create_user<C: DbRunner>(conn: &C, user: NewUser) -> Result<Actor> {
     let key_pair = get_key_pair();
     let owner = get_ap_id_from_username(user.username.clone());
     let server_name = crate::SERVER_NAME.as_str();
@@ -213,6 +216,7 @@ pub async fn create_user(conn: Option<&Db>, user: NewUser) -> Result<Actor> {
     };
 
     let actor = create_or_update_actor(conn, new_profile).await?;
-    ApActor::from(actor.clone()).cache(conn.unwrap()).await;
+    ApActor::from(actor.clone()).cache(conn).await;
+
     Ok(actor)
 }

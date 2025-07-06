@@ -32,7 +32,11 @@ impl Inbox for Box<ApAccept> {
         let (follow, _target_activity, _target_object, _target_actor) =
             get_activity_by_ap_id(&conn, follow_as_id)
                 .await
-                .ok_or(Status::NotFound)?;
+                .map_err(|_| Status::NotFound)?
+                .ok_or_else(|| {
+                    log::error!("Activity not found");
+                    Status::NotFound
+                })?;
 
         let mut accept = NewActivity::try_from((
             ApActivity::Accept(self.clone()),
@@ -48,12 +52,10 @@ impl Inbox for Box<ApAccept> {
         accept.link_target(Some(ActivityTarget::Activity(follow)));
         accept.raw = Some(raw);
 
-        create_activity((&conn).into(), accept.clone())
-            .await
-            .map_err(|e| {
-                log::error!("UNABLE TO CREATE ACCEPT ACTIVITY: {e:#?}");
-                Status::InternalServerError
-            })?;
+        create_activity(&conn, accept.clone()).await.map_err(|e| {
+            log::error!("UNABLE TO CREATE ACCEPT ACTIVITY: {e:#?}");
+            Status::InternalServerError
+        })?;
 
         runner::run(
             process,
@@ -83,7 +85,11 @@ async fn process(
         let (accept_db, follow_db, target_object, target_actor) =
             get_activity_by_ap_id(&conn, as_id.clone())
                 .await
-                .ok_or(TaskError::TaskFailed)?;
+                .map_err(|_| TaskError::TaskFailed)?
+                .ok_or_else(|| {
+                    log::error!("Activity not found: {as_id}");
+                    TaskError::TaskFailed
+                })?;
 
         // Convert the DB records into a structured ApAccept object.
         let accept = ApAccept::try_from_extended_activity((
@@ -112,7 +118,7 @@ async fn process(
             let leader_ap_id = accept.actor.to_string();
             let accept_ap_id = accept.id.clone().ok_or(TaskError::TaskFailed)?;
 
-            mark_follow_accepted(Some(&conn), follower_ap_id, leader_ap_id, accept_ap_id).await;
+            mark_follow_accepted(&conn, follower_ap_id, leader_ap_id, accept_ap_id).await;
 
             log::info!("Leader established: {accept}");
         } else {

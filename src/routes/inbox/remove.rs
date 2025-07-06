@@ -18,7 +18,7 @@ impl Inbox for ApRemove {
             })?;
         activity.raw = Some(raw.clone());
 
-        create_activity((&conn).into(), activity.clone())
+        create_activity(&conn, activity.clone())
             .await
             .map_err(|e| {
                 log::error!("FAILED TO CREATE ACTIVITY: {e:#?}");

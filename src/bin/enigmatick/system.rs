@@ -1,8 +1,8 @@
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use diesel_migrations::{embed_migrations, EmbeddedMigrations, MigrationHarness};
 use enigmatick::admin::create_user;
 use enigmatick::models::actors::ActorType;
-use enigmatick::{admin::NewUser, POOL, SYSTEM_USER};
+use enigmatick::{admin::NewUser, SYSTEM_USER};
 use rand::distributions::{Alphanumeric, DistString};
 use rust_embed::RustEmbed;
 use std::fs;
@@ -39,12 +39,34 @@ pub fn handle_template() -> Result<()> {
     Ok(())
 }
 
-pub fn handle_migrations() -> Result<()> {
+pub async fn handle_migrations() -> Result<()> {
     println!("running database migrations...");
-    let conn = &mut POOL.get().expect("failed to retrieve database connection");
+    let conn = enigmatick::db::POOL.get().await?;
 
-    conn.run_pending_migrations(MIGRATIONS)
-        .map_err(anyhow::Error::msg)?;
+    conn.interact(|c| {
+        const MIGRATIONS: EmbeddedMigrations = embed_migrations!("./migrations.pg");
+        // Run the migrations and handle the result inside the closure
+        // to avoid lifetime issues with the return type.
+        match c.run_pending_migrations(MIGRATIONS) {
+            Ok(versions) => {
+                for v in versions {
+                    println!("  Applying migration {v}");
+                }
+                Ok(())
+            }
+            Err(e) => {
+                // Propagate the error from the migration harness.
+                Err(e)
+            }
+        }
+    })
+    .await
+    // The `interact` method returns a nested Result, so we flatten it.
+    // The outer error is from deadpool (e.g., pool is closed).
+    .map_err(|e| anyhow!("Database pool interaction error: {}", e))?
+    // The inner error is from the migration harness itself.
+    .map_err(|e| anyhow!("Failed to run database migrations: {}", e))?;
+
     println!("complete.");
 
     Ok(())
@@ -57,8 +79,16 @@ pub fn handle_system_user() -> Result<()> {
     let rt = Runtime::new().unwrap();
     let handle = rt.handle();
     handle.block_on(async {
+        let conn = match enigmatick::db::POOL.get().await {
+            Ok(c) => c,
+            Err(e) => {
+                eprintln!("Failed to get DB connection: {}", e);
+                return;
+            }
+        };
+
         if create_user(
-            None,
+            &conn,
             NewUser {
                 username: system_user.clone(),
                 password: Alphanumeric.sample_string(&mut rand::thread_rng(), 16),

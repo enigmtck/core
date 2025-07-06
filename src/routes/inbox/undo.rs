@@ -46,7 +46,11 @@ async fn inbox(conn: Db, target: &ApActivity, undo: &ApUndo, raw: Value) -> Resu
 
     let (_, target_activity, _, _) = get_activity_by_ap_id(&conn, target_ap_id.clone())
         .await
-        .ok_or(Status::NotFound)?;
+        .map_err(|_| Status::NotFound)?
+        .ok_or_else(|| {
+            log::error!("Activity not found");
+            Status::NotFound
+        })?;
 
     let activity_target = (
         ApActivity::Undo(Box::new(undo.clone())),
@@ -62,7 +66,7 @@ async fn inbox(conn: Db, target: &ApActivity, undo: &ApUndo, raw: Value) -> Resu
 
     activity.raw = Some(raw.clone());
 
-    create_activity(Some(&conn), activity.clone())
+    create_activity(&conn, activity.clone())
         .await
         .map_err(|e| {
             log::error!("Failed to create Activity: {e}");
@@ -71,7 +75,7 @@ async fn inbox(conn: Db, target: &ApActivity, undo: &ApUndo, raw: Value) -> Resu
 
     match target {
         ApActivity::Like(_) => {
-            revoke_activity_by_apid(Some(&conn), target_ap_id.clone())
+            revoke_activity_by_apid(&conn, target_ap_id.clone())
                 .await
                 .map_err(|e| {
                     log::error!("Failed to revoke Like: {e}");
@@ -81,7 +85,7 @@ async fn inbox(conn: Db, target: &ApActivity, undo: &ApUndo, raw: Value) -> Resu
         }
         ApActivity::Follow(follow) => {
             if delete_follow(
-                Some(&conn),
+                &conn,
                 follow.actor.to_string(),
                 follow
                     .object
@@ -90,12 +94,9 @@ async fn inbox(conn: Db, target: &ApActivity, undo: &ApUndo, raw: Value) -> Resu
             )
             .await
             .is_ok()
-                && revoke_activity_by_apid(
-                    Some(&conn),
-                    follow.id.clone().ok_or(Status::BadRequest)?,
-                )
-                .await
-                .is_ok()
+                && revoke_activity_by_apid(&conn, follow.id.clone().ok_or(Status::BadRequest)?)
+                    .await
+                    .is_ok()
             {
                 log::info!("Follower record deleted: {target_ap_id}");
             }

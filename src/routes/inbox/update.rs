@@ -29,7 +29,7 @@ impl Inbox for ApUpdate {
                         new_remote_actor.ek_webfinger = webfinger;
 
                         if actor.clone().id.unwrap_or_default() == self.actor.clone() {
-                            let actor = create_or_update_actor(Some(&conn), new_remote_actor)
+                            let actor = create_or_update_actor(&conn, new_remote_actor)
                                 .await
                                 .map_err(|e| {
                                     log::error!("Failed to create or update Actor: {e}");
@@ -45,7 +45,7 @@ impl Inbox for ApUpdate {
                                 )?;
                             activity.raw = Some(raw);
 
-                            create_activity(Some(&conn), activity).await.map_err(|e| {
+                            create_activity(&conn, activity).await.map_err(|e| {
                                 log::error!("Failed to create Activity: {e}");
                                 Status::InternalServerError
                             })?;
@@ -78,7 +78,7 @@ impl Inbox for ApUpdate {
                         })?;
                         activity.raw = Some(raw);
 
-                        create_activity(Some(&conn), activity).await.map_err(|e| {
+                        create_activity(&conn, activity).await.map_err(|e| {
                             log::error!("Failed to create Activity: {e}");
                             Status::InternalServerError
                         })?;
@@ -106,7 +106,7 @@ impl Inbox for ApUpdate {
                         })?;
                         activity.raw = Some(raw);
 
-                        create_activity(Some(&conn), activity).await.map_err(|e| {
+                        create_activity(&conn, activity).await.map_err(|e| {
                             log::error!("Failed to create Activity: {e}");
                             Status::InternalServerError
                         })?;
@@ -134,7 +134,7 @@ impl Inbox for ApUpdate {
                         })?;
                         activity.raw = Some(raw);
 
-                        create_activity(Some(&conn), activity).await.map_err(|e| {
+                        create_activity(&conn, activity).await.map_err(|e| {
                             log::error!("Failed to create Activity: {e}");
                             Status::InternalServerError
                         })?;

@@ -7,14 +7,17 @@ use crossterm::{
     execute,
     terminal::{self, disable_raw_mode, enable_raw_mode, Clear, ClearType},
 };
-use enigmatick::models::instances::{
-    self as instance_model_ops, SortDirection as LibSortDirection, SortField as LibSortField,
-    SortParam as LibSortParam,
-};
 use enigmatick::models::{
     activities::delete_activities_by_domain_pattern, actors::delete_actors_by_domain_pattern,
     cache::delete_cache_items_by_server_pattern, follows::delete_follows_by_domain_pattern,
     objects::delete_objects_by_domain_pattern,
+};
+use enigmatick::{
+    db::runner::DbRunner,
+    models::instances::{
+        self as instance_model_ops, SortDirection as LibSortDirection, SortField as LibSortField,
+        SortParam as LibSortParam,
+    },
 };
 use std::io::stdout;
 use tokio::runtime::Runtime;
@@ -140,8 +143,15 @@ pub fn handle_instance_command(args: InstanceArgs) -> Result<()> {
                     );
                     let non_raw_page_size = page_size.unwrap_or(DEFAULT_CLAP_PAGE_SIZE);
                     handle.block_on(async {
+                        let conn = match enigmatick::db::POOL.get().await {
+                            Ok(c) => c,
+                            Err(e) => {
+                                eprintln!("Failed to get DB connection: {}", e);
+                                return;
+                            }
+                        };
                         match instance_model_ops::get_all_instances_paginated(
-                            None,
+                            &conn,
                             1,
                             non_raw_page_size.max(1),
                             lib_sort_vec.clone(),
@@ -188,8 +198,15 @@ pub fn handle_instance_command(args: InstanceArgs) -> Result<()> {
                     execute!(stdout(), Clear(ClearType::All), cursor::MoveTo(0, 0))
                         .map_err(|e| anyhow::anyhow!("Terminal clear failed: {}", e))?;
 
+                    let conn = match enigmatick::db::POOL.get().await {
+                        Ok(c) => c,
+                        Err(e) => {
+                            eprintln!("Failed to get DB connection: {}", e);
+                            return Err(e.into());
+                        }
+                    };
                     match instance_model_ops::get_all_instances_paginated(
-                        None,
+                        &conn,
                         page,
                         effective_page_size,
                         lib_sort_vec.clone(),
@@ -359,8 +376,15 @@ pub fn handle_instance_command(args: InstanceArgs) -> Result<()> {
         InstanceCommands::Block { domain_name } => {
             println!("Attempting to block instance: {domain_name}...");
             handle.block_on(async {
+                let conn = match enigmatick::db::POOL.get().await {
+                    Ok(c) => c,
+                    Err(e) => {
+                        eprintln!("Failed to get DB connection: {}", e);
+                        return;
+                    }
+                };
                 let instance_result =
-                    instance_model_ops::get_instance_by_domain_name(None, domain_name.clone())
+                    instance_model_ops::get_instance_by_domain_name(&conn, domain_name.clone())
                         .await;
 
                 match instance_result {
@@ -369,7 +393,7 @@ pub fn handle_instance_command(args: InstanceArgs) -> Result<()> {
                         print_instance_detail(instance, "already blocked");
                     }
                     Ok(Some(_)) | Ok(None) => {
-                        match instance_model_ops::set_block_status(None, domain_name.clone(), true)
+                        match instance_model_ops::set_block_status(&conn, domain_name.clone(), true)
                             .await
                         {
                             Ok(instance) => {
@@ -377,8 +401,8 @@ pub fn handle_instance_command(args: InstanceArgs) -> Result<()> {
                                     "Instance blocked successfully. Cleaning up associated data..."
                                 );
 
-                                async fn cleanup_domain_data(domain: &str) {
-                                    match delete_objects_by_domain_pattern(None, domain.to_string())
+                                async fn cleanup_domain_data(conn: &impl DbRunner, domain: &str) {
+                                    match delete_objects_by_domain_pattern(conn, domain.to_string())
                                         .await
                                     {
                                         Ok(count) => {
@@ -388,7 +412,7 @@ pub fn handle_instance_command(args: InstanceArgs) -> Result<()> {
                                     }
 
                                     match delete_activities_by_domain_pattern(
-                                        None,
+                                        conn,
                                         domain.to_string(),
                                     )
                                     .await
@@ -399,7 +423,7 @@ pub fn handle_instance_command(args: InstanceArgs) -> Result<()> {
                                         Err(e) => eprintln!("Error deleting activities: {e}"),
                                     }
 
-                                    match delete_follows_by_domain_pattern(None, domain.to_string())
+                                    match delete_follows_by_domain_pattern(conn, domain.to_string())
                                         .await
                                     {
                                         Ok(count) => println!(
@@ -408,7 +432,7 @@ pub fn handle_instance_command(args: InstanceArgs) -> Result<()> {
                                         Err(e) => eprintln!("Error deleting followers: {e}"),
                                     }
 
-                                    match delete_actors_by_domain_pattern(None, domain.to_string())
+                                    match delete_actors_by_domain_pattern(conn, domain.to_string())
                                         .await
                                     {
                                         Ok(count) => {
@@ -418,7 +442,7 @@ pub fn handle_instance_command(args: InstanceArgs) -> Result<()> {
                                     }
 
                                     match delete_cache_items_by_server_pattern(
-                                        None,
+                                        conn,
                                         domain.to_string(),
                                     )
                                     .await
@@ -439,7 +463,7 @@ pub fn handle_instance_command(args: InstanceArgs) -> Result<()> {
                                     }
                                 }
 
-                                cleanup_domain_data(&domain_name).await;
+                                cleanup_domain_data(&conn, &domain_name).await;
                                 print_instance_detail(
                                     instance,
                                     "blocked successfully with cleanup completed",
@@ -456,8 +480,15 @@ pub fn handle_instance_command(args: InstanceArgs) -> Result<()> {
         InstanceCommands::Unblock { domain_name } => {
             println!("Attempting to unblock instance: {domain_name}...");
             handle.block_on(async {
+                let conn = match enigmatick::db::POOL.get().await {
+                    Ok(c) => c,
+                    Err(e) => {
+                        eprintln!("Failed to get DB connection: {}", e);
+                        return;
+                    }
+                };
                 let instance_result =
-                    instance_model_ops::get_instance_by_domain_name(None, domain_name.clone())
+                    instance_model_ops::get_instance_by_domain_name(&conn, domain_name.clone())
                         .await;
 
                 match instance_result {
@@ -467,7 +498,7 @@ pub fn handle_instance_command(args: InstanceArgs) -> Result<()> {
                     }
                     Ok(Some(_instance)) => {
                         let unblock_result =
-                            instance_model_ops::set_block_status(None, domain_name.clone(), false)
+                            instance_model_ops::set_block_status(&conn, domain_name.clone(), false)
                                 .await;
 
                         match unblock_result {
@@ -486,8 +517,15 @@ pub fn handle_instance_command(args: InstanceArgs) -> Result<()> {
         InstanceCommands::Get { domain_name } => {
             println!("Attempting to retrieve instance: {domain_name}...");
             handle.block_on(async {
+                let conn = match enigmatick::db::POOL.get().await {
+                    Ok(c) => c,
+                    Err(e) => {
+                        eprintln!("Failed to get DB connection: {}", e);
+                        return;
+                    }
+                };
                 let instance_result =
-                    instance_model_ops::get_instance_by_domain_name(None, domain_name.clone())
+                    instance_model_ops::get_instance_by_domain_name(&conn, domain_name.clone())
                         .await;
 
                 match instance_result {
