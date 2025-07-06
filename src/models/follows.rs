@@ -1,7 +1,5 @@
 use super::OffsetPaging;
 use crate::db::runner::DbRunner;
-use crate::db::Db;
-use crate::db::POOL;
 use crate::schema::{actors, follows};
 use anyhow::{anyhow, Result};
 use chrono::{DateTime, Utc};
@@ -74,26 +72,6 @@ pub struct Follow {
     pub follower_actor_id: Option<i32>,
     pub leader_actor_id: Option<i32>,
 }
-
-// pub async fn create_follow(conn: Option<&Db>, follower: NewFollow) -> Result<Follow> {
-//     let operation = move |c: &mut diesel::PgConnection| {
-//         diesel::insert_into(follows::table)
-//             .values(&follower)
-//             .get_result::<Follow>(c)
-//     };
-
-//     crate::db::run_db_op(conn, &crate::POOL, operation).await
-// }
-
-// pub async fn delete_follower_by_ap_id(conn: Option<&Db>, ap_id: String) -> Result<usize> {
-//     let operation = move |c: &mut diesel::PgConnection| {
-//         diesel::delete(follows::table)
-//             .filter(follows::follower_ap_id.eq(ap_id))
-//             .execute(c)
-//     };
-
-//     crate::db::run_db_op(conn, &crate::POOL, operation).await
-// }
 
 pub async fn create_follow<C: DbRunner>(conn: &C, follower: NewFollow) -> Result<Follow> {
     let operation = move |c: &mut diesel::PgConnection| {
@@ -192,47 +170,6 @@ pub async fn delete_followers_by_actor<C: DbRunner>(conn: &C, actor: String) -> 
     conn.run(operation).await
 }
 
-// pub async fn delete_followers_by_domain_pattern(
-//     conn: Option<&Db>,
-//     domain_pattern: String,
-// ) -> Result<usize> {
-//     let operation = move |c: &mut diesel::PgConnection| {
-//         use diesel::sql_types::Text;
-
-//         sql_query("DELETE FROM follow WHERE follower_ap_id COLLATE \"C\" LIKE $1")
-//             .bind::<Text, _>(format!("https://{domain_pattern}/%"))
-//             .execute(c)
-//     };
-
-//     crate::db::run_db_op(conn, &crate::POOL, operation).await
-// }
-
-// pub async fn delete_followers_by_followed_ap_id(conn: Option<&Db>, ap_id: String) -> Result<usize> {
-//     let operation = move |c: &mut diesel::PgConnection| {
-//         use diesel::sql_types::Text;
-
-//         sql_query("DELETE FROM follows WHERE leader_ap_id = $1")
-//             .bind::<Text, _>(ap_id)
-//             .execute(c)
-//     };
-
-//     crate::db::run_db_op(conn, &crate::POOL, operation).await
-// }
-
-// pub async fn delete_followers_by_actor(conn: Option<&Db>, actor: String) -> Result<usize> {
-//     let operation = move |c: &mut diesel::PgConnection| {
-//         use diesel::sql_types::Text;
-
-//         sql_query("DELETE FROM follows WHERE follower_ap_id = $1")
-//             .bind::<Text, _>(actor)
-//             .execute(c)
-//     };
-
-//     crate::db::run_db_op(conn, &crate::POOL, operation).await
-// }
-
-// Code from leaders, consolidated here.
-
 pub async fn mark_follow_accepted<C: DbRunner>(
     conn: &C,
     follower_ap_id: String,
@@ -251,25 +188,6 @@ pub async fn mark_follow_accepted<C: DbRunner>(
 
     conn.run(operation).await.ok()
 }
-
-// pub async fn mark_follow_accepted<C: DbRunner>(
-//     conn: &C,
-//     follower_ap_id: String,
-//     leader_ap_id: String,
-//     accept_ap_id: String,
-// ) -> Result<Follow> {
-//     let operation = move |c: &mut diesel::PgConnection| {
-//         use diesel::sql_types::Text;
-
-//         sql_query("UPDATE follows SET accepted = 'true', accept_activity_ap_id = $1 WHERE follower_ap_id = $2 AND leader_ap_id = $3 RETURNING *")
-//             .bind::<Text, _>(accept_ap_id)
-//             .bind::<Text, _>(follower_ap_id)
-//             .bind::<Text, _>(leader_ap_id)
-//             .get_result(c)
-//     };
-
-//     conn.run(operation).await
-// }
 
 pub async fn get_follow<C: DbRunner>(
     conn: &C,
@@ -304,23 +222,6 @@ pub async fn delete_follow<C: DbRunner>(
 
     conn.run(operation).await
 }
-
-// pub async fn delete_follow(
-//     conn: Option<&Db>,
-//     follower_ap_id: String,
-//     leader_ap_id: String,
-// ) -> Result<usize> {
-//     let operation = move |c: &mut diesel::PgConnection| {
-//         use diesel::sql_types::Text;
-
-//         sql_query("DELETE FROM follows WHERE follower_ap_id = $1 AND leader_ap_id = $2")
-//             .bind::<Text, _>(follower_ap_id)
-//             .bind::<Text, _>(leader_ap_id)
-//             .execute(c)
-//     };
-
-//     crate::db::run_db_op(conn, &crate::POOL, operation).await
-// }
 
 pub async fn get_leaders_by_follower_actor_id<C: DbRunner>(
     conn: &C,
@@ -405,49 +306,3 @@ pub async fn delete_follows_by_follower_ap_id<C: DbRunner>(
 
     conn.run(operation).await
 }
-
-// pub async fn delete_follows_by_domain_pattern(
-//     conn: Option<&Db>,
-//     domain_pattern: String,
-// ) -> Result<usize> {
-//     let operation = move |c: &mut diesel::PgConnection| {
-//         use diesel::sql_types::Text;
-
-//         sql_query("DELETE FROM follows WHERE leader_ap_id COLLATE \"C\" LIKE $1 OR follower_ap_id COLLATE \"C\" LIKE $2")
-//             .bind::<Text, _>(format!("https://{domain_pattern}/%"))
-//             .bind::<Text, _>(format!("https://{domain_pattern}/%"))
-//             .execute(c)
-//     };
-
-//     crate::db::run_db_op(conn, &crate::POOL, operation).await
-// }
-
-// pub async fn delete_follows_by_leader_ap_id(
-//     conn: Option<&Db>,
-//     leader_ap_id: String,
-// ) -> Result<usize> {
-//     let operation = move |c: &mut diesel::PgConnection| {
-//         use diesel::sql_types::Text;
-
-//         sql_query("DELETE FROM follows WHERE leader_ap_id = $1")
-//             .bind::<Text, _>(leader_ap_id)
-//             .execute(c)
-//     };
-
-//     crate::db::run_db_op(conn, &crate::POOL, operation).await
-// }
-
-// pub async fn delete_follows_by_follower_ap_id(
-//     conn: Option<&Db>,
-//     follower_ap_id: String,
-// ) -> Result<usize> {
-//     let operation = move |c: &mut diesel::PgConnection| {
-//         use diesel::sql_types::Text;
-
-//         sql_query("DELETE FROM follows WHERE follower_ap_id = $1")
-//             .bind::<Text, _>(follower_ap_id)
-//             .execute(c)
-//     };
-
-//     crate::db::run_db_op(conn, &crate::POOL, operation).await
-// }

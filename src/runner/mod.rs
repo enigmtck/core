@@ -282,7 +282,7 @@ pub async fn get_inboxes<C: DbRunner>(
     if let Some(consolidated) = consolidated {
         for address in consolidated.iter() {
             if let Err(e) = handle_recipients(conn, &mut inboxes, &sender, address).await {
-                log::error!("Error handling recipient {}: {:?}", address.to_string(), e);
+                log::error!("Error handling recipient {address}: {e:?}");
                 // Decide if you want to stop or continue. For now, we continue.
             }
         }

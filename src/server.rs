@@ -175,7 +175,6 @@ async fn client_icons_file(file: PathBuf) -> Option<(ContentType, Cow<'static, [
     Some((content_type, asset.data))
 }
 
-#[launch]
 fn rocket() -> Rocket<Build> {
     if let Ok(profile) = std::env::var("PROFILE") {
         match profile.as_str() {

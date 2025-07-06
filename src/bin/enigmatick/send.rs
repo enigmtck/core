@@ -49,8 +49,8 @@ pub fn handle_send_command(args: SendArgs) -> Result<()> {
     let handle = rt.handle();
 
     match args.command {
-        SendCommands::Update(update_args) => handle_update_command(update_args, &handle),
-        SendCommands::Delete(delete_args) => handle_delete_command(delete_args, &handle),
+        SendCommands::Update(update_args) => handle_update_command(update_args, handle),
+        SendCommands::Delete(delete_args) => handle_delete_command(delete_args, handle),
     }
 }
 

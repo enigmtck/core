@@ -1,7 +1,6 @@
 use super::actors::Actor;
 use super::{coalesced_activity::CoalescedActivity, from_serde};
 use crate::db::runner::DbRunner;
-use crate::db::Db;
 use crate::schema::objects;
 use anyhow::{anyhow, Result};
 use chrono::{DateTime, Utc};

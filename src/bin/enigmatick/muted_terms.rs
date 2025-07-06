@@ -32,7 +32,7 @@ pub fn handle_muted_terms_command(args: MutedTermsArgs) -> Result<()> {
                 let conn = match enigmatick::db::POOL.get().await {
                     Ok(c) => c,
                     Err(e) => {
-                        eprintln!("Failed to get DB connection: {}", e);
+                        eprintln!("Failed to get DB connection: {e}");
                         return;
                     }
                 };
@@ -43,7 +43,7 @@ pub fn handle_muted_terms_command(args: MutedTermsArgs) -> Result<()> {
                         } else {
                             println!("Muted terms for user '{username}':");
                             for (index, term) in terms.iter().enumerate() {
-                                println!("  {}. {}", index + 1, term);
+                                println!("  {}. {term}", index + 1);
                             }
                             println!("Total: {} term(s)", terms.len());
                         }
@@ -58,7 +58,7 @@ pub fn handle_muted_terms_command(args: MutedTermsArgs) -> Result<()> {
                 let conn = match enigmatick::db::POOL.get().await {
                     Ok(c) => c,
                     Err(e) => {
-                        eprintln!("Failed to get DB connection: {}", e);
+                        eprintln!("Failed to get DB connection: {e}");
                         return;
                     }
                 };
@@ -96,7 +96,7 @@ pub fn handle_muted_terms_command(args: MutedTermsArgs) -> Result<()> {
                 let conn = match enigmatick::db::POOL.get().await {
                     Ok(c) => c,
                     Err(e) => {
-                        eprintln!("Failed to get DB connection: {}", e);
+                        eprintln!("Failed to get DB connection: {e}");
                         return;
                     }
                 };
@@ -122,7 +122,7 @@ pub fn handle_muted_terms_command(args: MutedTermsArgs) -> Result<()> {
                 let conn = match enigmatick::db::POOL.get().await {
                     Ok(c) => c,
                     Err(e) => {
-                        eprintln!("Failed to get DB connection: {}", e);
+                        eprintln!("Failed to get DB connection: {e}");
                         return;
                     }
                 };

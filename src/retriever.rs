@@ -1,6 +1,5 @@
 use crate::db::runner::DbRunner;
 use crate::models::activities::{get_activities_coalesced, TimelineFilters};
-use crate::models::coalesced_activity::CoalescedActivity;
 use anyhow::anyhow;
 use anyhow::{Context, Result};
 use jdt_activity_pub::{ActivityPub, ApActivity, ApCollection, ApObject};
@@ -8,7 +7,6 @@ use reqwest::Client;
 use reqwest::Response;
 use url::Url;
 
-use crate::db::Db;
 use crate::models::actors::{
     create_or_update_actor, get_actor_by_as_id, guaranteed_actor, Actor, FromActorAndLeader,
     NewActor,

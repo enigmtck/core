@@ -8,7 +8,6 @@ use axum::extract::{Query, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::Json as AxumJson;
-use jdt_activity_pub::ApActor;
 use serde::Deserialize;
 
 #[derive(Deserialize, Debug)]
@@ -28,7 +27,7 @@ pub async fn axum_shared_inbox_get(
     let conn = match app_state.db_pool.get().await {
         Ok(conn) => conn,
         Err(e) => {
-            log::error!("Failed to get DB connection from pool: {}", e);
+            log::error!("Failed to get DB connection from pool: {e}");
             return (StatusCode::INTERNAL_SERVER_ERROR, "Database unavailable").into_response();
         }
     };

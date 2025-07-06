@@ -9,9 +9,7 @@ use std::fs;
 use tokio::runtime::Runtime;
 
 cfg_if::cfg_if! {
-    if #[cfg(feature = "pg")] {
-        pub const MIGRATIONS: EmbeddedMigrations = embed_migrations!("./migrations.pg");
-    } else if #[cfg(feature = "sqlite")] {
+    if #[cfg(feature = "sqlite")] {
         pub const MIGRATIONS: EmbeddedMigrations = embed_migrations!("./migrations.sqlite");
     }
 }
@@ -82,7 +80,7 @@ pub fn handle_system_user() -> Result<()> {
         let conn = match enigmatick::db::POOL.get().await {
             Ok(c) => c,
             Err(e) => {
-                eprintln!("Failed to get DB connection: {}", e);
+                eprintln!("Failed to get DB connection: {e}");
                 return;
             }
         };

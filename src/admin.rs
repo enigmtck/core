@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use anyhow::{anyhow, Result};
+use anyhow::Result;
 use chrono::Utc;
 use identicon_rs::color::RGB;
 use identicon_rs::theme::HSLRange;
@@ -14,7 +14,6 @@ use serde_json::json;
 use uuid::Uuid;
 
 use crate::db::runner::DbRunner;
-use crate::db::Db;
 use crate::helper::get_ap_id_from_username;
 use crate::models::actors::{
     create_or_update_actor, get_actor_by_username, Actor, ActorType, NewActor,
@@ -109,22 +108,22 @@ async fn generate_avatar(username: String) -> Result<String> {
         security_background_colors, // background: Vec<RGB>
     )?);
 
-    let cyberpunk_background_colors = vec![
-        RGB::from((20, 20, 25)), // Dark blue-gray
-        RGB::from((25, 20, 25)), // Dark magenta tint
-        RGB::from((20, 25, 30)), // Dark cyan tint
-        RGB::from((22, 22, 22)), // Neutral dark gray
-    ];
+    // let cyberpunk_background_colors = vec![
+    //     RGB::from((20, 20, 25)), // Dark blue-gray
+    //     RGB::from((25, 20, 25)), // Dark magenta tint
+    //     RGB::from((20, 25, 30)), // Dark cyan tint
+    //     RGB::from((22, 22, 22)), // Neutral dark gray
+    // ];
 
-    let cyberpunk_theme = Arc::new(HSLRange::new(
-        180.0,                       // hue_min: Cyan
-        320.0,                       // hue_max: Magenta
-        40.0,                        // saturation_min: Vibrant colors
-        70.0,                        // saturation_max: High saturation
-        25.0,                        // lightness_min: Dark but visible
-        40.0,                        // lightness_max: Bright enough for contrast
-        cyberpunk_background_colors, // background: Vec<RGB>
-    )?);
+    // let cyberpunk_theme = Arc::new(HSLRange::new(
+    //     180.0,                       // hue_min: Cyan
+    //     320.0,                       // hue_max: Magenta
+    //     40.0,                        // saturation_min: Vibrant colors
+    //     70.0,                        // saturation_max: High saturation
+    //     25.0,                        // lightness_min: Dark but visible
+    //     40.0,                        // lightness_max: Bright enough for contrast
+    //     cyberpunk_background_colors, // background: Vec<RGB>
+    // )?);
 
     Identicon::new(&handle)
         .set_border(50)

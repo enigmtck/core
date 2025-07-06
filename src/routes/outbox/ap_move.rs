@@ -15,7 +15,7 @@ impl Outbox for ApMove {
     async fn outbox(
         &self,
         conn: Db,
-        profile: Actor,
+        _profile: Actor,
         raw: Value,
     ) -> Result<ActivityJson<ApActivity>, Status> {
         log::debug!("{:?}", self.clone());

@@ -75,11 +75,11 @@ impl std::fmt::Display for VerifyParams {
             if self.local { "local" } else { "remote" },
             self.key_selector
                 .as_ref()
-                .map(|ks| format!(", selector: {}", ks))
+                .map(|ks| format!(", selector: {ks}"))
                 .unwrap_or_default(),
             self.signer_username
                 .as_ref()
-                .map(|u| format!(", user: {}", u))
+                .map(|u| format!(", user: {u}"))
                 .unwrap_or_default()
         )
     }
@@ -173,12 +173,12 @@ pub enum VerificationError {
 impl std::fmt::Display for VerificationError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            VerificationError::DecodeError(e) => write!(f, "failed to decode data: {}", e),
-            VerificationError::SignatureError(e) => write!(f, "invalid signature: {}", e),
-            VerificationError::VerificationFailed(e) => write!(f, "verification failed: {}", e),
-            VerificationError::PublicKeyError(e) => write!(f, "invalid public key: {}", e),
+            VerificationError::DecodeError(e) => write!(f, "failed to decode data: {e}"),
+            VerificationError::SignatureError(e) => write!(f, "invalid signature: {e}"),
+            VerificationError::VerificationFailed(e) => write!(f, "verification failed: {e}"),
+            VerificationError::PublicKeyError(e) => write!(f, "invalid public key: {e}"),
             VerificationError::ActorNotFound(params) => {
-                write!(f, "actor not found for params: {:?}", params)
+                write!(f, "actor not found for params: {params:?}")
             }
             VerificationError::ProfileNotFound => write!(f, "profile not found"),
             VerificationError::ClientKeyNotFound => write!(f, "client key not found"),
@@ -263,7 +263,7 @@ pub enum SigningError {
 
 impl fmt::Display for SigningError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{:?}", self)
+        write!(f, "{self:?}")
     }
 }
 
@@ -362,7 +362,7 @@ fn compute_digest(body: &Option<String>) -> Option<String> {
         let mut hasher = Sha256::new();
         hasher.update(body.as_bytes());
         let hashed = general_purpose::STANDARD.encode(hasher.finalize());
-        format!("SHA-256={}", hashed)
+        format!("SHA-256={hashed}")
     })
 }
 
@@ -377,15 +377,9 @@ fn construct_structured_data(
     digest: &Option<String>,
 ) -> String {
     if let Some(ref digest) = digest {
-        format!(
-            "(request-target): {}\nhost: {}\ndate: {}\ndigest: {}",
-            request_target, host, date, digest
-        )
+        format!("(request-target): {request_target}\nhost: {host}\ndate: {date}\ndigest: {digest}")
     } else {
-        format!(
-            "(request-target): {}\nhost: {}\ndate: {}",
-            request_target, host, date
-        )
+        format!("(request-target): {request_target}\nhost: {host}\ndate: {date}")
     }
 }
 

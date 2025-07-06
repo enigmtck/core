@@ -15,7 +15,7 @@ use crate::{
 use anyhow::{anyhow, Result};
 use async_trait::async_trait;
 use axum::{
-    extract::{FromRequestParts, State},
+    extract::FromRequestParts,
     http::{request::Parts, StatusCode},
     response::{IntoResponse, Response},
     Json,

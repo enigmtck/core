@@ -59,7 +59,7 @@ fn spawn_process(path: &std::path::Path, name: &str, args: &[&str]) -> Child {
         .stdout(Stdio::inherit())
         .stderr(Stdio::inherit())
         .spawn()
-        .unwrap_or_else(|e| panic!("Failed to start {name} process at {:?}: {}", path, e))
+        .unwrap_or_else(|e| panic!("Failed to start {name} process at {path:?}: {e}"))
 }
 
 /// The process manager for the `server` command.

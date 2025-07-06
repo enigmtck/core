@@ -71,7 +71,7 @@ pub fn handle_cache_command(args: CacheArgs) -> Result<()> {
                 let conn = match enigmatick::db::POOL.get().await {
                     Ok(c) => c,
                     Err(e) => {
-                        eprintln!("Failed to get DB connection: {}", e);
+                        eprintln!("Failed to get DB connection: {e}");
                         return;
                     }
                 };
@@ -138,7 +138,7 @@ pub fn handle_cache_command(args: CacheArgs) -> Result<()> {
                 let conn = match enigmatick::db::POOL.get().await {
                     Ok(c) => c,
                     Err(e) => {
-                        eprintln!("Failed to get DB connection: {}", e);
+                        eprintln!("Failed to get DB connection: {e}");
                         return;
                     }
                 };
@@ -166,7 +166,7 @@ pub fn handle_cache_command(args: CacheArgs) -> Result<()> {
                 let conn = match enigmatick::db::POOL.get().await {
                     Ok(c) => c,
                     Err(e) => {
-                        eprintln!("Failed to get DB connection: {}", e);
+                        eprintln!("Failed to get DB connection: {e}");
                         return;
                     }
                 };
@@ -193,7 +193,7 @@ pub fn handle_cache_command(args: CacheArgs) -> Result<()> {
 
                                 for item in &deleted_items {
                                     if let Some(ref path) = item.path {
-                                        msg_pb.set_message(format!("Processed: {}", path));
+                                        msg_pb.set_message(format!("Processed: {path}"));
                                     } else {
                                         msg_pb.set_message(format!("Processed item ID: {}", item.id));
                                     }

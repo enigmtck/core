@@ -1,15 +1,12 @@
 use std::collections::HashSet;
 
 use crate::db::runner::DbRunner;
-use crate::db::Db;
-use deadpool_diesel::postgres::Object as DbConnection;
-//use crate::models::leaders::Leader;
 use crate::schema::actors;
-use crate::db::POOL;
-use crate::{GetHashtags};
-use anyhow::{anyhow, Context, Result};
+use crate::GetHashtags;
+use anyhow::{anyhow, Result};
 use chrono::{DateTime, Duration, Utc};
 use convert_case::{Case, Casing};
+use deadpool_diesel::postgres::Object as DbConnection;
 use diesel::prelude::*;
 use diesel::sql_query;
 use diesel::{AsChangeset, Identifiable, Insertable, Queryable};
@@ -25,7 +22,6 @@ use std::fmt::{self, Debug};
 
 use super::coalesced_activity::CoalescedActivity;
 use super::follows::{get_followers_by_actor_id, Follow};
-//use super::followers::get_followers_by_actor_id;
 
 #[derive(
     diesel_derive_enum::DbEnum, Debug, Serialize, Deserialize, Default, Clone, Eq, PartialEq,

@@ -1,5 +1,4 @@
 use crate::db::runner::DbRunner;
-use crate::db::Db;
 use crate::models::actors::guaranteed_actor;
 use crate::retriever::signed_get;
 use crate::schema::cache;

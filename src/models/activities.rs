@@ -1,5 +1,4 @@
 use crate::db::runner::DbRunner;
-use crate::db::Db;
 use crate::db::DbType;
 use crate::helper::get_activity_ap_id_from_uuid;
 use crate::models::actors::{get_actor_by_as_id, Actor};
@@ -9,7 +8,6 @@ use crate::models::olm_sessions::OlmSession;
 use crate::models::parameter_generator;
 use crate::routes::inbox::InboxView;
 use crate::schema::{activities, actors, objects, olm_sessions, vault};
-use crate::db::POOL;
 use anyhow::{anyhow, Result};
 use chrono::{DateTime, Utc};
 use convert_case::{Case, Casing};

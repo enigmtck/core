@@ -7,22 +7,18 @@ extern crate rocket;
 
 use crate::db::runner::DbRunner;
 use crate::models::actors::{get_actor_by_as_id, Actor};
-//use crate::models::followers::get_follower_count_by_actor_id;
-//use crate::models::leaders::{get_leader_by_actor_id_and_ap_id, get_leader_count_by_actor_id};
 use crate::webfinger::retrieve_webfinger;
 use atty as _;
 use clap as _;
 use comfy_table as _;
 use crossterm as _;
 use ctrlc as _;
-use db::Db;
-use diesel::r2d2::ConnectionManager;
 use diesel_migrations as _;
 use dotenvy::dotenv;
 use indicatif as _;
 use jdt_activity_pub::MaybeMultiple;
 use jdt_activity_pub::MaybeReference;
-use jdt_activity_pub::{ApActivity, ApActor, ApCollection, ApNote, ApObject, ApTag, Ephemeral};
+use jdt_activity_pub::{ApActivity, ApActor, ApNote, ApObject, ApTag, Ephemeral};
 use lazy_static::lazy_static;
 use models::follows::{
     get_follow, get_follower_count_by_actor_id, get_leader_count_by_follower_actor_id,
