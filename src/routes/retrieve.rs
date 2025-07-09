@@ -1,9 +1,13 @@
-use crate::db::Db;
+use crate::db::runner::DbRunner;
 use crate::models::activities::get_activities_coalesced;
 use crate::models::activities::{get_outbox_count_by_actor_id, TimelineFilters};
 use crate::models::actors::Actor;
 use jdt_activity_pub::{ActivityPub, ApActivity, ApCollection, ApObject};
-pub async fn outbox_collection(conn: &Db, profile: Actor, base_url: Option<String>) -> ApObject {
+pub async fn outbox_collection<C: DbRunner>(
+    conn: &C,
+    profile: Actor,
+    base_url: Option<String>,
+) -> ApObject {
     let server_url = format!("https://{}", *crate::SERVER_NAME);
     let username = profile.ek_username.unwrap();
     let base_url = base_url.unwrap_or(format!("{server_url}/{username}/outbox"));
@@ -15,7 +19,7 @@ pub async fn outbox_collection(conn: &Db, profile: Actor, base_url: Option<Strin
 }
 
 pub async fn activities(
-    conn: &Db,
+    conn: &impl DbRunner,
     limit: i32,
     min: Option<i64>,
     max: Option<i64>,
@@ -50,7 +54,7 @@ pub async fn activities(
 }
 
 pub async fn inbox(
-    conn: &Db,
+    conn: &impl DbRunner,
     limit: i32,
     min: Option<i64>,
     max: Option<i64>,

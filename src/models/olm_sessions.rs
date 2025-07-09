@@ -1,5 +1,5 @@
 use super::actors::Actor;
-use crate::db::Db;
+use crate::db::runner::DbRunner;
 use crate::helper::get_session_as_id_from_uuid;
 use crate::schema::olm_sessions;
 use anyhow::{anyhow, Result};
@@ -106,8 +106,8 @@ impl From<OlmSession> for ApInstrument {
     }
 }
 
-pub async fn create_or_update_olm_session(
-    conn: &Db,
+pub async fn create_or_update_olm_session<C: DbRunner>(
+    conn: &C,
     olm_session: NewOlmSession,
     mutation_of: Option<String>,
 ) -> Result<OlmSession> {
@@ -131,8 +131,8 @@ pub async fn create_or_update_olm_session(
     .map_err(anyhow::Error::msg)
 }
 
-pub async fn get_olm_session_by_conversation_and_actor(
-    conn: &Db,
+pub async fn get_olm_session_by_conversation_and_actor<C: DbRunner>(
+    conn: &C,
     conversation_as_id: String,
     actor_id: i32,
 ) -> Result<OlmSession> {

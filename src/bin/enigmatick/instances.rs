@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use clap::{Parser, Subcommand};
 use comfy_table::{presets, Attribute, Cell, Color, ColumnConstraint, Table, Width};
 use crossterm::{
@@ -20,7 +20,6 @@ use enigmatick::{
     },
 };
 use std::io::stdout;
-use tokio::runtime::Runtime;
 
 use crate::display::{format_relative_time, print_instance_detail, print_instance_table};
 
@@ -113,9 +112,9 @@ fn parse_sort_string_to_lib_params(s: &str) -> Result<Vec<LibSortParam>, String>
 
 const DEFAULT_CLAP_PAGE_SIZE: i64 = 20;
 
-pub fn handle_instance_command(args: InstanceArgs) -> Result<()> {
-    let rt = Runtime::new().unwrap();
-    let handle = rt.handle();
+pub async fn handle_instance_command(args: InstanceArgs) -> Result<()> {
+    // let rt = Runtime::new().unwrap();
+    // let handle = rt.handle();
 
     match args.command {
         InstanceCommands::List {
@@ -142,398 +141,378 @@ pub fn handle_instance_command(args: InstanceArgs) -> Result<()> {
                         "Failed to enable raw mode: {e}. Displaying first page non-interactively."
                     );
                     let non_raw_page_size = page_size.unwrap_or(DEFAULT_CLAP_PAGE_SIZE);
-                    handle.block_on(async {
-                        let conn = match enigmatick::db::POOL.get().await {
-                            Ok(c) => c,
-                            Err(e) => {
-                                eprintln!("Failed to get DB connection: {e}");
-                                return;
-                            }
-                        };
-                        match instance_model_ops::get_all_instances_paginated(
-                            &conn,
-                            1,
-                            non_raw_page_size.max(1),
-                            lib_sort_vec.clone(),
-                        )
-                        .await
-                        {
-                            Ok(instances) => {
-                                print_instance_table(instances);
-                            }
-                            Err(db_err) => eprintln!("Error listing instances: {db_err}"),
-                        }
-                    });
-                    return Ok(());
-                }
-            };
-
-            let result: Result<()> = handle.block_on(async {
-                let mut effective_page_size: i64;
-
-                if let Some(user_specified_page_size) = page_size {
-                    effective_page_size = user_specified_page_size;
-                } else {
-                    effective_page_size = DEFAULT_CLAP_PAGE_SIZE;
-
-                    if let Ok((_cols, rows)) = terminal::size() {
-                        const TOTAL_FIXED_LINES_OVERHEAD: i64 = 5;
-                        const LINES_PER_DATA_ITEM_BLOCK: i64 = 2;
-
-                        if (rows as i64) >= TOTAL_FIXED_LINES_OVERHEAD + LINES_PER_DATA_ITEM_BLOCK {
-                            let available_lines_for_data_item_blocks =
-                                (rows as i64) - TOTAL_FIXED_LINES_OVERHEAD;
-                            let calculated_data_items =
-                                available_lines_for_data_item_blocks / LINES_PER_DATA_ITEM_BLOCK;
-                            effective_page_size = calculated_data_items;
-                        } else {
-                            effective_page_size = 1;
-                        }
-                    }
-                }
-
-                effective_page_size = effective_page_size.max(1);
-
-                loop {
-                    execute!(stdout(), Clear(ClearType::All), cursor::MoveTo(0, 0))
-                        .map_err(|e| anyhow::anyhow!("Terminal clear failed: {}", e))?;
-
+                    //handle.block_on(async {
                     let conn = match enigmatick::db::POOL.get().await {
                         Ok(c) => c,
                         Err(e) => {
                             eprintln!("Failed to get DB connection: {e}");
-                            return Err(e.into());
+                            return Err(anyhow::anyhow!("{e}"));
                         }
                     };
                     match instance_model_ops::get_all_instances_paginated(
                         &conn,
-                        page,
-                        effective_page_size,
+                        1,
+                        non_raw_page_size.max(1),
                         lib_sort_vec.clone(),
                     )
                     .await
                     {
-                        Ok(instances_data) => {
-                            if instances_data.is_empty() {
-                                let message = if page == 1 {
-                                    "No instances found."
-                                } else {
-                                    "No more instances."
-                                };
-                                execute!(
-                                    stdout(),
-                                    crossterm::style::Print(message),
-                                    crossterm::style::Print("\r\n")
-                                )
-                                .map_err(|e| anyhow::anyhow!("Print failed: {}", e))?;
-                                execute!(
-                                    stdout(),
-                                    crossterm::style::Print("Press any key to exit."),
-                                    crossterm::style::Print("\r\n")
-                                )
-                                .map_err(|e| anyhow::anyhow!("Print failed: {}", e))?;
+                        Ok(instances) => {
+                            print_instance_table(instances);
+                        }
+                        Err(db_err) => eprintln!("Error listing instances: {db_err}"),
+                    }
+                    //});
+                    return Ok(());
+                }
+            };
 
-                                loop {
-                                    if event::poll(std::time::Duration::from_millis(100))
-                                        .map_err(|e| anyhow::anyhow!("Event poll failed: {}", e))?
-                                    {
-                                        if let Event::Key(_) = event::read().map_err(|e| {
-                                            anyhow::anyhow!("Event read failed: {}", e)
-                                        })? {
-                                            break;
-                                        }
-                                    }
-                                }
-                                return Ok(());
-                            }
+            //let result: Result<()> = {
+            //handle.block_on(async {
+            let mut effective_page_size: i64;
 
-                            let mut table_display = Table::new();
-                            table_display.load_preset(presets::UTF8_FULL);
-                            table_display.set_header(vec![
-                                Cell::new("Domain Name").add_attribute(Attribute::Bold),
-                                Cell::new("Blocked").add_attribute(Attribute::Bold),
-                                Cell::new("Last Message At").add_attribute(Attribute::Bold),
-                            ]);
-                            table_display.set_constraints(vec![
-                                ColumnConstraint::LowerBoundary(Width::Fixed(40)),
-                                ColumnConstraint::ContentWidth,
-                                ColumnConstraint::ContentWidth,
-                            ]);
+            if let Some(user_specified_page_size) = page_size {
+                effective_page_size = user_specified_page_size;
+            } else {
+                effective_page_size = DEFAULT_CLAP_PAGE_SIZE;
 
-                            for instance_item in instances_data {
-                                let blocked_status_text =
-                                    if instance_item.blocked { "Yes" } else { "No" };
-                                let blocked_cell = if instance_item.blocked {
-                                    Cell::new(blocked_status_text).fg(Color::Red)
-                                } else {
-                                    Cell::new(blocked_status_text).fg(Color::Green)
-                                };
+                if let Ok((_cols, rows)) = terminal::size() {
+                    const TOTAL_FIXED_LINES_OVERHEAD: i64 = 5;
+                    const LINES_PER_DATA_ITEM_BLOCK: i64 = 2;
 
-                                table_display.add_row(vec![
-                                    Cell::new(instance_item.domain_name),
-                                    blocked_cell,
-                                    Cell::new(format_relative_time(instance_item.last_message_at)),
-                                ]);
-                            }
-                            for line in table_display.to_string().lines() {
-                                execute!(
-                                    stdout(),
-                                    crossterm::style::Print(line),
-                                    crossterm::style::Print("\r\n")
-                                )
-                                .map_err(|e| anyhow::anyhow!("Table print failed: {}", e))?;
-                            }
+                    if (rows as i64) >= TOTAL_FIXED_LINES_OVERHEAD + LINES_PER_DATA_ITEM_BLOCK {
+                        let available_lines_for_data_item_blocks =
+                            (rows as i64) - TOTAL_FIXED_LINES_OVERHEAD;
+                        let calculated_data_items =
+                            available_lines_for_data_item_blocks / LINES_PER_DATA_ITEM_BLOCK;
+                        effective_page_size = calculated_data_items;
+                    } else {
+                        effective_page_size = 1;
+                    }
+                }
+            }
 
-                            execute!(stdout(), crossterm::style::Print("\r\n"))
-                                .map_err(|e| anyhow::anyhow!("Print failed: {}", e))?;
-                            let prompt_line =
-                                format!("Page {page}. Press Space for next, Q or Esc to quit. ");
-                            execute!(stdout(), crossterm::style::Print(&prompt_line))
-                                .map_err(|e| anyhow::anyhow!("Prompt print failed: {}", e))?;
+            effective_page_size = effective_page_size.max(1);
+
+            loop {
+                execute!(stdout(), Clear(ClearType::All), cursor::MoveTo(0, 0))
+                    .map_err(|e| anyhow::anyhow!("Terminal clear failed: {}", e))?;
+
+                let conn = match enigmatick::db::POOL.get().await {
+                    Ok(c) => c,
+                    Err(e) => {
+                        eprintln!("Failed to get DB connection: {e}");
+                        return Err(e.into());
+                    }
+                };
+                match instance_model_ops::get_all_instances_paginated(
+                    &conn,
+                    page,
+                    effective_page_size,
+                    lib_sort_vec.clone(),
+                )
+                .await
+                {
+                    Ok(instances_data) => {
+                        if instances_data.is_empty() {
+                            let message = if page == 1 {
+                                "No instances found."
+                            } else {
+                                "No more instances."
+                            };
+                            execute!(
+                                stdout(),
+                                crossterm::style::Print(message),
+                                crossterm::style::Print("\r\n")
+                            )
+                            .map_err(|e| anyhow::anyhow!("Print failed: {}", e))?;
+                            execute!(
+                                stdout(),
+                                crossterm::style::Print("Press any key to exit."),
+                                crossterm::style::Print("\r\n")
+                            )
+                            .map_err(|e| anyhow::anyhow!("Print failed: {}", e))?;
 
                             loop {
                                 if event::poll(std::time::Duration::from_millis(100))
                                     .map_err(|e| anyhow::anyhow!("Event poll failed: {}", e))?
                                 {
-                                    if let Event::Key(KeyEvent {
-                                        code, modifiers, ..
-                                    }) = event::read()
+                                    if let Event::Key(_) = event::read()
                                         .map_err(|e| anyhow::anyhow!("Event read failed: {}", e))?
                                     {
-                                        if modifiers == KeyModifiers::CONTROL
-                                            && code == KeyCode::Char('c')
-                                        {
-                                            execute!(stdout(), cursor::Show).ok();
-                                            disable_raw_mode().ok();
+                                        break;
+                                    }
+                                }
+                            }
+                            return Ok(());
+                        }
+
+                        let mut table_display = Table::new();
+                        table_display.load_preset(presets::UTF8_FULL);
+                        table_display.set_header(vec![
+                            Cell::new("Domain Name").add_attribute(Attribute::Bold),
+                            Cell::new("Blocked").add_attribute(Attribute::Bold),
+                            Cell::new("Last Message At").add_attribute(Attribute::Bold),
+                        ]);
+                        table_display.set_constraints(vec![
+                            ColumnConstraint::LowerBoundary(Width::Fixed(40)),
+                            ColumnConstraint::ContentWidth,
+                            ColumnConstraint::ContentWidth,
+                        ]);
+
+                        for instance_item in instances_data {
+                            let blocked_status_text =
+                                if instance_item.blocked { "Yes" } else { "No" };
+                            let blocked_cell = if instance_item.blocked {
+                                Cell::new(blocked_status_text).fg(Color::Red)
+                            } else {
+                                Cell::new(blocked_status_text).fg(Color::Green)
+                            };
+
+                            table_display.add_row(vec![
+                                Cell::new(instance_item.domain_name),
+                                blocked_cell,
+                                Cell::new(format_relative_time(instance_item.last_message_at)),
+                            ]);
+                        }
+                        for line in table_display.to_string().lines() {
+                            execute!(
+                                stdout(),
+                                crossterm::style::Print(line),
+                                crossterm::style::Print("\r\n")
+                            )
+                            .map_err(|e| anyhow::anyhow!("Table print failed: {}", e))?;
+                        }
+
+                        execute!(stdout(), crossterm::style::Print("\r\n"))
+                            .map_err(|e| anyhow::anyhow!("Print failed: {}", e))?;
+                        let prompt_line =
+                            format!("Page {page}. Press Space for next, Q or Esc to quit. ");
+                        execute!(stdout(), crossterm::style::Print(&prompt_line))
+                            .map_err(|e| anyhow::anyhow!("Prompt print failed: {}", e))?;
+
+                        loop {
+                            if event::poll(std::time::Duration::from_millis(100))
+                                .map_err(|e| anyhow::anyhow!("Event poll failed: {}", e))?
+                            {
+                                if let Event::Key(KeyEvent {
+                                    code, modifiers, ..
+                                }) = event::read()
+                                    .map_err(|e| anyhow::anyhow!("Event read failed: {}", e))?
+                                {
+                                    if modifiers == KeyModifiers::CONTROL
+                                        && code == KeyCode::Char('c')
+                                    {
+                                        execute!(stdout(), cursor::Show).ok();
+                                        disable_raw_mode().ok();
+                                        execute!(
+                                            stdout(),
+                                            crossterm::style::Print("\rCtrl+C pressed. Exiting..."),
+                                            crossterm::style::Print("\r\n")
+                                        )
+                                        .ok();
+                                        return Err(anyhow::anyhow!(
+                                            "Operation cancelled by user (Ctrl+C)"
+                                        ));
+                                    }
+
+                                    match code {
+                                        KeyCode::Char(' ') => {
+                                            page += 1;
+                                            break;
+                                        }
+                                        KeyCode::Char('q') | KeyCode::Char('Q') | KeyCode::Esc => {
                                             execute!(
                                                 stdout(),
-                                                crossterm::style::Print(
-                                                    "\rCtrl+C pressed. Exiting..."
-                                                ),
+                                                cursor::MoveToColumn(0),
+                                                Clear(ClearType::CurrentLine),
+                                                crossterm::style::Print("\rExiting list..."),
                                                 crossterm::style::Print("\r\n")
                                             )
-                                            .ok();
-                                            return Err(anyhow::anyhow!(
-                                                "Operation cancelled by user (Ctrl+C)"
-                                            ));
+                                            .map_err(|e| anyhow::anyhow!("Print failed: {}", e))?;
+                                            return Ok(());
                                         }
-
-                                        match code {
-                                            KeyCode::Char(' ') => {
-                                                page += 1;
-                                                break;
-                                            }
-                                            KeyCode::Char('q')
-                                            | KeyCode::Char('Q')
-                                            | KeyCode::Esc => {
-                                                execute!(
-                                                    stdout(),
-                                                    cursor::MoveToColumn(0),
-                                                    Clear(ClearType::CurrentLine),
-                                                    crossterm::style::Print("\rExiting list..."),
-                                                    crossterm::style::Print("\r\n")
-                                                )
-                                                .map_err(|e| {
-                                                    anyhow::anyhow!("Print failed: {}", e)
-                                                })?;
-                                                return Ok(());
-                                            }
-                                            _ => {}
-                                        }
+                                        _ => {}
                                     }
                                 }
                             }
                         }
-                        Err(e) => {
-                            execute!(stdout(), cursor::Show).map_err(|ce| {
-                                anyhow::anyhow!(
-                                    "Failed to show cursor: {}. Original error: {}",
-                                    ce,
-                                    e
-                                )
-                            })?;
-                            let error_msg = format!("\rError listing instances: {e}");
-                            execute!(
-                                stdout(),
-                                crossterm::style::Print(&error_msg),
-                                crossterm::style::Print("\r\n")
-                            )
-                            .map_err(|ce| {
-                                anyhow::anyhow!("Failed to print error: {ce}. Original error: {e}")
-                            })?;
-                            return Err(e);
-                        }
+                    }
+                    Err(e) => {
+                        execute!(stdout(), cursor::Show).map_err(|ce| {
+                            anyhow::anyhow!("Failed to show cursor: {}. Original error: {}", ce, e)
+                        })?;
+                        let error_msg = format!("\rError listing instances: {e}");
+                        execute!(
+                            stdout(),
+                            crossterm::style::Print(&error_msg),
+                            crossterm::style::Print("\r\n")
+                        )
+                        .map_err(|ce| {
+                            anyhow::anyhow!("Failed to print error: {ce}. Original error: {e}")
+                        })?;
+                        return Err(e);
                     }
                 }
-            });
-
-            if let Err(e) = execute!(stdout(), cursor::Show) {
-                eprintln!("Warning: Failed to ensure cursor is visible: {e}");
             }
+            //};
+            //);
 
-            result?
+            // if let Err(e) = execute!(stdout(), cursor::Show) {
+            //     eprintln!("Warning: Failed to ensure cursor is visible: {e}");
+            // }
+
+            //result?
         }
         InstanceCommands::Block { domain_name } => {
             println!("Attempting to block instance: {domain_name}...");
-            handle.block_on(async {
-                let conn = match enigmatick::db::POOL.get().await {
-                    Ok(c) => c,
-                    Err(e) => {
-                        eprintln!("Failed to get DB connection: {e}");
-                        return;
-                    }
-                };
-                let instance_result =
-                    instance_model_ops::get_instance_by_domain_name(&conn, domain_name.clone())
-                        .await;
+            //handle.block_on(async {
+            let conn = match enigmatick::db::POOL.get().await {
+                Ok(c) => c,
+                Err(e) => {
+                    eprintln!("Failed to get DB connection: {e}");
+                    return Err(anyhow!("{e}"));
+                }
+            };
+            let instance_result =
+                instance_model_ops::get_instance_by_domain_name(&conn, domain_name.clone()).await;
 
-                match instance_result {
-                    Ok(Some(instance)) if instance.blocked => {
-                        println!("Instance {domain_name} is already blocked.");
-                        print_instance_detail(instance, "already blocked");
-                    }
-                    Ok(Some(_)) | Ok(None) => {
-                        match instance_model_ops::set_block_status(&conn, domain_name.clone(), true)
-                            .await
-                        {
-                            Ok(instance) => {
-                                println!(
-                                    "Instance blocked successfully. Cleaning up associated data..."
-                                );
+            match instance_result {
+                Ok(Some(instance)) if instance.blocked => {
+                    println!("Instance {domain_name} is already blocked.");
+                    print_instance_detail(instance, "already blocked");
+                }
+                Ok(Some(_)) | Ok(None) => {
+                    match instance_model_ops::set_block_status(&conn, domain_name.clone(), true)
+                        .await
+                    {
+                        Ok(instance) => {
+                            println!(
+                                "Instance blocked successfully. Cleaning up associated data..."
+                            );
 
-                                async fn cleanup_domain_data(conn: &impl DbRunner, domain: &str) {
-                                    match delete_objects_by_domain_pattern(conn, domain.to_string())
-                                        .await
-                                    {
-                                        Ok(count) => {
-                                            println!("Deleted {count} objects from blocked domain.")
-                                        }
-                                        Err(e) => eprintln!("Error deleting objects: {e}"),
-                                    }
-
-                                    match delete_activities_by_domain_pattern(
-                                        conn,
-                                        domain.to_string(),
-                                    )
+                            async fn cleanup_domain_data(conn: &impl DbRunner, domain: &str) {
+                                match delete_objects_by_domain_pattern(conn, domain.to_string())
                                     .await
-                                    {
-                                        Ok(count) => println!(
-                                            "Deleted {count} activities from blocked domain."
-                                        ),
-                                        Err(e) => eprintln!("Error deleting activities: {e}"),
+                                {
+                                    Ok(count) => {
+                                        println!("Deleted {count} objects from blocked domain.")
                                     }
-
-                                    match delete_follows_by_domain_pattern(conn, domain.to_string())
-                                        .await
-                                    {
-                                        Ok(count) => println!(
-                                            "Deleted {count} followers from blocked domain."
-                                        ),
-                                        Err(e) => eprintln!("Error deleting followers: {e}"),
-                                    }
-
-                                    match delete_actors_by_domain_pattern(conn, domain.to_string())
-                                        .await
-                                    {
-                                        Ok(count) => {
-                                            println!("Deleted {count} actors from blocked domain.")
-                                        }
-                                        Err(e) => eprintln!("Error deleting actors: {e}"),
-                                    }
-
-                                    match delete_cache_items_by_server_pattern(
-                                        conn,
-                                        domain.to_string(),
-                                    )
-                                    .await
-                                    {
-                                        Ok(deleted_items) => {
-                                            let message = if deleted_items.is_empty() {
-                                                "No cache items found for blocked domain."
-                                                    .to_string()
-                                            } else {
-                                                format!(
-                                                    "Deleted {} cache items from blocked domain.",
-                                                    deleted_items.len()
-                                                )
-                                            };
-                                            println!("{message}");
-                                        }
-                                        Err(e) => eprintln!("Error deleting cache items: {e}"),
-                                    }
+                                    Err(e) => eprintln!("Error deleting objects: {e}"),
                                 }
 
-                                cleanup_domain_data(&conn, &domain_name).await;
-                                print_instance_detail(
-                                    instance,
-                                    "blocked successfully with cleanup completed",
-                                );
+                                match delete_activities_by_domain_pattern(conn, domain.to_string())
+                                    .await
+                                {
+                                    Ok(count) => {
+                                        println!("Deleted {count} activities from blocked domain.")
+                                    }
+                                    Err(e) => eprintln!("Error deleting activities: {e}"),
+                                }
+
+                                match delete_follows_by_domain_pattern(conn, domain.to_string())
+                                    .await
+                                {
+                                    Ok(count) => {
+                                        println!("Deleted {count} followers from blocked domain.")
+                                    }
+                                    Err(e) => eprintln!("Error deleting followers: {e}"),
+                                }
+
+                                match delete_actors_by_domain_pattern(conn, domain.to_string())
+                                    .await
+                                {
+                                    Ok(count) => {
+                                        println!("Deleted {count} actors from blocked domain.")
+                                    }
+                                    Err(e) => eprintln!("Error deleting actors: {e}"),
+                                }
+
+                                match delete_cache_items_by_server_pattern(conn, domain.to_string())
+                                    .await
+                                {
+                                    Ok(deleted_items) => {
+                                        let message = if deleted_items.is_empty() {
+                                            "No cache items found for blocked domain.".to_string()
+                                        } else {
+                                            format!(
+                                                "Deleted {} cache items from blocked domain.",
+                                                deleted_items.len()
+                                            )
+                                        };
+                                        println!("{message}");
+                                    }
+                                    Err(e) => eprintln!("Error deleting cache items: {e}"),
+                                }
                             }
-                            Err(e) => eprintln!("Error blocking instance {domain_name}: {e}"),
+
+                            cleanup_domain_data(&conn, &domain_name).await;
+                            print_instance_detail(
+                                instance,
+                                "blocked successfully with cleanup completed",
+                            );
                         }
+                        Err(e) => eprintln!("Error blocking instance {domain_name}: {e}"),
                     }
-                    Err(e) => eprintln!("Error checking instance {domain_name}: {e}"),
                 }
-            });
+                Err(e) => eprintln!("Error checking instance {domain_name}: {e}"),
+            }
+            //});
             anyhow::Ok(())?
         }
         InstanceCommands::Unblock { domain_name } => {
             println!("Attempting to unblock instance: {domain_name}...");
-            handle.block_on(async {
-                let conn = match enigmatick::db::POOL.get().await {
-                    Ok(c) => c,
-                    Err(e) => {
-                        eprintln!("Failed to get DB connection: {e}");
-                        return;
-                    }
-                };
-                let instance_result =
-                    instance_model_ops::get_instance_by_domain_name(&conn, domain_name.clone())
-                        .await;
-
-                match instance_result {
-                    Ok(Some(instance)) if !instance.blocked => {
-                        println!("Instance {domain_name} is already unblocked.");
-                        print_instance_detail(instance, "already unblocked");
-                    }
-                    Ok(Some(_instance)) => {
-                        let unblock_result =
-                            instance_model_ops::set_block_status(&conn, domain_name.clone(), false)
-                                .await;
-
-                        match unblock_result {
-                            Ok(instance) => {
-                                print_instance_detail(instance, "unblocked successfully")
-                            }
-                            Err(e) => eprintln!("Error unblocking instance {domain_name}: {e}"),
-                        }
-                    }
-                    Ok(None) => eprintln!("Instance {domain_name} not found. Cannot unblock."),
-                    Err(e) => eprintln!("Error checking instance {domain_name}: {e}"),
+            //handle.block_on(async {
+            let conn = match enigmatick::db::POOL.get().await {
+                Ok(c) => c,
+                Err(e) => {
+                    eprintln!("Failed to get DB connection: {e}");
+                    return Err(anyhow!("{e}"));
                 }
-            });
+            };
+            let instance_result =
+                instance_model_ops::get_instance_by_domain_name(&conn, domain_name.clone()).await;
+
+            match instance_result {
+                Ok(Some(instance)) if !instance.blocked => {
+                    println!("Instance {domain_name} is already unblocked.");
+                    print_instance_detail(instance, "already unblocked");
+                }
+                Ok(Some(_instance)) => {
+                    let unblock_result =
+                        instance_model_ops::set_block_status(&conn, domain_name.clone(), false)
+                            .await;
+
+                    match unblock_result {
+                        Ok(instance) => print_instance_detail(instance, "unblocked successfully"),
+                        Err(e) => eprintln!("Error unblocking instance {domain_name}: {e}"),
+                    }
+                }
+                Ok(None) => eprintln!("Instance {domain_name} not found. Cannot unblock."),
+                Err(e) => eprintln!("Error checking instance {domain_name}: {e}"),
+            }
+            //});
             anyhow::Ok(())?
         }
         InstanceCommands::Get { domain_name } => {
             println!("Attempting to retrieve instance: {domain_name}...");
-            handle.block_on(async {
-                let conn = match enigmatick::db::POOL.get().await {
-                    Ok(c) => c,
-                    Err(e) => {
-                        eprintln!("Failed to get DB connection: {e}");
-                        return;
-                    }
-                };
-                let instance_result =
-                    instance_model_ops::get_instance_by_domain_name(&conn, domain_name.clone())
-                        .await;
-
-                match instance_result {
-                    Ok(Some(instance)) => print_instance_detail(instance, "retrieved"),
-                    Ok(None) => eprintln!("Instance {domain_name} not found."),
-                    Err(e) => eprintln!("Error retrieving instance {domain_name}: {e}"),
+            //handle.block_on(async {
+            let conn = match enigmatick::db::POOL.get().await {
+                Ok(c) => c,
+                Err(e) => {
+                    eprintln!("Failed to get DB connection: {e}");
+                    return Err(anyhow!("{e}"));
                 }
-            });
+            };
+            let instance_result =
+                instance_model_ops::get_instance_by_domain_name(&conn, domain_name.clone()).await;
+
+            match instance_result {
+                Ok(Some(instance)) => print_instance_detail(instance, "retrieved"),
+                Ok(None) => eprintln!("Instance {domain_name} not found."),
+                Err(e) => eprintln!("Error retrieving instance {domain_name}: {e}"),
+            }
+            //});
             anyhow::Ok(())?
         }
     }

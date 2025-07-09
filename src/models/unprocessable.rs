@@ -1,4 +1,4 @@
-use crate::db::Db;
+use crate::db::runner::DbRunner;
 use crate::schema::unprocessable;
 use chrono::{DateTime, Utc};
 use diesel::prelude::*;
@@ -40,8 +40,8 @@ pub struct Unprocessable {
     pub error: Option<String>,
 }
 
-pub async fn create_unprocessable(
-    conn: &Db,
+pub async fn create_unprocessable<C: DbRunner>(
+    conn: &C,
     unprocessable: NewUnprocessable,
 ) -> Option<Unprocessable> {
     conn.run(move |c| {

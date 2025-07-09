@@ -64,8 +64,8 @@ rust-embed = { version = "8.3.0", features = ["rocket", "interpolate-folder-path
 cfg-if = "1.0.0"
 atty = "0.2"
 convert_case = "0.6.0"
-#jdt_activity_pub = { path = "../../libs/activity_pub/", features = ["ffmpeg"] }
-jdt_activity_pub = { version = "0.2.53", features = ["ffmpeg"] }
+jdt_activity_pub = { path = "../../libs/activity_pub/", features = ["ffmpeg"] }
+#jdt_activity_pub = { version = "0.2.53", features = ["ffmpeg"] }
 indoc = "2.0.5"
 indicatif = "0.17"
 comfy-table = "7.1.0"
@@ -79,6 +79,7 @@ tower-http = { version = "0.5.2", features = ["fs", "trace", "cors"] }
 identicon-rs = "7.0.0"
 async-trait = "0.1.79"
 once_cell = "1.21.3"
+mime_guess = "2.0.5"
 
 [dependencies.rocket_sync_db_pools]
 version = "0.1.0"

@@ -1,10 +1,12 @@
 use crate::{
+    db::runner::DbRunner,
     models::activities::get_unrevoked_activity_by_kind_actor_id_and_target_ap_id, routes::Outbox,
 };
+use deadpool_diesel::postgres::Pool;
 use jdt_activity_pub::{ApActivity, ApAddress, ApFollow};
+use reqwest::StatusCode;
 
 use crate::{
-    db::Db,
     fairings::events::EventChannels,
     models::{
         activities::{
@@ -17,17 +19,17 @@ use crate::{
     routes::ActivityJson,
     runner::{self, get_inboxes, send_to_inboxes, TaskError},
 };
-use rocket::http::Status;
 use serde_json::Value;
 
 impl Outbox for ApFollow {
-    async fn outbox(
+    async fn outbox<C: DbRunner>(
         &self,
-        conn: Db,
+        conn: &C,
+        pool: Pool,
         profile: Actor,
         raw: Value,
-    ) -> Result<ActivityJson<ApActivity>, Status> {
-        follow_outbox(conn, self.clone(), profile, raw).await
+    ) -> Result<ActivityJson<ApActivity>, StatusCode> {
+        follow_outbox(conn, pool, self.clone(), profile, raw).await
     }
 }
 
@@ -48,12 +50,13 @@ impl Outbox for ApFollow {
 ///
 /// * `Ok(ActivityJson<ApActivity>)` - The created or retrieved `Follow` activity as JSON.
 /// * `Err(Status)` - An HTTP status code indicating an error.
-async fn follow_outbox(
-    conn: Db,
+async fn follow_outbox<C: DbRunner>(
+    conn: &C,
+    pool: Pool,
     follow: ApFollow,
     profile: Actor,
     raw: Value,
-) -> Result<ActivityJson<ApActivity>, Status> {
+) -> Result<ActivityJson<ApActivity>, StatusCode> {
     log::debug!("{follow:?}");
 
     // The object of a Follow activity must be a reference to the actor being followed.
@@ -61,25 +64,23 @@ async fn follow_outbox(
     // The `reference()` method correctly handles all these cases.
     let as_id = follow.object.reference().ok_or_else(|| {
         log::error!("Follow object is not a reference or does not contain an ID");
-        Status::BadRequest
+        StatusCode::BAD_REQUEST
     })?;
 
     log::debug!("Follow Object: {as_id}");
 
     // Retrieve the actor being followed.
-    let actor_to_follow = get_actor_by_as_id(&conn, as_id.clone())
-        .await
-        .map_err(|e| {
-            log::error!("Failed to retrieve actor to follow '{as_id}': {e:#?}");
-            Status::NotFound
-        })?;
+    let actor_to_follow = get_actor_by_as_id(conn, as_id.clone()).await.map_err(|e| {
+        log::error!("Failed to retrieve actor to follow '{as_id}': {e:#?}");
+        StatusCode::NOT_FOUND
+    })?;
 
     log::debug!("Follow Actor: {actor_to_follow}");
 
     // Check if a follow activity already exists. If not, create one.
     let activity = if let Ok(Some(activity)) =
         get_unrevoked_activity_by_kind_actor_id_and_target_ap_id(
-            &conn,
+            conn,
             ActivityType::Follow,
             profile.id,
             as_id.clone(),
@@ -93,25 +94,25 @@ async fn follow_outbox(
             NewActivity::try_from((follow.clone().into(), Some(actor_to_follow.clone().into())))
                 .map_err(|e| {
                     log::error!("Failed to build NewActivity for Follow: {e:#?}");
-                    Status::InternalServerError
+                    StatusCode::INTERNAL_SERVER_ERROR
                 })?
-                .link_actor(&conn)
+                .link_actor(conn)
                 .await;
 
         new_activity.raw = Some(raw);
 
         // Save the new activity to the database.
-        let created_activity = create_activity(&conn, new_activity.clone())
+        let created_activity = create_activity(conn, new_activity.clone())
             .await
             .map_err(|e| {
                 log::error!("Failed to create Follow activity in DB: {e:#?}");
-                Status::InternalServerError
+                StatusCode::INTERNAL_SERVER_ERROR
             })?;
 
         // Create a corresponding Follow record.
         let mut new_follow = NewFollow::try_from(follow).map_err(|e| {
             log::error!("Failed to build NewFollow from ApFollow: {e:#?}");
-            Status::InternalServerError
+            StatusCode::INTERNAL_SERVER_ERROR
         })?;
 
         // Manually set IDs on the NewFollow record to avoid extra DB lookups.
@@ -123,9 +124,9 @@ async fn follow_outbox(
         new_follow.follower_actor_id = Some(profile.id);
         new_follow.leader_actor_id = Some(actor_to_follow.id);
 
-        create_follow(&conn, new_follow).await.map_err(|e| {
+        create_follow(conn, new_follow).await.map_err(|e| {
             log::error!("Failed to create Follow record in DB: {e:#?}");
-            Status::InternalServerError
+            StatusCode::INTERNAL_SERVER_ERROR
         })?;
 
         created_activity
@@ -134,11 +135,11 @@ async fn follow_outbox(
     // Spawn a background task to federate the activity.
     runner::run(
         send,
-        conn,
+        pool,
         None,
         vec![activity.ap_id.clone().ok_or_else(|| {
             log::error!("ActivityPub ID cannot be None for federation");
-            Status::BadRequest
+            StatusCode::BAD_REQUEST
         })?],
     )
     .await;
@@ -148,17 +149,19 @@ async fn follow_outbox(
         ApActivity::try_from_extended_activity((activity, None, None, Some(actor_to_follow)))
             .map_err(|e| {
                 log::error!("Failed to build ApActivity from ExtendedActivity: {e:#?}");
-                Status::InternalServerError
+                StatusCode::INTERNAL_SERVER_ERROR
             })?;
 
-    Ok(ap_activity.into())
+    Ok(ActivityJson(ap_activity))
 }
 
 async fn send(
-    conn: Db,
+    pool: Pool,
     _channels: Option<EventChannels>,
     ap_ids: Vec<String>,
 ) -> Result<(), TaskError> {
+    let conn = pool.get().await.map_err(|_| TaskError::TaskFailed)?;
+
     for ap_id in ap_ids {
         let (activity, target_activity, target_object, target_actor) =
             get_activity_by_ap_id(&conn, ap_id.clone())

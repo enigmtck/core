@@ -64,7 +64,7 @@ fn spawn_process(path: &std::path::Path, name: &str, args: &[&str]) -> Child {
 
 /// The process manager for the `server` command.
 fn handle_server_command() {
-    println!("[Manager] Starting Enigmatick server...");
+    log::info!("[Manager] Starting Enigmatick server...");
     let current_exe = std::env::current_exe().expect("Failed to get current executable path");
 
     // Find the path to the proxy binary, assuming it's in the same directory
@@ -73,14 +73,14 @@ fn handle_server_command() {
 
     // Spawn the proxy process
     let mut proxy_handle = spawn_process(&proxy_path, "proxy", &[]);
-    println!(
+    log::info!(
         "[Manager] Proxy process started with PID: {}",
         proxy_handle.id()
     );
 
     // Spawn the application process
     let mut app_handle = spawn_process(&current_exe, "app", &["app"]);
-    println!(
+    log::info!(
         "[Manager] Application process started with PID: {}",
         app_handle.id()
     );
@@ -90,31 +90,41 @@ fn handle_server_command() {
     let r = running.clone();
     ctrlc::set_handler(move || {
         r.store(false, Ordering::SeqCst);
-        println!("\n[Manager] Shutdown signal received. Terminating child processes...");
+        log::info!("\n[Manager] Shutdown signal received. Terminating child processes...");
     })
     .expect("Error setting Ctrl-C handler");
 
     while running.load(Ordering::SeqCst) {
         if let Ok(Some(status)) = app_handle.try_wait() {
-            println!("[Manager] Application process exited with status: {status}. Shutting down.");
+            log::info!(
+                "[Manager] Application process exited with status: {status}. Shutting down."
+            );
             break;
         }
         if let Ok(Some(status)) = proxy_handle.try_wait() {
-            println!("[Manager] Proxy process exited with status: {status}. Shutting down.");
+            log::info!("[Manager] Proxy process exited with status: {status}. Shutting down.");
             break;
         }
         std::thread::sleep(std::time::Duration::from_millis(500));
     }
 
-    println!("[Manager] Cleaning up child processes...");
-    let _ = proxy_handle.kill();
-    let _ = app_handle.kill();
-    println!("[Manager] Shutdown complete.");
+    log::info!("[Manager] Cleaning up child processes...");
+    if let Err(e) = proxy_handle.kill() {
+        log::error!("[Manager] Error killing proxy process: {e}");
+    }
+    if let Err(e) = app_handle.kill() {
+        log::error!("[Manager] Error killing app process: {e}");
+    }
+    let _ = proxy_handle.wait();
+    let _ = app_handle.wait();
+    log::info!("[Manager] Shutdown complete.");
 }
 
 #[tokio::main]
 async fn main() {
     let args = Cli::parse();
+    env_logger::init();
+    dotenvy::dotenv().ok();
 
     match args.command {
         Commands::Init => handle_init().expect("init failed"),
@@ -122,14 +132,14 @@ async fn main() {
         Commands::Migrate => handle_migrations().await.expect("migrate failed"),
         Commands::Cache(args) => handle_cache_command(args).expect("cache command failed"),
         Commands::SystemUser => handle_system_user().expect("failed to create system user"),
-        Commands::Instances(args) => {
-            handle_instance_command(args).expect("instance command failed")
-        }
+        Commands::Instances(args) => handle_instance_command(args)
+            .await
+            .expect("instance command failed"),
         Commands::Send(args) => handle_send_command(args).expect("send command failed"),
         Commands::MutedTerms(args) => {
             handle_muted_terms_command(args).expect("muted terms command failed")
         }
         Commands::Server => handle_server_command(),
-        Commands::App => enigmatick::server::start().await,
+        Commands::App => enigmatick::axum_server::start().await,
     }
 }

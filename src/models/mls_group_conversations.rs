@@ -1,4 +1,4 @@
-use crate::db::Db;
+use crate::db::runner::DbRunner;
 use crate::helper::get_instrument_as_id_from_uuid;
 use crate::schema::mls_group_conversations;
 use anyhow::Result;
@@ -63,8 +63,8 @@ impl From<GroupTuple> for NewMlsGroupConversation {
     }
 }
 
-pub async fn create_mls_group_conversation(
-    conn: &Db,
+pub async fn create_mls_group_conversation<C: DbRunner>(
+    conn: &C,
     mls_group_conversation: NewMlsGroupConversation,
 ) -> Result<MlsGroupConversation> {
     conn.run(move |c| {
@@ -76,8 +76,8 @@ pub async fn create_mls_group_conversation(
     .map_err(anyhow::Error::msg)
 }
 
-pub async fn get_mls_group_conversations_by_actor_id(
-    conn: &Db,
+pub async fn get_mls_group_conversations_by_actor_id<C: DbRunner>(
+    conn: &C,
     id: i32,
     limit: i64,
     offset: i64,
@@ -96,8 +96,8 @@ pub async fn get_mls_group_conversations_by_actor_id(
     .unwrap_or(vec![])
 }
 
-pub async fn get_mls_group_conversation_by_conversation_and_actor_id(
-    conn: &Db,
+pub async fn get_mls_group_conversation_by_conversation_and_actor_id<C: DbRunner>(
+    conn: &C,
     conversation: String,
     actor_id: i32,
 ) -> Result<i64> {

@@ -62,6 +62,8 @@ pub async fn get_remote_collection_page<C: DbRunner>(
 ) -> Result<ApCollection> {
     let response = signed_get(guaranteed_actor(conn, profile).await, url, false).await?;
 
+    log::debug!("{response:?}");
+
     let raw = response.text().await?;
     let page: ApCollection = serde_json::from_str(&raw).map_err(anyhow::Error::msg)?;
 

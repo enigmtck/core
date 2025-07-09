@@ -1,34 +1,39 @@
 use super::Inbox;
 use crate::{
-    db::Db,
+    db::runner::DbRunner,
     models::{
         activities::{
             create_activity, get_activity_by_ap_id, revoke_activity_by_apid, ActivityTarget,
             NewActivity,
         },
         follows::delete_follow,
-        //followers::delete_follower_by_ap_id,
     },
     runner::{self},
 };
+use deadpool_diesel::postgres::Pool;
 use jdt_activity_pub::MaybeReference;
 use jdt_activity_pub::{ApActivity, ApAddress, ApUndo};
-use rocket::http::Status;
+use reqwest::StatusCode;
 use serde_json::Value;
 
 impl Inbox for Box<ApUndo> {
-    async fn inbox(&self, conn: Db, raw: Value) -> Result<Status, Status> {
+    async fn inbox<C: DbRunner>(
+        &self,
+        conn: &C,
+        pool: Pool,
+        raw: Value,
+    ) -> Result<StatusCode, StatusCode> {
         log::debug!("{:?}", self.clone());
 
         match self.object.clone() {
-            MaybeReference::Actual(actual) => inbox(conn, &actual, self, raw).await,
+            MaybeReference::Actual(actual) => inbox(conn, pool, &actual, self, raw).await,
             MaybeReference::Reference(_) => {
                 log::warn!("Undo object must be Actual");
-                Err(Status::BadRequest)
+                Err(StatusCode::BAD_REQUEST)
             }
             _ => {
                 log::warn!("Undo object must be Actual");
-                Err(Status::BadRequest)
+                Err(StatusCode::BAD_REQUEST)
             }
         }
     }
@@ -38,81 +43,85 @@ impl Inbox for Box<ApUndo> {
     }
 }
 
-async fn inbox(conn: Db, target: &ApActivity, undo: &ApUndo, raw: Value) -> Result<Status, Status> {
+async fn inbox<C: DbRunner>(
+    conn: &C,
+    pool: Pool,
+    target: &ApActivity,
+    undo: &ApUndo,
+    raw: Value,
+) -> Result<StatusCode, StatusCode> {
     let target_ap_id = target.as_id().ok_or_else(|| {
         log::error!("Activity discarded: no id");
-        Status::NotImplemented
+        StatusCode::NOT_IMPLEMENTED
     })?;
 
-    let (_, target_activity, _, _) = get_activity_by_ap_id(&conn, target_ap_id.clone())
+    let (_, target_activity, _, _) = get_activity_by_ap_id(conn, target_ap_id.clone())
         .await
-        .map_err(|_| Status::NotFound)?
+        .map_err(|_| StatusCode::NOT_FOUND)?
         .ok_or_else(|| {
             log::error!("Activity not found");
-            Status::NotFound
+            StatusCode::NOT_FOUND
         })?;
 
     let activity_target = (
         ApActivity::Undo(Box::new(undo.clone())),
         Some(ActivityTarget::from(
-            target_activity.ok_or(Status::NotFound)?,
+            target_activity.ok_or(StatusCode::NOT_FOUND)?,
         )),
     );
 
     let mut activity = NewActivity::try_from(activity_target).map_err(|e| {
         log::error!("Failed to build Activity: {e}");
-        Status::InternalServerError
+        StatusCode::INTERNAL_SERVER_ERROR
     })?;
 
     activity.raw = Some(raw.clone());
 
-    create_activity(&conn, activity.clone())
-        .await
-        .map_err(|e| {
-            log::error!("Failed to create Activity: {e}");
-            Status::InternalServerError
-        })?;
+    create_activity(conn, activity.clone()).await.map_err(|e| {
+        log::error!("Failed to create Activity: {e}");
+        StatusCode::INTERNAL_SERVER_ERROR
+    })?;
 
     match target {
         ApActivity::Like(_) => {
-            revoke_activity_by_apid(&conn, target_ap_id.clone())
+            revoke_activity_by_apid(conn, target_ap_id.clone())
                 .await
                 .map_err(|e| {
                     log::error!("Failed to revoke Like: {e}");
-                    Status::InternalServerError
+                    StatusCode::INTERNAL_SERVER_ERROR
                 })?;
-            Ok(Status::Accepted)
+            Ok(StatusCode::ACCEPTED)
         }
         ApActivity::Follow(follow) => {
             if delete_follow(
-                &conn,
+                conn,
                 follow.actor.to_string(),
                 follow
                     .object
                     .reference()
-                    .ok_or(Status::InternalServerError)?,
+                    .ok_or(StatusCode::INTERNAL_SERVER_ERROR)?,
             )
             .await
             .is_ok()
-                && revoke_activity_by_apid(&conn, follow.id.clone().ok_or(Status::BadRequest)?)
+                && revoke_activity_by_apid(conn, follow.id.clone().ok_or(StatusCode::BAD_REQUEST)?)
                     .await
                     .is_ok()
             {
                 log::info!("Follower record deleted: {target_ap_id}");
             }
 
-            Ok(Status::Accepted)
+            Ok(StatusCode::ACCEPTED)
         }
         ApActivity::Announce(_) => {
             runner::run(
                 runner::announce::remote_undo_announce_task,
-                conn,
+                pool,
                 None,
                 vec![target_ap_id.clone()],
             )
             .await;
-            Ok(Status::Accepted)
+            Ok(StatusCode::ACCEPTED)
         }
-        _ => Err(Status::NotImplemented),
+        _ => Err(StatusCode::NOT_IMPLEMENTED),
     }
 }

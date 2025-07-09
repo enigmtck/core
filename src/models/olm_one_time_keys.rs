@@ -1,3 +1,4 @@
+use crate::db::runner::DbRunner;
 use crate::db::Db;
 use crate::helper::get_instrument_as_id_from_uuid;
 use crate::schema::olm_one_time_keys;
@@ -69,17 +70,14 @@ impl From<KeyTuple> for NewOlmOneTimeKey {
     }
 }
 
-pub async fn create_olm_one_time_key(
-    conn: &Db,
-    olm_one_time_key: NewOlmOneTimeKey,
-) -> Option<OlmOneTimeKey> {
+pub async fn create_olm_one_time_key<C: DbRunner>(conn: &C, olm_one_time_key: NewOlmOneTimeKey) {
     conn.run(move |c| {
         diesel::insert_into(olm_one_time_keys::table)
             .values(&olm_one_time_key)
             .get_result::<OlmOneTimeKey>(c)
     })
     .await
-    .ok()
+    .ok();
 }
 
 pub async fn get_olm_one_time_keys_by_profile_id(
@@ -102,8 +100,8 @@ pub async fn get_olm_one_time_keys_by_profile_id(
     .unwrap_or(vec![])
 }
 
-pub async fn get_next_otk_by_profile_id(
-    conn: &Db,
+pub async fn get_next_otk_by_profile_id<C: DbRunner>(
+    conn: &C,
     actor_as_id: String,
     id: i32,
 ) -> Result<OlmOneTimeKey> {
@@ -129,7 +127,7 @@ pub async fn get_next_otk_by_profile_id(
     .map_err(anyhow::Error::msg)
 }
 
-pub async fn get_otk_count_by_profile_id(conn: &Db, id: i32) -> Result<i64> {
+pub async fn get_otk_count_by_profile_id<C: DbRunner>(conn: &C, id: i32) -> Result<i64> {
     conn.run(move |c| {
         olm_one_time_keys::table
             .filter(

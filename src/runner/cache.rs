@@ -1,11 +1,14 @@
-use crate::db::Db;
+use crate::db::runner::DbRunner;
 // Ensure this is imported if SYSTEM_USER is used for downloads
 use crate::models::cache::{
     create_cache_item, get_cache_item_by_url, CacheItem, Cacheable, NewCacheItem,
 };
 use anyhow::{anyhow, Result}; // Ensure anyhow is imported
 
-pub async fn cache_content(conn: &Db, cacheable: Result<Cacheable>) -> Result<CacheItem> {
+pub async fn cache_content<C: DbRunner>(
+    conn: &C,
+    cacheable: Result<Cacheable>,
+) -> Result<CacheItem> {
     // Convert Cacheable to NewCacheItem. Propagate errors from try_from/from.
     let new_cache_item_to_process = match cacheable? {
         Cacheable::Document(document) => {

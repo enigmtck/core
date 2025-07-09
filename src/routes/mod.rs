@@ -1,46 +1,107 @@
-use crate::db::Db;
+use crate::db::runner::DbRunner;
 use crate::models::actors::Actor;
+use axum::response::Redirect;
+use axum::{
+    http::{header, StatusCode},
+    response::{IntoResponse, Json, Response},
+};
+use deadpool_diesel::postgres::Pool;
 use enum_dispatch::enum_dispatch;
 use jdt_activity_pub::{ApActivity, ApAddress, ApObject};
-use rocket::http::Status;
-use rocket::serde::json::Json;
+use serde::Serialize;
 use serde_json::Value;
 
 pub mod api;
 pub mod inbox;
 pub mod instance;
-pub mod objects;
 pub mod outbox;
 pub mod retrieve;
 pub mod user;
 pub mod webfinger;
 
-#[derive(Responder)]
-#[response(content_type = "application/activity+json")]
-pub struct ActivityJson<T>(pub Json<T>);
+pub enum AbstractResponse<T> {
+    ActivityJson(ActivityJson<T>),
+    LdJson(LdJson<T>),
+    JrdJson(JrdJson<T>),
+    XrdXml(XrdXml),
+    Redirect(Redirect),
+    Json(Json<T>),
+}
 
-impl From<ApActivity> for ActivityJson<ApActivity> {
-    fn from(activity: ApActivity) -> Self {
-        ActivityJson(Json(activity))
+pub struct ActivityJson<T>(pub T);
+
+impl<T: Serialize> IntoResponse for ActivityJson<T> {
+    fn into_response(self) -> Response {
+        let mut res = axum::response::Json(self.0).into_response();
+        res.headers_mut().insert(
+            header::CONTENT_TYPE,
+            "application/activity+json".parse().unwrap(),
+        );
+        res
     }
 }
 
-#[derive(Responder)]
-#[response(content_type = "application/ld+json; profile=\"https://www.w3.org/ns/activitystreams\"")]
-pub struct LdJson<T>(Json<T>);
+pub struct LdJson<T>(pub T);
 
-#[derive(Responder)]
-#[response(content_type = "application/jrd+json")]
-pub struct JrdJson<T>(Json<T>);
+impl<T: Serialize> IntoResponse for LdJson<T> {
+    fn into_response(self) -> Response {
+        let mut res = axum::response::Json(self.0).into_response();
+        res.headers_mut().insert(
+            header::CONTENT_TYPE,
+            "application/ld+json; profile=\"https://www.w3.org/ns/activitystreams\""
+                .parse()
+                .unwrap(),
+        );
+        res
+    }
+}
 
-#[derive(Responder)]
-#[response(content_type = "application/xrd+xml")]
+pub struct JrdJson<T>(pub T);
+
+impl<T: Serialize> IntoResponse for JrdJson<T> {
+    fn into_response(self) -> Response {
+        let mut res = axum::response::Json(self.0).into_response();
+        res.headers_mut().insert(
+            header::CONTENT_TYPE,
+            "application/jrd+json".parse().unwrap(),
+        );
+        res
+    }
+}
+
 pub struct XrdXml(String);
+
+impl IntoResponse for XrdXml {
+    fn into_response(self) -> Response {
+        let mut res = self.0.into_response();
+        res.headers_mut()
+            .insert(header::CONTENT_TYPE, "application/xrd+xml".parse().unwrap());
+        res
+    }
+}
+
+impl<T: Serialize> IntoResponse for AbstractResponse<T> {
+    fn into_response(self) -> Response {
+        match self {
+            AbstractResponse::ActivityJson(json) => json.into_response(),
+            AbstractResponse::LdJson(json) => json.into_response(),
+            AbstractResponse::JrdJson(json) => json.into_response(),
+            AbstractResponse::XrdXml(xml) => xml.into_response(),
+            AbstractResponse::Redirect(redirect) => redirect.into_response(),
+            AbstractResponse::Json(json) => json.into_response(),
+        }
+    }
+}
 
 #[enum_dispatch(ApActivity)]
 pub trait Inbox {
-    async fn inbox(&self, _conn: Db, _raw: Value) -> Result<Status, Status> {
-        Err(Status::NotImplemented)
+    async fn inbox<C: DbRunner>(
+        &self,
+        _conn: &C,
+        _pool: Pool,
+        _raw: Value,
+    ) -> Result<StatusCode, StatusCode> {
+        Err(StatusCode::NOT_IMPLEMENTED)
     }
 
     fn actor(&self) -> ApAddress {
@@ -49,20 +110,25 @@ pub trait Inbox {
 }
 
 impl Inbox for ApActivity {
-    async fn inbox(&self, conn: Db, raw: Value) -> Result<Status, Status> {
+    async fn inbox<C: DbRunner>(
+        &self,
+        conn: &C,
+        pool: Pool,
+        raw: Value,
+    ) -> Result<StatusCode, StatusCode> {
         match self {
-            ApActivity::Delete(delete) => (*delete).inbox(conn, raw).await,
-            ApActivity::Like(like) => (*like).inbox(conn, raw).await,
-            ApActivity::Undo(undo) => (*undo).inbox(conn, raw).await,
-            ApActivity::Accept(accept) => (*accept).inbox(conn, raw).await,
-            ApActivity::Follow(follow) => follow.inbox(conn, raw).await,
-            ApActivity::Announce(announce) => announce.inbox(conn, raw).await,
-            ApActivity::Create(create) => create.inbox(conn, raw).await,
-            ApActivity::Update(update) => update.inbox(conn, raw).await,
-            ApActivity::Block(block) => block.inbox(conn, raw).await,
-            ApActivity::Add(add) => add.inbox(conn, raw).await,
-            ApActivity::Remove(remove) => remove.inbox(conn, raw).await,
-            ApActivity::Move(move_activity) => move_activity.inbox(conn, raw).await,
+            ApActivity::Delete(delete) => (*delete).inbox(conn, pool, raw).await,
+            ApActivity::Like(like) => (*like).inbox(conn, pool, raw).await,
+            ApActivity::Undo(undo) => (*undo).inbox(conn, pool, raw).await,
+            ApActivity::Accept(accept) => (*accept).inbox(conn, pool, raw).await,
+            ApActivity::Follow(follow) => follow.inbox(conn, pool, raw).await,
+            ApActivity::Announce(announce) => announce.inbox(conn, pool, raw).await,
+            ApActivity::Create(create) => create.inbox(conn, pool, raw).await,
+            ApActivity::Update(update) => update.inbox(conn, pool, raw).await,
+            ApActivity::Block(block) => block.inbox(conn, pool, raw).await,
+            ApActivity::Add(add) => add.inbox(conn, pool, raw).await,
+            ApActivity::Remove(remove) => remove.inbox(conn, pool, raw).await,
+            ApActivity::Move(move_activity) => move_activity.inbox(conn, pool, raw).await,
         }
     }
 
@@ -86,57 +152,60 @@ impl Inbox for ApActivity {
 
 #[enum_dispatch(ApActivity, ApObject)]
 pub trait Outbox {
-    async fn outbox(
+    async fn outbox<C: DbRunner>(
         &self,
-        _conn: Db,
+        _conn: &C,
+        _pool: Pool,
         _profile: Actor,
         _raw: Value,
-    ) -> Result<ActivityJson<ApActivity>, Status> {
-        Err(Status::NotImplemented)
+    ) -> Result<ActivityJson<ApActivity>, StatusCode> {
+        Err(StatusCode::NOT_IMPLEMENTED)
     }
 }
 
 impl Outbox for ApActivity {
-    async fn outbox(
+    async fn outbox<C: DbRunner>(
         &self,
-        conn: Db,
+        conn: &C,
+        pool: Pool,
         profile: Actor,
         raw: Value,
-    ) -> Result<ActivityJson<ApActivity>, Status> {
+    ) -> Result<ActivityJson<ApActivity>, StatusCode> {
         match self {
-            ApActivity::Delete(delete) => (*delete).outbox(conn, profile, raw).await,
-            ApActivity::Like(like) => (*like).outbox(conn, profile, raw).await,
-            ApActivity::Undo(undo) => (*undo).outbox(conn, profile, raw).await,
-            ApActivity::Accept(accept) => (*accept).outbox(conn, profile, raw).await,
-            ApActivity::Follow(follow) => follow.outbox(conn, profile, raw).await,
-            ApActivity::Announce(announce) => announce.outbox(conn, profile, raw).await,
-            ApActivity::Create(create) => create.outbox(conn, profile, raw).await,
-            ApActivity::Update(update) => update.outbox(conn, profile, raw).await,
-            ApActivity::Block(block) => block.outbox(conn, profile, raw).await,
-            ApActivity::Add(add) => add.outbox(conn, profile, raw).await,
-            ApActivity::Remove(remove) => remove.outbox(conn, profile, raw).await,
-            ApActivity::Move(move_activity) => move_activity.outbox(conn, profile, raw).await,
+            ApActivity::Delete(delete) => (*delete).outbox(conn, pool, profile, raw).await,
+            ApActivity::Like(like) => (*like).outbox(conn, pool, profile, raw).await,
+            ApActivity::Undo(undo) => (*undo).outbox(conn, pool, profile, raw).await,
+            ApActivity::Accept(accept) => (*accept).outbox(conn, pool, profile, raw).await,
+            ApActivity::Follow(follow) => follow.outbox(conn, pool, profile, raw).await,
+            ApActivity::Announce(announce) => announce.outbox(conn, pool, profile, raw).await,
+            ApActivity::Create(create) => create.outbox(conn, pool, profile, raw).await,
+            ApActivity::Update(update) => update.outbox(conn, pool, profile, raw).await,
+            ApActivity::Block(block) => block.outbox(conn, pool, profile, raw).await,
+            ApActivity::Add(add) => add.outbox(conn, pool, profile, raw).await,
+            ApActivity::Remove(remove) => remove.outbox(conn, pool, profile, raw).await,
+            ApActivity::Move(move_activity) => move_activity.outbox(conn, pool, profile, raw).await,
         }
     }
 }
 
 impl Outbox for ApObject {
-    async fn outbox(
+    async fn outbox<C: DbRunner>(
         &self,
-        conn: Db,
+        conn: &C,
+        pool: Pool,
         profile: Actor,
         raw: Value,
-    ) -> Result<ActivityJson<ApActivity>, Status> {
+    ) -> Result<ActivityJson<ApActivity>, StatusCode> {
         match self {
-            ApObject::Tombstone(x) => x.outbox(conn, profile, raw).await,
-            ApObject::Session(x) => x.outbox(conn, profile, raw).await,
-            ApObject::Instrument(x) => x.outbox(conn, profile, raw).await,
-            ApObject::Note(x) => x.outbox(conn, profile, raw).await,
-            ApObject::Article(x) => x.outbox(conn, profile, raw).await,
-            ApObject::Question(x) => x.outbox(conn, profile, raw).await,
-            ApObject::Actor(x) => x.outbox(conn, profile, raw).await,
-            ApObject::Collection(x) => x.outbox(conn, profile, raw).await,
-            ApObject::Identifier(x) => x.outbox(conn, profile, raw).await,
+            ApObject::Tombstone(x) => x.outbox(conn, pool, profile, raw).await,
+            ApObject::Session(x) => x.outbox(conn, pool, profile, raw).await,
+            ApObject::Instrument(x) => x.outbox(conn, pool, profile, raw).await,
+            ApObject::Note(x) => x.outbox(conn, pool, profile, raw).await,
+            ApObject::Article(x) => x.outbox(conn, pool, profile, raw).await,
+            ApObject::Question(x) => x.outbox(conn, pool, profile, raw).await,
+            ApObject::Actor(x) => x.outbox(conn, pool, profile, raw).await,
+            ApObject::Collection(x) => x.outbox(conn, pool, profile, raw).await,
+            ApObject::Identifier(x) => x.outbox(conn, pool, profile, raw).await,
         }
     }
 }

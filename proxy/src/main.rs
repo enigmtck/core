@@ -77,9 +77,9 @@ async fn main() -> Result<()> {
     let app: Router = Router::new()
         // Any request starting with `/axum` will be forwarded to the Axum server.
         // `nest_service` is the correct way to delegate a block of routes to another service.
-        .nest_service("/axum", axum_proxy)
+        .nest_service("/rocket", rocket_proxy)
         // Fallback: Any request that doesn't match the routes above goes to the Rocket server.
-        .fallback(any(|req| async { rocket_proxy.oneshot(req).await }));
+        .fallback(any(|req| async { axum_proxy.oneshot(req).await }));
 
     //let app: Router = axum_proxy.into().nest_service("/axum", axum_proxy);
 

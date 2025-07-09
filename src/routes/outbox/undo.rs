@@ -1,11 +1,13 @@
 use crate::{
+    db::runner::DbRunner,
     models::{activities::revoke_activity_by_apid, follows::delete_follow},
     routes::Outbox,
 };
+use deadpool_diesel::postgres::Pool;
 use jdt_activity_pub::{ApActivity, ApAddress, ApUndo};
+use reqwest::StatusCode;
 
 use crate::{
-    db::Db,
     fairings::events::EventChannels,
     helper::{get_local_identifier, LocalIdentifierType},
     models::{
@@ -14,72 +16,75 @@ use crate::{
             NewActivity, TryFromExtendedActivity,
         },
         actors::{get_actor, Actor},
-        //leaders::delete_leader_by_ap_id_and_actor_id,
     },
     routes::ActivityJson,
     runner::{self, get_inboxes, send_to_inboxes, TaskError},
 };
 use jdt_activity_pub::MaybeReference;
-use rocket::http::Status;
 use serde_json::Value;
 
 impl Outbox for Box<ApUndo> {
-    async fn outbox(
+    async fn outbox<C: DbRunner>(
         &self,
-        conn: Db,
+        conn: &C,
+        pool: Pool,
         profile: Actor,
         raw: Value,
-    ) -> Result<ActivityJson<ApActivity>, Status> {
-        undo_outbox(conn, *self.clone(), profile, raw).await
+    ) -> Result<ActivityJson<ApActivity>, StatusCode> {
+        undo_outbox(conn, pool, *self.clone(), profile, raw).await
     }
 }
 
-async fn undo_outbox(
-    conn: Db,
+async fn undo_outbox<C: DbRunner>(
+    conn: &C,
+    pool: Pool,
     undo: ApUndo,
     profile: Actor,
     raw: Value,
-) -> Result<ActivityJson<ApActivity>, Status> {
+) -> Result<ActivityJson<ApActivity>, StatusCode> {
     let target_ap_id = match undo.object {
         MaybeReference::Actual(object) => object.as_id(),
         _ => None,
     };
 
     let (activity, _target_activity, target_object, _target_actor) =
-        get_activity_by_ap_id(&conn, target_ap_id.ok_or(Status::InternalServerError)?)
+        get_activity_by_ap_id(conn, target_ap_id.ok_or(StatusCode::INTERNAL_SERVER_ERROR)?)
             .await
             .map_err(|e| {
                 log::error!("FAILED TO RETRIEVE ACTIVITY: {e}");
-                Status::NotFound
+                StatusCode::NOT_FOUND
             })?
             .ok_or_else(|| {
                 log::error!("Activity not found");
-                Status::NotFound
+                StatusCode::NOT_FOUND
             })?;
 
     let mut undo = create_activity(
-        &conn,
+        conn,
         NewActivity::from((
             activity.clone(),
             ActivityType::Undo,
             ApAddress::Address(profile.as_id),
         ))
-        .link_actor(&conn)
+        .link_actor(conn)
         .await,
     )
     .await
     .map_err(|e| {
         log::error!("FAILED TO CREATE ACTIVITY: {e:#?}");
-        Status::InternalServerError
+        StatusCode::INTERNAL_SERVER_ERROR
     })?;
 
     undo.raw = Some(raw);
 
     runner::run(
         send_task,
-        conn,
+        pool,
         None,
-        vec![undo.ap_id.clone().ok_or(Status::InternalServerError)?],
+        vec![undo
+            .ap_id
+            .clone()
+            .ok_or(StatusCode::INTERNAL_SERVER_ERROR)?],
     )
     .await;
 
@@ -87,17 +92,19 @@ async fn undo_outbox(
         ApActivity::try_from_extended_activity((undo, Some(activity), target_object, None))
             .map_err(|e| {
                 log::error!("Failed to build ApActivity: {e:#?}");
-                Status::InternalServerError
+                StatusCode::INTERNAL_SERVER_ERROR
             })?;
 
-    Ok(activity.into())
+    Ok(ActivityJson(activity))
 }
 
 async fn send_task(
-    conn: Db,
+    pool: Pool,
     _channels: Option<EventChannels>,
     ap_ids: Vec<String>,
 ) -> Result<(), TaskError> {
+    let conn = pool.get().await.map_err(|_| TaskError::TaskFailed)?;
+
     for ap_id in ap_ids {
         let (activity, target_activity, target_object, target_actor) =
             get_activity_by_ap_id(&conn, ap_id.clone())

@@ -1,6 +1,6 @@
 use super::Inbox;
 use crate::{
-    db::Db,
+    db::runner::DbRunner,
     fairings::events::EventChannels,
     models::{
         activities::{
@@ -9,12 +9,12 @@ use crate::{
         },
         actors::get_actor_by_as_id,
         follows::{create_follow, mark_follow_accepted, NewFollow},
-        //followers::{create_follower, NewFollower},
     },
     runner::{self, send_to_inboxes, TaskError},
 };
+use deadpool_diesel::postgres::Pool;
 use jdt_activity_pub::{ApAccept, ApActivity, ApAddress, ApFollow};
-use rocket::http::Status;
+use reqwest::StatusCode;
 use serde_json::Value;
 
 /// Handles an incoming `ApFollow` activity.
@@ -29,25 +29,30 @@ impl Inbox for ApFollow {
     ///    local actor's settings.
     ///
     /// Returns `202 Accepted` to indicate that the request is being processed asynchronously.
-    async fn inbox(&self, conn: Db, raw: Value) -> Result<Status, Status> {
+    async fn inbox<C: DbRunner>(
+        &self,
+        conn: &C,
+        pool: Pool,
+        raw: Value,
+    ) -> Result<StatusCode, StatusCode> {
         log::info!("{}", self.clone());
 
         let actor_as_id = self
             .object
             .clone()
             .reference()
-            .ok_or(Status::UnprocessableEntity)?;
+            .ok_or(StatusCode::UNPROCESSABLE_ENTITY)?;
 
         if self.id.is_none() {
             log::error!("AP_FOLLOW ID IS NONE");
-            return Err(Status::UnprocessableEntity);
+            return Err(StatusCode::UNPROCESSABLE_ENTITY);
         };
 
-        let actor = get_actor_by_as_id(&conn, actor_as_id.clone())
+        let actor = get_actor_by_as_id(conn, actor_as_id.clone())
             .await
             .map_err(|e| {
                 log::error!("FAILED TO RETRIEVE ACTOR: {e:#?}");
-                Status::NotFound
+                StatusCode::NOT_FOUND
             })?;
 
         let mut activity = NewActivity::try_from((
@@ -56,25 +61,25 @@ impl Inbox for ApFollow {
         ))
         .map_err(|e| {
             log::error!("FAILED TO BUILD FOLLOW ACTIVITY: {e:#?}");
-            Status::InternalServerError
+            StatusCode::INTERNAL_SERVER_ERROR
         })?;
 
         activity.raw = Some(raw);
 
-        let activity = create_activity(&conn, activity).await.map_err(|e| {
+        let activity = create_activity(conn, activity).await.map_err(|e| {
             log::error!("FAILED TO CREATE FOLLOW ACTIVITY: {e:#?}");
-            Status::InternalServerError
+            StatusCode::INTERNAL_SERVER_ERROR
         })?;
 
         runner::run(
             process,
-            conn,
+            pool,
             None,
-            vec![activity.ap_id.ok_or(Status::InternalServerError)?],
+            vec![activity.ap_id.ok_or(StatusCode::INTERNAL_SERVER_ERROR)?],
         )
         .await;
 
-        Ok(Status::Accepted)
+        Ok(StatusCode::ACCEPTED)
     }
 
     fn actor(&self) -> ApAddress {
@@ -93,11 +98,12 @@ impl Inbox for ApFollow {
 /// 4. To accept, it creates an `Accept` activity, stores it, and sends it back to the follower's inbox.
 /// 5. It then updates the `Follow` record to mark it as accepted.
 async fn process(
-    conn: Db,
+    pool: Pool,
     _channels: Option<EventChannels>,
     ap_ids: Vec<String>,
 ) -> Result<(), TaskError> {
     log::debug!("Processing incoming follow request");
+    let conn = pool.get().await.map_err(|_| TaskError::TaskFailed)?;
 
     for ap_id in ap_ids {
         // 1. Retrieve the Follow activity and the actors involved.

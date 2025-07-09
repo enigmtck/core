@@ -1,3 +1,4 @@
+use crate::db::runner::DbRunner;
 use crate::db::Db;
 use crate::schema::vault;
 use anyhow::{anyhow, Result};
@@ -76,7 +77,10 @@ impl From<EncryptedData> for NewVaultItem {
     }
 }
 
-pub async fn create_vault_item(conn: &Db, vault_item: NewVaultItem) -> Result<VaultItem> {
+pub async fn create_vault_item<C: DbRunner>(
+    conn: &C,
+    vault_item: NewVaultItem,
+) -> Result<VaultItem> {
     conn.run(move |c| {
         diesel::insert_into(vault::table)
             .values(&vault_item)

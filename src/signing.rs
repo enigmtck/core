@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::db::Db;
+use crate::db::runner::DbRunner;
 use crate::models::actors::{get_actor_by_key_id, get_actor_by_username, Actor};
 use crate::{ASSIGNMENT_RE, LOCAL_USER_KEY_ID_RE};
 use anyhow::anyhow;
@@ -209,7 +209,7 @@ pub fn verify_signature_crypto(
 }
 
 pub async fn verify(
-    conn: &Db,
+    conn: &impl DbRunner,
     params: VerifyMapParams,
 ) -> Result<VerificationType, VerificationError> {
     let verify_params = build_verify_string(params.clone());

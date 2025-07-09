@@ -1,7 +1,7 @@
 use super::Inbox;
 
 use crate::{
-    db::Db,
+    db::runner::DbRunner,
     fairings::events::EventChannels,
     models::{
         activities::{
@@ -12,14 +12,20 @@ use crate::{
     },
     runner::{self, TaskError},
 };
+use deadpool_diesel::postgres::Pool;
 use jdt_activity_pub::MaybeReference;
 use jdt_activity_pub::{ApAccept, ApActivity, ApAddress};
-use rocket::http::Status;
+use reqwest::StatusCode;
 use serde_json::Value;
 
 impl Inbox for Box<ApAccept> {
     #[allow(unused_variables)]
-    async fn inbox(&self, conn: Db, raw: Value) -> Result<Status, Status> {
+    async fn inbox<C: DbRunner>(
+        &self,
+        conn: &C,
+        pool: Pool,
+        raw: Value,
+    ) -> Result<StatusCode, StatusCode> {
         log::info!("{self}");
 
         let follow_as_id = match self.clone().object {
@@ -27,15 +33,15 @@ impl Inbox for Box<ApAccept> {
             MaybeReference::Actual(ApActivity::Follow(actual)) => actual.id,
             _ => None,
         }
-        .ok_or(Status::UnprocessableEntity)?;
+        .ok_or(StatusCode::UNPROCESSABLE_ENTITY)?;
 
         let (follow, _target_activity, _target_object, _target_actor) =
-            get_activity_by_ap_id(&conn, follow_as_id)
+            get_activity_by_ap_id(conn, follow_as_id)
                 .await
-                .map_err(|_| Status::NotFound)?
+                .map_err(|_| StatusCode::NOT_FOUND)?
                 .ok_or_else(|| {
                     log::error!("Activity not found");
-                    Status::NotFound
+                    StatusCode::NOT_FOUND
                 })?;
 
         let mut accept = NewActivity::try_from((
@@ -44,28 +50,31 @@ impl Inbox for Box<ApAccept> {
         ))
         .map_err(|e| {
             log::error!("UNABLE TO BUILD ACCEPT ACTIVITY: {e:#?}");
-            Status::InternalServerError
+            StatusCode::INTERNAL_SERVER_ERROR
         })?
-        .link_actor(&conn)
+        .link_actor(conn)
         .await;
 
         accept.link_target(Some(ActivityTarget::Activity(follow)));
         accept.raw = Some(raw);
 
-        create_activity(&conn, accept.clone()).await.map_err(|e| {
+        create_activity(conn, accept.clone()).await.map_err(|e| {
             log::error!("UNABLE TO CREATE ACCEPT ACTIVITY: {e:#?}");
-            Status::InternalServerError
+            StatusCode::INTERNAL_SERVER_ERROR
         })?;
 
         runner::run(
             process,
-            conn,
+            pool,
             None,
-            vec![accept.ap_id.clone().ok_or(Status::InternalServerError)?],
+            vec![accept
+                .ap_id
+                .clone()
+                .ok_or(StatusCode::INTERNAL_SERVER_ERROR)?],
         )
         .await;
 
-        Ok(Status::Accepted)
+        Ok(StatusCode::ACCEPTED)
     }
 
     fn actor(&self) -> ApAddress {
@@ -74,10 +83,12 @@ impl Inbox for Box<ApAccept> {
 }
 
 async fn process(
-    conn: Db,
+    pool: Pool,
     _channels: Option<EventChannels>,
     as_ids: Vec<String>,
 ) -> Result<(), TaskError> {
+    let conn = pool.get().await.map_err(|_| TaskError::TaskFailed)?;
+
     for as_id in as_ids {
         // Get the DB records for the Accept activity and its target (the Follow activity).
         // Renaming variables here for clarity: `accept_db` is the Accept activity,

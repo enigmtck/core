@@ -1,39 +1,39 @@
 use super::Outbox;
 use crate::{
-    db::Db,
+    db::runner::DbRunner,
     models::{
         activities::{create_activity, NewActivity},
         actors::Actor,
     },
     routes::ActivityJson,
 };
+use deadpool_diesel::postgres::Pool;
 use jdt_activity_pub::{ApActivity, ApMove};
-use rocket::http::Status;
+use reqwest::StatusCode;
 use serde_json::Value;
 
 impl Outbox for ApMove {
-    async fn outbox(
+    async fn outbox<C: DbRunner>(
         &self,
-        conn: Db,
+        conn: &C,
+        _pool: Pool,
         _profile: Actor,
         raw: Value,
-    ) -> Result<ActivityJson<ApActivity>, Status> {
+    ) -> Result<ActivityJson<ApActivity>, StatusCode> {
         log::debug!("{:?}", self.clone());
 
         let mut activity =
             NewActivity::try_from((ApActivity::Move(self.clone()), None)).map_err(|e| {
                 log::error!("FAILED TO BUILD ACTIVITY: {e:#?}");
-                Status::InternalServerError
+                StatusCode::INTERNAL_SERVER_ERROR
             })?;
         activity.raw = Some(raw.clone());
 
-        create_activity(&conn, activity.clone())
-            .await
-            .map_err(|e| {
-                log::error!("FAILED TO CREATE ACTIVITY: {e:#?}");
-                Status::InternalServerError
-            })?;
+        create_activity(conn, activity.clone()).await.map_err(|e| {
+            log::error!("FAILED TO CREATE ACTIVITY: {e:#?}");
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
 
-        Ok(ActivityJson::from(ApActivity::Move(self.clone())))
+        Ok(ActivityJson(ApActivity::Move(self.clone())))
     }
 }

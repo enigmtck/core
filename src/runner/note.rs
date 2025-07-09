@@ -1,21 +1,27 @@
 use anyhow::{anyhow, Result};
+use deadpool_diesel::postgres::Pool;
 use reqwest::StatusCode;
 use webpage::{Webpage, WebpageOptions};
 
+use crate::db::runner::DbRunner;
 use crate::fairings::events::EventChannels;
 use crate::models::actors::{guaranteed_actor, Actor};
 use crate::models::cache::Cache;
 use crate::models::objects;
 use crate::models::objects::{create_or_update_object, get_object_by_as_id, Object};
 use crate::retriever::{get_actor, signed_get};
+use crate::signing::Method;
 use crate::ANCHOR_RE;
-use crate::{db::Db, signing::Method};
 use jdt_activity_pub::{ApHashtag, ApObject, Metadata};
 use serde_json::json;
 
 use super::TaskError;
 
-pub async fn fetch_remote_object(conn: &Db, id: String, profile: Actor) -> Result<Object> {
+pub async fn fetch_remote_object<C: DbRunner>(
+    conn: &C,
+    id: String,
+    profile: Actor,
+) -> Result<Object> {
     let _url = id.clone();
     let _method = Method::Get;
 
@@ -90,8 +96,8 @@ fn metadata_object(object: &Object) -> Vec<Metadata> {
     }
 }
 
-pub async fn handle_object(
-    conn: &Db,
+pub async fn handle_object<C: DbRunner>(
+    conn: &C,
     channels: Option<EventChannels>,
     mut object: Object,
     _announcer: Option<String>,
@@ -145,32 +151,18 @@ pub async fn handle_object(
 }
 
 pub async fn object_task(
-    conn: Db,
+    pool: Pool,
     channels: Option<EventChannels>,
     ap_ids: Vec<String>,
 ) -> Result<(), TaskError> {
     let ap_id = ap_ids.first().unwrap().clone();
+    let conn = pool.get().await.map_err(|_| TaskError::TaskFailed)?;
 
     if let Ok(object) = get_object_by_as_id(&conn, ap_id).await {
-        cfg_if::cfg_if! {
-            if #[cfg(feature = "pg")] {
-                use crate::models::objects::ObjectType;
+        use crate::models::objects::ObjectType;
 
-                if object.as_type == ObjectType::Note {
-                    let _ = handle_object(&conn, channels, object.clone(), None).await;
-                }
-            }
-            // else if #[cfg(feature = "sqlite")] {
-            //     match remote_note.kind.as_str() {
-            //         "note" => {
-            //             let _ = handle_remote_note(conn, channels.clone(), remote_note.clone(), None).await;
-            //         }
-            //         "encrypted_note" => {
-            //             let _ = handle_remote_encrypted_note_task(conn, remote_note).await;
-            //         }
-            //         _ => (),
-            //     }
-            // }
+        if object.as_type == ObjectType::Note {
+            let _ = handle_object(&conn, channels, object.clone(), None).await;
         }
     }
 

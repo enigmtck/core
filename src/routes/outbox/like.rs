@@ -1,126 +1,81 @@
-use crate::routes::Outbox;
-use jdt_activity_pub::{ApActivity, ApAddress, ApLike};
+use crate::{db::runner::DbRunner, routes::Outbox};
+use deadpool_diesel::postgres::Pool;
+use jdt_activity_pub::{ApActivity, ApLike};
+use reqwest::StatusCode;
 
 use crate::{
-    db::Db,
-    fairings::events::EventChannels,
     models::{
-        activities::{
-            create_activity, get_activity_by_ap_id, NewActivity, TryFromExtendedActivity,
-        },
-        actors::{get_actor, Actor},
+        activities::{create_activity, NewActivity},
+        actors::Actor,
         objects::get_object_by_as_id,
     },
     routes::ActivityJson,
-    runner::{self, get_inboxes, send_to_inboxes, TaskError},
+    runner,
 };
-use jdt_activity_pub::MaybeReference;
-use rocket::http::Status;
 use serde_json::Value;
 
 impl Outbox for Box<ApLike> {
-    async fn outbox(
+    async fn outbox<C: DbRunner>(
         &self,
-        conn: Db,
+        conn: &C,
+        pool: Pool,
         profile: Actor,
         raw: Value,
-    ) -> Result<ActivityJson<ApActivity>, Status> {
-        like_outbox(conn, *self.clone(), profile, raw).await
+    ) -> Result<ActivityJson<ApActivity>, StatusCode> {
+        like_outbox(conn, pool, *self.clone(), profile, raw).await
     }
 }
 
-async fn like_outbox(
-    conn: Db,
-    like: ApLike,
-    _profile: Actor,
+async fn like_outbox<C: DbRunner>(
+    conn: &C,
+    pool: Pool,
+    mut like: ApLike,
+    profile: Actor,
     raw: Value,
-) -> Result<ActivityJson<ApActivity>, Status> {
-    if let MaybeReference::Reference(as_id) = like.clone().object {
-        let object = get_object_by_as_id(&conn, as_id).await.map_err(|e| {
-            log::error!("FAILED TO RETRIEVE OBJECT: {e:#?}");
-            Status::NotFound
-        })?;
+) -> Result<ActivityJson<ApActivity>, StatusCode> {
+    let as_id = like.object.reference().ok_or(StatusCode::BAD_REQUEST)?;
 
-        let mut activity =
-            NewActivity::try_from((Box::new(like).into(), Some(object.clone().into())))
-                .map_err(|e| {
-                    log::error!("FAILED TO BUILD ACTIVITY: {e:#?}");
-                    Status::InternalServerError
-                })?
-                .link_actor(&conn)
-                .await;
+    let object = get_object_by_as_id(conn, as_id).await.map_err(|e| {
+        log::error!("Failed to retrieve Object: {e:#?}");
+        StatusCode::NOT_FOUND
+    })?;
 
-        activity.raw = Some(raw.clone());
+    // Ensure the 'to' field is set to the author of the liked object.
+    like.to = object.as_attributed_to.clone().into();
 
-        let activity = create_activity(&conn, activity.clone())
-            .await
-            .map_err(|e| {
-                log::error!("FAILED TO CREATE ACTIVITY: {e:#?}");
-                Status::InternalServerError
-            })?;
+    let mut activity = NewActivity::try_from((
+        ApActivity::from(Box::new(like.clone())),
+        Some(object.into()),
+    ))
+    .map_err(|e| {
+        log::error!("Failed to build Activity: {e:#?}");
+        StatusCode::INTERNAL_SERVER_ERROR
+    })?
+    .link_actor(conn)
+    .await;
 
-        runner::run(
-            send_task,
-            conn,
-            None,
-            vec![activity.ap_id.clone().ok_or(Status::InternalServerError)?],
-        )
-        .await;
+    activity.raw = Some(raw);
 
-        let activity = ApActivity::try_from_extended_activity((activity, None, Some(object), None))
-            .map_err(|e| {
-                log::error!("Failed to build ApActivity: {e:#?}");
-                Status::InternalServerError
-            })?;
+    let created_activity = create_activity(conn, activity.clone()).await.map_err(|e| {
+        log::error!("Failed to create Activity: {e:#?}");
+        StatusCode::INTERNAL_SERVER_ERROR
+    })?;
 
-        Ok(activity.into())
-    } else {
-        log::error!("LIKE OBJECT IS NOT A REFERENCE");
-        Err(Status::NoContent)
-    }
-}
+    like.id = created_activity.ap_id;
+    let final_activity = ApActivity::Like(Box::new(like));
 
-async fn send_task(
-    conn: Db,
-    _channels: Option<EventChannels>,
-    ap_ids: Vec<String>,
-) -> Result<(), TaskError> {
-    for ap_id in ap_ids {
-        let (activity, target_activity, target_object, target_actor) =
-            get_activity_by_ap_id(&conn, ap_id.clone())
-                .await
-                .map_err(|_| TaskError::TaskFailed)?
-                .ok_or_else(|| {
-                    log::error!("Activity not found: {ap_id}");
-                    TaskError::TaskFailed
-                })?;
+    let db_pool = pool.clone();
+    let message_to_send = final_activity.clone();
+    tokio::spawn(async move {
+        if let Ok(conn) = db_pool.get().await {
+            let inboxes =
+                runner::get_inboxes(&conn, message_to_send.clone(), profile.clone()).await;
+            if let Err(e) = runner::send_to_inboxes(&conn, inboxes, profile, message_to_send).await
+            {
+                log::error!("Failed to send Like Activity: {e}");
+            }
+        }
+    });
 
-        let profile_id = activity.actor_id.ok_or(TaskError::TaskFailed)?;
-
-        let sender = get_actor(&conn, profile_id)
-            .await
-            .map_err(|_| TaskError::TaskFailed)?;
-
-        let activity = ApActivity::try_from_extended_activity((
-            activity,
-            target_activity,
-            target_object,
-            target_actor,
-        ))
-        .map_err(|e| {
-            log::error!("FAILED TO BUILD ApActivity: {e:#?}");
-            TaskError::TaskFailed
-        })?;
-
-        let inboxes: Vec<ApAddress> = get_inboxes(&conn, activity.clone(), sender.clone()).await;
-
-        send_to_inboxes(&conn, inboxes, sender, activity.clone())
-            .await
-            .map_err(|e| {
-                log::error!("FAILED TO SEND TO INBOXES: {e:#?}");
-                TaskError::TaskFailed
-            })?;
-    }
-
-    Ok(())
+    Ok(ActivityJson(final_activity))
 }

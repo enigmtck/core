@@ -1,8 +1,9 @@
 use anyhow::{anyhow, Result};
+use deadpool_diesel::postgres::Pool;
 use rocket::tokio::time::{sleep, Duration};
 
 use crate::{
-    db::Db,
+    db::runner::DbRunner,
     fairings::events::EventChannels,
     helper::get_domain_from_url,
     models::{
@@ -25,11 +26,12 @@ use jdt_activity_pub::{ApActivity, ApAddress};
 use super::TaskError;
 
 pub async fn send_announce_task(
-    conn: Db,
+    pool: Pool,
     _channels: Option<EventChannels>,
     ap_ids: Vec<String>,
 ) -> Result<(), TaskError> {
-    // ... existing code
+    let conn = pool.get().await.map_err(|_| TaskError::TaskFailed)?;
+
     for ap_id in ap_ids {
         let (activity, target_activity, target_object, target_actor) =
             get_activity_by_ap_id(&conn, ap_id.clone())
@@ -44,9 +46,9 @@ pub async fn send_announce_task(
                 })?;
 
         let profile_id = activity.actor_id.ok_or(TaskError::TaskFailed)?;
-        let sender = get_actor(&conn, profile_id).await.or_else(|_| {
+        let sender = get_actor(&conn, profile_id).await.map_err(|_| {
             log::error!("Failed to retrieve Actor: {profile_id}");
-            Err(TaskError::TaskFailed)
+            TaskError::TaskFailed
         })?;
 
         let activity = ApActivity::try_from_extended_activity((
@@ -75,10 +77,12 @@ pub async fn send_announce_task(
 }
 
 pub async fn remote_undo_announce_task(
-    conn: Db,
+    pool: Pool,
     _channels: Option<EventChannels>,
     ap_ids: Vec<String>,
 ) -> Result<(), TaskError> {
+    let conn = pool.get().await.map_err(|_| TaskError::TaskFailed)?;
+
     for ap_id in ap_ids {
         if revoke_activity_by_apid(&conn, ap_id.clone()).await.is_ok() {
             log::debug!("Announce revoked: {ap_id}");
@@ -89,10 +93,12 @@ pub async fn remote_undo_announce_task(
 }
 
 pub async fn remote_announce_task(
-    conn: Db,
+    pool: Pool,
     channels: Option<EventChannels>,
     ap_ids: Vec<String>,
 ) -> Result<(), TaskError> {
+    let conn = pool.get().await.map_err(|_| TaskError::TaskFailed)?;
+
     let profile = guaranteed_actor(&conn, None).await;
 
     let ap_id = ap_ids.first().unwrap();
@@ -127,16 +133,14 @@ pub async fn remote_announce_task(
         let domain_name = get_domain_from_url(target_ap_id.clone()).ok_or(TaskError::TaskFailed)?;
         if get_instance_by_domain_name(&conn, domain_name.clone())
             .await
-            .map(|option_instance| option_instance.map_or(false, |instance| instance.blocked))
-            .unwrap_or(false)
-        // If DB query fails or instance not found, default to not blocked
+            .is_ok_and(|option_instance| option_instance.is_some_and(|instance| instance.blocked))
         {
             log::debug!("Instance is explicitly blocked: {domain_name}");
             return Err(TaskError::Prohibited);
         }
 
-        async fn retrieve_object(
-            conn: &Db,
+        async fn retrieve_object<C: DbRunner>(
+            conn: &C,
             as_id: String,
             profile: Actor,
             retries: u64,

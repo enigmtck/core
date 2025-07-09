@@ -15,15 +15,18 @@ use crossterm as _;
 use ctrlc as _;
 use diesel_migrations as _;
 use dotenvy::dotenv;
+use env_logger as _;
 use indicatif as _;
 use jdt_activity_pub::MaybeMultiple;
 use jdt_activity_pub::MaybeReference;
 use jdt_activity_pub::{ApActivity, ApActor, ApNote, ApObject, ApTag, Ephemeral};
 use lazy_static::lazy_static;
+use log4rs as _;
 use models::follows::{
     get_follow, get_follower_count_by_actor_id, get_leader_count_by_follower_actor_id,
 };
 use regex::Regex;
+use rust_embed as _;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::cmp::Ordering;
@@ -53,7 +56,7 @@ pub mod schema;
 pub mod schema;
 
 pub mod axum_server; // Add this line
-pub mod server;
+                     //pub mod server;
 pub mod signing;
 pub mod webfinger;
 
@@ -119,6 +122,10 @@ lazy_static! {
     pub static ref ROCKET_ADDRESS: String = {
         dotenv().ok();
         env::var("ROCKET_ADDRESS").unwrap_or("0.0.0.0".to_string())
+    };
+    pub static ref SERVER_ADDRESS: String = {
+        dotenv().ok();
+        env::var("SERVER_ADDRESS").unwrap_or("0.0.0.0:8001".to_string())
     };
     pub static ref SERVER_NAME: String = {
         dotenv().ok();

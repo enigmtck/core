@@ -1,8 +1,9 @@
-use crate::routes::Outbox;
+use crate::{db::runner::DbRunner, routes::Outbox};
+use deadpool_diesel::postgres::Pool;
 use jdt_activity_pub::{ApActivity, ApAnnounce};
+use reqwest::StatusCode;
 
 use crate::{
-    db::Db,
     models::{
         activities::{create_activity, NewActivity, TryFromExtendedActivity},
         actors::Actor,
@@ -12,52 +13,56 @@ use crate::{
     runner,
 };
 use jdt_activity_pub::MaybeReference;
-use rocket::http::Status;
 use serde_json::Value;
 
 impl Outbox for ApAnnounce {
-    async fn outbox(
+    async fn outbox<C: DbRunner>(
         &self,
-        conn: Db,
+        conn: &C,
+        pool: Pool,
         profile: Actor,
         raw: Value,
-    ) -> Result<ActivityJson<ApActivity>, Status> {
-        announce_outbox(conn, self.clone(), profile, raw).await
+    ) -> Result<ActivityJson<ApActivity>, StatusCode> {
+        announce_outbox(conn, pool, self.clone(), profile, raw).await
     }
 }
 
-async fn announce_outbox(
-    conn: Db,
+async fn announce_outbox<C: DbRunner>(
+    conn: &C,
+    pool: Pool,
     announce: ApAnnounce,
     _profile: Actor,
     raw: Value,
-) -> Result<ActivityJson<ApActivity>, Status> {
+) -> Result<ActivityJson<ApActivity>, StatusCode> {
     if let MaybeReference::Reference(as_id) = announce.clone().object {
-        let object = get_object_by_as_id(&conn, as_id).await.map_err(|e| {
+        let object = get_object_by_as_id(conn, as_id).await.map_err(|e| {
             log::error!("FAILED TO RETRIEVE Object: {e:#?}");
-            Status::NotFound
+            StatusCode::NOT_FOUND
         })?;
 
         let mut activity = NewActivity::try_from((announce.into(), Some(object.clone().into())))
             .map_err(|e| {
                 log::error!("FAILED TO BUILD Activity: {e:#?}");
-                Status::InternalServerError
+                StatusCode::INTERNAL_SERVER_ERROR
             })?
-            .link_actor(&conn)
+            .link_actor(conn)
             .await;
 
         activity.raw = Some(raw);
 
-        let activity = create_activity(&conn, activity).await.map_err(|e| {
+        let activity = create_activity(conn, activity).await.map_err(|e| {
             log::error!("FAILED TO CREATE Activity: {e:#?}");
-            Status::InternalServerError
+            StatusCode::INTERNAL_SERVER_ERROR
         })?;
 
         runner::run(
             runner::announce::send_announce_task,
-            conn,
+            pool,
             None,
-            vec![activity.ap_id.clone().ok_or(Status::InternalServerError)?],
+            vec![activity
+                .ap_id
+                .clone()
+                .ok_or(StatusCode::INTERNAL_SERVER_ERROR)?],
         )
         .await;
 
@@ -65,13 +70,13 @@ async fn announce_outbox(
             ApActivity::try_from_extended_activity((activity, None, Some(object), None)).map_err(
                 |e| {
                     log::error!("Failed to build ApActivity: {e:#?}");
-                    Status::InternalServerError
+                    StatusCode::INTERNAL_SERVER_ERROR
                 },
             )?;
 
-        Ok(activity.into())
+        Ok(ActivityJson(activity))
     } else {
         log::error!("ANNOUNCE OBJECT IS NOT A REFERENCE");
-        Err(Status::new(523))
+        Err(StatusCode::INTERNAL_SERVER_ERROR)
     }
 }

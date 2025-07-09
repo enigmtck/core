@@ -1,37 +1,43 @@
 use super::Inbox;
 use crate::{
-    db::Db,
+    db::runner::DbRunner,
     models::activities::{create_activity, NewActivity},
     runner,
 };
+use deadpool_diesel::postgres::Pool;
 use jdt_activity_pub::{ApActivity, ApAddress, ApAnnounce};
-use rocket::http::Status;
+use reqwest::StatusCode;
 use serde_json::Value;
 
 impl Inbox for ApAnnounce {
-    async fn inbox(&self, conn: Db, raw: Value) -> Result<Status, Status> {
+    async fn inbox<C: DbRunner>(
+        &self,
+        conn: &C,
+        pool: Pool,
+        raw: Value,
+    ) -> Result<StatusCode, StatusCode> {
         log::debug!("{:?}", self.clone());
 
         let mut activity = NewActivity::try_from((ApActivity::Announce(self.clone()), None))
             .map_err(|e| {
                 log::error!("FAILED TO BUILD ACTIVITY: {e:#?}");
-                Status::InternalServerError
+                StatusCode::INTERNAL_SERVER_ERROR
             })?;
 
         activity.raw = Some(raw.clone());
 
-        if create_activity(&conn, activity.clone()).await.is_ok() {
+        if create_activity(conn, activity.clone()).await.is_ok() {
             runner::run(
                 runner::announce::remote_announce_task,
-                conn,
+                pool,
                 None,
-                vec![activity.ap_id.clone().ok_or(Status::BadRequest)?],
+                vec![activity.ap_id.clone().ok_or(StatusCode::BAD_REQUEST)?],
             )
             .await;
-            Ok(Status::Accepted)
+            Ok(StatusCode::ACCEPTED)
         } else {
             log::error!("FAILED TO CREATE ACTIVITY\n{raw}");
-            Err(Status::new(521))
+            Err(StatusCode::INTERNAL_SERVER_ERROR)
         }
     }
 

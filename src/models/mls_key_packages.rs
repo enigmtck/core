@@ -1,3 +1,4 @@
+use crate::db::runner::DbRunner;
 use crate::db::Db;
 use crate::helper::get_instrument_as_id_from_uuid;
 use crate::schema::mls_key_packages;
@@ -66,8 +67,8 @@ impl From<KeyTuple> for NewMlsKeyPackage {
     }
 }
 
-pub async fn create_mls_key_package(
-    conn: &Db,
+pub async fn create_mls_key_package<C: DbRunner>(
+    conn: &C,
     mls_key_package: NewMlsKeyPackage,
 ) -> Result<MlsKeyPackage> {
     conn.run(move |c| {
@@ -99,8 +100,8 @@ pub async fn get_mls_key_packages_by_actor_id(
     .unwrap_or(vec![])
 }
 
-pub async fn get_next_mkp_by_actor_id(
-    conn: &Db,
+pub async fn get_next_mkp_by_actor_id<C: DbRunner>(
+    conn: &C,
     actor_as_id: String,
     id: i32,
 ) -> Result<MlsKeyPackage> {
@@ -126,7 +127,7 @@ pub async fn get_next_mkp_by_actor_id(
     .map_err(anyhow::Error::msg)
 }
 
-pub async fn get_mkp_count_by_profile_id(conn: &Db, id: i32) -> Result<i64> {
+pub async fn get_mkp_count_by_profile_id<C: DbRunner>(conn: &C, id: i32) -> Result<i64> {
     conn.run(move |c| {
         mls_key_packages::table
             .filter(

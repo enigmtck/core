@@ -1,15 +1,17 @@
 use crate::{
+    db::runner::DbRunner,
     models::actors::{self},
     retriever::get_actor,
     routes::{user::process_instrument, Outbox},
 };
+use deadpool_diesel::postgres::Pool;
 use jdt_activity_pub::{
     ApActivity, ApAddress, ApAttachment, ApContext, ApCreate, ApImage, ApInstrument, ApNote,
     ApNoteType, ApObject, Ephemeral,
 };
+use reqwest::StatusCode;
 
 use crate::{
-    db::Db,
     fairings::events::EventChannels,
     helper::{
         get_conversation_ap_id_from_uuid, get_instrument_as_id_from_uuid,
@@ -30,41 +32,42 @@ use crate::{
 use anyhow::Result;
 use chrono::Utc;
 use jdt_activity_pub::MaybeMultiple;
-use rocket::http::Status;
 use serde_json::Value;
 use uuid::Uuid;
 
 impl Outbox for ApNote {
-    async fn outbox(
+    async fn outbox<C: DbRunner>(
         &self,
-        conn: Db,
+        conn: &C,
+        pool: Pool,
         profile: Actor,
         raw: Value,
-    ) -> Result<ActivityJson<ApActivity>, Status> {
-        note_outbox(conn, self.clone(), profile, raw).await
+    ) -> Result<ActivityJson<ApActivity>, StatusCode> {
+        note_outbox(conn, pool, self.clone(), profile, raw).await
     }
 }
 
-async fn note_outbox(
-    conn: Db,
+async fn note_outbox<C: DbRunner>(
+    conn: &C,
+    pool: Pool,
     mut note: ApNote,
     profile: Actor,
     raw: Value,
-) -> Result<ActivityJson<ApActivity>, Status> {
+) -> Result<ActivityJson<ApActivity>, StatusCode> {
     if note.id.is_some() {
-        return Err(Status::NotAcceptable);
+        return Err(StatusCode::NOT_ACCEPTABLE);
     }
 
-    async fn build_activity(
+    async fn build_activity<C: DbRunner>(
         create: ApCreate,
-        conn: &Db,
+        conn: &C,
         object: &Object,
         raw: Value,
-    ) -> Result<NewActivity, Status> {
+    ) -> Result<NewActivity, StatusCode> {
         let mut activity = NewActivity::try_from((create.into(), Some(object.into())))
             .map_err(|e| {
                 log::error!("Failed to build Activity: {e:#?}");
-                Status::InternalServerError
+                StatusCode::INTERNAL_SERVER_ERROR
             })?
             .link_actor(conn)
             .await;
@@ -74,16 +77,16 @@ async fn note_outbox(
         Ok(activity)
     }
 
-    fn build_ap_create(object: &Object) -> Result<ApCreate, Status> {
+    fn build_ap_create(object: &Object) -> Result<ApCreate, StatusCode> {
         ApCreate::try_from(ApObject::Note(ApNote::try_from(object.clone()).map_err(
             |e| {
                 log::error!("Failed to build ApNote: {e:#?}");
-                Status::InternalServerError
+                StatusCode::INTERNAL_SERVER_ERROR
             },
         )?))
         .map_err(|e| {
             log::error!("Failed to build ApCreate: {e:#?}");
-            Status::InternalServerError
+            StatusCode::INTERNAL_SERVER_ERROR
         })
     }
 
@@ -107,7 +110,7 @@ async fn note_outbox(
         note.context = Some(ApContext::default());
     }
 
-    async fn process_instruments(mut note: ApNote) -> Result<Vec<ApInstrument>, Status> {
+    async fn process_instruments(mut note: ApNote) -> Result<Vec<ApInstrument>, StatusCode> {
         let instruments = match &mut note.instrument {
             MaybeMultiple::Single(inst) => {
                 let uuid = Uuid::new_v4().to_string();
@@ -134,14 +137,14 @@ async fn note_outbox(
         Ok(instruments)
     }
 
-    async fn dispatch_activity(conn: Db, activity: &Activity) -> Result<(), Status> {
+    async fn dispatch_activity(pool: Pool, activity: &Activity) -> Result<(), StatusCode> {
         runner::run(
             send_note,
-            conn,
+            pool,
             None,
             vec![activity.ap_id.clone().ok_or_else(|| {
                 log::error!("Activity ap_id cannot be None");
-                Status::InternalServerError
+                StatusCode::INTERNAL_SERVER_ERROR
             })?],
         )
         .await;
@@ -150,44 +153,46 @@ async fn note_outbox(
 
     prepare_note_metadata(&mut note, &profile);
 
-    let object = create_or_update_object(&conn, (note.clone(), profile.clone()).into())
+    let object = create_or_update_object(conn, (note.clone(), profile.clone()).into())
         .await
         .map_err(|e| {
             log::error!("Failed to create or update Object: {e:#?}");
-            Status::InternalServerError
+            StatusCode::INTERNAL_SERVER_ERROR
         })?;
 
     let create = build_ap_create(&object)?;
 
-    let activity = create_activity(&conn, build_activity(create, &conn, &object, raw).await?)
+    let activity = create_activity(conn, build_activity(create, conn, &object, raw).await?)
         .await
         .map_err(|e| {
             log::error!("Failed to create Activity: {e:#?}");
-            Status::InternalServerError
+            StatusCode::INTERNAL_SERVER_ERROR
         })?;
 
     for instrument in process_instruments(note.clone()).await? {
-        process_instrument(&conn, &profile, &instrument).await?;
+        process_instrument(conn, &profile, &instrument).await?;
     }
 
     let mut ap_activity =
         ApActivity::try_from_extended_activity((activity.clone(), None, Some(object), None))
             .map_err(|e| {
                 log::error!("Failed to build ApActivity: {e:#?}");
-                Status::InternalServerError
+                StatusCode::INTERNAL_SERVER_ERROR
             })?;
 
-    let ap_activity = ap_activity.load_ephemeral(&conn, None).await;
-    dispatch_activity(conn, &activity).await?;
+    let ap_activity = ap_activity.load_ephemeral(conn, None).await;
+    dispatch_activity(pool, &activity).await?;
 
-    Ok(ap_activity.into())
+    Ok(ActivityJson(ap_activity))
 }
 
 async fn send_note(
-    conn: Db,
+    pool: Pool,
     _channels: Option<EventChannels>,
     ap_ids: Vec<String>,
 ) -> Result<(), TaskError> {
+    let conn = pool.get().await.map_err(|_| TaskError::TaskFailed)?;
+
     for ap_id in ap_ids {
         let (activity, target_activity, target_object, target_actor) =
             get_activity_by_ap_id(&conn, ap_id.clone())

@@ -51,6 +51,12 @@ pub struct EventChannels {
     pub sending_channels: Arc<Mutex<HashMap<String, IdentifiedSender>>>,
 }
 
+impl Default for EventChannels {
+    fn default() -> Self {
+        EventChannels::new()
+    }
+}
+
 impl EventChannels {
     // Add this new function
     pub fn new() -> Self {

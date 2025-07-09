@@ -1,6 +1,6 @@
 use crate::{
     axum_server::AppState,
-    fairings::signatures::Signed, // Corrected import path
+    fairings::{access_control::Permitted, signatures::Signed},
     models::{
         actors::{get_actor_by_key_id_axum, get_actor_by_username_axum},
         instances::{create_or_update_instance_axum, Instance},
@@ -9,8 +9,7 @@ use crate::{
         build_verify_string, verify_signature_crypto, VerificationError, VerificationType,
         VerifyMapParams, VerifyParams,
     },
-    ASSIGNMENT_RE,
-    DOMAIN_RE,
+    ASSIGNMENT_RE, DOMAIN_RE,
 };
 use anyhow::{anyhow, Result};
 use async_trait::async_trait;
@@ -25,6 +24,14 @@ use jdt_activity_pub::ApActor;
 use serde_json::json;
 use std::collections::HashMap;
 use std::ops::Deref;
+
+fn get_header(parts: &Parts, header_name: &str) -> Option<String> {
+    parts
+        .headers
+        .get(header_name)
+        .and_then(|val| val.to_str().ok())
+        .map(|s| s.to_string())
+}
 
 // 1. Define the new wrapper struct for the Axum extractor.
 #[derive(Debug)]
@@ -137,14 +144,6 @@ impl FromRequestParts<AppState> for AxumSigned {
         parts: &mut Parts,
         state: &AppState,
     ) -> Result<Self, Self::Rejection> {
-        let get_header = |header_name: &str| {
-            parts
-                .headers
-                .get(header_name)
-                .and_then(|val| val.to_str().ok())
-                .map(|s| s.to_string())
-        };
-
         let conn = state
             .db_pool
             .get()
@@ -157,15 +156,16 @@ impl FromRequestParts<AppState> for AxumSigned {
         let path = path.trim_end_matches('&');
         let request_target = format!("{} {}", method.to_lowercase(), path);
 
-        let date = match get_header("date").or_else(|| get_header("enigmatick-date")) {
+        let date = match get_header(parts, "date").or_else(|| get_header(parts, "enigmatick-date"))
+        {
             Some(val) => val,
             None => return Ok(AxumSigned(Signed(false, VerificationType::None))),
         };
 
-        let digest = get_header("digest");
-        let user_agent = get_header("user-agent");
-        let content_length = get_header("content-length");
-        let content_type = get_header("content-type");
+        let digest = get_header(parts, "digest");
+        let user_agent = get_header(parts, "user-agent");
+        let content_length = get_header(parts, "content-length");
+        let content_type = get_header(parts, "content-type");
 
         let signature_vec: Vec<_> = parts.headers.get_all("signature").iter().collect();
 
@@ -213,5 +213,26 @@ impl FromRequestParts<AppState> for AxumSigned {
                 Err(SignedRejection::MultipleSignatures)
             }
         }
+    }
+}
+
+#[async_trait]
+impl FromRequestParts<AppState> for Permitted {
+    type Rejection = StatusCode;
+
+    async fn from_request_parts(
+        parts: &mut Parts,
+        state: &AppState,
+    ) -> Result<Self, Self::Rejection> {
+        let remote_addr: Option<String> = get_header(parts, "x-forwarded-for")
+            .and_then(|s| s.split(',').next().map(|s| s.trim().to_string()));
+
+        if let Some(ip) = remote_addr {
+            if state.block_list.is_blocked(ip.to_string()) {
+                log::warn!("Blocking request from IP: {ip}");
+                return Ok(Permitted(false));
+            }
+        }
+        Ok(Permitted(true))
     }
 }

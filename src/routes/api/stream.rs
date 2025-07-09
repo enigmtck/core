@@ -17,11 +17,7 @@ pub struct StreamAuthorization {
     uuid: String,
 }
 
-#[post(
-    "/api/user/<username>/events/authorize",
-    format = "application/activity+json",
-    data = "<authorization>"
-)]
+#[post("/api/user/<username>/events/authorize", data = "<authorization>")]
 pub async fn authorize_stream(
     signed: Signed,
     mut events: EventChannels,

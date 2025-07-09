@@ -1,18 +1,24 @@
 use super::Inbox;
 use crate::{
-    db::Db,
+    db::runner::DbRunner,
     models::{
         activities::{create_activity, ActivityTarget, NewActivity},
         objects::get_object_by_as_id,
     },
 };
+use deadpool_diesel::postgres::Pool;
 use jdt_activity_pub::MaybeReference;
 use jdt_activity_pub::{ApActivity, ApAddress, ApLike, ApObject};
-use rocket::http::Status;
+use reqwest::StatusCode;
 use serde_json::Value;
 
 impl Inbox for Box<ApLike> {
-    async fn inbox(&self, conn: Db, raw: Value) -> Result<Status, Status> {
+    async fn inbox<C: DbRunner>(
+        &self,
+        conn: &C,
+        _pool: Pool,
+        raw: Value,
+    ) -> Result<StatusCode, StatusCode> {
         log::debug!("{:?}", self.clone());
 
         let note_apid = match self.object.clone() {
@@ -21,11 +27,11 @@ impl Inbox for Box<ApLike> {
             _ => None,
         };
 
-        let note_apid = note_apid.ok_or(Status::BadRequest)?;
+        let note_apid = note_apid.ok_or(StatusCode::BAD_REQUEST)?;
 
-        let target = get_object_by_as_id(&conn, note_apid).await.map_err(|e| {
+        let target = get_object_by_as_id(conn, note_apid).await.map_err(|e| {
             log::debug!("LIKE TARGET NOT FOUND: {e:#?}");
-            Status::NotFound
+            StatusCode::NOT_FOUND
         })?;
 
         let mut activity = NewActivity::try_from((
@@ -34,18 +40,16 @@ impl Inbox for Box<ApLike> {
         ))
         .map_err(|e| {
             log::error!("FAILED TO BUILD ACTIVITY: {e:#?}");
-            Status::InternalServerError
+            StatusCode::INTERNAL_SERVER_ERROR
         })?;
         activity.raw = Some(raw.clone());
 
-        create_activity(&conn, activity.clone())
-            .await
-            .map_err(|e| {
-                log::error!("FAILED TO CREATE ACTIVITY: {e:#?}");
-                Status::InternalServerError
-            })?;
+        create_activity(conn, activity.clone()).await.map_err(|e| {
+            log::error!("FAILED TO CREATE ACTIVITY: {e:#?}");
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
 
-        Ok(Status::Accepted)
+        Ok(StatusCode::ACCEPTED)
     }
 
     fn actor(&self) -> ApAddress {

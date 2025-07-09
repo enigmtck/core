@@ -2,6 +2,7 @@ use std::{collections::HashSet, error::Error, fmt::Debug};
 
 use crate::db::runner::DbRunner;
 use anyhow::{anyhow, Result};
+use deadpool_diesel::postgres::Pool;
 use diesel::{r2d2::ConnectionManager, PgConnection};
 use futures_lite::Future;
 use reqwest::Client;
@@ -13,7 +14,6 @@ use url::Url;
 
 use crate::retriever::get_actor;
 use crate::{
-    db::Db,
     fairings::events::EventChannels,
     models::{activities::add_log_by_as_id, actors::Actor, instances::get_instance_inboxes},
     signing::{Method, SignParams},
@@ -29,7 +29,6 @@ pub mod note;
 pub mod question;
 pub mod user;
 
-pub type Pool = r2d2::Pool<ConnectionManager<PgConnection>>;
 pub type DbConnection = r2d2::PooledConnection<ConnectionManager<PgConnection>>;
 
 pub fn clean_text(text: String) -> String {
@@ -305,10 +304,10 @@ impl fmt::Display for TaskError {
 
 impl Error for TaskError {}
 
-pub async fn run<Fut, F>(f: F, conn: Db, channels: Option<EventChannels>, params: Vec<String>)
+pub async fn run<Fut, F>(f: F, pool: Pool, channels: Option<EventChannels>, params: Vec<String>)
 where
-    F: Fn(Db, Option<EventChannels>, Vec<String>) -> Fut,
+    F: Fn(Pool, Option<EventChannels>, Vec<String>) -> Fut,
     Fut: Future<Output = Result<(), TaskError>> + Send + 'static,
 {
-    tokio::spawn(f(conn, channels, params));
+    tokio::spawn(f(pool, channels, params));
 }
