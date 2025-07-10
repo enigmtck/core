@@ -6,7 +6,6 @@ use enigmatick::{admin::NewUser, SYSTEM_USER};
 use rand::distributions::{Alphanumeric, DistString};
 use rust_embed::RustEmbed;
 use std::fs;
-use tokio::runtime::Runtime;
 
 cfg_if::cfg_if! {
     if #[cfg(feature = "sqlite")] {
@@ -70,44 +69,38 @@ pub async fn handle_migrations() -> Result<()> {
     Ok(())
 }
 
-pub fn handle_system_user() -> Result<()> {
+pub async fn handle_system_user() -> Result<()> {
     let system_user = (*SYSTEM_USER).clone();
 
     println!("setup system user: {system_user}");
-    let rt = Runtime::new().unwrap();
-    let handle = rt.handle();
-    handle.block_on(async {
-        let conn = match enigmatick::db::POOL.get().await {
-            Ok(c) => c,
-            Err(e) => {
-                eprintln!("Failed to get DB connection: {e}");
-                return;
-            }
-        };
 
-        if create_user(
-            &conn,
-            NewUser {
-                username: system_user.clone(),
-                password: Alphanumeric.sample_string(&mut rand::thread_rng(), 16),
-                display_name: "System User".to_string(),
-                client_public_key: None,
-                client_private_key: None,
-                olm_pickled_account: None,
-                olm_pickled_account_hash: None,
-                olm_identity_key: None,
-                salt: None,
-                kind: Some(ActorType::Application),
-            },
-        )
-        .await
-        .is_ok()
-        {
-            println!("system user created.");
-        } else {
-            println!("failed to create system user.");
-        }
-    });
+    let conn = enigmatick::db::POOL.get().await.map_err(|e| {
+        eprintln!("Failed to get DB connection: {e}");
+        e
+    })?;
+
+    if create_user(
+        &conn,
+        NewUser {
+            username: system_user.clone(),
+            password: Alphanumeric.sample_string(&mut rand::thread_rng(), 16),
+            display_name: "System User".to_string(),
+            client_public_key: None,
+            client_private_key: None,
+            olm_pickled_account: None,
+            olm_pickled_account_hash: None,
+            olm_identity_key: None,
+            salt: None,
+            kind: Some(ActorType::Application),
+        },
+    )
+    .await
+    .is_ok()
+    {
+        println!("system user created.");
+    } else {
+        println!("failed to create system user.");
+    };
 
     Ok(())
 }

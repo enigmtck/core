@@ -3,11 +3,10 @@ use crate::db::DbType;
 use crate::helper::get_activity_ap_id_from_uuid;
 use crate::models::actors::{get_actor_by_as_id, Actor};
 use crate::models::coalesced_activity::CoalescedActivity;
-use crate::models::objects::{Object, ObjectType};
-use crate::models::olm_sessions::OlmSession;
+use crate::models::objects::Object;
 use crate::models::parameter_generator;
-use crate::routes::inbox::InboxView;
-use crate::schema::{activities, actors, objects, olm_sessions, vault};
+use crate::schema::{activities, actors};
+use crate::server::InboxView;
 use anyhow::{anyhow, Result};
 use chrono::{DateTime, Utc};
 use convert_case::{Case, Casing};
@@ -402,14 +401,6 @@ impl Default for NewActivity {
 }
 
 impl NewActivity {
-    // pub async fn link_actor(&mut self, conn: &Db) -> Self {
-    //     if let Ok(actor) = get_actor_by_as_id(conn, self.clone().actor).await {
-    //         self.actor_id = Some(actor.id);
-    //     };
-
-    //     self.clone()
-    // }
-
     pub async fn link_actor<C: DbRunner>(&mut self, conn: &C) -> Self {
         if let Ok(actor) = get_actor_by_as_id(conn, self.clone().actor).await {
             self.actor_id = Some(actor.id);
@@ -440,6 +431,12 @@ impl NewActivity {
         };
 
         self
+    }
+
+    pub fn set_raw(&mut self, raw: Value) -> Self {
+        self.raw = Some(raw);
+
+        self.clone()
     }
 }
 
@@ -1904,130 +1901,6 @@ pub async fn get_announcers<C: DbRunner>(
 
         query = query.order(activities::created_at.desc());
         query.get_results(c)
-    })
-    .await
-}
-
-pub trait TryFromEncryptedActivity: Sized {
-    type Error;
-    fn try_from_encrypted_activity(activity: EncryptedActivity) -> Result<Self, Self::Error>;
-}
-pub type EncryptedActivity = (Activity, Object, Option<OlmSession>);
-
-impl TryFromEncryptedActivity for ApActivity {
-    type Error = anyhow::Error;
-
-    fn try_from_encrypted_activity(
-        (activity, object, session): EncryptedActivity,
-    ) -> Result<Self, Self::Error> {
-        match activity.kind {
-            ActivityType::Create => {
-                ApCreate::try_from_encrypted_activity((activity, object, session))
-                    .map(ApActivity::Create)
-            }
-            _ => {
-                log::error!("Failed to match implemented EncryptedActivity\n{activity:#?}");
-                Err(anyhow!("Failed to match implemented EncryptedActivity"))
-            }
-        }
-    }
-}
-
-impl TryFromEncryptedActivity for ApCreate {
-    type Error = anyhow::Error;
-
-    fn try_from_encrypted_activity(
-        (activity, object, session): EncryptedActivity,
-    ) -> Result<Self, Self::Error> {
-        let note = ApObject::Note(ApNote::try_from(object)?);
-
-        let instrument: MaybeMultiple<ApInstrument> = activity.instrument.into();
-        let mut instrument = match instrument {
-            MaybeMultiple::Single(instrument) => {
-                if instrument.is_mls_welcome() {
-                    vec![instrument].into()
-                } else {
-                    MaybeMultiple::None
-                }
-            }
-            MaybeMultiple::Multiple(instruments) => instruments
-                .into_iter()
-                .filter(|x| x.is_mls_welcome())
-                .collect::<Vec<ApInstrument>>()
-                .into(),
-            _ => MaybeMultiple::None,
-        };
-
-        if let Some(session) = session {
-            instrument = instrument.extend(vec![session.into()]);
-        }
-
-        Ok(ApCreate {
-            context: Some(ApContext::default()),
-            kind: ApCreateType::default(),
-            actor: ApAddress::Address(activity.actor.clone()),
-            id: activity.ap_id,
-            object: note.into(),
-            to: activity.ap_to.clone().into(),
-            cc: activity.cc.into(),
-            signature: None,
-            published: Some(activity.created_at.into()),
-            ephemeral: Some(Ephemeral {
-                created_at: Some(activity.created_at),
-                updated_at: Some(activity.updated_at),
-                ..Default::default()
-            }),
-            instrument,
-        })
-    }
-}
-
-pub async fn get_encrypted_activities<C: DbRunner>(
-    conn: &C,
-    since: DateTime<Utc>,
-    limit: u8,
-    as_to: Value,
-) -> Result<Vec<EncryptedActivity>> {
-    let as_to_str = as_to
-        .clone()
-        .as_str()
-        .ok_or(anyhow!("Failed to convert Value to String"))?
-        .to_string();
-
-    conn.run(move |c| {
-        activities::table
-            .inner_join(objects::table.on(objects::id.nullable().eq(activities::target_object_id)))
-            .left_join(
-                vault::table.on(vault::activity_id
-                    .eq(activities::id)
-                    .and(vault::owner_as_id.eq(as_to_str.clone()))),
-            )
-            .left_join(
-                olm_sessions::table.on(olm_sessions::ap_conversation
-                    .nullable()
-                    .eq(objects::ap_conversation)
-                    .and(olm_sessions::owner_as_id.eq(as_to_str))),
-            )
-            .filter(
-                objects::as_type
-                    .eq(ObjectType::EncryptedNote)
-                    .and(activities::kind.eq(ActivityType::Create))
-                    .and(vault::activity_id.is_null())
-                    .and(activities::created_at.gt(since))
-                    .and(
-                        activities::ap_to
-                            .contains(as_to.clone())
-                            .or(activities::cc.contains(as_to)),
-                    ),
-            )
-            .select((
-                activities::all_columns,
-                objects::all_columns,
-                olm_sessions::all_columns.nullable(),
-            ))
-            .order(activities::created_at.asc())
-            .limit(limit.into())
-            .get_results(c)
     })
     .await
 }

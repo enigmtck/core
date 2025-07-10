@@ -1,5 +1,4 @@
 use crate::db::runner::DbRunner;
-use crate::db::Db;
 use crate::schema::vault;
 use anyhow::{anyhow, Result};
 use chrono::{DateTime, Utc};
@@ -7,7 +6,6 @@ use diesel::prelude::*;
 use diesel::Insertable;
 use diesel::{AsChangeset, Identifiable, Queryable};
 use jdt_activity_pub::ApInstrument;
-use rocket_sync_db_pools::diesel;
 use serde::{Deserialize, Serialize};
 
 use super::actors::Actor;
@@ -90,8 +88,8 @@ pub async fn create_vault_item<C: DbRunner>(
     .map_err(anyhow::Error::msg)
 }
 
-pub async fn get_vault_items_by_owner_as_id(
-    conn: &Db,
+pub async fn get_vault_items_by_owner_as_id<C: DbRunner>(
+    conn: &C,
     owner_as_id: String,
     limit: i64,
     offset: i64,
@@ -110,7 +108,7 @@ pub async fn get_vault_items_by_owner_as_id(
     .unwrap_or(vec![])
 }
 
-pub async fn get_vault_item_by_uuid(conn: &Db, uuid: String) -> Option<VaultItem> {
+pub async fn get_vault_item_by_uuid<C: DbRunner>(conn: &C, uuid: String) -> Option<VaultItem> {
     conn.run(move |c| {
         let query = vault::table.filter(vault::uuid.eq(uuid));
 

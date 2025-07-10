@@ -1,5 +1,5 @@
 use crate::db::runner::DbRunner;
-use crate::db::Db;
+//use crate::db::Db;
 use crate::helper::get_instrument_as_id_from_uuid;
 use crate::schema::mls_key_packages;
 use anyhow::Result;
@@ -8,7 +8,6 @@ use diesel::prelude::*;
 use diesel::Insertable;
 use diesel::{AsChangeset, Identifiable, Queryable};
 use jdt_activity_pub::{ApInstrument, ApInstrumentType};
-use rocket_sync_db_pools::diesel;
 use serde::{Deserialize, Serialize};
 
 #[derive(Identifiable, Queryable, AsChangeset, Serialize, Clone, Default, Debug)]
@@ -80,8 +79,8 @@ pub async fn create_mls_key_package<C: DbRunner>(
     .map_err(anyhow::Error::msg)
 }
 
-pub async fn get_mls_key_packages_by_actor_id(
-    conn: &Db,
+pub async fn get_mls_key_packages_by_actor_id<C: DbRunner>(
+    conn: &C,
     id: i32,
     limit: i64,
     offset: i64,

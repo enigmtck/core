@@ -1,7 +1,7 @@
 use anyhow::Result;
 
-use crate::db::Db;
-use crate::fairings::events::EventChannels;
+use crate::db::runner::DbRunner;
+use crate::events::EventChannels;
 use crate::models::actors::guaranteed_actor;
 use crate::models::objects::{get_object_by_as_id, Object};
 use crate::retriever::get_actor;
@@ -9,8 +9,8 @@ use jdt_activity_pub::ApQuestion;
 
 use super::TaskError;
 
-pub async fn remote_question_task(
-    conn: Db,
+pub async fn remote_question_task<C: DbRunner>(
+    conn: &C,
     channels: Option<EventChannels>,
     ap_ids: Vec<String>,
 ) -> Result<(), TaskError> {
@@ -18,15 +18,15 @@ pub async fn remote_question_task(
 
     log::debug!("LOOKING FOR QUESTION AP_ID: {ap_id}");
 
-    if let Ok(remote_question) = get_object_by_as_id(&conn, ap_id).await {
-        let _ = handle_remote_question(&conn, channels, remote_question.clone()).await;
+    if let Ok(remote_question) = get_object_by_as_id(conn, ap_id).await {
+        let _ = handle_remote_question(conn, channels, remote_question.clone()).await;
     }
 
     Ok(())
 }
 
-pub async fn handle_remote_question(
-    conn: &Db,
+pub async fn handle_remote_question<C: DbRunner>(
+    conn: &C,
     _channels: Option<EventChannels>,
     object: Object,
 ) -> anyhow::Result<Object> {

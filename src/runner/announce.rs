@@ -1,10 +1,10 @@
 use anyhow::{anyhow, Result};
 use deadpool_diesel::postgres::Pool;
-use rocket::tokio::time::{sleep, Duration};
+use tokio::time::{sleep, Duration};
 
 use crate::{
     db::runner::DbRunner,
-    fairings::events::EventChannels,
+    events::EventChannels,
     helper::get_domain_from_url,
     models::{
         activities::{
@@ -29,7 +29,7 @@ pub async fn send_announce_task(
     pool: Pool,
     _channels: Option<EventChannels>,
     ap_ids: Vec<String>,
-) -> Result<(), TaskError> {
+) -> Result<()> {
     let conn = pool.get().await.map_err(|_| TaskError::TaskFailed)?;
 
     for ap_id in ap_ids {

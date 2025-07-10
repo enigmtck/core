@@ -18,11 +18,10 @@ use jdt_activity_pub::{
 };
 use reqwest::header::CONTENT_TYPE;
 use reqwest::StatusCode as ReqwestStatusCode;
-use rocket::tokio::time::{sleep, Duration as TokioDuration};
-use rocket_sync_db_pools::diesel;
 use serde::{Deserialize, Serialize};
 use tokio::fs::{self, File};
 use tokio::io::AsyncWriteExt;
+use tokio::time::{sleep, Duration as TokioDuration};
 
 use super::actors::{get_actor_by_username, Actor};
 

@@ -1,5 +1,4 @@
 use crate::db::runner::DbRunner;
-use crate::db::Db;
 use crate::helper::get_instrument_as_id_from_uuid;
 use crate::schema::olm_one_time_keys;
 use anyhow::Result;
@@ -8,7 +7,6 @@ use diesel::prelude::*;
 use diesel::Insertable;
 use diesel::{AsChangeset, Identifiable, Queryable};
 use jdt_activity_pub::{ApInstrument, ApInstrumentType};
-use rocket_sync_db_pools::diesel;
 use serde::{Deserialize, Serialize};
 
 #[derive(Identifiable, Queryable, AsChangeset, Serialize, Clone, Default, Debug)]
@@ -80,8 +78,8 @@ pub async fn create_olm_one_time_key<C: DbRunner>(conn: &C, olm_one_time_key: Ne
     .ok();
 }
 
-pub async fn get_olm_one_time_keys_by_profile_id(
-    conn: &Db,
+pub async fn get_olm_one_time_keys_by_profile_id<C: DbRunner>(
+    conn: &C,
     id: i32,
     limit: i64,
     offset: i64,

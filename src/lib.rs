@@ -2,9 +2,7 @@
 #![allow(async_fn_in_trait)]
 extern crate diesel;
 extern crate log;
-#[macro_use]
-extern crate rocket;
-
+// #[macro_use]
 use crate::db::runner::DbRunner;
 use crate::models::actors::{get_actor_by_as_id, Actor};
 use crate::webfinger::retrieve_webfinger;
@@ -34,14 +32,13 @@ use std::env;
 use tower as _;
 use tower_http as _;
 
-//pub mod activity_pub;
 pub mod admin;
+pub mod blocklist;
 pub mod db;
-pub mod fairings;
+pub mod events;
 pub mod helper;
 pub mod models;
 pub mod retriever;
-pub mod routes;
 pub mod runner;
 
 #[cfg(all(feature = "pg", feature = "sqlite"))]
@@ -55,8 +52,7 @@ pub mod schema;
 #[path = "schema-sqlite.rs"]
 pub mod schema;
 
-pub mod axum_server; // Add this line
-                     //pub mod server;
+pub mod server;
 pub mod signing;
 pub mod webfinger;
 

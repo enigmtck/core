@@ -1,9 +1,10 @@
 use std::{collections::HashSet, error::Error, fmt::Debug};
 
 use crate::db::runner::DbRunner;
+use crate::events::EventChannels;
 use anyhow::{anyhow, Result};
+use async_trait::async_trait;
 use deadpool_diesel::postgres::Pool;
-use diesel::{r2d2::ConnectionManager, PgConnection};
 use futures_lite::Future;
 use reqwest::Client;
 use reqwest::Request;
@@ -14,7 +15,6 @@ use url::Url;
 
 use crate::retriever::get_actor;
 use crate::{
-    fairings::events::EventChannels,
     models::{activities::add_log_by_as_id, actors::Actor, instances::get_instance_inboxes},
     signing::{Method, SignParams},
 };
@@ -29,7 +29,7 @@ pub mod note;
 pub mod question;
 pub mod user;
 
-pub type DbConnection = r2d2::PooledConnection<ConnectionManager<PgConnection>>;
+//pub type DbConnection = r2d2::PooledConnection<ConnectionManager<PgConnection>>;
 
 pub fn clean_text(text: String) -> String {
     let ammonia = ammonia::Builder::default();

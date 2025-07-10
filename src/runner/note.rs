@@ -4,7 +4,7 @@ use reqwest::StatusCode;
 use webpage::{Webpage, WebpageOptions};
 
 use crate::db::runner::DbRunner;
-use crate::fairings::events::EventChannels;
+use crate::events::EventChannels;
 use crate::models::actors::{guaranteed_actor, Actor};
 use crate::models::cache::Cache;
 use crate::models::objects;

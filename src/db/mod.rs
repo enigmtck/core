@@ -2,15 +2,13 @@ pub mod runner;
 
 use deadpool_diesel::postgres::{Manager, Pool};
 use once_cell::sync::Lazy;
-use rocket_sync_db_pools::{database, diesel};
+//use rocket_sync_db_pools::{database, diesel};
+use diesel;
 use std::env;
 
 // The name here ("diesel_postgres_pool") must match the database name in Rocket.toml
-#[database("enigmatick")]
+//#[database("enigmatick")]
 pub struct DbPool(pub diesel::PgConnection);
-
-/// The database connection type used by Rocket routes.
-pub type Db = DbPool;
 
 /// The Diesel backend type.
 pub type DbType = diesel::pg::Pg;

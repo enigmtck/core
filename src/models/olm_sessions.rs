@@ -8,7 +8,6 @@ use diesel::prelude::*;
 use diesel::upsert::excluded;
 use diesel::{AsChangeset, Identifiable, Queryable, QueryableByName, Selectable};
 use jdt_activity_pub::{ApInstrument, ApInstrumentType};
-use rocket_sync_db_pools::diesel;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -129,6 +128,24 @@ pub async fn create_or_update_olm_session<C: DbRunner>(
     })
     .await
     .map_err(anyhow::Error::msg)
+}
+
+pub async fn update_olm_session_by_encrypted_session_id<C: DbRunner>(
+    conn: &C,
+    _id: i32,
+    session_data: String,
+    session_hash: String,
+) -> Option<OlmSession> {
+    conn.run(move |c| {
+        diesel::update(olm_sessions::table)
+            .set((
+                olm_sessions::session_data.eq(session_data),
+                olm_sessions::session_hash.eq(session_hash),
+            ))
+            .get_result(c)
+    })
+    .await
+    .ok()
 }
 
 pub async fn get_olm_session_by_conversation_and_actor<C: DbRunner>(

@@ -11,8 +11,6 @@ pub mod mls_group_conversations;
 pub mod mls_key_packages;
 pub mod notifications;
 pub mod objects;
-pub mod olm_one_time_keys;
-pub mod olm_sessions;
 pub mod profiles;
 pub mod unprocessable;
 pub mod vault;

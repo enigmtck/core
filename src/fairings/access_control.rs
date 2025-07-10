@@ -67,12 +67,12 @@ impl<'r> FromRequest<'r> for Permitted {
     }
 }
 
+struct BlockListFairing;
+
 #[derive(Clone)]
 pub struct BlockList {
     pub blocked_servers: Arc<Mutex<Vec<String>>>,
 }
-
-struct BlockListFairing;
 
 impl BlockList {
     // Add this new async function specifically for Axum's pool type

@@ -403,3 +403,99 @@ fn format_response_signature(actor: &ApActor, signature: &Signature, has_digest:
         )
     }
 }
+
+#[derive(Clone, Debug)]
+pub struct Signed(pub bool, pub VerificationType);
+
+impl Signed {
+    pub fn local(&self) -> bool {
+        matches!(self, Signed(true, VerificationType::Local(_)))
+    }
+
+    pub fn remote(&self) -> bool {
+        matches!(self, Signed(true, VerificationType::Remote(_)))
+    }
+
+    pub fn any(&self) -> bool {
+        matches!(self, Signed(true, _))
+    }
+
+    pub fn actor(&self) -> Option<ApActor> {
+        if let Signed(true, VerificationType::Remote((actor, _digest))) = self {
+            Some(*actor.clone())
+        } else {
+            None
+        }
+    }
+
+    pub fn profile(&self) -> Option<Actor> {
+        if let Signed(true, VerificationType::Local((profile, _digest))) = self {
+            Some(*profile.clone())
+        } else {
+            None
+        }
+    }
+
+    pub fn digest(&self) -> Option<String> {
+        if let Signed(true, VerificationType::Local((_profile, digest))) = self {
+            digest.clone()
+        } else if let Signed(true, VerificationType::Remote((_actor, digest))) = self {
+            digest.clone()
+        } else {
+            None
+        }
+    }
+
+    pub fn deferred(&self) -> Option<VerifyMapParams> {
+        if let Signed(false, VerificationType::Deferred(params)) = self {
+            Some(*params.clone())
+        } else {
+            None
+        }
+    }
+}
+
+#[derive(Debug)]
+pub enum SignatureError {
+    NoDateProvided,
+    NoHostProvided,
+    NoDbConnection,
+    NonExistent,
+    MultipleSignatures,
+    InvalidRequestPath,
+    InvalidRequestUsername,
+    LocalUserNotFound,
+    SignatureInvalid,
+    Unknown,
+}
+
+// async fn update_instance(conn: &Db, signature: String) -> Result<Instance> {
+//     let mut signature_map = HashMap::<String, String>::new();
+
+//     for cap in ASSIGNMENT_RE.captures_iter(&signature) {
+//         signature_map.insert(cap[1].to_string(), cap[2].to_string());
+//     }
+
+//     let key_id = signature_map
+//         .get("keyId")
+//         .ok_or(anyhow!("keyId not found in signature_map"))?;
+
+//     // It might be better to derive the domain_name from the webfinger stored
+//     // on the Actor. But I'm not sure how that would work when the actor doesn't
+//     // exist yet, so maybe not.
+//     let domain_name = DOMAIN_RE
+//         .captures(key_id)
+//         .ok_or(anyhow!("failed to retrieve key_id"))?[1]
+//         .to_string();
+
+//     let shared_inbox = get_actor_by_key_id(conn, key_id.clone())
+//         .await
+//         .ok()
+//         .and_then(|actor| {
+//             ApActor::from(actor)
+//                 .endpoints
+//                 .map(|endpoints| endpoints.shared_inbox)
+//         });
+
+//     create_or_update_instance(conn, (domain_name, shared_inbox).into()).await
+// }

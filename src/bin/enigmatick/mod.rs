@@ -130,16 +130,20 @@ async fn main() {
         Commands::Init => handle_init().expect("init failed"),
         Commands::Template => handle_template().expect("template loading failed"),
         Commands::Migrate => handle_migrations().await.expect("migrate failed"),
-        Commands::Cache(args) => handle_cache_command(args).expect("cache command failed"),
-        Commands::SystemUser => handle_system_user().expect("failed to create system user"),
+        Commands::Cache(args) => handle_cache_command(args)
+            .await
+            .expect("cache command failed"),
+        Commands::SystemUser => handle_system_user()
+            .await
+            .expect("failed to create system user"),
         Commands::Instances(args) => handle_instance_command(args)
             .await
             .expect("instance command failed"),
         Commands::Send(args) => handle_send_command(args).expect("send command failed"),
-        Commands::MutedTerms(args) => {
-            handle_muted_terms_command(args).expect("muted terms command failed")
-        }
+        Commands::MutedTerms(args) => handle_muted_terms_command(args)
+            .await
+            .expect("muted terms command failed"),
         Commands::Server => handle_server_command(),
-        Commands::App => enigmatick::axum_server::start().await,
+        Commands::App => enigmatick::server::start().await,
     }
 }
