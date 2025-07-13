@@ -1,4 +1,5 @@
 use clap::Parser;
+use std::env;
 use std::process::{Child, Command, Stdio};
 use std::sync::{
     atomic::{AtomicBool, Ordering},
@@ -72,11 +73,19 @@ fn handle_server_command() {
     proxy_path.set_file_name("proxy");
 
     // Spawn the proxy process
-    let mut proxy_handle = spawn_process(&proxy_path, "proxy", &[]);
-    log::info!(
-        "[Manager] Proxy process started with PID: {}",
-        proxy_handle.id()
-    );
+
+    let mut proxy_handle = if env::var("ACME_PROXY")
+        .map(|x| x.eq_ignore_ascii_case("true"))
+        .unwrap_or(false)
+    {
+        Some(spawn_process(&proxy_path, "proxy", &[]))
+    } else {
+        None
+    };
+
+    if let Some(handle) = proxy_handle.as_ref() {
+        log::info!("[Manager] Proxy process started with PID: {}", handle.id());
+    }
 
     // Spawn the application process
     let mut app_handle = spawn_process(&current_exe, "app", &["app"]);
@@ -101,21 +110,25 @@ fn handle_server_command() {
             );
             break;
         }
-        if let Ok(Some(status)) = proxy_handle.try_wait() {
-            log::info!("[Manager] Proxy process exited with status: {status}. Shutting down.");
-            break;
+        if let Some(ref mut proxy) = proxy_handle {
+            if let Ok(Some(status)) = proxy.try_wait() {
+                log::info!("[Manager] Proxy process exited with status: {status}. Shutting down.");
+                break;
+            }
         }
         std::thread::sleep(std::time::Duration::from_millis(500));
     }
 
     log::info!("[Manager] Cleaning up child processes...");
-    if let Err(e) = proxy_handle.kill() {
-        log::error!("[Manager] Error killing proxy process: {e}");
+    if let Some(ref mut proxy) = proxy_handle {
+        if let Err(e) = proxy.kill() {
+            log::error!("[Manager] Error killing proxy process: {e}");
+        }
+        let _ = proxy.wait();
     }
     if let Err(e) = app_handle.kill() {
         log::error!("[Manager] Error killing app process: {e}");
     }
-    let _ = proxy_handle.wait();
     let _ = app_handle.wait();
     log::info!("[Manager] Shutdown complete.");
 }

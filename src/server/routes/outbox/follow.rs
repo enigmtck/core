@@ -1,22 +1,19 @@
 use crate::server::routes::Outbox;
 use crate::{
-    db::runner::DbRunner, events::EventChannels,
+    db::runner::DbRunner,
     models::activities::get_unrevoked_activity_by_kind_actor_id_and_target_ap_id,
 };
 use deadpool_diesel::postgres::Pool;
-use jdt_activity_pub::{ApActivity, ApAddress, ApFollow};
+use jdt_activity_pub::{ApActivity, ApFollow};
 use reqwest::StatusCode;
 
 use crate::{
     models::{
-        activities::{
-            create_activity, get_activity_by_ap_id, ActivityType, NewActivity,
-            TryFromExtendedActivity,
-        },
-        actors::{get_actor, get_actor_by_as_id, Actor},
+        activities::{create_activity, ActivityType, NewActivity, TryFromExtendedActivity},
+        actors::{get_actor_by_as_id, Actor},
         follows::{create_follow, NewFollow},
     },
-    runner::{self, get_inboxes, send_to_inboxes, TaskError},
+    runner::{self},
 };
 use serde_json::Value;
 
@@ -133,17 +130,12 @@ async fn follow_outbox<C: DbRunner>(
         created_activity
     };
 
-    let pool = pool.clone();
     let ap_id = activity.ap_id.clone().ok_or_else(|| {
         log::error!("ActivityPub ID cannot be None for federation");
         StatusCode::BAD_REQUEST
     })?;
 
-    tokio::spawn(async move {
-        if let Err(e) = send(pool, None, vec![ap_id]).await {
-            log::error!("Failed to run follow send task: {e:?}");
-        }
-    });
+    runner::run(runner::send_activity_task, pool, None, vec![ap_id]).await;
 
     // Convert the database activity into an ActivityPub activity for the response.
     let ap_activity =
@@ -156,56 +148,56 @@ async fn follow_outbox<C: DbRunner>(
     Ok(ActivityJson(ap_activity))
 }
 
-async fn send(
-    pool: Pool,
-    _channels: Option<EventChannels>,
-    ap_ids: Vec<String>,
-) -> Result<(), TaskError> {
-    //let conn = pool.get().await.map_err(|_| TaskError::TaskFailed)?;
+// async fn send(
+//     pool: Pool,
+//     _channels: Option<EventChannels>,
+//     ap_ids: Vec<String>,
+// ) -> Result<(), TaskError> {
+//     //let conn = pool.get().await.map_err(|_| TaskError::TaskFailed)?;
 
-    for ap_id in ap_ids {
-        let conn = pool.get().await.map_err(|_| TaskError::TaskFailed)?;
-        let (activity, target_activity, target_object, target_actor) =
-            get_activity_by_ap_id(&conn, ap_id.clone())
-                .await
-                .map_err(|e| {
-                    log::error!("Failed to retrieve Activity: {e}");
-                    TaskError::TaskFailed
-                })?
-                .ok_or_else(|| {
-                    log::error!("Activity not found: {ap_id}");
-                    TaskError::TaskFailed
-                })?;
+//     for ap_id in ap_ids {
+//         let conn = pool.get().await.map_err(|_| TaskError::TaskFailed)?;
+//         let (activity, target_activity, target_object, target_actor) =
+//             get_activity_by_ap_id(&conn, ap_id.clone())
+//                 .await
+//                 .map_err(|e| {
+//                     log::error!("Failed to retrieve Activity: {e}");
+//                     TaskError::TaskFailed
+//                 })?
+//                 .ok_or_else(|| {
+//                     log::error!("Activity not found: {ap_id}");
+//                     TaskError::TaskFailed
+//                 })?;
 
-        let sender = get_actor(
-            &conn,
-            activity.actor_id.ok_or_else(|| {
-                log::error!("Failed to retrieve Actor");
-                TaskError::TaskFailed
-            })?,
-        )
-        .await
-        .map_err(|_| TaskError::TaskFailed)?;
+//         let sender = get_actor(
+//             &conn,
+//             activity.actor_id.ok_or_else(|| {
+//                 log::error!("Failed to retrieve Actor");
+//                 TaskError::TaskFailed
+//             })?,
+//         )
+//         .await
+//         .map_err(|_| TaskError::TaskFailed)?;
 
-        let activity = ApActivity::try_from_extended_activity((
-            activity,
-            target_activity,
-            target_object,
-            target_actor,
-        ))
-        .map_err(|e| {
-            log::error!("Failed to build ApActivity: {e:#?}");
-            TaskError::TaskFailed
-        })?;
+//         let activity = ApActivity::try_from_extended_activity((
+//             activity,
+//             target_activity,
+//             target_object,
+//             target_actor,
+//         ))
+//         .map_err(|e| {
+//             log::error!("Failed to build ApActivity: {e:#?}");
+//             TaskError::TaskFailed
+//         })?;
 
-        let inboxes: Vec<ApAddress> = get_inboxes(&conn, activity.clone(), sender.clone()).await;
+//         let inboxes: Vec<ApAddress> = get_inboxes(&conn, activity.clone(), sender.clone()).await;
 
-        send_to_inboxes(&conn, inboxes, sender, activity.clone())
-            .await
-            .map_err(|e| {
-                log::error!("Failed to send to inboxes: {e:#?}");
-                TaskError::TaskFailed
-            })?;
-    }
-    Ok(())
-}
+//         send_to_inboxes(&conn, inboxes, sender, activity.clone())
+//             .await
+//             .map_err(|e| {
+//                 log::error!("Failed to send to inboxes: {e:#?}");
+//                 TaskError::TaskFailed
+//             })?;
+//     }
+//     Ok(())
+// }

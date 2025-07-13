@@ -30,13 +30,14 @@ impl Inbox for ApAnnounce {
             let pool = pool.clone();
             let ap_id = activity.ap_id.clone().ok_or(StatusCode::BAD_REQUEST)?;
 
-            tokio::spawn(async move {
-                if let Err(e) =
-                    runner::announce::remote_announce_task(pool, None, vec![ap_id]).await
-                {
-                    log::error!("Failed to run remote_announce_task: {e:?}");
-                }
-            });
+            runner::run(
+                runner::announce::remote_announce_task,
+                pool,
+                None,
+                vec![ap_id],
+            )
+            .await;
+
             Ok(StatusCode::ACCEPTED)
         } else {
             log::error!("FAILED TO CREATE ACTIVITY\n{raw}");

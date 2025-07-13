@@ -12,7 +12,7 @@ use crate::{
 };
 use axum::{
     body::Bytes,
-    extract::{Query, State},
+    extract::{Path, Query, State},
     http::StatusCode,
 };
 use jdt_activity_pub::{ActivityPub, ApActivity, ApActor, ApCollection, ApObject};
@@ -132,6 +132,7 @@ pub struct AxumHashedJson {
 pub async fn axum_shared_inbox_get(
     State(app_state): State<AppState>,
     Query(query): Query<InboxQuery>,
+    _username: Option<Path<String>>,
     signed: AxumSigned,
 ) -> Result<ActivityJson<ApObject>, StatusCode> {
     let conn = match app_state.db_pool.get().await {
@@ -246,6 +247,7 @@ pub async fn axum_shared_inbox_get(
 
 pub async fn axum_shared_inbox_post(
     State(state): State<AppState>,
+    _username: Option<Path<String>>,
     signed: AxumSigned,
     permitted: Permitted,
     bytes: Bytes,

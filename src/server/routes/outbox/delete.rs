@@ -32,7 +32,7 @@ async fn delete_outbox<C: DbRunner>(
     conn: &C,
     pool: Pool,
     mut delete: ApDelete,
-    profile: Actor,
+    _profile: Actor,
     raw: Value,
 ) -> Result<ActivityJson<ApActivity>, StatusCode> {
     let as_id = delete
@@ -79,22 +79,29 @@ async fn delete_outbox<C: DbRunner>(
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    delete.id = created_activity.ap_id;
+    delete.id = created_activity.ap_id.clone();
+    let ap_id = created_activity.ap_id.ok_or_else(|| {
+        log::error!("Activity ap_id cannot be None");
+        StatusCode::INTERNAL_SERVER_ERROR
+    })?;
+
+    runner::run(runner::send_activity_task, pool, None, vec![ap_id]).await;
+
     let final_activity = ApActivity::Delete(Box::new(delete));
 
-    let db_pool = pool.clone();
-    let message_to_send = final_activity.clone();
+    // let db_pool = pool.clone();
+    // let message_to_send = final_activity.clone();
 
-    let cloned_activity = final_activity.clone();
-    tokio::spawn(async move {
-        if let Ok(conn) = db_pool.get().await {
-            let inboxes = runner::get_inboxes(&conn, cloned_activity, profile.clone()).await;
-            if let Err(e) = runner::send_to_inboxes(&conn, inboxes, profile, message_to_send).await
-            {
-                log::error!("Failed to send delete activity: {e}");
-            }
-        }
-    });
+    // let cloned_activity = final_activity.clone();
+    // tokio::spawn(async move {
+    //     if let Ok(conn) = db_pool.get().await {
+    //         let inboxes = runner::get_inboxes(&conn, cloned_activity, profile.clone()).await;
+    //         if let Err(e) = runner::send_to_inboxes(&conn, inboxes, profile, message_to_send).await
+    //         {
+    //             log::error!("Failed to send delete activity: {e}");
+    //         }
+    //     }
+    // });
 
     Ok(ActivityJson(final_activity))
 }

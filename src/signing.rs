@@ -85,7 +85,7 @@ impl std::fmt::Display for VerifyParams {
     }
 }
 
-pub fn build_verify_string(params: VerifyMapParams) -> VerifyParams {
+pub fn build_verify_string(params: VerifyMapParams) -> Result<VerifyParams, VerificationError> {
     let mut signature_map = HashMap::<String, String>::new();
 
     for cap in ASSIGNMENT_RE.captures_iter(&params.signature) {
@@ -94,7 +94,10 @@ pub fn build_verify_string(params: VerifyMapParams) -> VerifyParams {
 
     let key_id = signature_map
         .get("keyId")
-        .expect("keyId not found in signature_map")
+        .ok_or_else(|| {
+            log::error!("No key_id found in signature map");
+            VerificationError::NoKeyId
+        })?
         .clone();
 
     let mut local = false;
@@ -135,7 +138,7 @@ pub fn build_verify_string(params: VerifyMapParams) -> VerifyParams {
         .collect::<Vec<String>>()
         .join("\n");
 
-    VerifyParams {
+    Ok(VerifyParams {
         verify_string,
         signature: signature_map
             .get("signature")
@@ -145,7 +148,7 @@ pub fn build_verify_string(params: VerifyMapParams) -> VerifyParams {
         key_selector,
         local,
         signer_username,
-    }
+    })
 }
 
 // Remote and Local need to pass back the base64-encoded hash so that the destination
@@ -212,8 +215,6 @@ pub async fn verify(
     conn: &impl DbRunner,
     params: VerifyMapParams,
 ) -> Result<VerificationType, VerificationError> {
-    let verify_params = build_verify_string(params.clone());
-
     let VerifyParams {
         verify_string,
         signature: signature_str,
@@ -221,9 +222,7 @@ pub async fn verify(
         key_selector,
         local,
         signer_username: username,
-    } = verify_params.clone();
-
-    // The old inner `verify` function is no longer needed.
+    } = build_verify_string(params.clone())?;
 
     if local && key_selector == Some("client-key".to_string()) {
         let username = username.ok_or(VerificationError::ProfileNotFound)?;

@@ -2,8 +2,9 @@ use std::{collections::HashSet, error::Error, fmt::Debug};
 
 use crate::db::runner::DbRunner;
 use crate::events::EventChannels;
+use crate::models::activities::get_activity_by_ap_id;
+use crate::models::activities::TryFromExtendedActivity;
 use anyhow::{anyhow, Result};
-use async_trait::async_trait;
 use deadpool_diesel::postgres::Pool;
 use futures_lite::Future;
 use reqwest::Client;
@@ -310,4 +311,56 @@ where
     Fut: Future<Output = Result<(), TaskError>> + Send + 'static,
 {
     tokio::spawn(f(pool, channels, params));
+}
+
+pub async fn send_activity_task(
+    pool: Pool,
+    _channels: Option<EventChannels>,
+    ap_ids: Vec<String>,
+) -> Result<(), TaskError> {
+    use crate::models::actors::get_actor;
+    let conn = pool.get().await.map_err(|_| TaskError::TaskFailed)?;
+
+    for ap_id in ap_ids {
+        let (activity, target_activity, target_object, target_actor) =
+            get_activity_by_ap_id(&conn, ap_id.clone())
+                .await
+                .map_err(|e| {
+                    log::error!("DB error retrieving activity {ap_id}: {e}");
+                    TaskError::TaskFailed
+                })?
+                .ok_or_else(|| {
+                    log::error!("Failed to retrieve Activity: {ap_id}");
+                    TaskError::TaskFailed
+                })?;
+
+        let profile_id = activity.actor_id.ok_or(TaskError::TaskFailed)?;
+        let sender = get_actor(&conn, profile_id).await.map_err(|_| {
+            log::error!("Failed to retrieve Actor: {profile_id}");
+            TaskError::TaskFailed
+        })?;
+
+        let activity = ApActivity::try_from_extended_activity((
+            activity,
+            target_activity,
+            target_object,
+            target_actor,
+        ))
+        .map_err(|e| {
+            log::error!("Failed to build ApActivity: {e}");
+            TaskError::TaskFailed
+        })?
+        .formalize();
+
+        let inboxes: Vec<ApAddress> = get_inboxes(&conn, activity.clone(), sender.clone()).await;
+
+        send_to_inboxes(&conn, inboxes, sender, activity.clone())
+            .await
+            .map_err(|e| {
+                log::error!("Failed to send Announce: {e}");
+                TaskError::TaskFailed
+            })?;
+    }
+
+    Ok(())
 }

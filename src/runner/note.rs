@@ -10,10 +10,11 @@ use crate::models::cache::Cache;
 use crate::models::objects;
 use crate::models::objects::{create_or_update_object, get_object_by_as_id, Object};
 use crate::retriever::{get_actor, signed_get};
+use crate::server::sanitize_json_fields;
 use crate::signing::Method;
 use crate::ANCHOR_RE;
 use jdt_activity_pub::{ApHashtag, ApObject, Metadata};
-use serde_json::json;
+use serde_json::{json, Value};
 
 use super::TaskError;
 
@@ -27,22 +28,32 @@ pub async fn fetch_remote_object<C: DbRunner>(
 
     match signed_get(profile, id, false).await {
         Ok(resp) => match resp.status() {
-            StatusCode::ACCEPTED | StatusCode::OK => match resp.json().await {
-                Ok(ApObject::Note(note)) => {
-                    create_or_update_object(conn, note.cache(conn).await.clone().into()).await
+            StatusCode::ACCEPTED | StatusCode::OK => {
+                if let Ok(resp) = resp.json::<Value>().await {
+                    let sanitized = sanitize_json_fields(resp.clone());
+                    match serde_json::from_value::<ApObject>(sanitized) {
+                        Ok(ApObject::Note(note)) => {
+                            create_or_update_object(conn, note.cache(conn).await.clone().into())
+                                .await
+                        }
+                        Ok(ApObject::Question(question)) => {
+                            create_or_update_object(conn, question.cache(conn).await.clone().into())
+                                .await
+                        }
+                        Ok(ApObject::Article(article)) => {
+                            create_or_update_object(conn, article.cache(conn).await.clone().into())
+                                .await
+                        }
+                        Err(e) => {
+                            log::error!("Failed to decode remote Object: {e}");
+                            Err(e.into())
+                        }
+                        _ => Err(anyhow!("Unimplemented ApObject")),
+                    }
+                } else {
+                    Err(anyhow!("Failed to convert response to JSON"))
                 }
-                Ok(ApObject::Question(question)) => {
-                    create_or_update_object(conn, question.cache(conn).await.clone().into()).await
-                }
-                Ok(ApObject::Article(article)) => {
-                    create_or_update_object(conn, article.cache(conn).await.clone().into()).await
-                }
-                Err(e) => {
-                    log::error!("Failed to decode remote Object: {e}");
-                    Err(e.into())
-                }
-                _ => Err(anyhow!("Unimplemented ApObject")),
-            },
+            }
             StatusCode::GONE => {
                 log::debug!("Remote Object no longer exists at source");
                 Err(anyhow!("Object no longer exists"))

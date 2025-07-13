@@ -7,74 +7,15 @@ use crate::{
     events::EventChannels,
     helper::get_domain_from_url,
     models::{
-        activities::{
-            get_activity_by_ap_id, revoke_activity_by_apid, update_target_object,
-            TryFromExtendedActivity,
-        },
-        actors::{get_actor, guaranteed_actor, Actor},
+        activities::{get_activity_by_ap_id, revoke_activity_by_apid, update_target_object},
+        actors::{guaranteed_actor, Actor},
         instances::get_instance_by_domain_name,
         objects::{get_object_by_as_id, Object},
     },
-    runner::{
-        get_inboxes,
-        note::{fetch_remote_object, handle_object},
-        send_to_inboxes,
-    },
+    runner::note::{fetch_remote_object, handle_object},
 };
-use jdt_activity_pub::{ApActivity, ApAddress};
 
 use super::TaskError;
-
-pub async fn send_announce_task(
-    pool: Pool,
-    _channels: Option<EventChannels>,
-    ap_ids: Vec<String>,
-) -> Result<()> {
-    let conn = pool.get().await.map_err(|_| TaskError::TaskFailed)?;
-
-    for ap_id in ap_ids {
-        let (activity, target_activity, target_object, target_actor) =
-            get_activity_by_ap_id(&conn, ap_id.clone())
-                .await
-                .map_err(|e| {
-                    log::error!("DB error retrieving activity {ap_id}: {e}");
-                    TaskError::TaskFailed
-                })?
-                .ok_or_else(|| {
-                    log::error!("Failed to retrieve Activity: {ap_id}");
-                    TaskError::TaskFailed
-                })?;
-
-        let profile_id = activity.actor_id.ok_or(TaskError::TaskFailed)?;
-        let sender = get_actor(&conn, profile_id).await.map_err(|_| {
-            log::error!("Failed to retrieve Actor: {profile_id}");
-            TaskError::TaskFailed
-        })?;
-
-        let activity = ApActivity::try_from_extended_activity((
-            activity,
-            target_activity,
-            target_object,
-            target_actor,
-        ))
-        .map_err(|e| {
-            log::error!("Failed to build ApActivity: {e}");
-            TaskError::TaskFailed
-        })?
-        .formalize();
-
-        let inboxes: Vec<ApAddress> = get_inboxes(&conn, activity.clone(), sender.clone()).await;
-
-        send_to_inboxes(&conn, inboxes, sender, activity.clone())
-            .await
-            .map_err(|e| {
-                log::error!("Failed to send Announce: {e}");
-                TaskError::TaskFailed
-            })?;
-    }
-
-    Ok(())
-}
 
 pub async fn remote_undo_announce_task(
     pool: Pool,

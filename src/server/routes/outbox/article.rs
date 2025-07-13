@@ -8,7 +8,7 @@ use crate::{
     models::actors::{self},
     models::{
         activities::{
-            create_activity, get_activity_by_ap_id, Activity, NewActivity, TryFromExtendedActivity,
+            create_activity, get_activity_by_ap_id, NewActivity, TryFromExtendedActivity,
         },
         actors::Actor,
         cache::{cache_content, Cacheable},
@@ -166,11 +166,7 @@ async fn article_outbox<C: DbRunner>(
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
 
-    tokio::spawn(async move {
-        if let Err(e) = send_article(pool, None, vec![ap_id]).await {
-            log::error!("Failed to run send_article task: {e:?}");
-        }
-    });
+    runner::run(send_article, pool, None, vec![ap_id]).await;
 
     Ok(ActivityJson(ap_activity))
 }
@@ -180,10 +176,9 @@ async fn send_article(
     _channels: Option<EventChannels>,
     ap_ids: Vec<String>,
 ) -> Result<(), TaskError> {
-    //let conn = pool.get().await.map_err(|_| TaskError::TaskFailed)?;
+    let conn = pool.get().await.map_err(|_| TaskError::TaskFailed)?;
 
     for ap_id in ap_ids {
-        let conn = pool.get().await.map_err(|_| TaskError::TaskFailed)?;
         let (activity, target_activity, target_object, target_actor) =
             get_activity_by_ap_id(&conn, ap_id.clone())
                 .await

@@ -12,6 +12,7 @@ pub mod extractors;
 mod retriever;
 mod routes;
 
+pub use routes::inbox::sanitize_json_fields;
 pub use routes::inbox::InboxView;
 
 // This struct will hold all shared state for the Axum part of the application.
@@ -56,7 +57,7 @@ pub async fn start() {
             get(routes::inbox::axum_shared_inbox_get).post(routes::inbox::axum_shared_inbox_post),
         )
         .route(
-            "/user/:username/inbox",
+            "/user/{username}/inbox",
             get(routes::inbox::axum_shared_inbox_get).post(routes::inbox::axum_shared_inbox_post),
         )
         // Authentication routes
@@ -65,7 +66,7 @@ pub async fn start() {
             post(routes::authentication::authenticate_user),
         )
         .route(
-            "/api/user/:username/password",
+            "/api/user/{username}/password",
             post(routes::authentication::change_password),
         )
         // Instance routes
@@ -75,7 +76,7 @@ pub async fn start() {
             get(routes::webfinger::axum_webfinger),
         )
         .route(
-            "/api/:version/instance",
+            "/api/{version}/instance",
             get(routes::instance::instance_information),
         )
         // Encryption routes
@@ -83,38 +84,38 @@ pub async fn start() {
             "/api/instruments",
             post(routes::encryption::update_instruments),
         )
-        .route("/user/:username/keys", get(routes::encryption::keys))
+        .route("/user/{username}/keys", get(routes::encryption::keys))
         // User routes
         .route(
-            "/user/:username",
+            "/user/{username}",
             get(routes::user::person_get).post(routes::user::person_post),
         )
-        .route("/user/:username/liked", get(routes::user::liked_get))
+        .route("/user/{username}/liked", get(routes::user::liked_get))
         .route(
-            "/user/:username/followers",
+            "/user/{username}/followers",
             get(routes::user::get_followers),
         )
-        .route("/user/:username/following", get(routes::user::get_leaders))
+        .route("/user/{username}/following", get(routes::user::get_leaders))
         .route(
-            "/user/:username/outbox",
+            "/user/{username}/outbox",
             get(routes::outbox::axum_outbox_get).post(routes::outbox::axum_outbox_post),
         )
-        .route("/api/user/:username", get(routes::user::user_get_api))
+        .route("/api/user/{username}", get(routes::user::user_get_api))
         .route(
-            "/api/user/:username/update/summary",
+            "/api/user/{username}/update/summary",
             post(routes::user::update_summary),
         )
         .route(
-            "/api/user/:username/avatar",
+            "/api/user/{username}/avatar",
             post(routes::user::upload_avatar),
         )
         .route(
-            "/api/user/:username/banner",
+            "/api/user/{username}/banner",
             post(routes::user::upload_banner),
         )
         // Image routes
         .route(
-            "/api/user/:username/media",
+            "/api/user/{username}/media",
             post(routes::image::upload_media),
         )
         .route("/api/cache", get(routes::image::cached_image))
@@ -123,19 +124,19 @@ pub async fn start() {
             "/api/conversation",
             get(routes::inbox::axum_conversation_get),
         )
-        .route("/objects/:uuid", get(routes::objects::object_get))
+        .route("/objects/{uuid}", get(routes::objects::object_get))
         // Remote routes
         .route(
             "/api/remote/webfinger",
             get(routes::remote::remote_webfinger_by_id),
         )
         .route(
-            "/api/user/:username/remote/webfinger",
+            "/api/user/{username}/remote/webfinger",
             get(routes::remote::remote_webfinger_by_id),
         )
         .route("/api/remote/actor", get(routes::remote::remote_actor))
         .route(
-            "/api/user/:username/remote/actor",
+            "/api/user/{username}/remote/actor",
             get(routes::remote::remote_actor),
         )
         .route(
@@ -143,7 +144,7 @@ pub async fn start() {
             get(routes::remote::remote_followers),
         )
         .route(
-            "/api/user/:username/remote/followers",
+            "/api/user/{username}/remote/followers",
             get(routes::remote::remote_followers),
         )
         .route(
@@ -151,16 +152,16 @@ pub async fn start() {
             get(routes::remote::remote_following),
         )
         .route(
-            "/api/user/:username/remote/following",
+            "/api/user/{username}/remote/following",
             get(routes::remote::remote_following),
         )
         .route("/api/remote/outbox", get(routes::remote::remote_outbox))
         .route(
-            "/api/user/:username/remote/outbox",
+            "/api/user/{username}/remote/outbox",
             get(routes::remote::remote_outbox),
         )
         .route(
-            "/api/user/:username/remote/keys",
+            "/api/user/{username}/remote/keys",
             get(routes::remote::remote_keys),
         )
         .route("/api/remote/object", get(routes::remote::remote_object))
@@ -168,7 +169,7 @@ pub async fn start() {
         .route("/api/user/create", post(routes::admin::create_user))
         .route("/api/system/relay", post(routes::admin::relay_post))
         .route(
-            "/api/user/:username/muted-terms",
+            "/api/user/{username}/muted-terms",
             get(routes::admin::get_muted_terms).post(routes::admin::manage_muted_terms),
         )
         // Client routes
@@ -176,18 +177,18 @@ pub async fn start() {
         .route("/signup", get(routes::client::client_signup))
         .route("/timeline", get(routes::client::client_timeline))
         .route("/notes", get(routes::client::client_notes))
-        .route("/_app/*path", get(routes::client::client_app_file))
-        .route("/assets/*path", get(routes::client::client_assets_file))
+        .route("/_app/{*path}", get(routes::client::client_app_file))
+        .route("/assets/{*path}", get(routes::client::client_assets_file))
         .route(
-            "/fontawesome/*path",
+            "/fontawesome/{*path}",
             get(routes::client::client_fontawesome_file),
         )
-        .route("/fonts/*path", get(routes::client::client_fonts_file))
+        .route("/fonts/{*path}", get(routes::client::client_fonts_file))
         .route(
-            "/highlight/*path",
+            "/highlight/{*path}",
             get(routes::client::client_highlight_file),
         )
-        .route("/icons/*path", get(routes::client::client_icons_file))
+        .route("/icons/{*path}", get(routes::client::client_icons_file))
         // Media file servers
         .nest_service(
             "/media/avatars",
@@ -201,7 +202,7 @@ pub async fn start() {
             "/media/uploads",
             ServeDir::new(format!("{}/uploads", *crate::MEDIA_DIR)),
         )
-        .route("/:handle", get(routes::client::client_profile))
+        .route("/{handle}", get(routes::client::client_profile))
         .route("/", get(routes::client::client_index))
         .with_state(app_state);
 

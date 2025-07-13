@@ -1718,34 +1718,6 @@ pub async fn add_log_by_as_id<C: DbRunner>(conn: &C, as_id: String, entry: Value
         query.execute(c)
     })
     .await
-    // match conn {
-    //     Some(db_conn) => {
-    //         let mut query = sql_query(
-    //             "UPDATE activities a SET log = COALESCE(a.log, '[]'::jsonb) || $1::jsonb WHERE ap_id = $2",
-    //         )
-    //         .into_boxed::<DbType>();
-    //         query = query.bind::<Jsonb, _>(entry);
-    //         query = query.bind::<Text, _>(as_id);
-
-    //         db_conn
-    //             .run(move |c| query.execute(c))
-    //             .await
-    //             .map_err(anyhow::Error::msg)
-    //     }
-    //     None => {
-    //         tokio::task::spawn_blocking(move || {
-    //             let mut pool_conn = POOL.get().map_err(anyhow::Error::msg)?;
-    //             let mut query = sql_query(
-    //                 "UPDATE activities a SET log = COALESCE(a.log, '[]'::jsonb) || $1::jsonb WHERE ap_id = $2",
-    //             )
-    //             .into_boxed::<DbType>();
-    //             query = query.bind::<Jsonb, _>(entry);
-    //             query = query.bind::<Text, _>(as_id);
-    //             query.execute(&mut pool_conn).map_err(anyhow::Error::msg)
-    //         })
-    //         .await?
-    //     }
-    // }
 }
 
 #[allow(clippy::too_many_arguments)]

@@ -64,11 +64,12 @@ impl Outbox for Box<ApUndo> {
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
 
-        tokio::spawn(async move {
-            if let Err(e) = send_task(pool, None, vec![ap_id]).await {
-                log::error!("Failed to run undo send_task: {e:?}");
-            }
-        });
+        runner::run(send_task, pool, None, vec![ap_id]).await;
+        // tokio::spawn(async move {
+        //     if let Err(e) = send_task(pool, None, vec![ap_id]).await {
+        //         log::error!("Failed to run undo send_task: {e:?}");
+        //     }
+        // });
 
         let activity =
             ApActivity::try_from_extended_activity((undo, Some(activity), target_object, None))

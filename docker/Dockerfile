@@ -16,11 +16,14 @@ WORKDIR /opt/build
 COPY Cargo.toml Cargo.lock rust-toolchain.toml ./
 # Create dummy source structure
 RUN mkdir -p src/bin/enigmatick
+RUN mkdir -p proxy/src
+COPY proxy/Cargo.toml proxy/
 RUN echo "fn main() {}" > src/bin/enigmatick/mod.rs
 RUN echo "fn main() {}" > src/main.rs
+RUN echo "fn main() {}" > proxy/src/main.rs
 # Build dependencies only (this will still cache most dependencies)
-RUN cargo build --no-default-features -F pg --release
-RUN rm -rf src target/release/enigmatick* target/release/build/enigmatick*
+RUN cargo build --workspace --release --features ffmpeg
+RUN rm -rf src target/release/enigmatick* target/release/build/enigmatick* target/release/proxy* target/release/build/proxy*
 
 FROM dependencies AS builder
 # Copy source and assets - this layer rebuilds on code changes
@@ -29,7 +32,7 @@ COPY client ./client
 COPY bundled ./bundled
 COPY migrations.pg ./migrations.pg
 # Build only your code - dependencies already compiled
-RUN cargo build --no-default-features -F pg --bin enigmatick --release
+RUN cargo build --workspace --release --features ffmpeg
 
 FROM debian:bookworm-slim AS runtime
 RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
@@ -42,6 +45,7 @@ RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-ins
 RUN mkdir -p /srv/enigmatick
 WORKDIR /srv/enigmatick
 COPY --from=builder /opt/build/target/release/enigmatick ./
+COPY --from=builder /opt/build/target/release/proxy ./
 
 COPY docker/files/start /usr/local/bin/start
 RUN chmod a+x /usr/local/bin/start

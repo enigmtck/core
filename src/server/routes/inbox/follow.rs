@@ -74,11 +74,7 @@ impl Inbox for ApFollow {
         let pool = pool.clone();
         let ap_id = activity.ap_id.ok_or(StatusCode::INTERNAL_SERVER_ERROR)?;
 
-        tokio::spawn(async move {
-            if let Err(e) = process(pool, None, vec![ap_id]).await {
-                log::error!("Failed to run follow process task: {e:?}");
-            }
-        });
+        runner::run(process, pool, None, vec![ap_id]).await;
 
         Ok(StatusCode::ACCEPTED)
     }

@@ -10,7 +10,7 @@ use crate::{
     models::actors::{self},
     models::{
         activities::{
-            create_activity, get_activity_by_ap_id, Activity, NewActivity, TryFromExtendedActivity,
+            create_activity, get_activity_by_ap_id, NewActivity, TryFromExtendedActivity,
         },
         actors::Actor,
         cache::{cache_content, Cacheable},
@@ -172,11 +172,13 @@ async fn note_outbox<C: DbRunner>(
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
 
-    tokio::spawn(async move {
-        if let Err(e) = send_note(pool, None, vec![ap_id]).await {
-            log::error!("Failed to run send_note task: {e:?}");
-        }
-    });
+    runner::run(send_note, pool, None, vec![ap_id]).await;
+
+    // tokio::spawn(async move {
+    //     if let Err(e) = send_note(pool, None, vec![ap_id]).await {
+    //         log::error!("Failed to run send_note task: {e:?}");
+    //     }
+    // });
 
     Ok(ActivityJson(ap_activity))
 }

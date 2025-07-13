@@ -62,11 +62,7 @@ async fn announce_outbox<C: DbRunner>(
             .clone()
             .ok_or(StatusCode::INTERNAL_SERVER_ERROR)?;
 
-        tokio::spawn(async move {
-            if let Err(e) = runner::announce::send_announce_task(pool, None, vec![ap_id]).await {
-                log::error!("Failed to run send_announce_task: {e:?}");
-            }
-        });
+        runner::run(runner::send_activity_task, pool, None, vec![ap_id]).await;
 
         let activity: ApActivity =
             ApActivity::try_from_extended_activity((activity, None, Some(object), None)).map_err(

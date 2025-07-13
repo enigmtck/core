@@ -31,7 +31,7 @@ async fn create_outbox<C: DbRunner>(
     conn: &C,
     pool: Pool,
     mut create: ApCreate,
-    profile: Actor,
+    _profile: Actor,
     raw: Value,
 ) -> Result<ActivityJson<ApActivity>, StatusCode> {
     let object_to_create = match &create.object {
@@ -79,23 +79,29 @@ async fn create_outbox<C: DbRunner>(
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    create.id = created_activity.ap_id;
+    create.id = created_activity.ap_id.clone();
+    let ap_id = created_activity.ap_id.ok_or_else(|| {
+        log::error!("Activity ap_id cannot be None");
+        StatusCode::INTERNAL_SERVER_ERROR
+    })?;
 
     log::debug!("{create:?}");
 
     let final_activity = ApActivity::Create(create);
 
-    let db_pool = pool.clone();
-    let message_to_send = final_activity.clone();
-    tokio::spawn(async move {
-        if let Ok(conn) = db_pool.get().await {
-            let inboxes = runner::user::get_follower_inboxes(&conn, profile.clone()).await;
-            if let Err(e) = runner::send_to_inboxes(&conn, inboxes, profile, message_to_send).await
-            {
-                log::error!("Failed to send create activity: {e}");
-            }
-        }
-    });
+    // let db_pool = pool.clone();
+    // let message_to_send = final_activity.clone();
+
+    runner::run(runner::send_activity_task, pool, None, vec![ap_id]).await;
+    // tokio::spawn(async move {
+    //     if let Ok(conn) = db_pool.get().await {
+    //         let inboxes = runner::user::get_follower_inboxes(&conn, profile.clone()).await;
+    //         if let Err(e) = runner::send_to_inboxes(&conn, inboxes, profile, message_to_send).await
+    //         {
+    //             log::error!("Failed to send create activity: {e}");
+    //         }
+    //     }
+    // });
 
     Ok(ActivityJson(final_activity))
 }

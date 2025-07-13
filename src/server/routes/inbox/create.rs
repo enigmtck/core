@@ -26,13 +26,17 @@ impl Inbox for ApCreate {
         log::debug!("{:?}", self.clone());
 
         if let Some(id) = self.id.clone() {
-            if get_activity_by_ap_id(conn, id).await.is_ok() {
+            if get_activity_by_ap_id(conn, id)
+                .await
+                .is_ok_and(|x| x.is_some())
+            {
                 return Ok(StatusCode::ACCEPTED);
             }
         }
 
         match self.clone().object {
             MaybeReference::Actual(ApObject::Note(x)) => {
+                log::debug!("{x:?}");
                 let new_object = NewObject::from(x.clone());
 
                 let object = create_or_update_object(conn, new_object)
@@ -57,12 +61,7 @@ impl Inbox for ApCreate {
                     let pool = pool.clone();
                     let object_id = object.as_id.clone();
 
-                    tokio::spawn(async move {
-                        if let Err(e) = runner::note::object_task(pool, None, vec![object_id]).await
-                        {
-                            log::error!("Failed to run object_task for note: {e:?}");
-                        }
-                    });
+                    runner::run(runner::note::object_task, pool, None, vec![object_id]).await;
 
                     Ok(StatusCode::ACCEPTED)
                 } else {
@@ -71,6 +70,7 @@ impl Inbox for ApCreate {
                 }
             }
             MaybeReference::Actual(ApObject::Article(article)) => {
+                log::debug!("{article:?}");
                 let new_object = NewObject::from(article.clone());
 
                 let object = create_or_update_object(conn, new_object)
@@ -95,12 +95,8 @@ impl Inbox for ApCreate {
                     let pool = pool.clone();
                     let object_id = object.as_id.clone();
 
-                    tokio::spawn(async move {
-                        if let Err(e) = runner::note::object_task(pool, None, vec![object_id]).await
-                        {
-                            log::error!("Failed to run object_task for article: {e:?}");
-                        }
-                    });
+                    runner::run(runner::note::object_task, pool, None, vec![object_id]).await;
+
                     Ok(StatusCode::ACCEPTED)
                 } else {
                     log::error!("FAILED TO INSERT ACTIVITY");
@@ -108,6 +104,7 @@ impl Inbox for ApCreate {
                 }
             }
             MaybeReference::Actual(ApObject::Question(question)) => {
+                log::debug!("{question:?}");
                 let new_object = NewObject::from(question.clone());
 
                 let object = create_or_update_object(conn, new_object)
@@ -132,12 +129,8 @@ impl Inbox for ApCreate {
                     let pool = pool.clone();
                     let object_id = object.as_id.clone();
 
-                    tokio::spawn(async move {
-                        if let Err(e) = runner::note::object_task(pool, None, vec![object_id]).await
-                        {
-                            log::error!("Failed to run object_task for question: {e:?}");
-                        }
-                    });
+                    runner::run(runner::note::object_task, pool, None, vec![object_id]).await;
+
                     Ok(StatusCode::ACCEPTED)
                 } else {
                     log::error!("FAILED TO INSERT ACTIVITY");

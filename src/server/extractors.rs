@@ -72,8 +72,6 @@ async fn verify_axum(
     conn: &DbConnection,
     params: VerifyMapParams,
 ) -> Result<VerificationType, VerificationError> {
-    let verify_params = build_verify_string(params.clone());
-
     let VerifyParams {
         verify_string,
         signature: signature_str,
@@ -81,7 +79,7 @@ async fn verify_axum(
         key_selector,
         local,
         signer_username: username,
-    } = verify_params.clone();
+    } = build_verify_string(params.clone())?;
 
     if local && key_selector == Some("client-key".to_string()) {
         let username = username.ok_or(VerificationError::ProfileNotFound)?;
