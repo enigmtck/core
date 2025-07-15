@@ -872,8 +872,13 @@ impl TryFromExtendedActivity for ApAnnounce {
         (activity, _target_activity, target_object, _target_actor): ExtendedActivity,
     ) -> Result<Self, Self::Error> {
         if activity.kind.to_string().to_lowercase().as_str() == "announce" {
-            let object = target_object.ok_or(anyhow!("INVALID ACTIVITY TYPE"))?;
-            let object = MaybeReference::Actual(ApObject::Note(ApNote::try_from(object)?));
+            let object: ApObject = if let Some(object) = target_object.clone() {
+                object.try_into()?
+            } else {
+                return Err(anyhow!("Unable to convert Object to ApObject"));
+            };
+            // let object = target_object.ok_or(anyhow!("INVALID ACTIVITY TYPE"))?;
+            // let object = MaybeReference::Actual(ApObject::Note(ApNote::try_from(object)?));
 
             Ok(ApAnnounce {
                 context: Some(ApContext::default()),
@@ -887,7 +892,7 @@ impl TryFromExtendedActivity for ApAnnounce {
                 to: activity.clone().ap_to.into(),
                 cc: activity.cc.into(),
                 published: activity.created_at.into(),
-                object,
+                object: object.into(),
                 ephemeral: Some(Ephemeral {
                     created_at: Some(activity.created_at),
                     updated_at: Some(activity.updated_at),
@@ -909,13 +914,19 @@ impl TryFromExtendedActivity for ApCreate {
     fn try_from_extended_activity(
         (activity, _target_activity, target_object, _target_actor): ExtendedActivity,
     ) -> Result<Self, Self::Error> {
-        let note = {
-            if let Some(object) = target_object.clone() {
-                ApObject::Note(ApNote::try_from(object)?)
-            } else {
-                return Err(anyhow!("ACTIVITY MUST INCLUDE A NOTE OR REMOTE_NOTE"));
-            }
+        let object: ApObject = if let Some(object) = target_object.clone() {
+            object.try_into()?
+        } else {
+            return Err(anyhow!("Unable to convert Object to ApObject"));
         };
+
+        // let note = {
+        //     if let Some(object) = target_object.clone() {
+        //         ApObject::Note(ApNote::try_from(object)?)
+        //     } else {
+        //         return Err(anyhow!("ACTIVITY MUST INCLUDE A NOTE OR REMOTE_NOTE"));
+        //     }
+        // };
 
         let instrument: MaybeMultiple<ApInstrument> = activity.instrument.into();
         let instrument = match instrument {
@@ -939,7 +950,7 @@ impl TryFromExtendedActivity for ApCreate {
             kind: ApCreateType::default(),
             actor: ApAddress::Address(activity.actor.clone()),
             id: activity.ap_id,
-            object: note.into(),
+            object: object.into(),
             to: activity.ap_to.clone().into(),
             cc: activity.cc.into(),
             signature: None,
@@ -1237,7 +1248,7 @@ SELECT DISTINCT
             AND a.kind = 'announce'), '[]') AS object_announcers,
     COALESCE(JSONB_AGG(jsonb_build_object('id', ac.as_id, 'name', ac.as_name, 'tag', ac.as_tag, 'url', ac.as_url, 'icon', ac.as_icon, 'preferredUsername', ac.as_preferred_username)) FILTER (WHERE a.actor IS NOT NULL
             AND a.kind = 'like'), '[]') AS object_likers,
-    JSONB_AGG(DISTINCT jsonb_build_object('id', ac2.as_id, 'name', ac2.as_name, 'tag', ac2.as_tag, 'url', ac2.as_url, 'icon', ac2.as_icon, 'preferredUsername', ac2.as_preferred_username)) AS object_attributed_to_profiles,
+    JSONB_AGG(DISTINCT jsonb_build_object('id', ac2.as_id, 'name', ac2.as_name, 'tag', ac2.as_tag, 'url', ac2.as_url, 'icon', ac2.as_icon, 'preferredUsername', ac2.as_preferred_username, 'webfinger', ac2.ek_webfinger)) AS object_attributed_to_profiles,
     announced.object_announced,
     liked.object_liked,
     vaulted.*,

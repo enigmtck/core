@@ -626,12 +626,12 @@ impl TryFrom<ApActor> for NewActor {
         let as_url = (&actor.url.clone()).into();
         let ap_manually_approves_followers = actor.manually_approves_followers.unwrap_or_default();
         let as_published = actor.published.as_deref().cloned();
-        let as_tag = actor.tag.into();
-        let as_attachment = actor.attachment.into();
+        let as_tag = json!(actor.tag.multiple());
+        let as_attachment = json!(actor.attachment.multiple());
         let as_endpoints = actor.endpoints.map_or(json!({}), |x| json!(x));
         let as_icon = actor.icon.map_or(json!({}), |x| json!(x));
         let as_image = actor.image.map_or(json!({}), |x| json!(x));
-        let as_also_known_as = actor.also_known_as.multiple().into();
+        let as_also_known_as = json!(actor.also_known_as.multiple());
         let as_discoverable = actor.discoverable.unwrap_or_default();
         let ap_capabilities = actor.capabilities.map_or(json!({}), |x| json!(x));
 

@@ -239,7 +239,7 @@ pub async fn get_leaders_by_follower_actor_id<C: DbRunner>(
             offset = format!(" OFFSET {}", (paging.page * paging.limit));
         };
 
-        sql_query(format!("SELECT f.*, a.* FROM follows f LEFT JOIN actors a ON (f.leader_ap_id = a.as_id) WHERE f.follower_actor_id = $1 ORDER BY f.created_at DESC{limit}{offset}"))
+        sql_query(format!("SELECT f.*, a.* FROM follows f LEFT JOIN actors a ON (f.leader_ap_id = a.as_id) WHERE f.follower_actor_id = $1 AND f.accepted = 't' ORDER BY f.created_at DESC{limit}{offset}"))
             .bind::<Integer, _>(follower_actor_id)
             .get_results::<(Follow, Option<Actor>)>(c)
     };

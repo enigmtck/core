@@ -8,12 +8,12 @@ use chrono::{DateTime, Utc};
 use convert_case::{Case, Casing};
 use diesel::prelude::*;
 use diesel::{sql_query, AsChangeset, Identifiable, Insertable, Queryable};
-use jdt_activity_pub::MaybeMultiple;
 use jdt_activity_pub::MaybeReference;
 use jdt_activity_pub::{
     ApAddress, ApArticle, ApDateTime, ApHashtag, ApNote, ApNoteType, ApObject, ApQuestion,
     ApQuestionType, Ephemeral,
 };
+use jdt_activity_pub::{ApArticleType, MaybeMultiple};
 use maplit::{hashmap, hashset};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -106,6 +106,17 @@ impl TryFrom<ObjectType> for ApNoteType {
             ObjectType::Note => Ok(Self::Note),
             ObjectType::EncryptedNote => Ok(Self::EncryptedNote),
             _ => Err(anyhow!("invalid Object type for ApNote")),
+        }
+    }
+}
+
+impl TryFrom<ObjectType> for ApArticleType {
+    type Error = anyhow::Error;
+
+    fn try_from(kind: ObjectType) -> Result<Self, Self::Error> {
+        match kind {
+            ObjectType::Article => Ok(Self::Article),
+            _ => Err(anyhow!("invalid Object type for ApArticle")),
         }
     }
 }
@@ -231,7 +242,14 @@ pub struct Object {
 impl Object {
     pub fn attributed_to(&self) -> Vec<String> {
         if let Some(attributed_to) = self.clone().as_attributed_to {
-            serde_json::from_value(attributed_to).unwrap_or_default()
+            match attributed_to {
+                Value::Array(x) => x
+                    .into_iter()
+                    .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                    .collect(),
+                Value::String(x) => vec![x],
+                _ => vec![],
+            }
         } else {
             vec![]
         }
@@ -290,6 +308,14 @@ impl From<ApQuestionType> for ObjectType {
     fn from(kind: ApQuestionType) -> Self {
         match kind {
             ApQuestionType::Question => ObjectType::Question,
+        }
+    }
+}
+
+impl From<ApArticleType> for ObjectType {
+    fn from(kind: ApArticleType) -> Self {
+        match kind {
+            ApArticleType::Article => ObjectType::Article,
         }
     }
 }
@@ -591,7 +617,7 @@ impl TryFrom<Object> for ApArticle {
         if object.as_type.is_article() {
             Ok(ApArticle {
                 id: Some(object.as_id.clone()),
-                kind: jdt_activity_pub::ApArticleType::Article,
+                kind: object.as_type.try_into()?,
                 published: object.as_published.unwrap_or(Utc::now()).into(),
                 updated: object.as_updated.map(|u| u.into()),
                 url: object.as_url.clone().and_then(from_serde),

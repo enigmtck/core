@@ -21,7 +21,8 @@ COPY proxy/Cargo.toml proxy/
 RUN echo "fn main() {}" > src/bin/enigmatick/mod.rs
 RUN echo "fn main() {}" > src/main.rs
 RUN echo "fn main() {}" > proxy/src/main.rs
-# Build dependencies only (this will still cache most dependencies)
+
+# Build dependencies only
 RUN cargo build --workspace --release --features ffmpeg
 RUN rm -rf src target/release/enigmatick* target/release/build/enigmatick* target/release/proxy* target/release/build/proxy*
 
@@ -31,7 +32,6 @@ COPY src ./src
 COPY client ./client
 COPY bundled ./bundled
 COPY migrations.pg ./migrations.pg
-# Build only your code - dependencies already compiled
 RUN cargo build --workspace --release --features ffmpeg
 
 FROM debian:bookworm-slim AS runtime

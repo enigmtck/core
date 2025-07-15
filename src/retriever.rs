@@ -13,7 +13,6 @@ use crate::models::actors::{
 };
 use crate::models::cache::Cache;
 use crate::models::follows::get_follow;
-//use crate::models::leaders::{get_leader_by_actor_ap_id_and_profile, Leader};
 use crate::models::objects::{create_or_update_object, get_object_by_as_id, NewObject};
 use crate::signing::{sign, Method, SignParams};
 use crate::webfinger::WebFinger;
@@ -48,7 +47,13 @@ pub async fn activities<C: DbRunner>(
 
     let activities = activities
         .into_iter()
-        .filter_map(|activity| ApActivity::try_from(activity.clone()).ok())
+        .filter_map(|activity| match ApActivity::try_from(activity.clone()) {
+            Ok(x) => Some(x),
+            Err(e) => {
+                log::error!("{e}");
+                None
+            }
+        })
         .map(ActivityPub::from)
         .collect();
 

@@ -109,7 +109,7 @@ fn metadata_object(object: &Object) -> Vec<Metadata> {
 
 pub async fn handle_object<C: DbRunner>(
     conn: &C,
-    channels: Option<EventChannels>,
+    _channels: Option<EventChannels>,
     mut object: Object,
     _announcer: Option<String>,
 ) -> anyhow::Result<Object> {
@@ -134,31 +134,23 @@ pub async fn handle_object<C: DbRunner>(
     }
 
     let ap_object: ApObject = object.clone().try_into()?;
-    let profile = guaranteed_actor(conn, None);
+    let profile = guaranteed_actor(conn, None).await;
 
-    if let ApObject::Note(note) = ap_object {
-        let _ = get_actor(
-            conn,
-            note.attributed_to.to_string(),
-            Some(profile.await),
-            true,
-        )
-        .await;
+    let _ = get_actor(
+        conn,
+        object
+            .attributed_to()
+            .first()
+            .ok_or(anyhow!("Failed to identify attribution"))?
+            .clone(),
+        Some(profile),
+        true,
+    )
+    .await;
 
-        // if let Some(announcer) = announcer {
-        //     note.ephemeral_announces = Some(vec![announcer]);
-        // }
+    ap_object.cache(conn).await;
 
-        note.cache(conn).await;
-
-        if let Some(mut channels) = channels {
-            channels.send(None, serde_json::to_string(&note.clone()).unwrap());
-        }
-
-        Ok(object)
-    } else {
-        Err(anyhow!("ApObject is not a Note"))
-    }
+    Ok(object)
 }
 
 pub async fn object_task(
