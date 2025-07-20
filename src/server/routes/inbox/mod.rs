@@ -12,9 +12,10 @@ use crate::{
 };
 use axum::{
     body::Bytes,
-    extract::{Path, Query, State},
+    extract::{Path, State},
     http::StatusCode,
 };
+use axum_extra::extract::Query;
 use jdt_activity_pub::{ActivityPub, ApActivity, ApActor, ApCollection, ApObject};
 use serde::Deserialize;
 use serde_json::{Map, Value};
@@ -120,6 +121,7 @@ pub struct InboxQuery {
     pub max: Option<i64>,
     pub limit: Option<u8>,
     pub view: Option<InboxView>,
+    #[serde(rename = "hashtags[]")]
     pub hashtags: Option<Vec<String>>,
 }
 
@@ -135,6 +137,8 @@ pub async fn axum_shared_inbox_get(
     _username: Option<Path<String>>,
     signed: AxumSigned,
 ) -> Result<ActivityJson<ApObject>, StatusCode> {
+    log::debug!("{query:?}");
+
     let conn = match app_state.db_pool.get().await {
         Ok(conn) => conn,
         Err(e) => {

@@ -4,6 +4,8 @@ use crate::db::runner::DbRunner;
 use crate::events::EventChannels;
 use crate::models::activities::get_activity_by_ap_id;
 use crate::models::activities::TryFromExtendedActivity;
+use crate::models::actors::tombstone_actor_by_as_id;
+use crate::models::objects::tombstone_object_by_as_id;
 use anyhow::{anyhow, Result};
 use deadpool_diesel::postgres::Pool;
 use futures_lite::Future;
@@ -340,8 +342,8 @@ pub async fn send_activity_task(
             TaskError::TaskFailed
         })?;
 
-        let activity = ApActivity::try_from_extended_activity((
-            activity,
+        let ap_activity = ApActivity::try_from_extended_activity((
+            activity.clone(),
             target_activity,
             target_object,
             target_actor,
@@ -352,9 +354,33 @@ pub async fn send_activity_task(
         })?
         .formalize();
 
-        let inboxes: Vec<ApAddress> = get_inboxes(&conn, activity.clone(), sender.clone()).await;
+        if activity.kind.is_delete()
+            && activity.target_actor_id.is_some()
+            && activity.target_ap_id.is_some()
+        {
+            tombstone_actor_by_as_id(&conn, activity.target_ap_id.clone().unwrap())
+                .await
+                .map_err(|e| {
+                    log::error!("Failure to Tombstone Actor: {e}");
+                    TaskError::TaskFailed
+                })?;
+        }
 
-        send_to_inboxes(&conn, inboxes, sender, activity.clone())
+        if activity.kind.is_delete()
+            && activity.target_object_id.is_some()
+            && activity.target_ap_id.is_some()
+        {
+            tombstone_object_by_as_id(&conn, activity.target_ap_id.unwrap())
+                .await
+                .map_err(|e| {
+                    log::error!("Failure to Tombstone Object: {e}");
+                    TaskError::TaskFailed
+                })?;
+        }
+
+        let inboxes: Vec<ApAddress> = get_inboxes(&conn, ap_activity.clone(), sender.clone()).await;
+
+        send_to_inboxes(&conn, inboxes, sender, ap_activity.clone())
             .await
             .map_err(|e| {
                 log::error!("Failed to send Announce: {e}");

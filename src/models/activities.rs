@@ -11,7 +11,7 @@ use anyhow::{anyhow, Result};
 use chrono::{DateTime, Utc};
 use convert_case::{Case, Casing};
 use diesel::query_builder::{BoxedSqlQuery, SqlQuery};
-use diesel::sql_types::Nullable;
+use diesel::sql_types::{Bool, Nullable};
 use diesel::{prelude::*, sql_query};
 use diesel::{AsChangeset, Identifiable, Insertable, Queryable};
 use indoc::indoc;
@@ -920,14 +920,6 @@ impl TryFromExtendedActivity for ApCreate {
             return Err(anyhow!("Unable to convert Object to ApObject"));
         };
 
-        // let note = {
-        //     if let Some(object) = target_object.clone() {
-        //         ApObject::Note(ApNote::try_from(object)?)
-        //     } else {
-        //         return Err(anyhow!("ACTIVITY MUST INCLUDE A NOTE OR REMOTE_NOTE"));
-        //     }
-        // };
-
         let instrument: MaybeMultiple<ApInstrument> = activity.instrument.into();
         let instrument = match instrument {
             MaybeMultiple::Single(instrument) => {
@@ -1180,6 +1172,8 @@ WITH main AS (
         COALESCE(o.ap_conversation, o2.ap_conversation) AS object_conversation,
         COALESCE(o.as_attachment, o2.as_attachment) AS object_attachment,
         COALESCE(o.as_summary, o2.as_summary) AS object_summary,
+        COALESCE(o.as_preview, o2.as_preview) AS object_preview,
+        COALESCE(o.as_start_time, o2.as_start_time) AS object_start_time,
         COALESCE(o.as_end_time, o2.as_end_time) AS object_end_time,
         COALESCE(o.as_one_of, o2.as_one_of) AS object_one_of,
         COALESCE(o.as_any_of, o2.as_any_of) AS object_any_of,
@@ -1312,6 +1306,8 @@ GROUP BY
     m.object_conversation,
     m.object_attachment,
     m.object_summary,
+    m.object_preview,
+    m.object_start_time,
     m.object_end_time,
     m.object_one_of,
     m.object_any_of,
@@ -1743,17 +1739,45 @@ pub async fn get_activities_coalesced<C: DbRunner>(
     uuid: Option<String>,
     id: Option<i32>,
 ) -> Result<Vec<CoalescedActivity>> {
-    let params = build_main_query(&filters, limit, min, max, &profile, as_id, uuid, id);
+    let params = build_main_query(
+        &filters,
+        limit,
+        min,
+        max,
+        &profile,
+        as_id.clone(),
+        uuid.clone(),
+        id,
+    );
 
     log::debug!("QUERY\n{}", params.query.clone().unwrap_or("".to_string()));
 
-    let query = sql_query(params.query.clone().unwrap()).into_boxed::<DbType>();
+    if let Some(conversation) = filters.as_ref().and_then(|f| f.conversation.clone()) {
+        get_thread(
+            conn,
+            limit,
+            min,
+            max,
+            profile,
+            filters,
+            Some(conversation),
+            uuid,
+            id,
+        )
+        .await
+        .map_err(|e| {
+            log::error!("{e}");
+            e
+        })
+    } else {
+        let query = sql_query(params.query.clone().unwrap()).into_boxed::<DbType>();
 
-    conn.run(move |c| {
-        let query = bind_params(query, params, &profile);
-        query.load::<CoalescedActivity>(c)
-    })
-    .await
+        conn.run(move |c| {
+            let query = bind_params(query, params, &profile);
+            query.load::<CoalescedActivity>(c)
+        })
+        .await
+    }
 }
 
 fn bind_params<'a>(
@@ -1836,6 +1860,42 @@ fn bind_params<'a>(
     }
 
     query
+}
+
+pub async fn get_thread<C: DbRunner>(
+    conn: &C,
+    limit: i32,
+    min: Option<i64>,
+    max: Option<i64>,
+    profile: Option<Actor>,
+    filters: Option<TimelineFilters>,
+    as_id: Option<String>,
+    uuid: Option<String>,
+    id: Option<i32>,
+) -> Result<Vec<CoalescedActivity>> {
+    use diesel::sql_types::{Bool, Integer, Text};
+
+    let query = include_str!("thread.sql");
+
+    //let filters = filters.ok_or(anyhow!("Filters must be specified for Thread query"))?;
+    let as_id = as_id.ok_or(anyhow!(
+        "Object ActivityPub ID must be specified for Thread query"
+    ))?;
+    let include_descendants = true;
+    let include_ancestors = false;
+    let include_profile = profile.is_some();
+    let profile_id = profile.map(|x| x.id).unwrap_or(-1);
+
+    conn.run(move |c| {
+        sql_query(query)
+            .bind::<Text, _>(as_id)
+            .bind::<Integer, _>(profile_id)
+            .bind::<Bool, _>(include_profile)
+            .bind::<Bool, _>(include_descendants)
+            .bind::<Bool, _>(include_ancestors)
+            .load::<CoalescedActivity>(c)
+    })
+    .await
 }
 
 pub async fn create_activity<C: DbRunner>(conn: &C, mut activity: NewActivity) -> Result<Activity> {

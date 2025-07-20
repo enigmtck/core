@@ -1,5 +1,6 @@
-use crate::{blocklist::BlockList, events::EventChannels, server::extractors::AxumSigned}; // Use the new AxumSigned type
+use crate::{blocklist::BlockList, events::EventChannels};
 use axum::{
+    extract::DefaultBodyLimit,
     routing::{get, post},
     Router,
 };
@@ -50,8 +51,25 @@ pub async fn start() {
     // For now, a simple test route proves it's working.
 
     let app = Router::new()
-        .route("/hello", get(hello_axum))
-        // Inbox routes
+        .route(
+            "/api/user/{username}/media",
+            post(routes::image::upload_media),
+        )
+        .route("/api/cache", get(routes::image::cached_image))
+        // Media file servers
+        .nest_service(
+            "/media/avatars",
+            ServeDir::new(format!("{}/avatars", *crate::MEDIA_DIR)),
+        )
+        .nest_service(
+            "/media/banners",
+            ServeDir::new(format!("{}/banners", *crate::MEDIA_DIR)),
+        )
+        .nest_service(
+            "/media/uploads",
+            ServeDir::new(format!("{}/uploads", *crate::MEDIA_DIR)),
+        )
+        .layer(DefaultBodyLimit::max(1024 * 1024 * 100))
         .route(
             "/inbox",
             get(routes::inbox::axum_shared_inbox_get).post(routes::inbox::axum_shared_inbox_post),
@@ -113,12 +131,6 @@ pub async fn start() {
             "/api/user/{username}/banner",
             post(routes::user::upload_banner),
         )
-        // Image routes
-        .route(
-            "/api/user/{username}/media",
-            post(routes::image::upload_media),
-        )
-        .route("/api/cache", get(routes::image::cached_image))
         .route("/api/announcers", get(routes::inbox::axum_announcers_get))
         .route(
             "/api/conversation",
@@ -189,19 +201,6 @@ pub async fn start() {
             get(routes::client::client_highlight_file),
         )
         .route("/icons/{*path}", get(routes::client::client_icons_file))
-        // Media file servers
-        .nest_service(
-            "/media/avatars",
-            ServeDir::new(format!("{}/avatars", *crate::MEDIA_DIR)),
-        )
-        .nest_service(
-            "/media/banners",
-            ServeDir::new(format!("{}/banners", *crate::MEDIA_DIR)),
-        )
-        .nest_service(
-            "/media/uploads",
-            ServeDir::new(format!("{}/uploads", *crate::MEDIA_DIR)),
-        )
         .route("/{handle}", get(routes::client::client_profile))
         .route("/", get(routes::client::client_index))
         .with_state(app_state);
@@ -217,11 +216,4 @@ pub async fn start() {
     axum::serve(listener, app.into_make_service())
         .await
         .unwrap();
-}
-
-// Update the test handler to use the new extractor.
-async fn hello_axum(signed: AxumSigned) -> &'static str {
-    // The log will still work due to Deref and Debug on the inner type
-    log::info!("Request received with signature status: {signed:?}");
-    "Hello from the Axum side!"
 }

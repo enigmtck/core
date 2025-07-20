@@ -199,6 +199,12 @@ pub struct CoalescedActivity {
     #[diesel(sql_type = Nullable<Text>)]
     pub object_summary: Option<String>,
 
+    #[diesel(sql_type = Nullable<Jsonb>)]
+    pub object_preview: Option<Value>,
+
+    #[diesel(sql_type = Nullable<Timestamptz>)]
+    pub object_start_time: Option<DateTime<Utc>>,
+
     #[diesel(sql_type = Nullable<Timestamptz>)]
     pub object_end_time: Option<DateTime<Utc>>,
 
@@ -741,6 +747,7 @@ impl TryFrom<CoalescedActivity> for ApArticle {
         let content = coalesced.object_content;
         let attachment = coalesced.object_attachment.into();
         let summary = coalesced.object_summary;
+        let preview = coalesced.object_preview.into();
         let sensitive = coalesced.object_sensitive;
         let published = coalesced
             .object_published
@@ -768,6 +775,7 @@ impl TryFrom<CoalescedActivity> for ApArticle {
             in_reply_to,
             content,
             attachment,
+            preview,
             summary,
             sensitive,
             published,
@@ -814,6 +822,7 @@ impl TryFrom<CoalescedActivity> for ApQuestion {
         let summary = coalesced.object_summary;
         let sensitive = coalesced.object_sensitive;
         let published = coalesced.object_published.map(ApDateTime::from);
+        let _start_time = coalesced.object_start_time.map(ApDateTime::from);
         let end_time = coalesced.object_end_time.map(ApDateTime::from);
         let one_of = coalesced.object_one_of.into();
         let any_of = coalesced.object_any_of.into();
@@ -843,6 +852,7 @@ impl TryFrom<CoalescedActivity> for ApQuestion {
             summary,
             sensitive,
             published,
+            //start_time,
             end_time,
             one_of,
             any_of,

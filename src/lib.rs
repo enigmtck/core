@@ -15,11 +15,12 @@ use diesel_migrations as _;
 use dotenvy::dotenv;
 use env_logger as _;
 use indicatif as _;
-use jdt_activity_pub::MaybeMultiple;
 use jdt_activity_pub::MaybeReference;
 use jdt_activity_pub::{ApActivity, ApActor, ApNote, ApObject, ApTag, Ephemeral};
+use jdt_activity_pub::{ApActorTerse, MaybeMultiple};
 use lazy_static::lazy_static;
 use log4rs as _;
+use models::activities::{get_announcers, get_likers};
 use models::follows::{
     get_follow, get_follower_count_by_actor_id, get_leader_count_by_follower_actor_id,
 };
@@ -328,15 +329,39 @@ impl LoadEphemeral for ApObject {
     ) -> Self {
         match self {
             ApObject::Note(ref mut note) => {
-                if let Ok(actor) =
+                let attributed_to = if let Ok(actor) =
                     retriever::get_actor(conn, note.attributed_to.clone().to_string(), None, true)
                         .await
                 {
-                    note.ephemeral = Some(Ephemeral {
-                        attributed_to: Some(vec![actor.into()]),
-                        ..Default::default()
-                    });
-                }
+                    Some(vec![ApActorTerse::from(actor)])
+                } else {
+                    None
+                };
+
+                let announces: Option<Vec<ApActorTerse>> = if let Some(id) = note.id.clone() {
+                    get_announcers(conn, None, None, None, id)
+                        .await
+                        .ok()
+                        .map(|x| x.into_iter().collect())
+                } else {
+                    None
+                };
+
+                let likes: Option<Vec<ApActorTerse>> = if let Some(id) = note.id.clone() {
+                    get_likers(conn, None, None, None, id)
+                        .await
+                        .ok()
+                        .map(|x| x.into_iter().collect())
+                } else {
+                    None
+                };
+
+                note.ephemeral = Some(Ephemeral {
+                    likes,
+                    announces,
+                    attributed_to,
+                    ..Default::default()
+                });
                 ApObject::Note(note.clone())
             }
             _ => self.clone(),
