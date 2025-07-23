@@ -20,7 +20,7 @@ use jdt_activity_pub::{ApActivity, ApActor, ApNote, ApObject, ApTag, Ephemeral};
 use jdt_activity_pub::{ApActorTerse, MaybeMultiple};
 use lazy_static::lazy_static;
 use log4rs as _;
-use models::activities::{get_announcers, get_likers};
+use models::activities::{get_announced, get_announcers, get_liked, get_likers};
 use models::follows::{
     get_follow, get_follower_count_by_actor_id, get_leader_count_by_follower_actor_id,
 };
@@ -252,11 +252,25 @@ impl LoadEphemeral for ApNote {
     async fn load_ephemeral<C: DbRunner + Send + Sync>(
         &mut self,
         conn: &C,
-        _requester: Option<Actor>,
+        requester: Option<Actor>,
     ) -> Self {
         if let Ok(actor) = get_actor_by_as_id(conn, self.attributed_to.to_string()).await {
             let mut ephemeral = self.ephemeral.clone().unwrap_or_default();
             ephemeral.attributed_to = Some(vec![actor.into()]);
+
+            ephemeral.announced =
+                if let (Some(requester), Some(id)) = (requester.clone(), self.id.clone()) {
+                    get_announced(conn, requester, id).await.unwrap_or(None)
+                } else {
+                    None
+                };
+
+            ephemeral.liked = if let (Some(requester), Some(id)) = (requester, self.id.clone()) {
+                get_liked(conn, requester, id).await.unwrap_or(None)
+            } else {
+                None
+            };
+
             self.ephemeral = Some(ephemeral);
         }
 
@@ -325,7 +339,7 @@ impl LoadEphemeral for ApObject {
     async fn load_ephemeral<C: DbRunner + Send + Sync>(
         &mut self,
         conn: &C,
-        _requester: Option<Actor>,
+        requester: Option<Actor>,
     ) -> Self {
         match self {
             ApObject::Note(ref mut note) => {
@@ -338,11 +352,24 @@ impl LoadEphemeral for ApObject {
                     None
                 };
 
+                let announced =
+                    if let (Some(requester), Some(id)) = (requester.clone(), note.id.clone()) {
+                        get_announced(conn, requester, id).await.unwrap_or(None)
+                    } else {
+                        None
+                    };
+
                 let announces: Option<Vec<ApActorTerse>> = if let Some(id) = note.id.clone() {
                     get_announcers(conn, None, None, None, id)
                         .await
                         .ok()
                         .map(|x| x.into_iter().collect())
+                } else {
+                    None
+                };
+
+                let liked = if let (Some(requester), Some(id)) = (requester, note.id.clone()) {
+                    get_liked(conn, requester, id).await.unwrap_or(None)
                 } else {
                     None
                 };
@@ -357,7 +384,9 @@ impl LoadEphemeral for ApObject {
                 };
 
                 note.ephemeral = Some(Ephemeral {
+                    liked,
                     likes,
+                    announced,
                     announces,
                     attributed_to,
                     ..Default::default()

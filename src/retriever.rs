@@ -2,7 +2,7 @@ use crate::db::runner::DbRunner;
 use crate::models::activities::{get_activities_coalesced, TimelineFilters};
 use anyhow::anyhow;
 use anyhow::{Context, Result};
-use jdt_activity_pub::{ActivityPub, ApActivity, ApCollection, ApObject};
+use jdt_activity_pub::{ActivityPub, ApActivity, ApCollection, ApObject, CollectionFetcher};
 use reqwest::Client;
 use reqwest::Response;
 use url::Url;
@@ -150,12 +150,12 @@ pub async fn get_object<C: DbRunner>(
             .cache(conn)
             .await
             .clone()
-            .load_ephemeral(conn, None)
+            .load_ephemeral(conn, profile)
             .await
             .clone();
         Ok(ap_object)
     } else {
-        let resp = signed_get(guaranteed_actor(conn, profile).await, id, false).await?;
+        let resp = signed_get(guaranteed_actor(conn, profile.clone()).await, id, false).await?;
 
         if resp.status().is_success() {
             let text = resp.text().await?;
@@ -169,7 +169,7 @@ pub async fn get_object<C: DbRunner>(
 
             let mut final_ap_object = ApObject::try_from(created_object_model)?;
 
-            Ok(final_ap_object.load_ephemeral(conn, None).await.clone())
+            Ok(final_ap_object.load_ephemeral(conn, profile).await.clone())
         } else {
             Err(anyhow!("unable to get_object"))
         }
@@ -290,15 +290,30 @@ pub async fn signed_get(profile: Actor, url: String, accept_any: bool) -> Result
         .header("Signature", &signature.signature)
         .header("Date", signature.date);
 
-    // Add media-specific headers only when accept_any is true (media downloads)
     if accept_any {
         request = request
-            .header("Accept-Encoding", "identity") // Disable compression for video
+            .header("Accept-Encoding", "identity")
             .header("Connection", "keep-alive")
-            .timeout(std::time::Duration::from_secs(120)); // Longer timeout for large files
-
-        // Don't add Range header for now - it's causing 206 responses that fail
+            .timeout(std::time::Duration::from_secs(120));
     }
 
     request.send().await.map_err(anyhow::Error::msg)
+}
+
+pub fn collection_fetcher() -> CollectionFetcher {
+    Box::new(|url: &str| {
+        let url = url.to_string();
+        Box::pin(async move {
+            let client = reqwest::Client::new();
+            client
+                .get(&url)
+                .header("Content-Type", "application/activity+json")
+                .send()
+                .await
+                .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?
+                .json::<ApCollection>()
+                .await
+                .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
+        })
+    })
 }

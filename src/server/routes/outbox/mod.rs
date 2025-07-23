@@ -71,7 +71,8 @@ pub async fn axum_outbox_get(
     let limit = query.limit.unwrap_or(10);
     let page = query.page.unwrap_or_default();
 
-    let base_url = format!("{server_url}/user/{username}/outbox?page=true&limit={limit}");
+    //let base_url = format!("{server_url}/user/{username}/outbox?page=true&limit={limit}");
+    let base_url = format!("{server_url}/user/{username}/outbox");
 
     if page {
         let filters = TimelineFilters {
@@ -91,13 +92,13 @@ pub async fn axum_outbox_get(
                 query.max,
                 profile,
                 filters,
-                Some(base_url),
+                format!("{base_url}?page=true&limit={limit}"),
             )
             .await,
         ))
     } else if let Ok(profile) = get_actor_by_username(&conn, username).await {
         Ok(Json(
-            retriever::outbox_collection(&conn, profile, Some(base_url)).await,
+            retriever::outbox_collection(&conn, profile, limit).await,
         ))
     } else {
         Err(StatusCode::NOT_FOUND)

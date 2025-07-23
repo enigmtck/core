@@ -2,20 +2,26 @@ use crate::db::runner::DbRunner;
 use crate::models::activities::get_activities_coalesced;
 use crate::models::activities::{get_outbox_count_by_actor_id, TimelineFilters};
 use crate::models::actors::Actor;
-use jdt_activity_pub::{ActivityPub, ApActivity, ApCollection, ApObject};
+use jdt_activity_pub::{ActivityPub, ApActivity, ApCollection, ApCollectionParams, ApObject};
 pub async fn outbox_collection<C: DbRunner>(
     conn: &C,
     profile: Actor,
-    base_url: Option<String>,
+    //base_url: Option<String>,
+    limit: u8,
 ) -> ApObject {
     let server_url = format!("https://{}", *crate::SERVER_NAME);
     let username = profile.ek_username.unwrap();
-    let base_url = base_url.unwrap_or(format!("{server_url}/{username}/outbox"));
-    let count = get_outbox_count_by_actor_id(conn, profile.id)
+    //let base_url = base_url.unwrap_or(format!("{server_url}/{username}/outbox"));
+    let base_url = format!("{server_url}/user/{username}/outbox");
+    let total_items = get_outbox_count_by_actor_id(conn, profile.id)
         .await
         .unwrap_or(0);
 
-    ApObject::Collection(ApCollection::from((count, base_url)))
+    ApObject::Collection(ApCollection::from(ApCollectionParams {
+        total_items,
+        base_url,
+        limit,
+    }))
 }
 
 pub async fn activities(
@@ -25,10 +31,10 @@ pub async fn activities(
     max: Option<i64>,
     requester: Option<Actor>,
     filters: TimelineFilters,
-    base_url: Option<String>,
+    base_url: String,
 ) -> ApObject {
-    let server_url = format!("https://{}", *crate::SERVER_NAME);
-    let base_url = base_url.unwrap_or(format!("{server_url}/inbox?page=true&limit={limit}"));
+    //let server_url = format!("https://{}", *crate::SERVER_NAME);
+    //let base_url = base_url.unwrap_or(format!("{server_url}/inbox?page=true&limit={limit}"));
 
     let activities = get_activities_coalesced(
         conn,

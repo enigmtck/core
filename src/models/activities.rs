@@ -11,7 +11,7 @@ use anyhow::{anyhow, Result};
 use chrono::{DateTime, Utc};
 use convert_case::{Case, Casing};
 use diesel::query_builder::{BoxedSqlQuery, SqlQuery};
-use diesel::sql_types::{Bool, Nullable};
+use diesel::sql_types::Nullable;
 use diesel::{prelude::*, sql_query};
 use diesel::{AsChangeset, Identifiable, Insertable, Queryable};
 use indoc::indoc;
@@ -1862,22 +1862,22 @@ fn bind_params<'a>(
     query
 }
 
+#[allow(clippy::too_many_arguments)]
 pub async fn get_thread<C: DbRunner>(
     conn: &C,
-    limit: i32,
-    min: Option<i64>,
-    max: Option<i64>,
+    _limit: i32,
+    _min: Option<i64>,
+    _max: Option<i64>,
     profile: Option<Actor>,
-    filters: Option<TimelineFilters>,
+    _filters: Option<TimelineFilters>,
     as_id: Option<String>,
-    uuid: Option<String>,
-    id: Option<i32>,
+    _uuid: Option<String>,
+    _id: Option<i32>,
 ) -> Result<Vec<CoalescedActivity>> {
     use diesel::sql_types::{Bool, Integer, Text};
 
     let query = include_str!("thread.sql");
 
-    //let filters = filters.ok_or(anyhow!("Filters must be specified for Thread query"))?;
     let as_id = as_id.ok_or(anyhow!(
         "Object ActivityPub ID must be specified for Thread query"
     ))?;
@@ -1911,6 +1911,42 @@ pub async fn create_activity<C: DbRunner>(conn: &C, mut activity: NewActivity) -
     };
 
     conn.run(operation).await
+}
+
+pub async fn get_announced<C: DbRunner>(
+    conn: &C,
+    profile: Actor,
+    target_ap_id: String,
+) -> Result<Option<String>> {
+    conn.run(move |c| {
+        activities::table
+            .select(activities::ap_id)
+            .filter(activities::kind.eq(ActivityType::Announce))
+            .filter(activities::revoked.eq(false))
+            .filter(activities::target_ap_id.eq(target_ap_id))
+            .filter(activities::actor.eq(profile.as_id))
+            .order(activities::created_at.desc())
+            .get_result(c)
+    })
+    .await
+}
+
+pub async fn get_liked<C: DbRunner>(
+    conn: &C,
+    profile: Actor,
+    target_ap_id: String,
+) -> Result<Option<String>> {
+    conn.run(move |c| {
+        activities::table
+            .select(activities::ap_id)
+            .filter(activities::kind.eq(ActivityType::Like))
+            .filter(activities::revoked.eq(false))
+            .filter(activities::target_ap_id.eq(target_ap_id))
+            .filter(activities::actor.eq(profile.as_id))
+            .order(activities::created_at.desc())
+            .get_result(c)
+    })
+    .await
 }
 
 pub async fn get_announcers<C: DbRunner>(

@@ -58,7 +58,7 @@ cfg-if = "1.0.0"
 atty = "0.2"
 convert_case = "0.6.0"
 #jdt_activity_pub = { path = "../../libs/activity_pub/", features = ["ffmpeg"] }
-jdt_activity_pub = "0.2.60"
+jdt_activity_pub = "0.2.62"
 indoc = "2.0.5"
 indicatif = "0.17"
 comfy-table = "7.1.0"
