@@ -1,7 +1,13 @@
 use std::{collections::HashSet, error::Error, fmt::Debug};
 
+use crate::db::runner::DbRunner;
+use crate::events::EventChannels;
+use crate::models::activities::get_activity_by_ap_id;
+use crate::models::activities::TryFromExtendedActivity;
+use crate::models::actors::tombstone_actor_by_as_id;
+use crate::models::objects::tombstone_object_by_as_id;
 use anyhow::{anyhow, Result};
-use diesel::{r2d2::ConnectionManager, PgConnection};
+use deadpool_diesel::postgres::Pool;
 use futures_lite::Future;
 use reqwest::Client;
 use reqwest::Request;
@@ -12,8 +18,6 @@ use url::Url;
 
 use crate::retriever::get_actor;
 use crate::{
-    db::Db,
-    fairings::events::EventChannels,
     models::{activities::add_log_by_as_id, actors::Actor, instances::get_instance_inboxes},
     signing::{Method, SignParams},
 };
@@ -28,8 +32,7 @@ pub mod note;
 pub mod question;
 pub mod user;
 
-pub type Pool = r2d2::Pool<ConnectionManager<PgConnection>>;
-pub type DbConnection = r2d2::PooledConnection<ConnectionManager<PgConnection>>;
+//pub type DbConnection = r2d2::PooledConnection<ConnectionManager<PgConnection>>;
 
 pub fn clean_text(text: String) -> String {
     let ammonia = ammonia::Builder::default();
@@ -144,11 +147,11 @@ pub async fn process_inbox(
     }
 }
 
-async fn process_all_inboxes(
+async fn process_all_inboxes<C: DbRunner>(
     inboxes: Vec<ApAddress>,
     body: String,
     profile: Actor,
-    conn: Option<&Db>,
+    conn: &C,
     as_id: String,
 ) -> Result<(), anyhow::Error> {
     let client = Client::builder()
@@ -182,8 +185,8 @@ async fn process_all_inboxes(
     Ok(())
 }
 
-pub async fn send_to_inboxes(
-    conn: Option<&Db>,
+pub async fn send_to_inboxes<C: DbRunner>(
+    conn: &C,
     inboxes: Vec<ApAddress>,
     profile: Actor,
     message: ApActivity,
@@ -201,8 +204,8 @@ pub async fn send_to_inboxes(
     Ok(())
 }
 
-async fn handle_recipients(
-    conn_opt: Option<&Db>,
+async fn handle_recipients<C: DbRunner>(
+    conn: &C,
     inboxes: &mut HashSet<ApAddress>,
     sender: &Actor,
     address: &ApAddress,
@@ -210,12 +213,12 @@ async fn handle_recipients(
     let actor = ApActor::from(sender.clone());
 
     if address.is_public() {
-        inboxes.extend(get_instance_inboxes(conn_opt).await?.into_iter());
+        inboxes.extend(get_instance_inboxes(conn).await?.into_iter());
     } else if let Some(followers) = actor.followers {
         if address.to_string() == followers {
-            inboxes.extend(get_follower_inboxes(conn_opt, sender.clone()).await);
+            inboxes.extend(get_follower_inboxes(conn, sender.clone()).await);
         } else if let Ok(actor) = get_actor(
-            conn_opt,
+            conn,
             address.clone().to_string(),
             Some(sender.clone()),
             true,
@@ -228,8 +231,8 @@ async fn handle_recipients(
     Ok(())
 }
 
-pub async fn get_inboxes(
-    conn_opt: Option<&Db>,
+pub async fn get_inboxes<C: DbRunner>(
+    conn: &C,
     activity: ApActivity,
     sender: Actor,
 ) -> Vec<ApAddress> {
@@ -280,8 +283,8 @@ pub async fn get_inboxes(
 
     if let Some(consolidated) = consolidated {
         for address in consolidated.iter() {
-            if let Err(e) = handle_recipients(conn_opt, &mut inboxes, &sender, address).await {
-                log::error!("Error handling recipient {}: {:?}", address.to_string(), e);
+            if let Err(e) = handle_recipients(conn, &mut inboxes, &sender, address).await {
+                log::error!("Error handling recipient {address}: {e:?}");
                 // Decide if you want to stop or continue. For now, we continue.
             }
         }
@@ -304,10 +307,86 @@ impl fmt::Display for TaskError {
 
 impl Error for TaskError {}
 
-pub async fn run<Fut, F>(f: F, conn: Db, channels: Option<EventChannels>, params: Vec<String>)
+pub async fn run<Fut, F>(f: F, pool: Pool, channels: Option<EventChannels>, params: Vec<String>)
 where
-    F: Fn(Db, Option<EventChannels>, Vec<String>) -> Fut,
+    F: Fn(Pool, Option<EventChannels>, Vec<String>) -> Fut,
     Fut: Future<Output = Result<(), TaskError>> + Send + 'static,
 {
-    tokio::spawn(f(conn, channels, params));
+    tokio::spawn(f(pool, channels, params));
+}
+
+pub async fn send_activity_task(
+    pool: Pool,
+    _channels: Option<EventChannels>,
+    ap_ids: Vec<String>,
+) -> Result<(), TaskError> {
+    use crate::models::actors::get_actor;
+    let conn = pool.get().await.map_err(|_| TaskError::TaskFailed)?;
+
+    for ap_id in ap_ids {
+        let (activity, target_activity, target_object, target_actor) =
+            get_activity_by_ap_id(&conn, ap_id.clone())
+                .await
+                .map_err(|e| {
+                    log::error!("DB error retrieving activity {ap_id}: {e}");
+                    TaskError::TaskFailed
+                })?
+                .ok_or_else(|| {
+                    log::error!("Failed to retrieve Activity: {ap_id}");
+                    TaskError::TaskFailed
+                })?;
+
+        let profile_id = activity.actor_id.ok_or(TaskError::TaskFailed)?;
+        let sender = get_actor(&conn, profile_id).await.map_err(|_| {
+            log::error!("Failed to retrieve Actor: {profile_id}");
+            TaskError::TaskFailed
+        })?;
+
+        let ap_activity = ApActivity::try_from_extended_activity((
+            activity.clone(),
+            target_activity,
+            target_object,
+            target_actor,
+        ))
+        .map_err(|e| {
+            log::error!("Failed to build ApActivity: {e}");
+            TaskError::TaskFailed
+        })?
+        .formalize();
+
+        if activity.kind.is_delete()
+            && activity.target_actor_id.is_some()
+            && activity.target_ap_id.is_some()
+        {
+            tombstone_actor_by_as_id(&conn, activity.target_ap_id.clone().unwrap())
+                .await
+                .map_err(|e| {
+                    log::error!("Failure to Tombstone Actor: {e}");
+                    TaskError::TaskFailed
+                })?;
+        }
+
+        if activity.kind.is_delete()
+            && activity.target_object_id.is_some()
+            && activity.target_ap_id.is_some()
+        {
+            tombstone_object_by_as_id(&conn, activity.target_ap_id.unwrap())
+                .await
+                .map_err(|e| {
+                    log::error!("Failure to Tombstone Object: {e}");
+                    TaskError::TaskFailed
+                })?;
+        }
+
+        let inboxes: Vec<ApAddress> = get_inboxes(&conn, ap_activity.clone(), sender.clone()).await;
+
+        send_to_inboxes(&conn, inboxes, sender, ap_activity.clone())
+            .await
+            .map_err(|e| {
+                log::error!("Failed to send Announce: {e}");
+                TaskError::TaskFailed
+            })?;
+    }
+
+    Ok(())
 }

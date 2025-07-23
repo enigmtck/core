@@ -1,9 +1,9 @@
-use crate::db::Db;
+use crate::db::runner::DbRunner;
 use crate::db::DbType;
 use crate::schema::instances;
 use crate::schema::instances::dsl;
-use crate::POOL;
 use chrono::{DateTime, Utc};
+use deadpool_diesel::postgres::Object as DbConnection;
 use diesel::prelude::*;
 use diesel::OptionalExtension;
 use diesel::{AsChangeset, Identifiable, Insertable, Queryable};
@@ -55,8 +55,8 @@ pub struct Instance {
     pub shared_inbox: Option<String>,
 }
 
-pub async fn create_or_update_instance(
-    conn: &Db,
+pub async fn create_or_update_instance<C: DbRunner>(
+    conn: &C,
     instance: NewInstance,
 ) -> Result<Instance, anyhow::Error> {
     conn.run(move |c| {
@@ -66,7 +66,6 @@ pub async fn create_or_update_instance(
             .do_update()
             .set((instances::last_message_at.eq(Utc::now()), &instance))
             .get_result::<Instance>(c)
-            .map_err(anyhow::Error::msg)
     })
     .await
 }
@@ -83,7 +82,7 @@ impl From<DomainInbox> for NewInstance {
     }
 }
 
-pub async fn get_instance_inboxes(conn_opt: Option<&Db>) -> Result<Vec<ApAddress>, anyhow::Error> {
+pub async fn get_instance_inboxes<C: DbRunner>(conn: &C) -> Result<Vec<ApAddress>, anyhow::Error> {
     let operation = move |c: &mut PgConnection| {
         let cutoff = Utc::now().naive_utc() - chrono::Duration::days(14);
         instances::table
@@ -92,25 +91,15 @@ pub async fn get_instance_inboxes(conn_opt: Option<&Db>) -> Result<Vec<ApAddress
             .filter(instances::last_message_at.gt(cutoff))
             .select(instances::shared_inbox.assume_not_null())
             .get_results::<String>(c)
-            .map_err(anyhow::Error::from)
     };
 
-    let results = match conn_opt {
-        Some(conn) => conn.run(operation).await?,
-        None => {
-            tokio::task::spawn_blocking(move || {
-                let mut pool_conn = POOL.get().map_err(anyhow::Error::msg)?;
-                operation(&mut pool_conn)
-            })
-            .await?? // First ? for JoinError, second for the operation's Result
-        }
-    };
+    let results = conn.run(operation).await?;
 
     Ok(results.into_iter().map(ApAddress::from).collect())
 }
 
-pub async fn get_instance_by_domain_name(
-    conn_opt: Option<&Db>,
+pub async fn get_instance_by_domain_name<C: DbRunner>(
+    conn: &C,
     domain_name_val: String,
 ) -> Result<Option<Instance>, anyhow::Error> {
     let query = move |c: &mut _| {
@@ -121,19 +110,12 @@ pub async fn get_instance_by_domain_name(
             .optional()
     };
 
-    if let Some(conn) = conn_opt {
-        conn.run(query).await.map_err(anyhow::Error::from)
-    } else {
-        let mut pool_conn = POOL
-            .get()
-            .map_err(|e| anyhow::anyhow!("Failed to get DB connection: {e}"))?;
-        query(&mut pool_conn).map_err(anyhow::Error::from)
-    }
+    conn.run(query).await
 }
 
 // Add this new function:
-pub async fn get_all_instances_paginated(
-    conn_opt: Option<&Db>,
+pub async fn get_all_instances_paginated<C: DbRunner>(
+    conn: &C,
     page: i64,
     page_size: i64,
     sort_params: Option<Vec<SortParam>>,
@@ -175,27 +157,18 @@ pub async fn get_all_instances_paginated(
         query.limit(page_size).offset(offset).load::<Instance>(c)
     };
 
-    if let Some(conn) = conn_opt {
-        conn.run(query_builder_fn)
-            .await
-            .map_err(anyhow::Error::from)
-    } else {
-        let mut pool_conn = POOL
-            .get()
-            .map_err(|e| anyhow::anyhow!("Failed to get DB connection: {e}"))?;
-        query_builder_fn(&mut pool_conn).map_err(anyhow::Error::from)
-    }
+    conn.run(query_builder_fn).await
 }
 
-pub async fn set_block_status(
-    conn_opt: Option<&Db>,
+pub async fn set_block_status<C: DbRunner>(
+    conn: &C,
     domain_name_val: String,
     should_be_blocked: bool,
 ) -> Result<Instance, anyhow::Error> {
     // Try to fetch the instance first.
     // We pass conn_opt here, so it correctly uses the provided transaction or a new pool connection.
-    match get_instance_by_domain_name(conn_opt, domain_name_val.clone()).await {
-        Ok(Some(instance)) => {
+    match get_instance_by_domain_name(conn, domain_name_val.clone()).await? {
+        Some(instance) => {
             if instance.blocked == should_be_blocked {
                 Ok(instance)
             } else {
@@ -207,17 +180,11 @@ pub async fn set_block_status(
                         ))
                         .get_result::<Instance>(c)
                 };
-                if let Some(conn) = conn_opt {
-                    conn.run(query_update).await.map_err(anyhow::Error::from)
-                } else {
-                    let mut pool_conn = POOL
-                        .get()
-                        .map_err(|e| anyhow::anyhow!("Failed to get DB connection: {e}"))?;
-                    query_update(&mut pool_conn).map_err(anyhow::Error::from)
-                }
+
+                conn.run(query_update).await
             }
         }
-        Ok(None) => {
+        None => {
             // Instance does not exist
             if should_be_blocked {
                 // Create new instance with specified block status
@@ -242,14 +209,8 @@ pub async fn set_block_status(
                         ))
                         .get_result::<Instance>(c)
                 };
-                if let Some(conn) = conn_opt {
-                    conn.run(query_upsert).await.map_err(anyhow::Error::from)
-                } else {
-                    let mut pool_conn = POOL
-                        .get()
-                        .map_err(|e| anyhow::anyhow!("Failed to get DB connection: {e}"))?;
-                    query_upsert(&mut pool_conn).map_err(anyhow::Error::from)
-                }
+
+                conn.run(query_upsert).await
             } else {
                 // Trying to unblock a non-existent instance
                 Err(anyhow::anyhow!(
@@ -257,32 +218,33 @@ pub async fn set_block_status(
                 ))
             }
         }
-        Err(e) => {
-            // Error during the initial get_instance_by_domain_name
-            Err(e)
-        }
     }
 }
 
-pub async fn get_blocked_instances(conn: Option<&Db>) -> Vec<Instance> {
-    match conn {
-        Some(conn) => conn
-            .run(move |c| {
-                instances::table
-                    .filter(instances::blocked.eq(true))
-                    .get_results::<Instance>(c)
-            })
-            .await
-            .unwrap_or(vec![]),
-        None => {
-            if let Ok(mut pool) = POOL.get() {
-                instances::table
-                    .filter(instances::blocked.eq(true))
-                    .get_results::<Instance>(&mut pool)
-                    .unwrap_or(vec![])
-            } else {
-                vec![]
-            }
-        }
-    }
+pub async fn get_blocked_instances<C: DbRunner>(conn: &C) -> Vec<Instance> {
+    conn.run(move |c| {
+        instances::table
+            .filter(instances::blocked.eq(true))
+            .get_results::<Instance>(c)
+    })
+    .await
+    .unwrap_or(vec![])
+}
+
+pub async fn create_or_update_instance_axum(
+    conn: &DbConnection,
+    instance: NewInstance,
+) -> Result<Instance, anyhow::Error> {
+    conn.interact(move |c| {
+        use crate::schema::instances::dsl::*;
+        diesel::insert_into(instances)
+            .values(&instance)
+            .on_conflict(domain_name)
+            .do_update()
+            .set((last_message_at.eq(Utc::now()), &instance))
+            .get_result::<Instance>(c)
+    })
+    .await
+    .map_err(|e| anyhow::anyhow!("Interact error: {:?}", e))?
+    .map_err(anyhow::Error::from)
 }

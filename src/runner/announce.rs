@@ -1,87 +1,31 @@
 use anyhow::{anyhow, Result};
-use rocket::tokio::time::{sleep, Duration};
+use deadpool_diesel::postgres::Pool;
+use tokio::time::{sleep, Duration};
 
 use crate::{
-    db::Db,
-    fairings::events::EventChannels,
+    db::runner::DbRunner,
+    events::EventChannels,
     helper::get_domain_from_url,
     models::{
-        activities::{
-            get_activity_by_ap_id, revoke_activity_by_apid, update_target_object,
-            TryFromExtendedActivity,
-        },
-        actors::{get_actor, guaranteed_actor, Actor},
+        activities::{get_activity_by_ap_id, revoke_activity_by_apid, update_target_object},
+        actors::{guaranteed_actor, Actor},
         instances::get_instance_by_domain_name,
         objects::{get_object_by_as_id, Object},
     },
-    runner::{
-        get_inboxes,
-        note::{fetch_remote_object, handle_object},
-        send_to_inboxes,
-    },
+    runner::note::{fetch_remote_object, handle_object},
 };
-use jdt_activity_pub::{ApActivity, ApAddress};
 
 use super::TaskError;
 
-pub async fn send_announce_task(
-    conn: Db,
-    channels: Option<EventChannels>,
-    ap_ids: Vec<String>,
-) -> Result<(), TaskError> {
-    let _channels = channels.as_ref();
-
-    for ap_id in ap_ids {
-        let (activity, target_activity, target_object, target_actor) =
-            get_activity_by_ap_id(&conn, ap_id.clone())
-                .await
-                .ok_or_else(|| {
-                    log::error!("Failed to retrieve Activity: {ap_id}");
-                    TaskError::TaskFailed
-                })?;
-
-        let profile_id = activity.actor_id.ok_or(TaskError::TaskFailed)?;
-        let sender = get_actor(&conn, profile_id).await.ok_or_else(|| {
-            log::error!("Failed to retrieve Actor: {profile_id}");
-            TaskError::TaskFailed
-        })?;
-
-        let activity = ApActivity::try_from_extended_activity((
-            activity,
-            target_activity,
-            target_object,
-            target_actor,
-        ))
-        .map_err(|e| {
-            log::error!("Failed to build ApActivity: {e}");
-            TaskError::TaskFailed
-        })?
-        .formalize();
-
-        let inboxes: Vec<ApAddress> =
-            get_inboxes(Some(&conn), activity.clone(), sender.clone()).await;
-
-        send_to_inboxes(Some(&conn), inboxes, sender, activity.clone())
-            .await
-            .map_err(|e| {
-                log::error!("Failed to send Announce: {e}");
-                TaskError::TaskFailed
-            })?;
-    }
-
-    Ok(())
-}
-
 pub async fn remote_undo_announce_task(
-    conn: Db,
+    pool: Pool,
     _channels: Option<EventChannels>,
     ap_ids: Vec<String>,
 ) -> Result<(), TaskError> {
+    let conn = pool.get().await.map_err(|_| TaskError::TaskFailed)?;
+
     for ap_id in ap_ids {
-        if revoke_activity_by_apid(Some(&conn), ap_id.clone())
-            .await
-            .is_ok()
-        {
+        if revoke_activity_by_apid(&conn, ap_id.clone()).await.is_ok() {
             log::debug!("Announce revoked: {ap_id}");
         }
     }
@@ -90,10 +34,12 @@ pub async fn remote_undo_announce_task(
 }
 
 pub async fn remote_announce_task(
-    conn: Db,
+    pool: Pool,
     channels: Option<EventChannels>,
     ap_ids: Vec<String>,
 ) -> Result<(), TaskError> {
+    let conn = pool.get().await.map_err(|_| TaskError::TaskFailed)?;
+
     let profile = guaranteed_actor(&conn, None).await;
 
     let ap_id = ap_ids.first().unwrap();
@@ -103,6 +49,10 @@ pub async fn remote_announce_task(
     let (activity, _target_activity, _target_object, _target_actor) =
         get_activity_by_ap_id(&conn, ap_id.clone())
             .await
+            .map_err(|e| {
+                log::error!("DB error retrieving activity {ap_id}: {e}");
+                TaskError::TaskFailed
+            })?
             .ok_or_else(|| {
                 log::error!("Failed to retrieve Activity: {ap_id}");
                 TaskError::TaskFailed
@@ -113,27 +63,25 @@ pub async fn remote_announce_task(
         TaskError::TaskFailed
     })?;
 
-    if let Ok(object) = get_object_by_as_id(Some(&conn), target_ap_id.clone()).await {
-        update_target_object(Some(&conn), activity, object)
+    if let Ok(object) = get_object_by_as_id(&conn, target_ap_id.clone()).await {
+        update_target_object(&conn, activity, object)
             .await
-            .ok_or_else(|| {
-                log::error!("Failed to update target Object: {target_ap_id}");
+            .map_err(|e| {
+                log::error!("Failed to update target Object: {e}");
                 TaskError::TaskFailed
             })?;
     } else {
         let domain_name = get_domain_from_url(target_ap_id.clone()).ok_or(TaskError::TaskFailed)?;
-        if get_instance_by_domain_name(Some(&conn), domain_name.clone())
+        if get_instance_by_domain_name(&conn, domain_name.clone())
             .await
-            .map(|option_instance| option_instance.map_or(false, |instance| instance.blocked))
-            .unwrap_or(false)
-        // If DB query fails or instance not found, default to not blocked
+            .is_ok_and(|option_instance| option_instance.is_some_and(|instance| instance.blocked))
         {
             log::debug!("Instance is explicitly blocked: {domain_name}");
             return Err(TaskError::Prohibited);
         }
 
-        async fn retrieve_object(
-            conn: &Db,
+        async fn retrieve_object<C: DbRunner>(
+            conn: &C,
             as_id: String,
             profile: Actor,
             retries: u64,
@@ -161,8 +109,8 @@ pub async fn remote_announce_task(
                 TaskError::TaskFailed
             })?;
 
-        update_target_object(
-            Some(&conn),
+        let _ = update_target_object(
+            &conn,
             activity.clone(),
             handle_object(
                 &conn,

@@ -1,14 +1,12 @@
-use crate::db::Db;
+use crate::db::runner::DbRunner;
 use crate::db::DbType;
 use crate::helper::get_activity_ap_id_from_uuid;
 use crate::models::actors::{get_actor_by_as_id, Actor};
 use crate::models::coalesced_activity::CoalescedActivity;
-use crate::models::objects::{Object, ObjectType};
-use crate::models::olm_sessions::OlmSession;
+use crate::models::objects::Object;
 use crate::models::parameter_generator;
-use crate::routes::inbox::InboxView;
-use crate::schema::{activities, actors, objects, olm_sessions, vault};
-use crate::POOL;
+use crate::schema::{activities, actors};
+use crate::server::InboxView;
 use anyhow::{anyhow, Result};
 use chrono::{DateTime, Utc};
 use convert_case::{Case, Casing};
@@ -342,8 +340,12 @@ pub struct Activity {
 }
 
 impl Activity {
-    pub async fn extend(&self, conn: &Db) -> Option<ExtendedActivity> {
-        get_activity(Some(conn), self.id).await
+    // pub async fn extend(&self, conn: &Db) -> Option<ExtendedActivity> {
+    //     get_activity(Some(conn), self.id).await
+    // }
+
+    pub async fn extend<C: DbRunner>(&self, conn: &C) -> Option<ExtendedActivity> {
+        get_activity(conn, self.id).await.ok().flatten()
     }
 }
 
@@ -399,8 +401,8 @@ impl Default for NewActivity {
 }
 
 impl NewActivity {
-    pub async fn link_actor(&mut self, conn: &Db) -> Self {
-        if let Ok(actor) = get_actor_by_as_id(Some(conn), self.clone().actor).await {
+    pub async fn link_actor<C: DbRunner>(&mut self, conn: &C) -> Self {
+        if let Ok(actor) = get_actor_by_as_id(conn, self.clone().actor).await {
             self.actor_id = Some(actor.id);
         };
 
@@ -429,6 +431,12 @@ impl NewActivity {
         };
 
         self
+    }
+
+    pub fn set_raw(&mut self, raw: Value) -> Self {
+        self.raw = Some(raw);
+
+        self.clone()
     }
 }
 
@@ -864,8 +872,13 @@ impl TryFromExtendedActivity for ApAnnounce {
         (activity, _target_activity, target_object, _target_actor): ExtendedActivity,
     ) -> Result<Self, Self::Error> {
         if activity.kind.to_string().to_lowercase().as_str() == "announce" {
-            let object = target_object.ok_or(anyhow!("INVALID ACTIVITY TYPE"))?;
-            let object = MaybeReference::Actual(ApObject::Note(ApNote::try_from(object)?));
+            let object: ApObject = if let Some(object) = target_object.clone() {
+                object.try_into()?
+            } else {
+                return Err(anyhow!("Unable to convert Object to ApObject"));
+            };
+            // let object = target_object.ok_or(anyhow!("INVALID ACTIVITY TYPE"))?;
+            // let object = MaybeReference::Actual(ApObject::Note(ApNote::try_from(object)?));
 
             Ok(ApAnnounce {
                 context: Some(ApContext::default()),
@@ -879,7 +892,7 @@ impl TryFromExtendedActivity for ApAnnounce {
                 to: activity.clone().ap_to.into(),
                 cc: activity.cc.into(),
                 published: activity.created_at.into(),
-                object,
+                object: object.into(),
                 ephemeral: Some(Ephemeral {
                     created_at: Some(activity.created_at),
                     updated_at: Some(activity.updated_at),
@@ -901,12 +914,10 @@ impl TryFromExtendedActivity for ApCreate {
     fn try_from_extended_activity(
         (activity, _target_activity, target_object, _target_actor): ExtendedActivity,
     ) -> Result<Self, Self::Error> {
-        let note = {
-            if let Some(object) = target_object.clone() {
-                ApObject::Note(ApNote::try_from(object)?)
-            } else {
-                return Err(anyhow!("ACTIVITY MUST INCLUDE A NOTE OR REMOTE_NOTE"));
-            }
+        let object: ApObject = if let Some(object) = target_object.clone() {
+            object.try_into()?
+        } else {
+            return Err(anyhow!("Unable to convert Object to ApObject"));
         };
 
         let instrument: MaybeMultiple<ApInstrument> = activity.instrument.into();
@@ -931,7 +942,7 @@ impl TryFromExtendedActivity for ApCreate {
             kind: ApCreateType::default(),
             actor: ApAddress::Address(activity.actor.clone()),
             id: activity.ap_id,
-            object: note.into(),
+            object: object.into(),
             to: activity.ap_to.clone().into(),
             cc: activity.cc.into(),
             signature: None,
@@ -1161,6 +1172,8 @@ WITH main AS (
         COALESCE(o.ap_conversation, o2.ap_conversation) AS object_conversation,
         COALESCE(o.as_attachment, o2.as_attachment) AS object_attachment,
         COALESCE(o.as_summary, o2.as_summary) AS object_summary,
+        COALESCE(o.as_preview, o2.as_preview) AS object_preview,
+        COALESCE(o.as_start_time, o2.as_start_time) AS object_start_time,
         COALESCE(o.as_end_time, o2.as_end_time) AS object_end_time,
         COALESCE(o.as_one_of, o2.as_one_of) AS object_one_of,
         COALESCE(o.as_any_of, o2.as_any_of) AS object_any_of,
@@ -1229,7 +1242,7 @@ SELECT DISTINCT
             AND a.kind = 'announce'), '[]') AS object_announcers,
     COALESCE(JSONB_AGG(jsonb_build_object('id', ac.as_id, 'name', ac.as_name, 'tag', ac.as_tag, 'url', ac.as_url, 'icon', ac.as_icon, 'preferredUsername', ac.as_preferred_username)) FILTER (WHERE a.actor IS NOT NULL
             AND a.kind = 'like'), '[]') AS object_likers,
-    JSONB_AGG(DISTINCT jsonb_build_object('id', ac2.as_id, 'name', ac2.as_name, 'tag', ac2.as_tag, 'url', ac2.as_url, 'icon', ac2.as_icon, 'preferredUsername', ac2.as_preferred_username)) AS object_attributed_to_profiles,
+    JSONB_AGG(DISTINCT jsonb_build_object('id', ac2.as_id, 'name', ac2.as_name, 'tag', ac2.as_tag, 'url', ac2.as_url, 'icon', ac2.as_icon, 'preferredUsername', ac2.as_preferred_username, 'webfinger', ac2.ek_webfinger)) AS object_attributed_to_profiles,
     announced.object_announced,
     liked.object_liked,
     vaulted.*,
@@ -1293,6 +1306,8 @@ GROUP BY
     m.object_conversation,
     m.object_attachment,
     m.object_summary,
+    m.object_preview,
+    m.object_start_time,
     m.object_end_time,
     m.object_one_of,
     m.object_any_of,
@@ -1696,42 +1711,25 @@ attributed_actors AS (
     params
 }
 
-pub async fn add_log_by_as_id(conn: Option<&Db>, as_id: String, entry: Value) -> Result<usize> {
+//pub async fn add_log_by_as_id(conn: Option<&Db>, as_id: String, entry: Value) -> Result<usize> {
+pub async fn add_log_by_as_id<C: DbRunner>(conn: &C, as_id: String, entry: Value) -> Result<usize> {
     use diesel::sql_types::{Jsonb, Text};
 
-    match conn {
-        Some(db_conn) => {
-            let mut query = sql_query(
-                "UPDATE activities a SET log = COALESCE(a.log, '[]'::jsonb) || $1::jsonb WHERE ap_id = $2",
-            )
-            .into_boxed::<DbType>();
-            query = query.bind::<Jsonb, _>(entry);
-            query = query.bind::<Text, _>(as_id);
-
-            db_conn
-                .run(move |c| query.execute(c))
-                .await
-                .map_err(anyhow::Error::msg)
-        }
-        None => {
-            tokio::task::spawn_blocking(move || {
-                let mut pool_conn = POOL.get().map_err(anyhow::Error::msg)?;
-                let mut query = sql_query(
-                    "UPDATE activities a SET log = COALESCE(a.log, '[]'::jsonb) || $1::jsonb WHERE ap_id = $2",
-                )
-                .into_boxed::<DbType>();
-                query = query.bind::<Jsonb, _>(entry);
-                query = query.bind::<Text, _>(as_id);
-                query.execute(&mut pool_conn).map_err(anyhow::Error::msg)
-            })
-            .await?
-        }
-    }
+    conn.run(move |c| {
+        let mut query = sql_query(
+            "UPDATE activities a SET log = COALESCE(a.log, '[]'::jsonb) || $1::jsonb WHERE ap_id = $2",
+        )
+        .into_boxed::<DbType>();
+        query = query.bind::<Jsonb, _>(entry);
+        query = query.bind::<Text, _>(as_id);
+        query.execute(c)
+    })
+    .await
 }
 
 #[allow(clippy::too_many_arguments)]
-pub async fn get_activities_coalesced(
-    conn: &Db,
+pub async fn get_activities_coalesced<C: DbRunner>(
+    conn: &C,
     limit: i32,
     min: Option<i64>,
     max: Option<i64>,
@@ -1740,16 +1738,46 @@ pub async fn get_activities_coalesced(
     as_id: Option<String>,
     uuid: Option<String>,
     id: Option<i32>,
-) -> Vec<CoalescedActivity> {
-    let params = build_main_query(&filters, limit, min, max, &profile, as_id, uuid, id);
+) -> Result<Vec<CoalescedActivity>> {
+    let params = build_main_query(
+        &filters,
+        limit,
+        min,
+        max,
+        &profile,
+        as_id.clone(),
+        uuid.clone(),
+        id,
+    );
 
     log::debug!("QUERY\n{}", params.query.clone().unwrap_or("".to_string()));
 
-    let query = sql_query(params.query.clone().unwrap()).into_boxed::<DbType>();
-    let query = bind_params(query, params, &profile);
-
-    conn.run(move |c| query.load::<CoalescedActivity>(c).expect("bad sql query"))
+    if let Some(conversation) = filters.as_ref().and_then(|f| f.conversation.clone()) {
+        get_thread(
+            conn,
+            limit,
+            min,
+            max,
+            profile,
+            filters,
+            Some(conversation),
+            uuid,
+            id,
+        )
         .await
+        .map_err(|e| {
+            log::error!("{e}");
+            e
+        })
+    } else {
+        let query = sql_query(params.query.clone().unwrap()).into_boxed::<DbType>();
+
+        conn.run(move |c| {
+            let query = bind_params(query, params, &profile);
+            query.load::<CoalescedActivity>(c)
+        })
+        .await
+    }
 }
 
 fn bind_params<'a>(
@@ -1834,40 +1862,100 @@ fn bind_params<'a>(
     query
 }
 
-pub async fn create_activity(conn: Option<&Db>, activity: NewActivity) -> Result<Activity> {
-    let activity = match conn {
-        Some(conn) => {
-            conn.run(move |c| {
-                diesel::insert_into(activities::table)
-                    .values(&activity)
-                    .on_conflict(activities::ap_id)
-                    .do_update()
-                    .set(&activity)
-                    .get_result::<Activity>(c)
-            })
-            .await?
-        }
-        None => {
-            let mut pool = POOL.get()?;
-            diesel::insert_into(activities::table)
-                .values(&activity)
-                .on_conflict(activities::ap_id)
-                .do_update()
-                .set(&activity)
-                .get_result::<Activity>(&mut pool)?
-        }
-    };
+#[allow(clippy::too_many_arguments)]
+pub async fn get_thread<C: DbRunner>(
+    conn: &C,
+    _limit: i32,
+    _min: Option<i64>,
+    _max: Option<i64>,
+    profile: Option<Actor>,
+    _filters: Option<TimelineFilters>,
+    as_id: Option<String>,
+    _uuid: Option<String>,
+    _id: Option<i32>,
+) -> Result<Vec<CoalescedActivity>> {
+    use diesel::sql_types::{Bool, Integer, Text};
 
-    Ok(activity)
+    let query = include_str!("thread.sql");
+
+    let as_id = as_id.ok_or(anyhow!(
+        "Object ActivityPub ID must be specified for Thread query"
+    ))?;
+    let include_descendants = true;
+    let include_ancestors = false;
+    let include_profile = profile.is_some();
+    let profile_id = profile.map(|x| x.id).unwrap_or(-1);
+
+    conn.run(move |c| {
+        sql_query(query)
+            .bind::<Text, _>(as_id)
+            .bind::<Integer, _>(profile_id)
+            .bind::<Bool, _>(include_profile)
+            .bind::<Bool, _>(include_descendants)
+            .bind::<Bool, _>(include_ancestors)
+            .load::<CoalescedActivity>(c)
+    })
+    .await
 }
 
-pub async fn get_announcers(
-    conn: &Db,
+pub async fn create_activity<C: DbRunner>(conn: &C, mut activity: NewActivity) -> Result<Activity> {
+    activity = activity.link_actor(conn).await;
+
+    let operation = move |c: &mut PgConnection| {
+        diesel::insert_into(activities::table)
+            .values(&activity)
+            .on_conflict(activities::ap_id)
+            .do_update()
+            .set(&activity)
+            .get_result::<Activity>(c)
+    };
+
+    conn.run(operation).await
+}
+
+pub async fn get_announced<C: DbRunner>(
+    conn: &C,
+    profile: Actor,
+    target_ap_id: String,
+) -> Result<Option<String>> {
+    conn.run(move |c| {
+        activities::table
+            .select(activities::ap_id)
+            .filter(activities::kind.eq(ActivityType::Announce))
+            .filter(activities::revoked.eq(false))
+            .filter(activities::target_ap_id.eq(target_ap_id))
+            .filter(activities::actor.eq(profile.as_id))
+            .order(activities::created_at.desc())
+            .get_result(c)
+    })
+    .await
+}
+
+pub async fn get_liked<C: DbRunner>(
+    conn: &C,
+    profile: Actor,
+    target_ap_id: String,
+) -> Result<Option<String>> {
+    conn.run(move |c| {
+        activities::table
+            .select(activities::ap_id)
+            .filter(activities::kind.eq(ActivityType::Like))
+            .filter(activities::revoked.eq(false))
+            .filter(activities::target_ap_id.eq(target_ap_id))
+            .filter(activities::actor.eq(profile.as_id))
+            .order(activities::created_at.desc())
+            .get_result(c)
+    })
+    .await
+}
+
+pub async fn get_announcers<C: DbRunner>(
+    conn: &C,
     min: Option<i64>,
     max: Option<i64>,
     limit: Option<u8>,
     target_ap_id: String,
-) -> Vec<Actor> {
+) -> Result<Vec<Actor>> {
     conn.run(move |c| {
         let mut query = actors::table
             .select(actors::all_columns)
@@ -1891,143 +1979,18 @@ pub async fn get_announcers(
         }
 
         query = query.order(activities::created_at.desc());
-        query.get_results(c).unwrap_or(vec![])
+        query.get_results(c)
     })
     .await
 }
 
-pub trait TryFromEncryptedActivity: Sized {
-    type Error;
-    fn try_from_encrypted_activity(activity: EncryptedActivity) -> Result<Self, Self::Error>;
-}
-pub type EncryptedActivity = (Activity, Object, Option<OlmSession>);
-
-impl TryFromEncryptedActivity for ApActivity {
-    type Error = anyhow::Error;
-
-    fn try_from_encrypted_activity(
-        (activity, object, session): EncryptedActivity,
-    ) -> Result<Self, Self::Error> {
-        match activity.kind {
-            ActivityType::Create => {
-                ApCreate::try_from_encrypted_activity((activity, object, session))
-                    .map(ApActivity::Create)
-            }
-            _ => {
-                log::error!("Failed to match implemented EncryptedActivity\n{activity:#?}");
-                Err(anyhow!("Failed to match implemented EncryptedActivity"))
-            }
-        }
-    }
-}
-
-impl TryFromEncryptedActivity for ApCreate {
-    type Error = anyhow::Error;
-
-    fn try_from_encrypted_activity(
-        (activity, object, session): EncryptedActivity,
-    ) -> Result<Self, Self::Error> {
-        let note = ApObject::Note(ApNote::try_from(object)?);
-
-        let instrument: MaybeMultiple<ApInstrument> = activity.instrument.into();
-        let mut instrument = match instrument {
-            MaybeMultiple::Single(instrument) => {
-                if instrument.is_mls_welcome() {
-                    vec![instrument].into()
-                } else {
-                    MaybeMultiple::None
-                }
-            }
-            MaybeMultiple::Multiple(instruments) => instruments
-                .into_iter()
-                .filter(|x| x.is_mls_welcome())
-                .collect::<Vec<ApInstrument>>()
-                .into(),
-            _ => MaybeMultiple::None,
-        };
-
-        if let Some(session) = session {
-            instrument = instrument.extend(vec![session.into()]);
-        }
-
-        Ok(ApCreate {
-            context: Some(ApContext::default()),
-            kind: ApCreateType::default(),
-            actor: ApAddress::Address(activity.actor.clone()),
-            id: activity.ap_id,
-            object: note.into(),
-            to: activity.ap_to.clone().into(),
-            cc: activity.cc.into(),
-            signature: None,
-            published: Some(activity.created_at.into()),
-            ephemeral: Some(Ephemeral {
-                created_at: Some(activity.created_at),
-                updated_at: Some(activity.updated_at),
-                ..Default::default()
-            }),
-            instrument,
-        })
-    }
-}
-
-pub async fn get_encrypted_activities(
-    conn: &Db,
-    since: DateTime<Utc>,
-    limit: u8,
-    as_to: Value,
-) -> Result<Vec<EncryptedActivity>> {
-    let as_to_str = as_to
-        .clone()
-        .as_str()
-        .ok_or(anyhow!("Failed to convert Value to String"))?
-        .to_string();
-
-    conn.run(move |c| {
-        activities::table
-            .inner_join(objects::table.on(objects::id.nullable().eq(activities::target_object_id)))
-            .left_join(
-                vault::table.on(vault::activity_id
-                    .eq(activities::id)
-                    .and(vault::owner_as_id.eq(as_to_str.clone()))),
-            )
-            .left_join(
-                olm_sessions::table.on(olm_sessions::ap_conversation
-                    .nullable()
-                    .eq(objects::ap_conversation)
-                    .and(olm_sessions::owner_as_id.eq(as_to_str))),
-            )
-            .filter(
-                objects::as_type
-                    .eq(ObjectType::EncryptedNote)
-                    .and(activities::kind.eq(ActivityType::Create))
-                    .and(vault::activity_id.is_null())
-                    .and(activities::created_at.gt(since))
-                    .and(
-                        activities::ap_to
-                            .contains(as_to.clone())
-                            .or(activities::cc.contains(as_to)),
-                    ),
-            )
-            .select((
-                activities::all_columns,
-                objects::all_columns,
-                olm_sessions::all_columns.nullable(),
-            ))
-            .order(activities::created_at.asc())
-            .limit(limit.into())
-            .get_results(c)
-    })
-    .await
-    .map_err(anyhow::Error::msg)
-}
-
-pub async fn get_likers(
-    conn: &Db,
+pub async fn get_likers<C: DbRunner>(
+    conn: &C,
     min: Option<i64>,
     max: Option<i64>,
     limit: Option<u8>,
     target_ap_id: String,
-) -> Vec<Actor> {
+) -> Result<Vec<Actor>> {
     conn.run(move |c| {
         let mut query = actors::table
             .select(actors::all_columns)
@@ -2051,12 +2014,15 @@ pub async fn get_likers(
         }
 
         query = query.order(activities::created_at.desc());
-        query.get_results(c).unwrap_or(vec![])
+        query.get_results(c)
     })
     .await
 }
 
-pub async fn revoke_activities_by_object_as_id(conn: &Db, as_id: String) -> Result<Vec<Activity>> {
+pub async fn revoke_activities_by_object_as_id<C: DbRunner>(
+    conn: &C,
+    as_id: String,
+) -> Result<Vec<Activity>> {
     conn.run(move |c| {
         diesel::update(
             activities::table.filter(
@@ -2069,81 +2035,62 @@ pub async fn revoke_activities_by_object_as_id(conn: &Db, as_id: String) -> Resu
         )
         .set(activities::revoked.eq(true))
         .get_results::<Activity>(c)
-        .map_err(anyhow::Error::msg)
     })
     .await
 }
 
-pub async fn revoke_activity_by_uuid(conn: Option<&Db>, uuid: String) -> Result<Activity> {
-    match conn {
-        Some(conn) => {
-            conn.run(move |c| {
-                diesel::update(activities::table.filter(activities::uuid.eq(uuid)))
-                    .set(activities::revoked.eq(true))
-                    .get_result::<Activity>(c)
-                    .map_err(anyhow::Error::msg)
-            })
-            .await
-        }
-        None => {
-            let mut pool = POOL.get().map_err(anyhow::Error::msg)?;
-            diesel::update(activities::table.filter(activities::uuid.eq(uuid)))
-                .set(activities::revoked.eq(true))
-                .get_result::<Activity>(&mut pool)
-                .map_err(anyhow::Error::msg)
-        }
-    }
+pub async fn revoke_activity_by_uuid<C: DbRunner>(conn: &C, uuid: String) -> Result<Activity> {
+    //pub async fn revoke_activity_by_uuid(conn: Option<&Db>, uuid: String) -> Result<Activity> {
+    let operation = move |c: &mut PgConnection| {
+        diesel::update(activities::table.filter(activities::uuid.eq(uuid)))
+            .set(activities::revoked.eq(true))
+            .get_result::<Activity>(c)
+    };
+
+    //crate::db::run_db_op(conn, &crate::POOL, operation).await
+    conn.run(operation).await
 }
 
-pub async fn revoke_activity_by_apid(conn: Option<&Db>, ap_id: String) -> Result<Activity> {
+pub async fn revoke_activity_by_apid<C: DbRunner>(conn: &C, ap_id: String) -> Result<Activity> {
+    //pub async fn revoke_activity_by_apid(conn: Option<&Db>, ap_id: String) -> Result<Activity> {
     let operation = move |c: &mut diesel::PgConnection| {
         diesel::update(activities::table.filter(activities::ap_id.eq(ap_id)))
             .set(activities::revoked.eq(true))
             .get_result::<Activity>(c)
     };
 
-    crate::db::run_db_op(conn, &crate::POOL, operation).await
+    conn.run(operation).await
+    //crate::db::run_db_op(conn, &crate::POOL, operation).await
 }
 
-pub async fn set_activity_log_by_apid(
-    conn: Option<&Db>,
+pub async fn set_activity_log_by_apid<C: DbRunner>(
+    conn: &C,
     ap_id: String,
     log: Value,
 ) -> Result<Activity> {
-    match conn {
-        Some(conn) => {
-            conn.run(move |c| {
-                diesel::update(activities::table.filter(activities::ap_id.eq(ap_id)))
-                    .set(activities::log.eq(log))
-                    .get_result::<Activity>(c)
-                    .map_err(anyhow::Error::msg)
-            })
-            .await
-        }
-        None => {
-            let mut pool = POOL.get().map_err(anyhow::Error::msg)?;
-            diesel::update(activities::table.filter(activities::ap_id.eq(ap_id)))
-                .set(activities::log.eq(log))
-                .get_result::<Activity>(&mut pool)
-                .map_err(anyhow::Error::msg)
-        }
-    }
+    conn.run(move |c| {
+        diesel::update(activities::table.filter(activities::ap_id.eq(ap_id)))
+            .set(activities::log.eq(log))
+            .get_result::<Activity>(c)
+    })
+    .await
 }
 
-pub async fn get_activity_by_ap_id(conn: &Db, ap_id: String) -> Option<ExtendedActivity> {
-    get_activities_coalesced(conn, 1, None, None, None, None, Some(ap_id), None, None)
-        .await
-        .first()
-        .cloned()
-        .map(ExtendedActivity::from)
+pub async fn get_activity_by_ap_id<C: DbRunner>(
+    conn: &C,
+    ap_id: String,
+) -> Result<Option<ExtendedActivity>> {
+    let activities =
+        get_activities_coalesced(conn, 1, None, None, None, None, Some(ap_id), None, None).await?;
+    Ok(activities.first().cloned().map(ExtendedActivity::from))
 }
 
-pub async fn get_unrevoked_activity_by_kind_actor_id_and_target_ap_id(
-    conn: &Db,
+pub async fn get_unrevoked_activity_by_kind_actor_id_and_target_ap_id<C: DbRunner>(
+    conn: &C,
     kind: ActivityType,
     actor_id: i32,
     target_ap_id: String,
-) -> Option<Activity> {
+) -> Result<Option<Activity>> {
     conn.run(move |c| {
         activities::table
             .filter(activities::revoked.eq(false))
@@ -2151,64 +2098,47 @@ pub async fn get_unrevoked_activity_by_kind_actor_id_and_target_ap_id(
             .filter(activities::actor_id.eq(actor_id))
             .filter(activities::target_ap_id.eq(target_ap_id))
             .filter(activities::revoked.eq(false))
-            .load::<Activity>(c)
+            .first::<Activity>(c)
+            .optional()
     })
     .await
-    .ok()?
-    .first()
-    .cloned()
 }
 
-pub async fn get_activity_by_kind_actor_id_and_target_ap_id(
-    conn: &Db,
+pub async fn get_activity_by_kind_actor_id_and_target_ap_id<C: DbRunner>(
+    conn: &C,
     kind: ActivityType,
     actor_id: i32,
     target_ap_id: String,
-) -> Option<Activity> {
+) -> Result<Option<Activity>> {
     conn.run(move |c| {
         activities::table
             .filter(activities::revoked.eq(false))
             .filter(activities::kind.eq(kind))
             .filter(activities::actor_id.eq(actor_id))
             .filter(activities::target_ap_id.eq(target_ap_id))
-            .load::<Activity>(c)
+            .first::<Activity>(c)
+            .optional()
     })
     .await
-    .ok()?
-    .first()
-    .cloned()
 }
 
-pub async fn lookup_activity_id_by_as_id(conn: &Db, as_id: String) -> Result<i32> {
+pub async fn lookup_activity_id_by_as_id<C: DbRunner>(conn: &C, as_id: String) -> Result<i32> {
     conn.run(move |c| {
         activities::table
             .filter(activities::ap_id.eq(as_id))
             .select(activities::id)
             .first::<i32>(c)
-            .map_err(anyhow::Error::msg)
     })
     .await
 }
 
-pub async fn get_activity(conn: Option<&Db>, id: i32) -> Option<ExtendedActivity> {
-    get_activities_coalesced(
-        conn.unwrap(),
-        1,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        Some(id),
-    )
-    .await
-    .first()
-    .cloned()
-    .map(ExtendedActivity::from)
+pub async fn get_activity<C: DbRunner>(conn: &C, id: i32) -> Result<Option<ExtendedActivity>> {
+    let activities =
+        get_activities_coalesced(conn, 1, None, None, None, None, None, None, Some(id)).await?;
+    Ok(activities.first().cloned().map(ExtendedActivity::from))
 }
 
-pub async fn get_outbox_count_by_actor_id(conn: &Db, actor_id: i32) -> Option<i64> {
+pub async fn get_outbox_count_by_actor_id<C: DbRunner>(conn: &C, actor_id: i32) -> Result<i64> {
     conn.run(move |c| {
         activities::table
             .filter(activities::revoked.eq(false))
@@ -2222,36 +2152,24 @@ pub async fn get_outbox_count_by_actor_id(conn: &Db, actor_id: i32) -> Option<i6
             .get_result::<i64>(c)
     })
     .await
-    .ok()
 }
 
-pub async fn update_target_object(
-    conn: Option<&Db>,
+pub async fn update_target_object<C: DbRunner>(
+    conn: &C,
     activity: Activity,
     object: Object,
-) -> Option<usize> {
-    match conn {
-        Some(conn) => {
-            conn.run(move |c| {
-                diesel::update(activities::table.find(activity.id))
-                    .set(activities::target_object_id.eq(object.id))
-                    .execute(c)
-                    .ok()
-            })
-            .await
-        }
-        None => {
-            let mut pool = POOL.get().ok()?;
-            diesel::update(activities::table.find(activity.id))
-                .set(activities::target_object_id.eq(object.id))
-                .execute(&mut pool)
-                .ok()
-        }
-    }
+) -> Result<usize> {
+    let operation = move |c: &mut PgConnection| {
+        diesel::update(activities::table.find(activity.id))
+            .set(activities::target_object_id.eq(object.id))
+            .execute(c)
+    };
+
+    conn.run(operation).await
 }
 
-pub async fn delete_activities_by_domain_pattern(
-    conn: Option<&Db>,
+pub async fn delete_activities_by_domain_pattern<C: DbRunner>(
+    conn: &C,
     domain_pattern: String,
 ) -> Result<usize> {
     let operation = move |c: &mut diesel::PgConnection| {
@@ -2262,10 +2180,10 @@ pub async fn delete_activities_by_domain_pattern(
             .execute(c)
     };
 
-    crate::db::run_db_op(conn, &crate::POOL, operation).await
+    conn.run(operation).await
 }
 
-pub async fn delete_activities_by_actor(conn: Option<&Db>, actor: String) -> Result<usize> {
+pub async fn delete_activities_by_actor<C: DbRunner>(conn: &C, actor: String) -> Result<usize> {
     let operation = move |c: &mut diesel::PgConnection| {
         use diesel::sql_types::Text;
 
@@ -2274,5 +2192,46 @@ pub async fn delete_activities_by_actor(conn: Option<&Db>, actor: String) -> Res
             .execute(c)
     };
 
-    crate::db::run_db_op(conn, &crate::POOL, operation).await
+    conn.run(operation).await
 }
+
+// pub async fn update_target_object(
+//     conn: Option<&Db>,
+//     activity: Activity,
+//     object: Object,
+// ) -> Result<usize> {
+//     let operation = move |c: &mut PgConnection| {
+//         diesel::update(activities::table.find(activity.id))
+//             .set(activities::target_object_id.eq(object.id))
+//             .execute(c)
+//     };
+
+//     crate::db::run_db_op(conn, &crate::POOL, operation).await
+// }
+
+// pub async fn delete_activities_by_domain_pattern(
+//     conn: Option<&Db>,
+//     domain_pattern: String,
+// ) -> Result<usize> {
+//     let operation = move |c: &mut diesel::PgConnection| {
+//         use diesel::sql_types::Text;
+
+//         sql_query("DELETE FROM activities WHERE actor COLLATE \"C\" LIKE $1")
+//             .bind::<Text, _>(format!("https://{domain_pattern}/%"))
+//             .execute(c)
+//     };
+
+//     crate::db::run_db_op(conn, &crate::POOL, operation).await
+// }
+
+// pub async fn delete_activities_by_actor(conn: Option<&Db>, actor: String) -> Result<usize> {
+//     let operation = move |c: &mut diesel::PgConnection| {
+//         use diesel::sql_types::Text;
+
+//         sql_query("DELETE FROM activities WHERE actor = $1")
+//             .bind::<Text, _>(actor)
+//             .execute(c)
+//     };
+
+//     crate::db::run_db_op(conn, &crate::POOL, operation).await
+// }

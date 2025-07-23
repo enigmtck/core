@@ -1,4 +1,4 @@
-use crate::db::Db;
+use crate::db::runner::DbRunner;
 use crate::schema::notifications;
 use chrono::{DateTime, Utc};
 use convert_case::{Case, Casing};
@@ -90,8 +90,8 @@ pub struct Notification {
     pub activity_id: i32,
 }
 
-pub async fn _create_notification(
-    conn: &Db,
+pub async fn _create_notification<C: DbRunner>(
+    conn: &C,
     notification: NewNotification,
 ) -> Option<Notification> {
     conn.run(move |c| {
@@ -103,7 +103,7 @@ pub async fn _create_notification(
     .ok()
 }
 
-pub async fn _delete_by_filter<T>(conn: &Db, filter: T) -> bool
+pub async fn _delete_by_filter<T, C: DbRunner>(conn: &C, filter: T) -> bool
 where
     T: diesel::BoxableExpression<notifications::table, Pg, SqlType = Bool>
         + QueryId
@@ -119,7 +119,10 @@ where
     .is_ok()
 }
 
-pub async fn _get_notification_by_uuid(conn: &Db, uuid: String) -> Option<Notification> {
+pub async fn _get_notification_by_uuid<C: DbRunner>(
+    conn: &C,
+    uuid: String,
+) -> Option<Notification> {
     conn.run(move |c| {
         notifications::table
             .filter(notifications::uuid.eq(uuid))
@@ -129,10 +132,10 @@ pub async fn _get_notification_by_uuid(conn: &Db, uuid: String) -> Option<Notifi
     .ok()
 }
 
-pub async fn _delete_notification(conn: &Db, id: i32) -> bool {
+pub async fn _delete_notification<C: DbRunner>(conn: &C, id: i32) -> bool {
     _delete_by_filter(conn, notifications::id.eq(id)).await
 }
 
-pub async fn _delete_notification_by_uuid(conn: &Db, uuid: String) -> bool {
+pub async fn _delete_notification_by_uuid<C: DbRunner>(conn: &C, uuid: String) -> bool {
     _delete_by_filter(conn, notifications::uuid.eq(uuid)).await
 }

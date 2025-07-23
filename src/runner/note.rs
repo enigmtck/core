@@ -1,42 +1,59 @@
 use anyhow::{anyhow, Result};
+use deadpool_diesel::postgres::Pool;
 use reqwest::StatusCode;
 use webpage::{Webpage, WebpageOptions};
 
-use crate::fairings::events::EventChannels;
+use crate::db::runner::DbRunner;
+use crate::events::EventChannels;
 use crate::models::actors::{guaranteed_actor, Actor};
 use crate::models::cache::Cache;
 use crate::models::objects;
 use crate::models::objects::{create_or_update_object, get_object_by_as_id, Object};
 use crate::retriever::{get_actor, signed_get};
+use crate::server::sanitize_json_fields;
+use crate::signing::Method;
 use crate::ANCHOR_RE;
-use crate::{db::Db, signing::Method};
 use jdt_activity_pub::{ApHashtag, ApObject, Metadata};
-use serde_json::json;
+use serde_json::{json, Value};
 
 use super::TaskError;
 
-pub async fn fetch_remote_object(conn: &Db, id: String, profile: Actor) -> Result<Object> {
+pub async fn fetch_remote_object<C: DbRunner>(
+    conn: &C,
+    id: String,
+    profile: Actor,
+) -> Result<Object> {
     let _url = id.clone();
     let _method = Method::Get;
 
     match signed_get(profile, id, false).await {
         Ok(resp) => match resp.status() {
-            StatusCode::ACCEPTED | StatusCode::OK => match resp.json().await {
-                Ok(ApObject::Note(note)) => {
-                    create_or_update_object(conn, note.cache(conn).await.clone().into()).await
+            StatusCode::ACCEPTED | StatusCode::OK => {
+                if let Ok(resp) = resp.json::<Value>().await {
+                    let sanitized = sanitize_json_fields(resp.clone());
+                    match serde_json::from_value::<ApObject>(sanitized) {
+                        Ok(ApObject::Note(note)) => {
+                            create_or_update_object(conn, note.cache(conn).await.clone().into())
+                                .await
+                        }
+                        Ok(ApObject::Question(question)) => {
+                            create_or_update_object(conn, question.cache(conn).await.clone().into())
+                                .await
+                        }
+                        Ok(ApObject::Article(article)) => {
+                            create_or_update_object(conn, article.cache(conn).await.clone().into())
+                                .await
+                        }
+                        Err(e) => {
+                            log::error!("Failed to decode remote Object: {e}");
+                            Err(e.into())
+                        }
+                        _ => Err(anyhow!("Unimplemented ApObject")),
+                    }
+                } else {
+                    Err(anyhow!("Failed to convert response to JSON"))
                 }
-                Ok(ApObject::Question(question)) => {
-                    create_or_update_object(conn, question.cache(conn).await.clone().into()).await
-                }
-                Ok(ApObject::Article(article)) => {
-                    create_or_update_object(conn, article.cache(conn).await.clone().into()).await
-                }
-                Err(e) => {
-                    log::error!("Failed to decode remote Object: {e}");
-                    Err(e.into())
-                }
-                _ => Err(anyhow!("Unimplemented ApObject")),
-            },
+            }
             StatusCode::GONE => {
                 log::debug!("Remote Object no longer exists at source");
                 Err(anyhow!("Object no longer exists"))
@@ -90,9 +107,9 @@ fn metadata_object(object: &Object) -> Vec<Metadata> {
     }
 }
 
-pub async fn handle_object(
-    conn: &Db,
-    channels: Option<EventChannels>,
+pub async fn handle_object<C: DbRunner>(
+    conn: &C,
+    _channels: Option<EventChannels>,
     mut object: Object,
     _announcer: Option<String>,
 ) -> anyhow::Result<Object> {
@@ -117,60 +134,38 @@ pub async fn handle_object(
     }
 
     let ap_object: ApObject = object.clone().try_into()?;
-    let profile = guaranteed_actor(conn, None);
+    let profile = guaranteed_actor(conn, None).await;
 
-    if let ApObject::Note(note) = ap_object {
-        let _ = get_actor(
-            Some(conn),
-            note.attributed_to.to_string(),
-            Some(profile.await),
-            true,
-        )
-        .await;
+    let _ = get_actor(
+        conn,
+        object
+            .attributed_to()
+            .first()
+            .ok_or(anyhow!("Failed to identify attribution"))?
+            .clone(),
+        Some(profile),
+        true,
+    )
+    .await;
 
-        // if let Some(announcer) = announcer {
-        //     note.ephemeral_announces = Some(vec![announcer]);
-        // }
+    ap_object.cache(conn).await;
 
-        note.cache(conn).await;
-
-        if let Some(mut channels) = channels {
-            channels.send(None, serde_json::to_string(&note.clone()).unwrap());
-        }
-
-        Ok(object)
-    } else {
-        Err(anyhow!("ApObject is not a Note"))
-    }
+    Ok(object)
 }
 
 pub async fn object_task(
-    conn: Db,
+    pool: Pool,
     channels: Option<EventChannels>,
     ap_ids: Vec<String>,
 ) -> Result<(), TaskError> {
     let ap_id = ap_ids.first().unwrap().clone();
+    let conn = pool.get().await.map_err(|_| TaskError::TaskFailed)?;
 
-    if let Ok(object) = get_object_by_as_id(Some(&conn), ap_id).await {
-        cfg_if::cfg_if! {
-            if #[cfg(feature = "pg")] {
-                use crate::models::objects::ObjectType;
+    if let Ok(object) = get_object_by_as_id(&conn, ap_id).await {
+        use crate::models::objects::ObjectType;
 
-                if object.as_type == ObjectType::Note {
-                    let _ = handle_object(&conn, channels, object.clone(), None).await;
-                }
-            }
-            // else if #[cfg(feature = "sqlite")] {
-            //     match remote_note.kind.as_str() {
-            //         "note" => {
-            //             let _ = handle_remote_note(conn, channels.clone(), remote_note.clone(), None).await;
-            //         }
-            //         "encrypted_note" => {
-            //             let _ = handle_remote_encrypted_note_task(conn, remote_note).await;
-            //         }
-            //         _ => (),
-            //     }
-            // }
+        if object.as_type == ObjectType::Note {
+            let _ = handle_object(&conn, channels, object.clone(), None).await;
         }
     }
 

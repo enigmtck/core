@@ -11,9 +11,9 @@ use diesel::prelude::*;
 use diesel::sql_types::{Bool, Integer, Jsonb, Nullable, Text, Timestamptz};
 use diesel::Queryable;
 use jdt_activity_pub::{
-    ApActivity, ApAddress, ApAnnounce, ApContext, ApCreate, ApDateTime, ApDelete, ApDeleteType,
-    ApFollow, ApFollowType, ApInstrument, ApInstrumentType, ApLike, ApLikeType, ApNote, ApObject,
-    ApQuestion, Ephemeral, MaybeReference,
+    ApActivity, ApAddress, ApAnnounce, ApArticle, ApContext, ApCreate, ApDateTime, ApDelete,
+    ApDeleteType, ApFollow, ApFollowType, ApInstrument, ApInstrumentType, ApLike, ApLikeType,
+    ApNote, ApObject, ApQuestion, Ephemeral, MaybeReference,
 };
 use jdt_activity_pub::{ApTimelineObject, MaybeMultiple};
 use serde::{Deserialize, Serialize};
@@ -198,6 +198,12 @@ pub struct CoalescedActivity {
 
     #[diesel(sql_type = Nullable<Text>)]
     pub object_summary: Option<String>,
+
+    #[diesel(sql_type = Nullable<Jsonb>)]
+    pub object_preview: Option<Value>,
+
+    #[diesel(sql_type = Nullable<Timestamptz>)]
+    pub object_start_time: Option<DateTime<Utc>>,
 
     #[diesel(sql_type = Nullable<Timestamptz>)]
     pub object_end_time: Option<DateTime<Utc>>,
@@ -461,18 +467,28 @@ impl TryFrom<CoalescedActivity> for ApAnnounce {
     type Error = anyhow::Error;
 
     fn try_from(coalesced: CoalescedActivity) -> Result<Self, Self::Error> {
-        let object = match coalesced
-            .clone()
-            .object_type
-            .ok_or(anyhow!("object_type is None"))?
-            .to_string()
-            .to_lowercase()
-            .as_str()
-        {
-            "note" => Ok(ApObject::Note(ApNote::try_from(coalesced.clone())?).into()),
-            "question" => Ok(ApObject::Question(ApQuestion::try_from(coalesced.clone())?).into()),
-            _ => Err(anyhow!("invalid type")),
+        let object = match coalesced.clone().object_type.ok_or_else(|| {
+            log::error!("ObjectType appears to be None: {:?}", coalesced.clone());
+            anyhow::anyhow!("object_type is None")
+        })? {
+            ObjectType::Note => Ok(ApObject::Note(ApNote::try_from(coalesced.clone())?).into()),
+            ObjectType::Article => {
+                log::debug!("Article ObjectType identified");
+                Ok(ApObject::Article(ApArticle::try_from(coalesced.clone())?).into())
+            }
+            ObjectType::EncryptedNote => {
+                Ok(ApObject::Note(ApNote::try_from(coalesced.clone())?).into())
+            }
+            ObjectType::Question => {
+                log::debug!("Question ObjectType identified");
+                Ok(ApObject::Question(ApQuestion::try_from(coalesced.clone())?).into())
+            }
+            _ => {
+                log::error!("Invalid ObjectType: {:?}", coalesced.clone());
+                Err(anyhow!("invalid type"))
+            }
         }?;
+
         let kind = coalesced.kind.clone().try_into()?;
         let actor = ApAddress::Address(coalesced.actor.clone());
         let id = coalesced.ap_id.clone();
@@ -504,19 +520,26 @@ impl TryFrom<CoalescedActivity> for ApCreate {
     type Error = anyhow::Error;
 
     fn try_from(coalesced: CoalescedActivity) -> Result<Self, Self::Error> {
-        let object = match coalesced
-            .clone()
-            .object_type
-            .ok_or_else(|| anyhow::anyhow!("object_type is None"))?
-        {
+        let object = match coalesced.clone().object_type.ok_or_else(|| {
+            log::error!("ObjectType appears to be None: {:?}", coalesced.clone());
+            anyhow::anyhow!("object_type is None")
+        })? {
             ObjectType::Note => Ok(ApObject::Note(ApNote::try_from(coalesced.clone())?).into()),
+            ObjectType::Article => {
+                log::debug!("Article ObjectType identified");
+                Ok(ApObject::Article(ApArticle::try_from(coalesced.clone())?).into())
+            }
             ObjectType::EncryptedNote => {
                 Ok(ApObject::Note(ApNote::try_from(coalesced.clone())?).into())
             }
             ObjectType::Question => {
+                log::debug!("Question ObjectType identified");
                 Ok(ApObject::Question(ApQuestion::try_from(coalesced.clone())?).into())
             }
-            _ => Err(anyhow!("invalid type")),
+            _ => {
+                log::error!("Invalid ObjectType: {:?}", coalesced.clone());
+                Err(anyhow!("invalid type"))
+            }
         }?;
         let kind = coalesced.kind.clone().try_into()?;
         let actor = ApAddress::Address(coalesced.actor.clone());
@@ -632,7 +655,7 @@ impl TryFrom<CoalescedActivity> for ApNote {
             .object_type
             .ok_or_else(|| anyhow::anyhow!("object_type is None"))?
             .try_into()
-            .map_err(|e| anyhow::anyhow!("Failed to convert object_type: {}", e))?;
+            .map_err(|e| anyhow::anyhow!("Failed to convert Note object_type: {}", e))?;
 
         let id = coalesced.object_as_id;
         let url = coalesced
@@ -693,6 +716,76 @@ impl TryFrom<CoalescedActivity> for ApNote {
     }
 }
 
+impl TryFrom<CoalescedActivity> for ApArticle {
+    type Error = anyhow::Error;
+
+    fn try_from(coalesced: CoalescedActivity) -> Result<Self, Self::Error> {
+        let kind = coalesced
+            .object_type
+            .ok_or_else(|| anyhow::anyhow!("object_type is None"))?
+            .to_string()
+            .try_into()
+            .map_err(|e| anyhow::anyhow!("Failed to convert Article object_type: {}", e))?;
+
+        let id = coalesced.object_as_id;
+        let url = coalesced
+            .object_url
+            .and_then(from_serde::<MaybeMultiple<String>>)
+            .and_then(|x| x.single().ok());
+        let to = coalesced
+            .object_to
+            .and_then(from_serde)
+            .ok_or_else(|| anyhow::anyhow!("object_to is None"))?;
+        let cc: MaybeMultiple<ApAddress> = coalesced.object_cc.into();
+        let tag = coalesced.object_tag.into();
+        let attributed_to = coalesced
+            .object_attributed_to
+            .and_then(from_serde)
+            .ok_or_else(|| anyhow::anyhow!("object_attributed_to is None"))?;
+        let in_reply_to: MaybeMultiple<MaybeReference<ApTimelineObject>> =
+            coalesced.object_in_reply_to.into();
+        let content = coalesced.object_content;
+        let attachment = coalesced.object_attachment.into();
+        let summary = coalesced.object_summary;
+        let preview = coalesced.object_preview.into();
+        let sensitive = coalesced.object_sensitive;
+        let published = coalesced
+            .object_published
+            .ok_or_else(|| anyhow::anyhow!("object_published is None"))?
+            .into();
+        let ephemeral = Some(Ephemeral {
+            metadata: coalesced.object_metadata.and_then(from_serde),
+            announces: from_serde(coalesced.object_announcers),
+            likes: from_serde(coalesced.object_likers),
+            announced: coalesced.object_announced,
+            liked: coalesced.object_liked,
+            attributed_to: from_serde(coalesced.object_attributed_to_profiles),
+            ..Default::default()
+        });
+        let instrument = coalesced.object_instrument.into();
+
+        Ok(ApArticle {
+            kind,
+            id,
+            url,
+            to,
+            cc,
+            tag,
+            attributed_to,
+            in_reply_to,
+            content,
+            attachment,
+            preview,
+            summary,
+            sensitive,
+            published,
+            ephemeral,
+            instrument,
+            ..Default::default()
+        })
+    }
+}
+
 impl TryFrom<CoalescedActivity> for ApQuestion {
     type Error = anyhow::Error;
 
@@ -702,7 +795,7 @@ impl TryFrom<CoalescedActivity> for ApQuestion {
             .ok_or_else(|| anyhow::anyhow!("object_type is None"))?
             .to_string()
             .try_into()
-            .map_err(|e| anyhow::anyhow!("Failed to convert object_type: {}", e))?;
+            .map_err(|e| anyhow::anyhow!("Failed to convert Question object_type: {}", e))?;
 
         let id = coalesced
             .object_as_id
@@ -729,10 +822,20 @@ impl TryFrom<CoalescedActivity> for ApQuestion {
         let summary = coalesced.object_summary;
         let sensitive = coalesced.object_sensitive;
         let published = coalesced.object_published.map(ApDateTime::from);
+        let _start_time = coalesced.object_start_time.map(ApDateTime::from);
         let end_time = coalesced.object_end_time.map(ApDateTime::from);
         let one_of = coalesced.object_one_of.into();
         let any_of = coalesced.object_any_of.into();
         let voters_count = coalesced.object_voters_count;
+        let ephemeral = Some(Ephemeral {
+            metadata: coalesced.object_metadata.and_then(from_serde),
+            announces: from_serde(coalesced.object_announcers),
+            likes: from_serde(coalesced.object_likers),
+            announced: coalesced.object_announced,
+            liked: coalesced.object_liked,
+            attributed_to: from_serde(coalesced.object_attributed_to_profiles),
+            ..Default::default()
+        });
 
         Ok(ApQuestion {
             kind,
@@ -749,10 +852,12 @@ impl TryFrom<CoalescedActivity> for ApQuestion {
             summary,
             sensitive,
             published,
+            //start_time,
             end_time,
             one_of,
             any_of,
             voters_count,
+            ephemeral,
             ..Default::default()
         })
     }

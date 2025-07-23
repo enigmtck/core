@@ -1,7 +1,6 @@
 use super::OffsetPaging;
-use crate::db::Db;
+use crate::db::runner::DbRunner;
 use crate::schema::{actors, follows};
-use crate::POOL;
 use anyhow::{anyhow, Result};
 use chrono::{DateTime, Utc};
 use diesel::prelude::*;
@@ -25,7 +24,7 @@ pub struct NewFollow {
 }
 
 impl NewFollow {
-    pub async fn link(mut self, conn: Option<&Db>) -> NewFollow {
+    pub async fn link<C: DbRunner>(mut self, conn: &C) -> NewFollow {
         self.follower_actor_id = get_actor_by_as_id(conn, self.follower_ap_id.clone())
             .await
             .ok()
@@ -74,33 +73,32 @@ pub struct Follow {
     pub leader_actor_id: Option<i32>,
 }
 
-pub async fn create_follow(conn: Option<&Db>, follower: NewFollow) -> Result<Follow> {
+pub async fn create_follow<C: DbRunner>(conn: &C, follower: NewFollow) -> Result<Follow> {
     let operation = move |c: &mut diesel::PgConnection| {
         diesel::insert_into(follows::table)
             .values(&follower)
             .get_result::<Follow>(c)
     };
 
-    crate::db::run_db_op(conn, &crate::POOL, operation).await
+    conn.run(operation).await
 }
 
-pub async fn delete_follower_by_ap_id(conn: Option<&Db>, ap_id: String) -> Result<usize> {
+pub async fn delete_follower_by_ap_id<C: DbRunner>(conn: &C, ap_id: String) -> Result<usize> {
     let operation = move |c: &mut diesel::PgConnection| {
         diesel::delete(follows::table)
             .filter(follows::follower_ap_id.eq(ap_id))
             .execute(c)
     };
 
-    crate::db::run_db_op(conn, &crate::POOL, operation).await
+    conn.run(operation).await
 }
 
-pub async fn get_followers_by_actor_id(
-    conn_opt: Option<&Db>,
+pub async fn get_followers_by_actor_id<C: DbRunner>(
+    conn: &C,
     actor_id: i32,
     paging: Option<OffsetPaging>,
-) -> Vec<(Follow, Actor)> {
-    // inner join is used to exclude Actor records that have been deleted
-    let operation = move |c: &mut PgConnection| {
+) -> Result<Vec<(Follow, Actor)>> {
+    conn.run(move |c: &mut PgConnection| {
         let mut query = follows::table
             .filter(follows::leader_actor_id.eq(actor_id))
             .inner_join(actors::table.on(follows::follower_ap_id.eq(actors::as_id)))
@@ -113,39 +111,12 @@ pub async fn get_followers_by_actor_id(
                 .offset((paging.page * paging.limit) as i64);
         }
 
-        query
-            .get_results::<(Follow, Actor)>(c)
-            .map_err(anyhow::Error::from)
-    };
-
-    match conn_opt {
-        Some(conn) => conn.run(operation).await.unwrap_or_else(|e| {
-            log::error!("Failed to get followers by actor id (with DB conn): {e:?}");
-            vec![]
-        }),
-        None => {
-            tokio::task::spawn_blocking(move || {
-                let mut pool_conn = POOL.get().map_err(anyhow::Error::msg)?;
-                operation(&mut pool_conn)
-            })
-            .await
-            .unwrap_or_else(|e| {
-                // Handles JoinError
-                log::error!(
-                    "Failed to get followers by actor id (spawn_blocking task failed): {e:?}"
-                );
-                Ok(vec![]) // Ok because the outer unwrap_or_else expects Result<Vec, _>
-            })
-            .unwrap_or_else(|e| {
-                // Handles error from operation itself
-                log::error!("Failed to get followers by actor id (DB operation failed): {e:?}");
-                vec![]
-            })
-        }
-    }
+        query.get_results::<(Follow, Actor)>(c)
+    })
+    .await
 }
 
-pub async fn get_follower_count_by_actor_id(conn: &Db, actor_id: i32) -> Result<i64> {
+pub async fn get_follower_count_by_actor_id<C: DbRunner>(conn: &C, actor_id: i32) -> Result<i64> {
     // inner join is used to exclude Actor records that have been deleted
     conn.run(move |c| {
         follows::table
@@ -155,11 +126,10 @@ pub async fn get_follower_count_by_actor_id(conn: &Db, actor_id: i32) -> Result<
             .get_result(c)
     })
     .await
-    .map_err(anyhow::Error::msg)
 }
 
-pub async fn delete_followers_by_domain_pattern(
-    conn: Option<&Db>,
+pub async fn delete_followers_by_domain_pattern<C: DbRunner>(
+    conn: &C,
     domain_pattern: String,
 ) -> Result<usize> {
     let operation = move |c: &mut diesel::PgConnection| {
@@ -170,10 +140,13 @@ pub async fn delete_followers_by_domain_pattern(
             .execute(c)
     };
 
-    crate::db::run_db_op(conn, &crate::POOL, operation).await
+    conn.run(operation).await
 }
 
-pub async fn delete_followers_by_followed_ap_id(conn: Option<&Db>, ap_id: String) -> Result<usize> {
+pub async fn delete_followers_by_followed_ap_id<C: DbRunner>(
+    conn: &C,
+    ap_id: String,
+) -> Result<usize> {
     let operation = move |c: &mut diesel::PgConnection| {
         use diesel::sql_types::Text;
 
@@ -182,10 +155,10 @@ pub async fn delete_followers_by_followed_ap_id(conn: Option<&Db>, ap_id: String
             .execute(c)
     };
 
-    crate::db::run_db_op(conn, &crate::POOL, operation).await
+    conn.run(operation).await
 }
 
-pub async fn delete_followers_by_actor(conn: Option<&Db>, actor: String) -> Result<usize> {
+pub async fn delete_followers_by_actor<C: DbRunner>(conn: &C, actor: String) -> Result<usize> {
     let operation = move |c: &mut diesel::PgConnection| {
         use diesel::sql_types::Text;
 
@@ -194,13 +167,11 @@ pub async fn delete_followers_by_actor(conn: Option<&Db>, actor: String) -> Resu
             .execute(c)
     };
 
-    crate::db::run_db_op(conn, &crate::POOL, operation).await
+    conn.run(operation).await
 }
 
-// Code from leaders, consolidated here.
-
-pub async fn mark_follow_accepted(
-    conn: Option<&Db>,
+pub async fn mark_follow_accepted<C: DbRunner>(
+    conn: &C,
     follower_ap_id: String,
     leader_ap_id: String,
     accept_ap_id: String,
@@ -215,16 +186,14 @@ pub async fn mark_follow_accepted(
             .get_result(c)
     };
 
-    crate::db::run_db_op(conn, &crate::POOL, operation)
-        .await
-        .ok()
+    conn.run(operation).await.ok()
 }
 
-pub async fn get_follow(
-    conn: Option<&Db>,
+pub async fn get_follow<C: DbRunner>(
+    conn: &C,
     follower_ap_id: String,
     leader_ap_id: String,
-) -> Option<Follow> {
+) -> Result<Follow> {
     let operation = move |c: &mut diesel::PgConnection| {
         use diesel::sql_types::Text;
 
@@ -234,13 +203,11 @@ pub async fn get_follow(
             .get_result(c)
     };
 
-    crate::db::run_db_op(conn, &crate::POOL, operation)
-        .await
-        .ok()
+    conn.run(operation).await
 }
 
-pub async fn delete_follow(
-    conn: Option<&Db>,
+pub async fn delete_follow<C: DbRunner>(
+    conn: &C,
     follower_ap_id: String,
     leader_ap_id: String,
 ) -> Result<usize> {
@@ -253,11 +220,11 @@ pub async fn delete_follow(
             .execute(c)
     };
 
-    crate::db::run_db_op(conn, &crate::POOL, operation).await
+    conn.run(operation).await
 }
 
-pub async fn get_leaders_by_follower_actor_id(
-    conn: Option<&Db>,
+pub async fn get_leaders_by_follower_actor_id<C: DbRunner>(
+    conn: &C,
     follower_actor_id: i32,
     paging: Option<OffsetPaging>,
 ) -> Result<Vec<(Follow, Option<Actor>)>> {
@@ -272,16 +239,16 @@ pub async fn get_leaders_by_follower_actor_id(
             offset = format!(" OFFSET {}", (paging.page * paging.limit));
         };
 
-        sql_query(format!("SELECT * FROM follows f LEFT JOIN actors a ON (f.leader_ap_id = a.as_id) WHERE f.follower_actor_id = $1 ORDER BY f.created_at DESC{limit}{offset}"))
+        sql_query(format!("SELECT f.*, a.* FROM follows f LEFT JOIN actors a ON (f.leader_ap_id = a.as_id) WHERE f.follower_actor_id = $1 AND f.accepted = 't' ORDER BY f.created_at DESC{limit}{offset}"))
             .bind::<Integer, _>(follower_actor_id)
             .get_results::<(Follow, Option<Actor>)>(c)
     };
 
-    crate::db::run_db_op(conn, &crate::POOL, operation).await
+    conn.run(operation).await
 }
 
-pub async fn get_leader_count_by_follower_actor_id(
-    conn: Option<&Db>,
+pub async fn get_leader_count_by_follower_actor_id<C: DbRunner>(
+    conn: &C,
     follower_actor_id: i32,
 ) -> Result<i64> {
     let operation = move |c: &mut diesel::PgConnection| {
@@ -291,11 +258,11 @@ pub async fn get_leader_count_by_follower_actor_id(
             .get_result(c)
     };
 
-    crate::db::run_db_op(conn, &crate::POOL, operation).await
+    conn.run(operation).await
 }
 
-pub async fn delete_follows_by_domain_pattern(
-    conn: Option<&Db>,
+pub async fn delete_follows_by_domain_pattern<C: DbRunner>(
+    conn: &C,
     domain_pattern: String,
 ) -> Result<usize> {
     let operation = move |c: &mut diesel::PgConnection| {
@@ -307,11 +274,11 @@ pub async fn delete_follows_by_domain_pattern(
             .execute(c)
     };
 
-    crate::db::run_db_op(conn, &crate::POOL, operation).await
+    conn.run(operation).await
 }
 
-pub async fn delete_follows_by_leader_ap_id(
-    conn: Option<&Db>,
+pub async fn delete_follows_by_leader_ap_id<C: DbRunner>(
+    conn: &C,
     leader_ap_id: String,
 ) -> Result<usize> {
     let operation = move |c: &mut diesel::PgConnection| {
@@ -322,11 +289,11 @@ pub async fn delete_follows_by_leader_ap_id(
             .execute(c)
     };
 
-    crate::db::run_db_op(conn, &crate::POOL, operation).await
+    conn.run(operation).await
 }
 
-pub async fn delete_follows_by_follower_ap_id(
-    conn: Option<&Db>,
+pub async fn delete_follows_by_follower_ap_id<C: DbRunner>(
+    conn: &C,
     follower_ap_id: String,
 ) -> Result<usize> {
     let operation = move |c: &mut diesel::PgConnection| {
@@ -337,5 +304,5 @@ pub async fn delete_follows_by_follower_ap_id(
             .execute(c)
     };
 
-    crate::db::run_db_op(conn, &crate::POOL, operation).await
+    conn.run(operation).await
 }

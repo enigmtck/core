@@ -1,25 +1,26 @@
 use super::actors::Actor;
 use super::{coalesced_activity::CoalescedActivity, from_serde};
-use crate::db::Db;
+use crate::db::runner::DbRunner;
+use crate::helper::{get_object_ap_id_from_uuid, get_object_url_from_uuid};
 use crate::schema::objects;
-use crate::POOL;
 use anyhow::{anyhow, Result};
 use chrono::{DateTime, Utc};
 use convert_case::{Case, Casing};
 use diesel::prelude::*;
 use diesel::{sql_query, AsChangeset, Identifiable, Insertable, Queryable};
-use jdt_activity_pub::MaybeMultiple;
 use jdt_activity_pub::MaybeReference;
 use jdt_activity_pub::{
     ApAddress, ApArticle, ApDateTime, ApHashtag, ApNote, ApNoteType, ApObject, ApQuestion,
     ApQuestionType, Ephemeral,
 };
+use jdt_activity_pub::{ApArticleType, MaybeMultiple};
 use maplit::{hashmap, hashset};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use serde_json::Value;
 use std::collections::HashMap;
 use std::fmt::{self, Debug};
+use uuid::Uuid;
 
 #[derive(
     diesel_derive_enum::DbEnum, Debug, Serialize, Deserialize, Default, Clone, Eq, PartialEq,
@@ -105,6 +106,17 @@ impl TryFrom<ObjectType> for ApNoteType {
             ObjectType::Note => Ok(Self::Note),
             ObjectType::EncryptedNote => Ok(Self::EncryptedNote),
             _ => Err(anyhow!("invalid Object type for ApNote")),
+        }
+    }
+}
+
+impl TryFrom<ObjectType> for ApArticleType {
+    type Error = anyhow::Error;
+
+    fn try_from(kind: ObjectType) -> Result<Self, Self::Error> {
+        match kind {
+            ObjectType::Article => Ok(Self::Article),
+            _ => Err(anyhow!("invalid Object type for ApArticle")),
         }
     }
 }
@@ -230,7 +242,14 @@ pub struct Object {
 impl Object {
     pub fn attributed_to(&self) -> Vec<String> {
         if let Some(attributed_to) = self.clone().as_attributed_to {
-            serde_json::from_value(attributed_to).unwrap_or_default()
+            match attributed_to {
+                Value::Array(x) => x
+                    .into_iter()
+                    .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                    .collect(),
+                Value::String(x) => vec![x],
+                _ => vec![],
+            }
         } else {
             vec![]
         }
@@ -289,6 +308,14 @@ impl From<ApQuestionType> for ObjectType {
     fn from(kind: ApQuestionType) -> Self {
         match kind {
             ApQuestionType::Question => ObjectType::Question,
+        }
+    }
+}
+
+impl From<ApArticleType> for ObjectType {
+    fn from(kind: ApArticleType) -> Self {
+        match kind {
+            ApArticleType::Article => ObjectType::Article,
         }
     }
 }
@@ -365,11 +392,24 @@ impl From<ApNote> for NewObject {
             .map(|x| x.name.clone().to_lowercase())
             .collect::<Vec<String>>());
 
+        let (ek_uuid, as_id, as_url) = {
+            if let Some(id) = note.id.clone() {
+                (None, id, note.url.clone().map(|x| json!(x)))
+            } else {
+                let uuid = Uuid::new_v4().to_string();
+                (
+                    Some(uuid.clone()),
+                    get_object_ap_id_from_uuid(uuid.clone()),
+                    Some(json!(get_object_url_from_uuid(uuid.clone()))),
+                )
+            }
+        };
+
         NewObject {
-            as_url: Some(json!(note.clone().url)),
+            as_url,
             as_published: published,
             as_type: note.clone().kind.into(),
-            as_id: note.id.clone().expect("note id should not be None"),
+            as_id,
             as_attributed_to: Some(json!(note.attributed_to)),
             as_to: note.to.into(),
             as_cc: note.cc.into(),
@@ -382,7 +422,7 @@ impl From<ApNote> for NewObject {
             ap_conversation: note.conversation,
             as_content_map: Some(json!(clean_content_map)),
             as_attachment: note.attachment.into(),
-            ek_uuid: note.ephemeral.and_then(|x| x.internal_uuid),
+            ek_uuid,
             ek_instrument: note.instrument.option().map(|x| json!(x)),
             ek_hashtags,
             ..Default::default()
@@ -425,12 +465,21 @@ impl From<ApArticle> for NewObject {
             .map(|x| x.name.clone().to_lowercase())
             .collect::<Vec<String>>());
 
+        let (ek_uuid, as_id) = {
+            if let Some(id) = article.id.clone() {
+                (None, id)
+            } else {
+                let uuid = Uuid::new_v4().to_string();
+                (Some(uuid.clone()), get_object_ap_id_from_uuid(uuid.clone()))
+            }
+        };
+
         NewObject {
             as_url: Some(json!(article.clone().url)),
             as_published: published,
             as_updated: article.updated.map(|u| *u),
             as_type: ObjectType::Article,
-            as_id: article.id.clone().expect("article id should not be None"),
+            as_id,
             as_attributed_to: Some(json!(article.attributed_to)),
             as_to: article.to.into(),
             as_cc: article.cc.into(),
@@ -449,7 +498,7 @@ impl From<ApArticle> for NewObject {
             as_context: article.context_property.into(),
             as_generator: article.generator.map(|g| json!(g)),
             as_preview: article.preview.into(),
-            ek_uuid: article.ephemeral.and_then(|x| x.internal_uuid),
+            ek_uuid,
             ek_instrument: article.instrument.option().map(|x| json!(x)),
             ek_hashtags,
             as_name: article.name,
@@ -460,6 +509,17 @@ impl From<ApArticle> for NewObject {
 
 impl From<ApQuestion> for NewObject {
     fn from(question: ApQuestion) -> Self {
+        // This is unneeded until I fix ApQuestion to have an Optional ID to support
+        // outbox activities in line with Article and Note
+        // let (ek_uuid, as_id) = {
+        //     if let Some(id) = question.id.clone() {
+        //         (None, id)
+        //     } else {
+        //         let uuid = Uuid::new_v4().to_string();
+        //         (Some(uuid.clone()), get_object_ap_id_from_uuid(uuid.clone()))
+        //     }
+        // };
+
         NewObject {
             as_type: question.kind.into(),
             as_id: question.id,
@@ -557,7 +617,7 @@ impl TryFrom<Object> for ApArticle {
         if object.as_type.is_article() {
             Ok(ApArticle {
                 id: Some(object.as_id.clone()),
-                kind: jdt_activity_pub::ApArticleType::Article,
+                kind: object.as_type.try_into()?,
                 published: object.as_published.unwrap_or(Utc::now()).into(),
                 updated: object.as_updated.map(|u| u.into()),
                 url: object.as_url.clone().and_then(from_serde),
@@ -668,7 +728,7 @@ impl TryFrom<Object> for ApQuestion {
     }
 }
 
-pub async fn create_or_update_object(conn: &Db, object: NewObject) -> Result<Object> {
+pub async fn create_or_update_object<C: DbRunner>(conn: &C, object: NewObject) -> Result<Object> {
     conn.run(move |c| {
         diesel::insert_into(objects::table)
             .values(&object)
@@ -678,119 +738,79 @@ pub async fn create_or_update_object(conn: &Db, object: NewObject) -> Result<Obj
             .get_result(c)
     })
     .await
-    .map_err(anyhow::Error::msg)
 }
 
-pub async fn update_metadata(conn: &Db, id: i32, metadata: Value) -> Result<Object> {
+pub async fn update_metadata<C: DbRunner>(conn: &C, id: i32, metadata: Value) -> Result<Object> {
     conn.run(move |c| {
         diesel::update(objects::table.filter(objects::id.eq(id)))
             .set(objects::ek_metadata.eq(Some(metadata)))
             .get_result::<Object>(c)
     })
     .await
-    .map_err(anyhow::Error::msg)
 }
 
-pub async fn update_hashtags(conn: &Db, id: i32, hashtags: Value) -> Result<Object> {
+pub async fn update_hashtags<C: DbRunner>(conn: &C, id: i32, hashtags: Value) -> Result<Object> {
     conn.run(move |c| {
         diesel::update(objects::table.filter(objects::id.eq(id)))
             .set(objects::ek_hashtags.eq(hashtags))
             .get_result::<Object>(c)
     })
     .await
-    .map_err(anyhow::Error::msg)
 }
 
-pub async fn get_object(conn: Option<&Db>, id: i32) -> Result<Object> {
-    match conn {
-        Some(conn) => conn
-            .run(move |c| objects::table.find(id).first::<Object>(c))
-            .await
-            .map_err(anyhow::Error::msg),
-        None => {
-            let mut pool = POOL.get().map_err(anyhow::Error::msg)?;
-            objects::table
-                .find(id)
-                .first::<Object>(&mut pool)
-                .map_err(anyhow::Error::msg)
-        }
-    }
+pub async fn get_object<C: DbRunner>(conn: &C, id: i32) -> Result<Object> {
+    conn.run(move |c| objects::table.find(id).first::<Object>(c))
+        .await
 }
 
-pub async fn get_object_by_as_id(conn: Option<&Db>, as_id: String) -> Result<Object> {
-    match conn {
-        Some(conn) => conn
-            .run(move |c| {
-                objects::table
-                    .filter(objects::as_id.eq(as_id))
-                    .first::<Object>(c)
-            })
-            .await
-            .map_err(anyhow::Error::msg),
-        None => {
-            let mut pool = POOL.get().map_err(anyhow::Error::msg)?;
-            objects::table
-                .filter(objects::as_id.eq(as_id))
-                .first::<Object>(&mut pool)
-                .map_err(anyhow::Error::msg)
-        }
-    }
+pub async fn get_object_by_as_id<C: DbRunner>(conn: &C, as_id: String) -> Result<Object> {
+    conn.run(move |c| {
+        objects::table
+            .filter(objects::as_id.eq(as_id))
+            .first::<Object>(c)
+    })
+    .await
 }
 
-pub async fn get_object_by_uuid(conn: Option<&Db>, uuid: String) -> Result<Object> {
-    match conn {
-        Some(conn) => conn
-            .run(move |c| {
-                objects::table
-                    .filter(objects::ek_uuid.eq(uuid))
-                    .first::<Object>(c)
-            })
-            .await
-            .map_err(anyhow::Error::msg),
-        None => {
-            let mut pool = POOL.get().map_err(anyhow::Error::msg)?;
-            objects::table
-                .filter(objects::ek_uuid.eq(uuid))
-                .first::<Object>(&mut pool)
-                .map_err(anyhow::Error::msg)
-        }
-    }
+pub async fn get_object_by_uuid<C: DbRunner>(conn: &C, uuid: String) -> Result<Object> {
+    conn.run(move |c| {
+        objects::table
+            .filter(objects::ek_uuid.eq(uuid))
+            .first::<Object>(c)
+    })
+    .await
 }
 
-pub async fn tombstone_object_by_as_id(conn: &Db, as_id: String) -> Result<Object> {
+pub async fn tombstone_object_by_as_id<C: DbRunner>(conn: &C, as_id: String) -> Result<Object> {
     conn.run(move |c| {
         diesel::update(objects::table.filter(objects::as_id.eq(as_id)))
             .set(objects::as_type.eq(ObjectType::Tombstone))
             .get_result(c)
     })
     .await
-    .map_err(anyhow::Error::msg)
 }
 
-pub async fn tombstone_object_by_uuid(conn: &Db, uuid: String) -> Result<Object> {
+pub async fn tombstone_object_by_uuid<C: DbRunner>(conn: &C, uuid: String) -> Result<Object> {
     conn.run(move |c| {
         diesel::update(objects::table.filter(objects::ek_uuid.eq(uuid)))
             .set(objects::as_type.eq(ObjectType::Tombstone))
             .get_result(c)
     })
     .await
-    .map_err(anyhow::Error::msg)
 }
 
-pub async fn delete_object_by_as_id(conn: &Db, as_id: String) -> Result<usize> {
+pub async fn delete_object_by_as_id<C: DbRunner>(conn: &C, as_id: String) -> Result<usize> {
     conn.run(move |c| diesel::delete(objects::table.filter(objects::as_id.eq(as_id))).execute(c))
         .await
-        .map_err(anyhow::Error::msg)
 }
 
-pub async fn delete_object_by_uuid(conn: &Db, uuid: String) -> Result<usize> {
+pub async fn delete_object_by_uuid<C: DbRunner>(conn: &C, uuid: String) -> Result<usize> {
     conn.run(move |c| diesel::delete(objects::table.filter(objects::ek_uuid.eq(uuid))).execute(c))
         .await
-        .map_err(anyhow::Error::msg)
 }
 
-pub async fn delete_objects_by_domain_pattern(
-    conn: Option<&Db>,
+pub async fn delete_objects_by_domain_pattern<C: DbRunner>(
+    conn: &C,
     domain_pattern: String,
 ) -> Result<usize> {
     let operation = move |c: &mut diesel::PgConnection| {
@@ -801,11 +821,11 @@ pub async fn delete_objects_by_domain_pattern(
             .execute(c)
     };
 
-    crate::db::run_db_op(conn, &crate::POOL, operation).await
+    conn.run(operation).await
 }
 
-pub async fn delete_objects_by_attributed_to(
-    conn: Option<&Db>,
+pub async fn delete_objects_by_attributed_to<C: DbRunner>(
+    conn: &C,
     attributed_to: String,
 ) -> Result<usize> {
     let operation = move |c: &mut diesel::PgConnection| {
@@ -816,5 +836,35 @@ pub async fn delete_objects_by_attributed_to(
             .execute(c)
     };
 
-    crate::db::run_db_op(conn, &crate::POOL, operation).await
+    conn.run(operation).await
 }
+
+// pub async fn delete_objects_by_domain_pattern(
+//     conn: Option<&Db>,
+//     domain_pattern: String,
+// ) -> Result<usize> {
+//     let operation = move |c: &mut diesel::PgConnection| {
+//         use diesel::sql_types::Text;
+
+//         sql_query("DELETE FROM objects WHERE as_attributed_to::text LIKE $1")
+//             .bind::<Text, _>(format!("\"https://{domain_pattern}/%\""))
+//             .execute(c)
+//     };
+
+//     crate::db::run_db_op(conn, &crate::POOL, operation).await
+// }
+
+// pub async fn delete_objects_by_attributed_to(
+//     conn: Option<&Db>,
+//     attributed_to: String,
+// ) -> Result<usize> {
+//     let operation = move |c: &mut diesel::PgConnection| {
+//         use diesel::sql_types::Jsonb;
+
+//         sql_query("DELETE FROM objects WHERE as_attributed_to @> $1")
+//             .bind::<Jsonb, _>(json!(attributed_to))
+//             .execute(c)
+//     };
+
+//     crate::db::run_db_op(conn, &crate::POOL, operation).await
+// }

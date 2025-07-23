@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::db::Db;
+use crate::db::runner::DbRunner;
 use crate::models::actors::{get_actor_by_key_id, get_actor_by_username, Actor};
 use crate::{ASSIGNMENT_RE, LOCAL_USER_KEY_ID_RE};
 use anyhow::anyhow;
@@ -58,12 +58,12 @@ impl std::fmt::Display for VerifyMapParams {
 
 #[derive(Clone, Debug)]
 pub struct VerifyParams {
-    verify_string: String,
-    signature: String,
-    key_id: String,
-    key_selector: Option<String>,
-    local: bool,
-    signer_username: Option<String>,
+    pub verify_string: String,
+    pub signature: String,
+    pub key_id: String,
+    pub key_selector: Option<String>,
+    pub local: bool,
+    pub signer_username: Option<String>,
 }
 
 impl std::fmt::Display for VerifyParams {
@@ -75,17 +75,17 @@ impl std::fmt::Display for VerifyParams {
             if self.local { "local" } else { "remote" },
             self.key_selector
                 .as_ref()
-                .map(|ks| format!(", selector: {}", ks))
+                .map(|ks| format!(", selector: {ks}"))
                 .unwrap_or_default(),
             self.signer_username
                 .as_ref()
-                .map(|u| format!(", user: {}", u))
+                .map(|u| format!(", user: {u}"))
                 .unwrap_or_default()
         )
     }
 }
 
-fn build_verify_string(params: VerifyMapParams) -> VerifyParams {
+pub fn build_verify_string(params: VerifyMapParams) -> Result<VerifyParams, VerificationError> {
     let mut signature_map = HashMap::<String, String>::new();
 
     for cap in ASSIGNMENT_RE.captures_iter(&params.signature) {
@@ -94,7 +94,10 @@ fn build_verify_string(params: VerifyMapParams) -> VerifyParams {
 
     let key_id = signature_map
         .get("keyId")
-        .expect("keyId not found in signature_map")
+        .ok_or_else(|| {
+            log::error!("No key_id found in signature map");
+            VerificationError::NoKeyId
+        })?
         .clone();
 
     let mut local = false;
@@ -135,7 +138,7 @@ fn build_verify_string(params: VerifyMapParams) -> VerifyParams {
         .collect::<Vec<String>>()
         .join("\n");
 
-    VerifyParams {
+    Ok(VerifyParams {
         verify_string,
         signature: signature_map
             .get("signature")
@@ -145,7 +148,7 @@ fn build_verify_string(params: VerifyMapParams) -> VerifyParams {
         key_selector,
         local,
         signer_username,
-    }
+    })
 }
 
 // Remote and Local need to pass back the base64-encoded hash so that the destination
@@ -167,30 +170,51 @@ pub enum VerificationError {
     ActorNotFound(Box<VerifyMapParams>),
     ProfileNotFound,
     ClientKeyNotFound,
+    NoKeyId,
 }
 
 impl std::fmt::Display for VerificationError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            VerificationError::DecodeError(e) => write!(f, "failed to decode data: {}", e),
-            VerificationError::SignatureError(e) => write!(f, "invalid signature: {}", e),
-            VerificationError::VerificationFailed(e) => write!(f, "verification failed: {}", e),
-            VerificationError::PublicKeyError(e) => write!(f, "invalid public key: {}", e),
+            VerificationError::DecodeError(e) => write!(f, "failed to decode data: {e}"),
+            VerificationError::SignatureError(e) => write!(f, "invalid signature: {e}"),
+            VerificationError::VerificationFailed(e) => write!(f, "verification failed: {e}"),
+            VerificationError::PublicKeyError(e) => write!(f, "invalid public key: {e}"),
             VerificationError::ActorNotFound(params) => {
-                write!(f, "actor not found for params: {:?}", params)
+                write!(f, "actor not found for params: {params:?}")
             }
             VerificationError::ProfileNotFound => write!(f, "profile not found"),
             VerificationError::ClientKeyNotFound => write!(f, "client key not found"),
+            VerificationError::NoKeyId => write!(f, "keyId not found in signature"),
         }
     }
 }
 
+pub fn verify_signature_crypto(
+    public_key_pem: &str,
+    signature_str: &str,
+    verify_string: &str,
+) -> Result<(), VerificationError> {
+    let public_key = RsaPublicKey::from_public_key_pem(public_key_pem.trim_end())
+        .map_err(|e| VerificationError::PublicKeyError(anyhow!(e)))?;
+    let verifying_key = rsa::pkcs1v15::VerifyingKey::<Sha256>::new(public_key);
+
+    let signature_bytes = general_purpose::STANDARD
+        .decode(signature_str.as_bytes())
+        .map_err(|e| VerificationError::DecodeError(anyhow!(e)))?;
+
+    let signature = rsa::pkcs1v15::Signature::try_from(signature_bytes.as_slice())
+        .map_err(|e| VerificationError::SignatureError(anyhow!(e)))?;
+
+    verifying_key
+        .verify(verify_string.as_bytes(), &signature)
+        .map_err(|e| VerificationError::VerificationFailed(anyhow!(e)))
+}
+
 pub async fn verify(
-    conn: &Db,
+    conn: &impl DbRunner,
     params: VerifyMapParams,
 ) -> Result<VerificationType, VerificationError> {
-    let verify_params = build_verify_string(params.clone());
-
     let VerifyParams {
         verify_string,
         signature: signature_str,
@@ -198,52 +222,33 @@ pub async fn verify(
         key_selector,
         local,
         signer_username: username,
-    } = verify_params.clone();
-
-    fn verify(
-        public_key: &RsaPublicKey,
-        signature_str: &str,
-        verify_string: &str,
-    ) -> Result<(), VerificationError> {
-        let verifying_key = rsa::pkcs1v15::VerifyingKey::<Sha256>::new(public_key.clone());
-
-        general_purpose::STANDARD
-            .decode(signature_str.as_bytes())
-            .map_err(|e| VerificationError::DecodeError(anyhow!(e)))
-            .and_then(|signature_bytes| {
-                rsa::pkcs1v15::Signature::try_from(signature_bytes.as_slice())
-                    .map_err(|e| VerificationError::SignatureError(anyhow!(e)))
-            })
-            .and_then(|signature| {
-                verifying_key
-                    .verify(verify_string.as_bytes(), &signature)
-                    .map_err(|e| VerificationError::VerificationFailed(anyhow!(e)))
-            })
-    }
+    } = build_verify_string(params.clone())?;
 
     if local && key_selector == Some("client-key".to_string()) {
         let username = username.ok_or(VerificationError::ProfileNotFound)?;
-        let profile = get_actor_by_username(Some(conn), username)
+        let profile = get_actor_by_username(conn, username)
             .await
             .map_err(|_| VerificationError::ProfileNotFound)?;
 
-        let public_key = profile
+        let public_key_pem = profile
             .ek_client_public_key
             .clone()
             .ok_or(VerificationError::ClientKeyNotFound)?;
 
-        RsaPublicKey::from_public_key_pem(public_key.trim_end())
-            .map_err(|e| VerificationError::PublicKeyError(anyhow!(e)))
-            .and_then(|pk| verify(&pk, &signature_str, &verify_string))?;
+        // Use the new helper function
+        verify_signature_crypto(&public_key_pem, &signature_str, &verify_string)?;
 
         Ok(VerificationType::Local((Box::from(profile), params.digest)))
     } else if let Ok(actor) = get_actor_by_key_id(conn, key_id).await {
-        let actor = ApActor::from(actor.clone());
+        let ap_actor = ApActor::from(actor.clone());
+        let public_key_pem = ap_actor.clone().public_key.public_key_pem;
 
-        RsaPublicKey::from_public_key_pem(actor.clone().public_key.public_key_pem.trim_end())
-            .map_err(|e| VerificationError::PublicKeyError(anyhow!(e)))
-            .and_then(|pk| verify(&pk, &signature_str, &verify_string))?;
-        Ok(VerificationType::Remote((Box::new(actor), params.digest)))
+        // Use the new helper function
+        verify_signature_crypto(&public_key_pem, &signature_str, &verify_string)?;
+        Ok(VerificationType::Remote((
+            Box::new(ap_actor),
+            params.digest,
+        )))
     } else {
         Err(VerificationError::ActorNotFound(params.into()))
     }
@@ -257,7 +262,7 @@ pub enum SigningError {
 
 impl fmt::Display for SigningError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{:?}", self)
+        write!(f, "{self:?}")
     }
 }
 
@@ -356,7 +361,7 @@ fn compute_digest(body: &Option<String>) -> Option<String> {
         let mut hasher = Sha256::new();
         hasher.update(body.as_bytes());
         let hashed = general_purpose::STANDARD.encode(hasher.finalize());
-        format!("SHA-256={}", hashed)
+        format!("SHA-256={hashed}")
     })
 }
 
@@ -371,15 +376,9 @@ fn construct_structured_data(
     digest: &Option<String>,
 ) -> String {
     if let Some(ref digest) = digest {
-        format!(
-            "(request-target): {}\nhost: {}\ndate: {}\ndigest: {}",
-            request_target, host, date, digest
-        )
+        format!("(request-target): {request_target}\nhost: {host}\ndate: {date}\ndigest: {digest}")
     } else {
-        format!(
-            "(request-target): {}\nhost: {}\ndate: {}",
-            request_target, host, date
-        )
+        format!("(request-target): {request_target}\nhost: {host}\ndate: {date}")
     }
 }
 
@@ -403,3 +402,99 @@ fn format_response_signature(actor: &ApActor, signature: &Signature, has_digest:
         )
     }
 }
+
+#[derive(Clone, Debug)]
+pub struct Signed(pub bool, pub VerificationType);
+
+impl Signed {
+    pub fn local(&self) -> bool {
+        matches!(self, Signed(true, VerificationType::Local(_)))
+    }
+
+    pub fn remote(&self) -> bool {
+        matches!(self, Signed(true, VerificationType::Remote(_)))
+    }
+
+    pub fn any(&self) -> bool {
+        matches!(self, Signed(true, _))
+    }
+
+    pub fn actor(&self) -> Option<ApActor> {
+        if let Signed(true, VerificationType::Remote((actor, _digest))) = self {
+            Some(*actor.clone())
+        } else {
+            None
+        }
+    }
+
+    pub fn profile(&self) -> Option<Actor> {
+        if let Signed(true, VerificationType::Local((profile, _digest))) = self {
+            Some(*profile.clone())
+        } else {
+            None
+        }
+    }
+
+    pub fn digest(&self) -> Option<String> {
+        if let Signed(true, VerificationType::Local((_profile, digest))) = self {
+            digest.clone()
+        } else if let Signed(true, VerificationType::Remote((_actor, digest))) = self {
+            digest.clone()
+        } else {
+            None
+        }
+    }
+
+    pub fn deferred(&self) -> Option<VerifyMapParams> {
+        if let Signed(false, VerificationType::Deferred(params)) = self {
+            Some(*params.clone())
+        } else {
+            None
+        }
+    }
+}
+
+#[derive(Debug)]
+pub enum SignatureError {
+    NoDateProvided,
+    NoHostProvided,
+    NoDbConnection,
+    NonExistent,
+    MultipleSignatures,
+    InvalidRequestPath,
+    InvalidRequestUsername,
+    LocalUserNotFound,
+    SignatureInvalid,
+    Unknown,
+}
+
+// async fn update_instance(conn: &Db, signature: String) -> Result<Instance> {
+//     let mut signature_map = HashMap::<String, String>::new();
+
+//     for cap in ASSIGNMENT_RE.captures_iter(&signature) {
+//         signature_map.insert(cap[1].to_string(), cap[2].to_string());
+//     }
+
+//     let key_id = signature_map
+//         .get("keyId")
+//         .ok_or(anyhow!("keyId not found in signature_map"))?;
+
+//     // It might be better to derive the domain_name from the webfinger stored
+//     // on the Actor. But I'm not sure how that would work when the actor doesn't
+//     // exist yet, so maybe not.
+//     let domain_name = DOMAIN_RE
+//         .captures(key_id)
+//         .ok_or(anyhow!("failed to retrieve key_id"))?[1]
+//         .to_string();
+
+//     let shared_inbox = get_actor_by_key_id(conn, key_id.clone())
+//         .await
+//         .ok()
+//         .and_then(|actor| {
+//             ApActor::from(actor)
+//                 .endpoints
+//                 .map(|endpoints| endpoints.shared_inbox)
+//         });
+
+//     create_or_update_instance(conn, (domain_name, shared_inbox).into()).await
+// }

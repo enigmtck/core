@@ -13,7 +13,7 @@ use serde::Deserialize;
 use serde_json::json;
 use uuid::Uuid;
 
-use crate::db::Db;
+use crate::db::runner::DbRunner;
 use crate::helper::get_ap_id_from_username;
 use crate::models::actors::{
     create_or_update_actor, get_actor_by_username, Actor, ActorType, NewActor,
@@ -40,12 +40,14 @@ fn get_key_pair() -> KeyPair {
     }
 }
 
-pub async fn authenticate(conn: &Db, username: String, password_str: String) -> Option<Profile> {
+pub async fn authenticate<C: DbRunner>(
+    conn: &C,
+    username: String,
+    password_str: String,
+) -> Option<Profile> {
     log::debug!("AUTHENTICATING {username} {password_str}");
     let password = pwhash::Password::from_slice(password_str.clone().as_bytes()).ok()?;
-    let profile = get_actor_by_username(Some(conn), username.clone())
-        .await
-        .ok()?;
+    let profile = get_actor_by_username(conn, username.clone()).await.ok()?;
     let encoded_password_hash = profile.clone().ek_password?;
     let password_hash = pwhash::PasswordHash::from_encoded(&encoded_password_hash).ok()?;
 
@@ -54,8 +56,8 @@ pub async fn authenticate(conn: &Db, username: String, password_str: String) -> 
     profile.try_into().ok()
 }
 
-pub async fn verify_and_generate_password(
-    conn: &Db,
+pub async fn verify_and_generate_password<C: DbRunner>(
+    conn: &C,
     username: String,
     current_password: String,
     new_password: String,
@@ -106,22 +108,22 @@ async fn generate_avatar(username: String) -> Result<String> {
         security_background_colors, // background: Vec<RGB>
     )?);
 
-    let cyberpunk_background_colors = vec![
-        RGB::from((20, 20, 25)), // Dark blue-gray
-        RGB::from((25, 20, 25)), // Dark magenta tint
-        RGB::from((20, 25, 30)), // Dark cyan tint
-        RGB::from((22, 22, 22)), // Neutral dark gray
-    ];
+    // let cyberpunk_background_colors = vec![
+    //     RGB::from((20, 20, 25)), // Dark blue-gray
+    //     RGB::from((25, 20, 25)), // Dark magenta tint
+    //     RGB::from((20, 25, 30)), // Dark cyan tint
+    //     RGB::from((22, 22, 22)), // Neutral dark gray
+    // ];
 
-    let cyberpunk_theme = Arc::new(HSLRange::new(
-        180.0,                       // hue_min: Cyan
-        320.0,                       // hue_max: Magenta
-        40.0,                        // saturation_min: Vibrant colors
-        70.0,                        // saturation_max: High saturation
-        25.0,                        // lightness_min: Dark but visible
-        40.0,                        // lightness_max: Bright enough for contrast
-        cyberpunk_background_colors, // background: Vec<RGB>
-    )?);
+    // let cyberpunk_theme = Arc::new(HSLRange::new(
+    //     180.0,                       // hue_min: Cyan
+    //     320.0,                       // hue_max: Magenta
+    //     40.0,                        // saturation_min: Vibrant colors
+    //     70.0,                        // saturation_max: High saturation
+    //     25.0,                        // lightness_min: Dark but visible
+    //     40.0,                        // lightness_max: Bright enough for contrast
+    //     cyberpunk_background_colors, // background: Vec<RGB>
+    // )?);
 
     Identicon::new(&handle)
         .set_border(50)
@@ -133,7 +135,7 @@ async fn generate_avatar(username: String) -> Result<String> {
     Ok(filename)
 }
 
-pub async fn create_user(conn: Option<&Db>, user: NewUser) -> Result<Actor> {
+pub async fn create_user<C: DbRunner>(conn: &C, user: NewUser) -> Result<Actor> {
     let key_pair = get_key_pair();
     let owner = get_ap_id_from_username(user.username.clone());
     let server_name = crate::SERVER_NAME.as_str();
@@ -213,6 +215,7 @@ pub async fn create_user(conn: Option<&Db>, user: NewUser) -> Result<Actor> {
     };
 
     let actor = create_or_update_actor(conn, new_profile).await?;
-    ApActor::from(actor.clone()).cache(conn.unwrap()).await;
+    ApActor::from(actor.clone()).cache(conn).await;
+
     Ok(actor)
 }

@@ -30,19 +30,15 @@ The simplest way to install Enigmatick is to use `cargo`:
 cargo install enigmatick
 ```
 
-_Currently the `sqlite` server is non-functional, but I'll hopefully have time to integrate it again (with JSONB functionality) in the near future._
-
-The `cargo install` command above will install a `postgres` server. To install the SQLite-based server, you'll need to use `cargo install enigmatick --no-default-features -F sqlite`. The `sqlite` and `pg` features are mutually exclusive. If both are enabled, the `pg` components will take precedence.
-
 ## Setup and Configuration
 
-### Database Setup (PostgreSQL)
+### Database Setup
 
-Set up the database and user. These commands may need to be tweaked to set up the user and password properly. You may also need to adjust `pg_hba.conf` in the `/etc/postgresql` subdirectory for your database version to allow local TCP connections.
+Enigmatick requires the installation of a PostgreSQL server. These commands may need to be tweaked to set up the user and password properly. You may also need to adjust `pg_hba.conf` in the `/etc/postgresql` subdirectory for your database version to allow local TCP connections.
 
 ```
 sudo su - postgres
-createrole -l dbuser
+createuser -l dbuser
 psql postgres
   > ALTER USER dbuser WITH PASSWORD 'dbpassword';
   > \q
@@ -75,13 +71,11 @@ The `.env` file contains all the necessary configuration for your Enigmatick ins
 *   `ACME_PROXY`: Set to `true` to enable the built-in TLS proxy, which automatically obtains and renews a Let's Encrypt certificate. If enabled, your server must be reachable from the public internet on port 443.
 *   `ACME_PORT`: The port the ACME TLS proxy will listen on. Defaults to `443`.
 *   `ACME_EMAILS`: The email addresses to use for Let's Encrypt registration.
-*   `ROCKET_ADDRESS`: The local IP address for the backend server to listen on. Defaults to `127.0.0.1` for use with the built-in proxy.
-*   `ROCKET_PORT`: The local port for the backend server. Defaults to `8000`.
+*   `SERVER_ADDRESS`: The local IP address and port for the backend server to listen on. Defaults to `127.0.0.1:8000` for use with the built-in proxy.
 
 #### Database
 
-*   `DATABASE_URL`: The connection string for the PostgreSQL database, used by the `enigmatick` CLI tool (e.g., for migrations).
-*   `ROCKET_DATABASES`: The database connection string used by the web server. This should generally match `DATABASE_URL` using the Rocket variable JSON format.
+*   `DATABASE_URL`: The connection string for the PostgreSQL database.
 
 #### Instance Metadata
 
@@ -109,15 +103,13 @@ Before starting the server for the first time, and after any updates, you must r
 enigmatick migrate
 ```
 
-If using SQLite, this will also create the database file.
-
 ### Running the Server
 
 `enigmatick server` will start the Enigmatick server from the current folder using the configuration you've set in `.env`.
 
 Enigmatick includes a built-in reverse proxy that can automatically handle TLS using Let's Encrypt. To enable this, set `ACME_PROXY=true` in your `.env` file. Your server must be accessible from the public internet on the `ACME_PORT` (usually 443) for certificate validation to succeed.
 
-If you prefer to use your own reverse proxy (like nginx or Caddy), set `ACME_PROXY=false` and configure your proxy to forward requests to the backend service on `ROCKET_ADDRESS:ROCKET_PORT`.
+If you prefer to use your own reverse proxy (like nginx or Caddy), set `ACME_PROXY=false` and configure your proxy to forward requests to the backend service on `SERVER_ADDRESS`.
 
 ## Full Example
 
@@ -159,8 +151,9 @@ complete.
 -- matches the password you set when running `createuser`):
 SERVER_NAME=your.domain.name
 ACME_EMAILS='["your@email.com"]'
-ROCKET_DATABASES='{enigmatick={url="postgres://dbuser:dbpassword@192.168.1.100/enigmatick"}}'
 DATABASE_URL=postgres://dbuser:dbpassword@192.168.1.100/enigmatick
+SERVER_ADDRESS=127.0.0.1:8000
+ACME_PORT=443
 
 createuser -h 192.168.1.100 -U yourpsqluser -W -lP dbuser
 > Password: dbpassword

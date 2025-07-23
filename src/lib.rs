@@ -2,44 +2,44 @@
 #![allow(async_fn_in_trait)]
 extern crate diesel;
 extern crate log;
-#[macro_use]
-extern crate rocket;
-
+// #[macro_use]
+use crate::db::runner::DbRunner;
 use crate::models::actors::{get_actor_by_as_id, Actor};
-//use crate::models::followers::get_follower_count_by_actor_id;
-//use crate::models::leaders::{get_leader_by_actor_id_and_ap_id, get_leader_count_by_actor_id};
 use crate::webfinger::retrieve_webfinger;
 use atty as _;
 use clap as _;
 use comfy_table as _;
 use crossterm as _;
-use db::{Db, Pool};
-use diesel::r2d2::ConnectionManager;
+use ctrlc as _;
 use diesel_migrations as _;
 use dotenvy::dotenv;
+use env_logger as _;
 use indicatif as _;
-use jdt_activity_pub::MaybeMultiple;
 use jdt_activity_pub::MaybeReference;
-use jdt_activity_pub::{ApActivity, ApActor, ApCollection, ApNote, ApObject, ApTag, Ephemeral};
+use jdt_activity_pub::{ApActivity, ApActor, ApNote, ApObject, ApTag, Ephemeral};
+use jdt_activity_pub::{ApActorTerse, MaybeMultiple};
 use lazy_static::lazy_static;
+use log4rs as _;
+use models::activities::{get_announced, get_announcers, get_liked, get_likers};
 use models::follows::{
     get_follow, get_follower_count_by_actor_id, get_leader_count_by_follower_actor_id,
 };
 use regex::Regex;
+use rust_embed as _;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::cmp::Ordering;
 use std::env;
+use tower as _;
+use tower_http as _;
 
-//pub mod activity_pub;
 pub mod admin;
+pub mod blocklist;
 pub mod db;
-pub mod fairings;
+pub mod events;
 pub mod helper;
 pub mod models;
-pub mod proxy;
 pub mod retriever;
-pub mod routes;
 pub mod runner;
 
 #[cfg(all(feature = "pg", feature = "sqlite"))]
@@ -80,22 +80,22 @@ lazy_static! {
             .expect("invalid local user key id regex");
     pub static ref ASSIGNMENT_RE: Regex =
         Regex::new(r#"(\w+)="(.+?)""#).expect("invalid assignment regex");
-    pub static ref POOL: Pool = {
-        dotenv().ok();
-        cfg_if::cfg_if! {
-            if #[cfg(feature = "pg")] {
-                Pool::new(ConnectionManager::<diesel::PgConnection>::new(
-                    env::var("DATABASE_URL").expect("DATABASE_URL must be set"),
-                ))
-                    .expect("failed to create db pool")
-            } else if #[cfg(feature = "sqlite")] {
-                Pool::new(ConnectionManager::<diesel::SqliteConnection>::new(
-                    env::var("DATABASE_URL").expect("DATABASE_URL must be set"),
-                ))
-                    .expect("failed to create db pool")
-            }
-        }
-    };
+    // pub static ref POOL: Pool = {
+    //     dotenv().ok();
+    //     cfg_if::cfg_if! {
+    //         if #[cfg(feature = "pg")] {
+    //             Pool::new(ConnectionManager::<diesel::PgConnection>::new(
+    //                 env::var("DATABASE_URL").expect("DATABASE_URL must be set"),
+    //             ))
+    //                 .expect("failed to create db pool")
+    //         } else if #[cfg(feature = "sqlite")] {
+    //             Pool::new(ConnectionManager::<diesel::SqliteConnection>::new(
+    //                 env::var("DATABASE_URL").expect("DATABASE_URL must be set"),
+    //             ))
+    //                 .expect("failed to create db pool")
+    //         }
+    //     }
+    // };
     pub static ref ACME_PROXY: bool = {
         dotenv().ok();
         env::var("ACME_PROXY").is_ok_and(|x| x.parse().expect("ACME_PROXY must be \"true\" or \"false\""))
@@ -119,6 +119,10 @@ lazy_static! {
     pub static ref ROCKET_ADDRESS: String = {
         dotenv().ok();
         env::var("ROCKET_ADDRESS").unwrap_or("0.0.0.0".to_string())
+    };
+    pub static ref SERVER_ADDRESS: String = {
+        dotenv().ok();
+        env::var("SERVER_ADDRESS").unwrap_or("0.0.0.0:8001".to_string())
     };
     pub static ref SERVER_NAME: String = {
         dotenv().ok();
@@ -237,14 +241,36 @@ impl GetHashtags for ApActor {
 }
 
 pub trait LoadEphemeral {
-    async fn load_ephemeral(&mut self, conn: &Db, requester: Option<Actor>) -> Self;
+    async fn load_ephemeral<C: DbRunner + Send + Sync>(
+        &mut self,
+        conn: &C,
+        requester: Option<Actor>,
+    ) -> Self;
 }
 
 impl LoadEphemeral for ApNote {
-    async fn load_ephemeral(&mut self, conn: &Db, _requester: Option<Actor>) -> Self {
-        if let Ok(actor) = get_actor_by_as_id(Some(conn), self.attributed_to.to_string()).await {
+    async fn load_ephemeral<C: DbRunner + Send + Sync>(
+        &mut self,
+        conn: &C,
+        requester: Option<Actor>,
+    ) -> Self {
+        if let Ok(actor) = get_actor_by_as_id(conn, self.attributed_to.to_string()).await {
             let mut ephemeral = self.ephemeral.clone().unwrap_or_default();
             ephemeral.attributed_to = Some(vec![actor.into()]);
+
+            ephemeral.announced =
+                if let (Some(requester), Some(id)) = (requester.clone(), self.id.clone()) {
+                    get_announced(conn, requester, id).await.unwrap_or(None)
+                } else {
+                    None
+                };
+
+            ephemeral.liked = if let (Some(requester), Some(id)) = (requester, self.id.clone()) {
+                get_liked(conn, requester, id).await.unwrap_or(None)
+            } else {
+                None
+            };
+
             self.ephemeral = Some(ephemeral);
         }
 
@@ -253,7 +279,11 @@ impl LoadEphemeral for ApNote {
 }
 
 impl LoadEphemeral for ApActivity {
-    async fn load_ephemeral(&mut self, conn: &Db, requester: Option<Actor>) -> Self {
+    async fn load_ephemeral<C: DbRunner + Send + Sync>(
+        &mut self,
+        conn: &C,
+        requester: Option<Actor>,
+    ) -> Self {
         match self.clone() {
             ApActivity::Create(mut create) => {
                 if let MaybeReference::Actual(ApObject::Note(ref mut note)) = create.object {
@@ -267,11 +297,15 @@ impl LoadEphemeral for ApActivity {
 }
 
 impl LoadEphemeral for ApActor {
-    async fn load_ephemeral(&mut self, conn: &Db, requester: Option<Actor>) -> Self {
+    async fn load_ephemeral<C: DbRunner + Send + Sync>(
+        &mut self,
+        conn: &C,
+        requester: Option<Actor>,
+    ) -> Self {
         if let Some(ap_id) = self.id.clone() {
-            if let Ok(profile) = get_actor_by_as_id(Some(conn), ap_id.to_string()).await {
+            if let Ok(profile) = get_actor_by_as_id(conn, ap_id.to_string()).await {
                 let follow = if let (Some(requester), Some(id)) = (requester, self.id.clone()) {
-                    get_follow(Some(conn), requester.as_id, id.to_string()).await
+                    get_follow(conn, requester.as_id, id.to_string()).await.ok()
                 } else {
                     None
                 };
@@ -284,7 +318,7 @@ impl LoadEphemeral for ApActor {
                         None
                     },
                     leaders: if profile.ek_username.is_some() {
-                        get_leader_count_by_follower_actor_id(Some(conn), profile.id)
+                        get_leader_count_by_follower_actor_id(conn, profile.id)
                             .await
                             .ok()
                     } else {
@@ -302,22 +336,61 @@ impl LoadEphemeral for ApActor {
 }
 
 impl LoadEphemeral for ApObject {
-    async fn load_ephemeral(&mut self, conn: &Db, _requester: Option<Actor>) -> Self {
+    async fn load_ephemeral<C: DbRunner + Send + Sync>(
+        &mut self,
+        conn: &C,
+        requester: Option<Actor>,
+    ) -> Self {
         match self {
             ApObject::Note(ref mut note) => {
-                if let Ok(actor) = retriever::get_actor(
-                    Some(conn),
-                    note.attributed_to.clone().to_string(),
-                    None,
-                    true,
-                )
-                .await
+                let attributed_to = if let Ok(actor) =
+                    retriever::get_actor(conn, note.attributed_to.clone().to_string(), None, true)
+                        .await
                 {
-                    note.ephemeral = Some(Ephemeral {
-                        attributed_to: Some(vec![actor.into()]),
-                        ..Default::default()
-                    });
-                }
+                    Some(vec![ApActorTerse::from(actor)])
+                } else {
+                    None
+                };
+
+                let announced =
+                    if let (Some(requester), Some(id)) = (requester.clone(), note.id.clone()) {
+                        get_announced(conn, requester, id).await.unwrap_or(None)
+                    } else {
+                        None
+                    };
+
+                let announces: Option<Vec<ApActorTerse>> = if let Some(id) = note.id.clone() {
+                    get_announcers(conn, None, None, None, id)
+                        .await
+                        .ok()
+                        .map(|x| x.into_iter().collect())
+                } else {
+                    None
+                };
+
+                let liked = if let (Some(requester), Some(id)) = (requester, note.id.clone()) {
+                    get_liked(conn, requester, id).await.unwrap_or(None)
+                } else {
+                    None
+                };
+
+                let likes: Option<Vec<ApActorTerse>> = if let Some(id) = note.id.clone() {
+                    get_likers(conn, None, None, None, id)
+                        .await
+                        .ok()
+                        .map(|x| x.into_iter().collect())
+                } else {
+                    None
+                };
+
+                note.ephemeral = Some(Ephemeral {
+                    liked,
+                    likes,
+                    announced,
+                    announces,
+                    attributed_to,
+                    ..Default::default()
+                });
                 ApObject::Note(note.clone())
             }
             _ => self.clone(),
