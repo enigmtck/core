@@ -11,7 +11,8 @@ homepage = "https://enigmatick.social/@jdt"
 [workspace]
 members = [
     ".",
-    "proxy"
+    "proxy",
+    "tasks"
 ]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -58,7 +59,7 @@ cfg-if = "1.0.0"
 atty = "0.2"
 convert_case = "0.6.0"
 #jdt_activity_pub = { path = "../../libs/activity_pub/", features = ["ffmpeg"] }
-jdt_activity_pub = "0.2.62"
+jdt_activity_pub = "0.2.63"
 indoc = "2.0.5"
 indicatif = "0.17"
 comfy-table = "7.1.0"

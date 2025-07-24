@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use anyhow::{anyhow, Result};
 use deadpool_diesel::postgres::Pool;
 use reqwest::StatusCode;
@@ -7,12 +9,11 @@ use crate::db::runner::DbRunner;
 use crate::events::EventChannels;
 use crate::models::actors::{guaranteed_actor, Actor};
 use crate::models::cache::Cache;
-use crate::models::objects;
+use crate::models::objects::{self, NewObject};
 use crate::models::objects::{create_or_update_object, get_object_by_as_id, Object};
 use crate::retriever::{get_actor, signed_get};
 use crate::server::sanitize_json_fields;
-use crate::signing::Method;
-use crate::ANCHOR_RE;
+use crate::{FetchReplies, ANCHOR_RE};
 use jdt_activity_pub::{ApHashtag, ApObject, Metadata};
 use serde_json::{json, Value};
 
@@ -23,51 +24,34 @@ pub async fn fetch_remote_object<C: DbRunner>(
     id: String,
     profile: Actor,
 ) -> Result<Object> {
-    let _url = id.clone();
-    let _method = Method::Get;
+    let response = signed_get(profile, id, false).await?;
 
-    match signed_get(profile, id, false).await {
-        Ok(resp) => match resp.status() {
-            StatusCode::ACCEPTED | StatusCode::OK => {
-                if let Ok(resp) = resp.json::<Value>().await {
-                    let sanitized = sanitize_json_fields(resp.clone());
-                    match serde_json::from_value::<ApObject>(sanitized) {
-                        Ok(ApObject::Note(note)) => {
-                            create_or_update_object(conn, note.cache(conn).await.clone().into())
-                                .await
-                        }
-                        Ok(ApObject::Question(question)) => {
-                            create_or_update_object(conn, question.cache(conn).await.clone().into())
-                                .await
-                        }
-                        Ok(ApObject::Article(article)) => {
-                            create_or_update_object(conn, article.cache(conn).await.clone().into())
-                                .await
-                        }
-                        Err(e) => {
-                            log::error!("Failed to decode remote Object: {e}");
-                            Err(e.into())
-                        }
-                        _ => Err(anyhow!("Unimplemented ApObject")),
-                    }
-                } else {
-                    Err(anyhow!("Failed to convert response to JSON"))
-                }
+    match response.status() {
+        StatusCode::ACCEPTED | StatusCode::OK => {
+            let json = response.json::<Value>().await?;
+            let sanitized = sanitize_json_fields(json);
+            let ap_object = serde_json::from_value::<ApObject>(sanitized)?;
+
+            let cached_object = match ap_object {
+                ApObject::Note(note) => NewObject::from(note.cache(conn).await.clone()),
+                ApObject::Question(question) => NewObject::from(question.cache(conn).await.clone()),
+                ApObject::Article(article) => NewObject::from(article.cache(conn).await.clone()),
+                _ => return Err(anyhow!("Unsupported ApObject type")),
+            };
+
+            create_or_update_object(conn, cached_object).await
+        }
+        StatusCode::GONE => {
+            log::debug!("Remote Object no longer exists at source");
+            Err(anyhow!("Object no longer exists"))
+        }
+        status => {
+            log::error!("Remote Object fetch failed with status: {status}");
+            if let Ok(text) = response.text().await {
+                log::error!("Response body: {text}");
             }
-            StatusCode::GONE => {
-                log::debug!("Remote Object no longer exists at source");
-                Err(anyhow!("Object no longer exists"))
-            }
-            _ => {
-                log::error!("Remote Object fetch status: {}", resp.status());
-                match resp.text().await {
-                    Ok(text) => log::error!("Remote Object fetch text: {text}"),
-                    Err(e) => log::error!("Remote Object fetch error: {e}"),
-                }
-                Err(anyhow!("Unknown error"))
-            }
-        },
-        Err(e) => Err(e),
+            Err(anyhow!("Failed to fetch remote object: {status}"))
+        }
     }
 }
 
@@ -109,9 +93,8 @@ fn metadata_object(object: &Object) -> Vec<Metadata> {
 
 pub async fn handle_object<C: DbRunner>(
     conn: &C,
-    _channels: Option<EventChannels>,
     mut object: Object,
-    _announcer: Option<String>,
+    visited: &mut HashSet<String>,
 ) -> anyhow::Result<Object> {
     let metadata = metadata_object(&object);
 
@@ -143,19 +126,38 @@ pub async fn handle_object<C: DbRunner>(
             .first()
             .ok_or(anyhow!("Failed to identify attribution"))?
             .clone(),
-        Some(profile),
+        Some(profile.clone()),
         true,
     )
     .await;
 
     ap_object.cache(conn).await;
 
+    match ap_object {
+        ApObject::Note(mut note) if note.replies.reference().is_some() => {
+            let _ = Box::pin(note.fetch_replies(conn, visited).await);
+        }
+        ApObject::Article(mut article) if article.replies.reference().is_some() => {
+            let _ = Box::pin(article.fetch_replies(conn, visited).await);
+        }
+        // ApObject::Question(question) if question.replies.reference().is_some() => {
+        //     retrieve(
+        //         conn,
+        //         question.replies.reference().unwrap(),
+        //         profile,
+        //         visited,
+        //     )
+        //     .await;
+        // }
+        _ => (),
+    }
+
     Ok(object)
 }
 
 pub async fn object_task(
     pool: Pool,
-    channels: Option<EventChannels>,
+    _channels: Option<EventChannels>,
     ap_ids: Vec<String>,
 ) -> Result<(), TaskError> {
     let ap_id = ap_ids.first().unwrap().clone();
@@ -164,8 +166,11 @@ pub async fn object_task(
     if let Ok(object) = get_object_by_as_id(&conn, ap_id).await {
         use crate::models::objects::ObjectType;
 
-        if object.as_type == ObjectType::Note {
-            let _ = handle_object(&conn, channels, object.clone(), None).await;
+        match object.as_type {
+            ObjectType::Note | ObjectType::Article | ObjectType::Question => {
+                let _ = handle_object(&conn, object.clone(), &mut HashSet::<String>::new()).await;
+            }
+            _ => (),
         }
     }
 

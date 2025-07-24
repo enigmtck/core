@@ -15,20 +15,28 @@ use diesel_migrations as _;
 use dotenvy::dotenv;
 use env_logger as _;
 use indicatif as _;
-use jdt_activity_pub::MaybeReference;
-use jdt_activity_pub::{ApActivity, ApActor, ApNote, ApObject, ApTag, Ephemeral};
+use jdt_activity_pub::{
+    ActivityPub, ApActivity, ApActor, ApArticle, ApNote, ApObject, ApTag, Ephemeral,
+};
 use jdt_activity_pub::{ApActorTerse, MaybeMultiple};
+use jdt_activity_pub::{ApCollection, MaybeReference};
 use lazy_static::lazy_static;
 use log4rs as _;
 use models::activities::{get_announced, get_announcers, get_liked, get_likers};
+use models::actors::guaranteed_actor;
 use models::follows::{
     get_follow, get_follower_count_by_actor_id, get_leader_count_by_follower_actor_id,
 };
+use models::objects::get_object_by_as_id;
 use regex::Regex;
+use reqwest::StatusCode;
+use retriever::{collection_fetcher, signed_get};
+use runner::note::{fetch_remote_object, handle_object};
 use rust_embed as _;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::cmp::Ordering;
+use std::collections::HashSet;
 use std::env;
 use tower as _;
 use tower_http as _;
@@ -80,22 +88,6 @@ lazy_static! {
             .expect("invalid local user key id regex");
     pub static ref ASSIGNMENT_RE: Regex =
         Regex::new(r#"(\w+)="(.+?)""#).expect("invalid assignment regex");
-    // pub static ref POOL: Pool = {
-    //     dotenv().ok();
-    //     cfg_if::cfg_if! {
-    //         if #[cfg(feature = "pg")] {
-    //             Pool::new(ConnectionManager::<diesel::PgConnection>::new(
-    //                 env::var("DATABASE_URL").expect("DATABASE_URL must be set"),
-    //             ))
-    //                 .expect("failed to create db pool")
-    //         } else if #[cfg(feature = "sqlite")] {
-    //             Pool::new(ConnectionManager::<diesel::SqliteConnection>::new(
-    //                 env::var("DATABASE_URL").expect("DATABASE_URL must be set"),
-    //             ))
-    //                 .expect("failed to create db pool")
-    //         }
-    //     }
-    // };
     pub static ref ACME_PROXY: bool = {
         dotenv().ok();
         env::var("ACME_PROXY").is_ok_and(|x| x.parse().expect("ACME_PROXY must be \"true\" or \"false\""))
@@ -237,6 +229,101 @@ impl GetHashtags for ApActor {
         } else {
             vec![]
         }
+    }
+}
+
+pub trait HasReplies {
+    fn get_replies(&self) -> &MaybeReference<ApCollection>;
+    fn get_replies_mut(&mut self) -> &mut MaybeReference<ApCollection>;
+}
+
+impl HasReplies for ApNote {
+    fn get_replies(&self) -> &MaybeReference<ApCollection> {
+        &self.replies
+    }
+
+    fn get_replies_mut(&mut self) -> &mut MaybeReference<ApCollection> {
+        &mut self.replies
+    }
+}
+
+impl HasReplies for ApArticle {
+    fn get_replies(&self) -> &MaybeReference<ApCollection> {
+        &self.replies
+    }
+
+    fn get_replies_mut(&mut self) -> &mut MaybeReference<ApCollection> {
+        &mut self.replies
+    }
+}
+
+pub trait FetchReplies {
+    async fn fetch_replies<C: DbRunner + Send + Sync>(
+        &mut self,
+        conn: &C,
+        visited: &mut HashSet<String>,
+    ) -> Self;
+}
+
+impl<T> FetchReplies for T
+where
+    T: HasReplies + Clone + Send + Sync,
+{
+    async fn fetch_replies<C: DbRunner + Send + Sync>(
+        &mut self,
+        conn: &C,
+        visited: &mut HashSet<String>,
+    ) -> Self {
+        use futures_lite::StreamExt;
+
+        let Some(replies_url) = self.get_replies().reference() else {
+            return self.clone();
+        };
+
+        log::debug!("Fetching replies for {replies_url}");
+
+        if visited.contains(&replies_url) {
+            log::debug!("Already processed replies for {replies_url}");
+            return self.clone();
+        }
+        visited.insert(replies_url.clone());
+
+        let profile = guaranteed_actor(conn, None).await;
+
+        let collection = match signed_get(profile.clone(), replies_url, false).await {
+            Ok(resp) if matches!(resp.status(), StatusCode::ACCEPTED | StatusCode::OK) => {
+                match resp.json::<Value>().await {
+                    Ok(json) => serde_json::from_value::<ApCollection>(json).ok(),
+                    Err(_) => None,
+                }
+            }
+            _ => None,
+        };
+
+        let Some(collection) = collection else {
+            return self.clone();
+        };
+
+        let mut stream = collection.stream_all(collection_fetcher());
+
+        while let Some(Ok(ActivityPub::Object(ApObject::Note(note)))) = stream.next().await {
+            let Some(note_id) = note.id.clone() else {
+                continue;
+            };
+
+            // Skip if we already have this object
+            if get_object_by_as_id(conn, note_id.clone()).await.is_ok() {
+                continue;
+            }
+
+            log::debug!("Retrieving reply: {note:?}");
+
+            if let Ok(object) = fetch_remote_object(conn, note_id, profile.clone()).await {
+                let _ = Box::pin(handle_object(conn, object, visited)).await;
+            }
+        }
+
+        self.clone()
     }
 }
 

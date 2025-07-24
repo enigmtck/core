@@ -1750,7 +1750,7 @@ pub async fn get_activities_coalesced<C: DbRunner>(
         id,
     );
 
-    log::debug!("QUERY\n{}", params.query.clone().unwrap_or("".to_string()));
+    //log::debug!("QUERY\n{}", params.query.clone().unwrap_or("".to_string()));
 
     if let Some(conversation) = filters.as_ref().and_then(|f| f.conversation.clone()) {
         get_thread(

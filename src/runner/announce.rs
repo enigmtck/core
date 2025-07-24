@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use anyhow::{anyhow, Result};
 use deadpool_diesel::postgres::Pool;
 use tokio::time::{sleep, Duration};
@@ -112,17 +114,12 @@ pub async fn remote_announce_task(
         let _ = update_target_object(
             &conn,
             activity.clone(),
-            handle_object(
-                &conn,
-                channels.clone(),
-                remote_object,
-                Some(activity.actor.clone()),
-            )
-            .await
-            .map_err(|e| {
-                log::error!("Failed to update target Object: {e}");
-                TaskError::TaskFailed
-            })?,
+            handle_object(&conn, remote_object, &mut HashSet::<String>::new())
+                .await
+                .map_err(|e| {
+                    log::error!("Failed to update target Object: {e}");
+                    TaskError::TaskFailed
+                })?,
         )
         .await;
     }

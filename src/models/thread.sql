@@ -1,7 +1,35 @@
 WITH main AS (
     SELECT DISTINCT ON (c.depth,
         o.as_id)
-        a.*,
+        - 1 AS id,
+        o.created_at AS created_at,
+        o.updated_at AS updated_at,
+        'create' AS kind,
+        '0' AS uuid,
+        CASE WHEN jsonb_typeof(o.as_attributed_to) = 'string' THEN
+            trim(BOTH '"' FROM o.as_attributed_to::text)
+        WHEN jsonb_typeof(o.as_attributed_to) = 'array' THEN
+            o.as_attributed_to ->> 0
+        ELSE
+            ''
+        END AS actor,
+        NULL::jsonb AS ap_to,
+        NULL::jsonb AS cc,
+        NULL::integer AS target_activity_id,
+        o.as_id AS target_ap_id,
+        FALSE AS revoked,
+        o.as_id || '#synthesized-activity' AS ap_id,
+        CASE WHEN o.as_in_reply_to IS NOT NULL THEN
+            TRUE
+        ELSE
+            NULL
+        END AS reply,
+        NULL::jsonb AS raw,
+        o.id AS target_object_id,
+        NULL::integer AS actor_id,
+        NULL::integer AS target_actor_id,
+        NULL::jsonb AS log,
+        NULL::jsonb AS instrument,
         NULL::timestamp AS recursive_created_at,
         NULL::timestamp AS recursive_updated_at,
         NULL::activity_type AS recursive_kind,
@@ -93,15 +121,6 @@ WITH main AS (
         NULL AS actor_mls_storage,
         NULL AS actor_mls_storage_hash,
         NULL::jsonb AS actor_muted_terms
-        -- FROM
-        --     objects_closure c
-        --     LEFT JOIN objects o ON o.as_id = c.descendant
-        --     LEFT JOIN activities a ON a.target_ap_id = o.as_id
-        --     LEFT JOIN actors ac ON (a.actor_id = ac.id)
-        -- WHERE
-        --     c.ancestor = $1
-        --     AND c.depth > 0
-        --     AND a.kind = 'create'
     FROM
         objects_closure c
         LEFT JOIN objects o ON (($4::boolean = TRUE
@@ -115,7 +134,7 @@ WITH main AS (
         OR ($5::boolean = TRUE
             AND c.descendant = $1
             AND c.depth > 0)) -- ancestors
-    AND a.kind = 'create'
+    --AND a.kind = 'create'
 ORDER BY
     c.depth,
     o.as_id
@@ -344,3 +363,11 @@ GROUP BY
     mls_group_id_mls_group
 ORDER BY
     created_at ASC;
+
+--created_at ASC
+--\bind 'https://fosstodon.org/users/nrennie/statuses/114903731959292952' 7 FALSE TRUE FALSE
+--\g
+
+
+
+

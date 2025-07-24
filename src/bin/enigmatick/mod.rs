@@ -87,6 +87,14 @@ fn handle_server_command() {
         log::info!("[Manager] Proxy process started with PID: {}", handle.id());
     }
 
+    // Find the path to the tasks binary, assuming it's in the same directory
+    let mut tasks_path = current_exe.clone();
+    tasks_path.set_file_name("tasks");
+
+    // Spawn the tasks process
+    let mut tasks_handle = spawn_process(&tasks_path, "tasks", &[]);
+    log::info!("[Manager] Tasks process started with PID: {}", tasks_handle.id());
+
     // Spawn the application process
     let mut app_handle = spawn_process(&current_exe, "app", &["app"]);
     log::info!(
@@ -116,6 +124,10 @@ fn handle_server_command() {
                 break;
             }
         }
+        if let Ok(Some(status)) = tasks_handle.try_wait() {
+            log::info!("[Manager] Tasks process exited with status: {status}. Shutting down.");
+            break;
+        }
         std::thread::sleep(std::time::Duration::from_millis(500));
     }
 
@@ -126,6 +138,10 @@ fn handle_server_command() {
         }
         let _ = proxy.wait();
     }
+    if let Err(e) = tasks_handle.kill() {
+        log::error!("[Manager] Error killing tasks process: {e}");
+    }
+    let _ = tasks_handle.wait();
     if let Err(e) = app_handle.kill() {
         log::error!("[Manager] Error killing app process: {e}");
     }

@@ -218,15 +218,30 @@ impl FromRequestParts<AppState> for Permitted {
         parts: &mut Parts,
         state: &AppState,
     ) -> Result<Self, Self::Rejection> {
-        let remote_addr: Option<String> = get_header(parts, "x-forwarded-for")
-            .and_then(|s| s.split(',').next().map(|s| s.trim().to_string()));
+        // If there's no signature header, block the request
+        let Some(signature_header) = parts.headers.get("signature") else {
+            log::warn!("Blocking request with no signature header");
+            return Ok(Permitted(false));
+        };
 
-        if let Some(ip) = remote_addr {
-            if state.block_list.is_blocked(ip.to_string()) {
-                log::warn!("Blocking request from IP: {ip}");
-                return Ok(Permitted(false));
+        if let Ok(signature) = signature_header.to_str() {
+            let mut signature_map = HashMap::<String, String>::new();
+            for cap in ASSIGNMENT_RE.captures_iter(signature) {
+                signature_map.insert(cap[1].to_string(), cap[2].to_string());
+            }
+
+            if let Some(key_id) = signature_map.get("keyId") {
+                if let Some(domain_match) = DOMAIN_RE.captures(key_id) {
+                    let remote_domain = domain_match[1].to_string();
+
+                    if state.block_list.is_blocked(remote_domain.clone()) {
+                        log::warn!("Blocking request from remote server: {remote_domain}");
+                        return Ok(Permitted(false));
+                    }
+                }
             }
         }
+
         Ok(Permitted(true))
     }
 }
