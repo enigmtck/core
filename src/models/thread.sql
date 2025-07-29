@@ -1,3 +1,4 @@
+--EXPLAIN ANALYZE
 WITH main AS (
     SELECT DISTINCT ON (c.depth,
         o.as_id)
@@ -52,6 +53,7 @@ WITH main AS (
         o.as_type AS object_type,
         o.as_published AS object_published,
         o.as_id AS object_as_id,
+        o.as_name AS object_name,
         o.as_url AS object_url,
         o.as_to AS object_to,
         o.as_cc AS object_cc,
@@ -134,7 +136,7 @@ WITH main AS (
         OR ($5::boolean = TRUE
             AND c.descendant = $1
             AND c.depth > 0)) -- ancestors
-    --AND a.kind = 'create'
+    AND (o.as_type = 'note' OR o.as_type = 'question' OR o.as_type = 'article')
 ORDER BY
     c.depth,
     o.as_id
@@ -174,32 +176,6 @@ liked AS (
     GROUP BY
         m.id,
         a.ap_id
-),
-attributed_actors AS (
-    SELECT DISTINCT
-        m.id AS main_id,
-        ac2.*
-    FROM
-        main m
-        CROSS JOIN LATERAL (
-            SELECT
-                unnested.attr_to
-            FROM (
-                SELECT
-                    CASE jsonb_typeof(m.object_attributed_to)
-                    WHEN 'string' THEN
-                        m.object_attributed_to #>> '{}'
-                    ELSE
-                        NULL
-                    END AS attr_to
-            UNION ALL
-            SELECT
-                jsonb_array_elements_text(m.object_attributed_to) AS attr_to
-        WHERE
-            jsonb_typeof(m.object_attributed_to) = 'array') AS unnested
-    WHERE
-        unnested.attr_to IS NOT NULL) AS attributed
-JOIN actors ac2 ON ac2.as_id = attributed.attr_to
 )
 SELECT
     m.*,
@@ -207,7 +183,29 @@ SELECT
             AND a.kind = 'announce'), '[]') AS object_announcers,
     COALESCE(JSONB_AGG(jsonb_build_object('id', ac.as_id, 'name', ac.as_name, 'tag', ac.as_tag, 'url', ac.as_url, 'icon', ac.as_icon, 'preferredUsername', ac.as_preferred_username, 'webfinger', ac.ek_webfinger)) FILTER (WHERE a.actor IS NOT NULL
             AND a.kind = 'like'), '[]') AS object_likers,
-    JSONB_AGG(DISTINCT jsonb_build_object('id', ac2.as_id, 'name', ac2.as_name, 'tag', ac2.as_tag, 'url', ac2.as_url, 'icon', ac2.as_icon, 'preferredUsername', ac2.as_preferred_username, 'webfinger', ac2.ek_webfinger)) AS object_attributed_to_profiles,
+COALESCE((
+    SELECT JSONB_AGG(jsonb_build_object('id', ac2.as_id, 'name', ac2.as_name, 'tag', ac2.as_tag, 'url', ac2.as_url, 'icon', ac2.as_icon, 'preferredUsername', ac2.as_preferred_username, 'webfinger', ac2.ek_webfinger))
+    FROM (
+        SELECT DISTINCT attr_id
+        FROM (
+            -- Extract attributed_to values for this specific row
+            SELECT 
+                CASE 
+                    WHEN jsonb_typeof(m.object_attributed_to) = 'string' THEN
+                        m.object_attributed_to #>> '{}'
+                    ELSE NULL
+                END AS attr_id
+            WHERE jsonb_typeof(m.object_attributed_to) = 'string'
+            
+            UNION ALL
+            
+            SELECT jsonb_array_elements_text(m.object_attributed_to) AS attr_id
+            WHERE jsonb_typeof(m.object_attributed_to) = 'array'
+        ) AS attr_values
+        WHERE attr_id IS NOT NULL
+    ) AS distinct_attrs
+    JOIN actors ac2 ON ac2.as_id = distinct_attrs.attr_id
+), '[]') AS object_attributed_to_profiles,
     announced.object_announced,
     liked.object_liked,
     NULL AS vault_id,
@@ -226,7 +224,6 @@ SELECT
     NULL AS mls_group_id_mls_group
 FROM
     main m
-    LEFT JOIN attributed_actors ac2 ON ac2.main_id = m.id
     LEFT JOIN activities a ON (a.target_ap_id = m.object_as_id
             AND NOT a.revoked
             AND (a.kind = 'announce'
@@ -276,6 +273,7 @@ GROUP BY
     m.object_type,
     m.object_published,
     m.object_as_id,
+    m.object_name,
     m.object_url,
     m.object_to,
     m.object_cc,
@@ -364,10 +362,7 @@ GROUP BY
 ORDER BY
     created_at ASC;
 
---created_at ASC
---\bind 'https://fosstodon.org/users/nrennie/statuses/114903731959292952' 7 FALSE TRUE FALSE
---\g
-
-
-
+-- created_at ASC
+-- \bind 'https://mastodon.social/users/belldotbz/statuses/114754909171422185' 7 FALSE TRUE FALSE
+-- \g
 

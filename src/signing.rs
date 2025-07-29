@@ -2,6 +2,7 @@ use std::collections::HashMap;
 
 use crate::db::runner::DbRunner;
 use crate::models::actors::{get_actor_by_key_id, get_actor_by_username, Actor};
+use crate::retriever::get_actor;
 use crate::{ASSIGNMENT_RE, LOCAL_USER_KEY_ID_RE};
 use anyhow::anyhow;
 use base64::{engine::general_purpose, engine::Engine as _};

@@ -203,24 +203,11 @@ pub async fn prune_cache_items<C: DbRunner>(conn: &C, cutoff: DateTime<Utc>) -> 
         .run(move |c: &mut PgConnection| {
             cache::table
                 .filter(cache::created_at.lt(cutoff))
+                .order(cache::created_at.asc())
                 .load::<CacheItem>(c)
         })
         .await
         .context("Failed to load old cache items")?;
-
-    // pub async fn prune_cache_items(conn: Option<&Db>, cutoff: DateTime<Utc>) -> Result<usize> {
-    //     log::info!("Pruning cache items created before {cutoff}");
-
-    //     // Fetch items to potentially delete
-    //     // Capture 'cutoff' for the closure. DateTime<Utc> is Copy.
-    //     let old_items: Vec<CacheItem> =
-    //         crate::db::run_db_op(conn, &crate::POOL, move |c: &mut PgConnection| {
-    //             cache::table
-    //                 .filter(cache::created_at.lt(cutoff))
-    //                 .load::<CacheItem>(c)
-    //         })
-    //         .await
-    //         .context("Failed to load old cache items")?;
 
     let mut deleted_count = 0;
     let mut deleted_ids = Vec::new();

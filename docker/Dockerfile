@@ -18,13 +18,16 @@ COPY Cargo.toml Cargo.lock rust-toolchain.toml ./
 RUN mkdir -p src/bin/enigmatick
 RUN mkdir -p proxy/src
 COPY proxy/Cargo.toml proxy/
+RUN mkdir -p tasks/src
+COPY tasks/Cargo.toml tasks/
 RUN echo "fn main() {}" > src/bin/enigmatick/mod.rs
 RUN echo "fn main() {}" > src/main.rs
 RUN echo "fn main() {}" > proxy/src/main.rs
+RUN echo "fn main() {}" > tasks/src/main.rs
 
 # Build dependencies only
 RUN cargo build --workspace --release --features ffmpeg
-RUN rm -rf src target/release/enigmatick* target/release/build/enigmatick* target/release/proxy* target/release/build/proxy*
+RUN rm -rf src target/release/enigmatick* target/release/build/enigmatick* target/release/proxy* target/release/build/proxy* target/release/tasks* target/release/build/tasks*
 
 FROM dependencies AS builder
 # Copy source and assets - this layer rebuilds on code changes
@@ -32,7 +35,11 @@ COPY src ./src
 COPY client ./client
 COPY bundled ./bundled
 COPY migrations.pg ./migrations.pg
+COPY launcher ./launcher
+COPY tasks ./tasks
+COPY proxy ./proxy
 RUN cargo build --workspace --release --features ffmpeg
+RUN cd launcher && cargo build --release
 
 FROM debian:bookworm-slim AS runtime
 RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
@@ -44,8 +51,7 @@ RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-ins
 
 RUN mkdir -p /srv/enigmatick
 WORKDIR /srv/enigmatick
-COPY --from=builder /opt/build/target/release/enigmatick ./
-COPY --from=builder /opt/build/target/release/proxy ./
+COPY --from=builder /opt/build/launcher/target/release/enigmatick ./
 
 COPY docker/files/start /usr/local/bin/start
 RUN chmod a+x /usr/local/bin/start

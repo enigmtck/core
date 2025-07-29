@@ -3,9 +3,9 @@ use crate::{
     models::{
         activities::lookup_activity_id_by_as_id,
         actors::{
-            get_actor_by_username, get_actor_by_uuid, set_mls_credentials_by_username,
-            update_avatar_by_username, update_banner_by_username, update_mls_storage_by_username,
-            update_summary_by_username, Actor,
+            get_actor_by_username, set_mls_credentials_by_username, update_avatar_by_username,
+            update_banner_by_username, update_mls_storage_by_username, update_summary_by_username,
+            Actor,
         },
         follows::{
             get_follower_count_by_actor_id, get_followers_by_actor_id,
@@ -17,7 +17,7 @@ use crate::{
         vault::{create_vault_item, VaultItemParams},
         OffsetPaging,
     },
-    runner,
+    runner::{self, user::send_actor_update_task},
     server::{extractors::AxumSigned, AppState},
     LoadEphemeral,
 };
@@ -29,8 +29,8 @@ use axum::{
 };
 use image::{imageops::FilterType, io::Reader, DynamicImage};
 use jdt_activity_pub::{
-    ActivityPub, ApActivity, ApActor, ApCollection, ApImage, ApInstrument, ApInstrumentType,
-    ApObject, ApUpdate, Collectible, FollowersPage, LeadersPage, MaybeReference,
+    ActivityPub, ApActor, ApCollection, ApImage, ApInstrument, ApInstrumentType, ApObject,
+    Collectible, FollowersPage, LeadersPage, MaybeReference,
 };
 use serde::Deserialize;
 use serde_json::json;
@@ -317,20 +317,24 @@ pub async fn person_get(
             .load_ephemeral(&conn, signed.profile())
             .await
     } else {
+        log::debug!("Returning actor without ephemeral data");
         ApActor::from(profile)
     };
 
     if let Some(accept) = headers.get(header::ACCEPT) {
         if let Ok(accept_str) = accept.to_str() {
             if accept_str.contains("text/html") {
+                log::debug!("Redirecting to presentation page");
                 return Ok(AbstractResponse::Redirect(Redirect::to(&format!(
                     "/@{username}"
                 ))));
             }
             if accept_str.contains("application/activity+json") {
+                log::debug!("Returning application/activity+json");
                 return Ok(AbstractResponse::ActivityJson(ActivityJson(actor)));
             }
             if accept_str.contains("application/ld+json") {
+                log::debug!("Returning application/ld+json");
                 return Ok(AbstractResponse::LdJson(LdJson(actor)));
             }
         }
@@ -517,12 +521,13 @@ pub async fn update_summary(
     }
 
     let Json(summary) = summary.map_err(|e| {
-        log::error!("FAILED TO DECODE Summary: {e:#?}");
+        log::error!("Failed to decode Summary: {e:#?}");
         StatusCode::BAD_REQUEST
     })?;
 
-    let conn = state
-        .db_pool
+    let db_pool = state.db_pool.clone();
+
+    let conn = db_pool
         .get()
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
@@ -530,33 +535,16 @@ pub async fn update_summary(
     let profile = update_summary_by_username(&conn, username, summary.content, summary.markdown)
         .await
         .map_err(|e| {
-            log::error!("FAILED TO UPDATE Summary: {e}");
+            log::error!("Failed to update Summary: {e}");
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
 
-    let db_pool = state.db_pool.clone();
     let uuid = profile
         .ek_uuid
         .clone()
         .ok_or(StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    tokio::spawn(async move {
-        if let Ok(conn) = db_pool.get().await {
-            if let Ok(profile) = get_actor_by_uuid(&conn, uuid).await {
-                let inboxes = runner::user::get_follower_inboxes(&conn, profile.clone()).await;
-                let mut actor: ApActor = profile.clone().into();
-                actor.updated = Some(chrono::Utc::now().into());
-                let message = ApActivity::Update(ApUpdate {
-                    object: MaybeReference::Actual(ApObject::Actor(actor)),
-                    actor: profile.as_id.clone().into(),
-                    ..Default::default()
-                });
-                if let Err(e) = runner::send_to_inboxes(&conn, inboxes, profile, message).await {
-                    log::error!("Failed to send actor update: {e}");
-                }
-            }
-        }
-    });
+    runner::run(send_actor_update_task, db_pool, None, vec![uuid]).await;
 
     Ok(Json(profile))
 }
@@ -591,38 +579,23 @@ pub async fn upload_avatar(
         return Err(StatusCode::UNPROCESSABLE_ENTITY);
     }
 
-    let conn = state
-        .db_pool
+    let db_pool = state.db_pool.clone();
+
+    let conn = db_pool
         .get()
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
     let actor = update_avatar_by_username(&conn, username, filename, json!(as_image))
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    let db_pool = state.db_pool.clone();
     let uuid = actor
         .ek_uuid
         .clone()
         .ok_or(StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    tokio::spawn(async move {
-        if let Ok(conn) = db_pool.get().await {
-            if let Ok(profile) = get_actor_by_uuid(&conn, uuid).await {
-                let inboxes = runner::user::get_follower_inboxes(&conn, profile.clone()).await;
-                let mut actor: ApActor = profile.clone().into();
-                actor.updated = Some(chrono::Utc::now().into());
-                let message = ApActivity::Update(ApUpdate {
-                    object: MaybeReference::Actual(ApObject::Actor(actor)),
-                    actor: profile.as_id.clone().into(),
-                    ..Default::default()
-                });
-                if let Err(e) = runner::send_to_inboxes(&conn, inboxes, profile, message).await {
-                    log::error!("Failed to send actor update: {e}");
-                }
-            }
-        }
-    });
+    runner::run(send_actor_update_task, db_pool, None, vec![uuid]).await;
 
     Ok(StatusCode::ACCEPTED)
 }
@@ -657,38 +630,22 @@ pub async fn upload_banner(
         return Err(StatusCode::UNPROCESSABLE_ENTITY);
     }
 
-    let conn = state
-        .db_pool
+    let db_pool = state.db_pool.clone();
+    let conn = db_pool
         .get()
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
     let actor = update_banner_by_username(&conn, username, filename, json!(as_image))
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    let db_pool = state.db_pool.clone();
     let uuid = actor
         .ek_uuid
         .clone()
         .ok_or(StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    tokio::spawn(async move {
-        if let Ok(conn) = db_pool.get().await {
-            if let Ok(profile) = get_actor_by_uuid(&conn, uuid).await {
-                let inboxes = runner::user::get_follower_inboxes(&conn, profile.clone()).await;
-                let mut actor: ApActor = profile.clone().into();
-                actor.updated = Some(chrono::Utc::now().into());
-                let message = ApActivity::Update(ApUpdate {
-                    object: MaybeReference::Actual(ApObject::Actor(actor)),
-                    actor: profile.as_id.clone().into(),
-                    ..Default::default()
-                });
-                if let Err(e) = runner::send_to_inboxes(&conn, inboxes, profile, message).await {
-                    log::error!("Failed to send actor update: {e}");
-                }
-            }
-        }
-    });
+    runner::run(send_actor_update_task, db_pool, None, vec![uuid]).await;
 
     Ok(StatusCode::ACCEPTED)
 }

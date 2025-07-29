@@ -12,6 +12,7 @@ use crate::{
     runner::{get_inboxes, send_to_inboxes},
 };
 use anyhow::Result;
+use deadpool_diesel::postgres::Pool;
 use jdt_activity_pub::{ApActivity, ApActor, ApAddress, ApUpdate};
 
 use super::TaskError;
@@ -45,14 +46,16 @@ pub async fn get_follower_inboxes<C: DbRunner>(conn: &C, profile: Actor) -> Vec<
     Vec::from_iter(inboxes)
 }
 
-pub async fn send_actor_update_task<C: DbRunner>(
-    conn: &C,
+pub async fn send_actor_update_task(
+    pool: Pool,
     _channels: Option<EventChannels>,
     uuids: Vec<String>,
 ) -> Result<(), TaskError> {
+    let conn = pool.get().await.map_err(|_| TaskError::TaskFailed)?;
+
     for uuid in uuids {
         log::debug!("Processing Actor {uuid}");
-        let actor = get_actor_by_uuid(conn, uuid.clone()).await.map_err(|e| {
+        let actor = get_actor_by_uuid(&conn, uuid.clone()).await.map_err(|e| {
             log::error!("Failed to get actor by uuid {uuid}: {e:?}");
             TaskError::TaskFailed
         })?;
@@ -68,9 +71,9 @@ pub async fn send_actor_update_task<C: DbRunner>(
         ))
         .map_err(|_| TaskError::TaskFailed)?;
 
-        new_activity = new_activity.link_actor(conn).await;
+        new_activity = new_activity.link_actor(&conn).await;
 
-        let activity = create_activity(conn, new_activity)
+        let activity = create_activity(&conn, new_activity)
             .await
             .map_err(|_| TaskError::TaskFailed)?;
 
@@ -79,8 +82,8 @@ pub async fn send_actor_update_task<C: DbRunner>(
         log::debug!("Sending update: {update}");
 
         send_to_inboxes(
-            conn,
-            get_inboxes(conn, ApActivity::Update(update.clone()), actor.clone()).await,
+            &conn,
+            get_inboxes(&conn, ApActivity::Update(update.clone()), actor.clone()).await,
             actor,
             ApActivity::Update(update),
         )

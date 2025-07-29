@@ -6,9 +6,9 @@ use crate::{
         follows::get_leaders_by_follower_actor_id,
         unprocessable::create_unprocessable,
     },
-    retriever,
+    retriever::{self, get_actor},
     server::{extractors::AxumSigned, AppState},
-    signing::{get_hash, verify, VerificationType},
+    signing::{get_hash, verify, VerificationError},
 };
 use axum::{
     body::Bytes,
@@ -256,10 +256,12 @@ pub async fn axum_shared_inbox_post(
     permitted: Permitted,
     bytes: Bytes,
 ) -> Result<StatusCode, StatusCode> {
+    // Reject connection immediately if from a prohibited server
     if !permitted.is_permitted() {
         return Err(StatusCode::FORBIDDEN);
     }
 
+    // Reject connection if the hash cannot be computed or if it doesn't match
     let hash = get_hash(bytes.to_vec());
     let json: Value = match serde_json::from_slice(&bytes) {
         Ok(j) => j,
@@ -268,9 +270,8 @@ pub async fn axum_shared_inbox_post(
             return Err(StatusCode::BAD_REQUEST);
         }
     };
-    let hashed = AxumHashedJson { hash, json };
 
-    let raw = sanitize_json_fields(hashed.json);
+    let hashed = AxumHashedJson { hash, json };
 
     if let Some(signed_digest) = signed.digest() {
         let signed_digest = signed_digest.strip_prefix("sha-256=").unwrap_or(
@@ -285,43 +286,47 @@ pub async fn axum_shared_inbox_post(
         }
     }
 
+    // Clean up the JSON from servers like Akkoma that send spurious fields
+    let raw = sanitize_json_fields(hashed.json);
+
+    // Wait until absolutely necessary to reserve a database connection
+    let conn = state
+        .db_pool
+        .get()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    // Reject message if an ApActivity can not be built from it; log to the unprocessable table
     let activity: ApActivity = match raw.clone().try_into() {
         Ok(activity) => activity,
         Err(e) => {
-            let conn = state
-                .db_pool
-                .get()
-                .await
-                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
             create_unprocessable(&conn, (raw, Some(format!("{e:#?}"))).into()).await;
             return Err(StatusCode::UNPROCESSABLE_ENTITY);
         }
     };
 
+    // If this is a Delete and we don't have the Actor, just Accept it and do nothing
     if activity.is_delete() && signed.deferred().is_some() {
+        log::debug!("Accepting Delete activity for non-existent Actor");
         return Ok(StatusCode::ACCEPTED);
     }
 
+    // Handle the Deferred Actor here
     let is_authorized = if let Some(deferred) = signed.deferred() {
-        let conn = state
-            .db_pool
-            .get()
-            .await
-            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-        matches!(
-            verify(&conn, deferred).await,
-            Ok(VerificationType::Remote(_))
-        )
+        match verify(&conn, deferred).await {
+            Ok(_) => true,
+            Err(VerificationError::ActorNotFound(_)) => {
+                let actor = activity.actor().to_string();
+                log::debug!("Attempting to retrieve {actor}");
+                get_actor(&conn, actor, None, true).await.is_ok()
+            }
+            _ => false,
+        }
     } else {
         signed.any()
     };
 
     if is_authorized {
-        let conn = state
-            .db_pool
-            .get()
-            .await
-            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
         activity.inbox(&conn, state.db_pool.clone(), raw).await
     } else {
         log::debug!("Request signature verification failed");

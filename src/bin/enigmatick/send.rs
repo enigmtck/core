@@ -4,7 +4,6 @@ use enigmatick::models::activities::NewActivity;
 use enigmatick::models::actors as actor_model_ops;
 use enigmatick::runner::{get_inboxes, send_to_inboxes};
 use jdt_activity_pub::{ApActivity, ApActor, ApDelete, ApUpdate};
-use tokio::runtime::Runtime;
 
 #[derive(Parser)]
 pub struct SendArgs {
@@ -44,26 +43,21 @@ pub enum DeleteCommands {
     Actor { username: String },
 }
 
-pub fn handle_send_command(args: SendArgs) -> Result<()> {
-    let rt = Runtime::new().unwrap();
-    let handle = rt.handle();
-
+pub async fn handle_send_command(args: SendArgs) -> Result<()> {
     match args.command {
-        SendCommands::Update(update_args) => handle_update_command(update_args, handle),
-        SendCommands::Delete(delete_args) => handle_delete_command(delete_args, handle),
+        SendCommands::Update(update_args) => handle_update_command(update_args).await,
+        SendCommands::Delete(delete_args) => handle_delete_command(delete_args).await,
     }
 }
 
-fn handle_update_command(args: UpdateArgs, handle: &tokio::runtime::Handle) -> Result<()> {
+async fn handle_update_command(args: UpdateArgs) -> Result<()> {
     match args.command {
         UpdateCommands::Actor { username } => {
             println!("Attempting to send actor update for user: {username}...");
-            handle.block_on(async {
-                match execute_send_actor_update(username).await {
-                    Ok(_) => println!("Successfully processed sending of actor update."),
-                    Err(e) => eprintln!("Error sending actor update: {e:?}"),
-                }
-            });
+            match execute_send_actor_update(username).await {
+                Ok(_) => println!("Successfully processed sending of actor update."),
+                Err(e) => eprintln!("Error sending actor update: {e:?}"),
+            };
         }
     }
     Ok(())
@@ -133,16 +127,14 @@ async fn execute_send_actor_delete(username: String) -> Result<()> {
     Ok(())
 }
 
-fn handle_delete_command(args: DeleteArgs, handle: &tokio::runtime::Handle) -> Result<()> {
+async fn handle_delete_command(args: DeleteArgs) -> Result<()> {
     match args.command {
         DeleteCommands::Actor { username } => {
             println!("Attempting to send actor delete for user: {username}...");
-            handle.block_on(async {
-                match execute_send_actor_delete(username).await {
-                    Ok(_) => println!("Successfully processed sending of actor delete."),
-                    Err(e) => eprintln!("Error sending actor delete: {e:?}"),
-                }
-            });
+            match execute_send_actor_delete(username).await {
+                Ok(_) => println!("Successfully processed sending of actor delete."),
+                Err(e) => eprintln!("Error sending actor delete: {e:?}"),
+            };
         }
     }
     Ok(())

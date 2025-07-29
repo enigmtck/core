@@ -4,13 +4,12 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-anyhow = "1.0"
-log = "0.4"
-env_logger = "0.11"
+tokio = { version = "1.0", features = ["full", "fs"] }
+async-trait = "0.1"
+env_logger = "0.10"
 dotenvy = "0.15"
-tokio = { version = "1.36", features = ["full"] }
-futures = "0.3"
-reqwest = { version = "0.12", features = ["stream"] }
-serde_json = "1.0"
-lazy_static = "1.5.0"
-enigmatick = { path = "../", features = ["ffmpeg"] }
+log = "0.4"
+chrono = { version = "0.4", features = ["serde"] }
+anyhow = "1.0"
+diesel = { version = "2.0", features = ["postgres", "chrono"] }
+enigmatick = { path = ".." }

@@ -172,6 +172,9 @@ pub struct CoalescedActivity {
     #[diesel(sql_type = Nullable<Text>)]
     pub object_as_id: Option<String>,
 
+    #[diesel(sql_type = Nullable<Text>)]
+    pub object_name: Option<String>,
+
     #[diesel(sql_type = Nullable<Jsonb>)]
     pub object_url: Option<Value>,
 
@@ -728,6 +731,7 @@ impl TryFrom<CoalescedActivity> for ApArticle {
             .map_err(|e| anyhow::anyhow!("Failed to convert Article object_type: {}", e))?;
 
         let id = coalesced.object_as_id;
+        let name = coalesced.object_name;
         let url = coalesced
             .object_url
             .and_then(from_serde::<MaybeMultiple<String>>)
@@ -767,6 +771,7 @@ impl TryFrom<CoalescedActivity> for ApArticle {
         Ok(ApArticle {
             kind,
             id,
+            name,
             url,
             to,
             cc,
