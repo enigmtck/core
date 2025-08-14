@@ -16,7 +16,7 @@ use dotenvy::dotenv;
 use env_logger as _;
 use indicatif as _;
 use jdt_activity_pub::{
-    ActivityPub, ApActivity, ApActor, ApArticle, ApNote, ApObject, ApTag, Ephemeral,
+    ActivityPub, ApActivity, ApActor, ApArticle, ApNote, ApObject, ApQuestion, ApTag, Ephemeral,
 };
 use jdt_activity_pub::{ApActorTerse, MaybeMultiple};
 use jdt_activity_pub::{ApCollection, MaybeReference};
@@ -257,6 +257,16 @@ impl HasReplies for ApArticle {
     }
 }
 
+impl HasReplies for ApQuestion {
+    fn get_replies(&self) -> &MaybeReference<ApCollection> {
+        &self.replies
+    }
+
+    fn get_replies_mut(&mut self) -> &mut MaybeReference<ApCollection> {
+        &mut self.replies
+    }
+}
+
 pub trait FetchReplies {
     async fn fetch_replies<C: DbRunner + Send + Sync>(
         &mut self,
@@ -378,6 +388,12 @@ impl LoadEphemeral for ApActivity {
                 }
                 create.into()
             }
+            ApActivity::Announce(mut announce) => {
+                if let MaybeReference::Actual(ApObject::Note(ref mut note)) = announce.object {
+                    note.load_ephemeral(conn, requester).await;
+                }
+                announce.into()
+            }
             _ => self.clone(),
         }
     }
@@ -476,9 +492,120 @@ impl LoadEphemeral for ApObject {
                     announced,
                     announces,
                     attributed_to,
-                    ..Default::default()
+                    ..note.ephemeral.clone().unwrap_or(Default::default())
                 });
                 ApObject::Note(note.clone())
+            }
+            ApObject::Article(ref mut article) => {
+                let attributed_to = if let Ok(actor) = retriever::get_actor(
+                    conn,
+                    article.attributed_to.clone().to_string(),
+                    None,
+                    true,
+                )
+                .await
+                {
+                    Some(vec![ApActorTerse::from(actor)])
+                } else {
+                    None
+                };
+
+                let announced =
+                    if let (Some(requester), Some(id)) = (requester.clone(), article.id.clone()) {
+                        get_announced(conn, requester, id).await.unwrap_or(None)
+                    } else {
+                        None
+                    };
+
+                let announces: Option<Vec<ApActorTerse>> = if let Some(id) = article.id.clone() {
+                    get_announcers(conn, None, None, None, id)
+                        .await
+                        .ok()
+                        .map(|x| x.into_iter().collect())
+                } else {
+                    None
+                };
+
+                let liked = if let (Some(requester), Some(id)) = (requester, article.id.clone()) {
+                    get_liked(conn, requester, id).await.unwrap_or(None)
+                } else {
+                    None
+                };
+
+                let likes: Option<Vec<ApActorTerse>> = if let Some(id) = article.id.clone() {
+                    get_likers(conn, None, None, None, id)
+                        .await
+                        .ok()
+                        .map(|x| x.into_iter().collect())
+                } else {
+                    None
+                };
+
+                article.ephemeral = Some(Ephemeral {
+                    liked,
+                    likes,
+                    announced,
+                    announces,
+                    attributed_to,
+                    ..article.ephemeral.clone().unwrap_or(Default::default())
+                });
+                ApObject::Article(article.clone())
+            }
+            ApObject::Question(ref mut question) => {
+                let attributed_to = if let Ok(actor) = retriever::get_actor(
+                    conn,
+                    question.attributed_to.clone().to_string(),
+                    None,
+                    true,
+                )
+                .await
+                {
+                    Some(vec![ApActorTerse::from(actor)])
+                } else {
+                    None
+                };
+
+                let announced =
+                    if let (Some(requester), Some(id)) = (requester.clone(), question.id.clone()) {
+                        get_announced(conn, requester, id).await.unwrap_or(None)
+                    } else {
+                        None
+                    };
+
+                let announces: Option<Vec<ApActorTerse>> = if let Some(id) = question.id.clone() {
+                    get_announcers(conn, None, None, None, id)
+                        .await
+                        .ok()
+                        .map(|x| x.into_iter().collect())
+                } else {
+                    None
+                };
+
+                let liked =
+                    if let (Some(requester), Some(id)) = (requester.clone(), question.id.clone()) {
+                        get_liked(conn, requester, id).await.unwrap_or(None)
+                    } else {
+                        None
+                    };
+
+                let likes: Option<Vec<ApActorTerse>> = if let Some(id) = question.id.clone() {
+                    get_likers(conn, None, None, None, id)
+                        .await
+                        .ok()
+                        .map(|x| x.into_iter().collect())
+                } else {
+                    None
+                };
+
+                question.ephemeral = Some(Ephemeral {
+                    liked,
+                    likes,
+                    announced,
+                    announces,
+                    attributed_to,
+                    ..question.ephemeral.clone().unwrap_or(Default::default())
+                });
+                ApObject::Question(question.clone())
             }
             _ => self.clone(),
         }

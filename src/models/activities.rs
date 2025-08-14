@@ -4,17 +4,14 @@ use crate::helper::get_activity_ap_id_from_uuid;
 use crate::models::actors::{get_actor_by_as_id, Actor};
 use crate::models::coalesced_activity::CoalescedActivity;
 use crate::models::objects::Object;
-use crate::models::parameter_generator;
 use crate::schema::{activities, actors};
 use crate::server::InboxView;
 use anyhow::{anyhow, Result};
 use chrono::{DateTime, Utc};
 use convert_case::{Case, Casing};
-use diesel::query_builder::{BoxedSqlQuery, SqlQuery};
-use diesel::sql_types::Nullable;
+use diesel::sql_types::{Array, Bool, Integer, Nullable, Text};
 use diesel::{prelude::*, sql_query};
 use diesel::{AsChangeset, Identifiable, Insertable, Queryable};
-use indoc::indoc;
 use jdt_activity_pub::ApBlockType;
 use jdt_activity_pub::ApMoveType;
 use jdt_activity_pub::ApRemoveType;
@@ -253,7 +250,7 @@ impl From<Activity> for ActivityTarget {
     }
 }
 
-#[derive(Eq, PartialEq, Clone)]
+#[derive(Eq, PartialEq, Clone, Debug)]
 pub enum TimelineView {
     Home(Vec<String>),
     Local,
@@ -286,7 +283,7 @@ impl From<InboxView> for TimelineView {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct TimelineFilters {
     pub view: Option<TimelineView>,
     pub hashtags: Vec<String>,
@@ -340,10 +337,6 @@ pub struct Activity {
 }
 
 impl Activity {
-    // pub async fn extend(&self, conn: &Db) -> Option<ExtendedActivity> {
-    //     get_activity(Some(conn), self.id).await
-    // }
-
     pub async fn extend<C: DbRunner>(&self, conn: &C) -> Option<ExtendedActivity> {
         get_activity(conn, self.id).await.ok().flatten()
     }
@@ -566,7 +559,7 @@ impl TryFrom<ApActivityTarget> for NewActivity {
                     kind: update.kind.into(),
                     uuid: uuid.clone(),
                     actor: update.actor.to_string(),
-                    target_ap_id: Some(object.id),
+                    target_ap_id: object.id.map(|x| x.to_string()),
                     revoked: false,
                     ap_id: update
                         .id
@@ -1100,11 +1093,13 @@ impl From<CoalescedActivity> for ExtendedActivity {
             revoked: coalesced.revoked,
             ap_id: coalesced.ap_id.clone(),
             reply: coalesced.reply,
-            raw: coalesced.raw.clone(),
+            //raw: coalesced.raw.clone(),
+            raw: None,
             target_object_id: coalesced.target_object_id,
             actor_id: coalesced.actor_id,
             target_actor_id: coalesced.target_actor_id,
-            log: coalesced.log.clone(),
+            //log: coalesced.log.clone(),
+            log: None,
             instrument: coalesced.instrument.clone(),
         };
 
@@ -1116,601 +1111,126 @@ impl From<CoalescedActivity> for ExtendedActivity {
     }
 }
 
-#[derive(Default, Debug)]
-struct QueryParams {
-    min: Option<i64>,
-    max: Option<i64>,
-    to: Vec<String>,
-    from: Vec<String>,
+#[derive(Debug)]
+struct TimelineQueryParams {
+    excluded_words: String,
+    is_local_view: bool,
+    to_addresses: Vec<String>,
+    from_addresses: Vec<String>,
     hashtags: Vec<String>,
-    date: DateTime<Utc>,
-    username: Option<String>,
-    conversation: Option<String>,
+    max_date: String,
+    min_date: String,
+    order_asc: bool,
     limit: i32,
-    query: Option<String>,
-    activity_as_id: Option<String>,
-    activity_uuid: Option<String>,
-    activity_id: Option<i32>,
-    excluded_words: Vec<String>,
-    direct: bool,
+    outbox_username: String,
+    profile_actor_id: String,
 }
 
-fn query_initial_block() -> String {
-    indoc! {"
-WITH main AS (
-    SELECT DISTINCT ON (a.created_at)
-        a.*,
-        a2.created_at AS recursive_created_at,
-        a2.updated_at AS recursive_updated_at,
-        a2.kind AS recursive_kind,
-        a2.uuid AS recursive_uuid,
-        a2.actor AS recursive_actor,
-        a2.ap_to AS recursive_ap_to,
-        a2.cc AS recursive_cc,
-        a2.target_activity_id AS recursive_target_activity_id,
-        a2.target_ap_id AS recursive_target_ap_id,
-        a2.revoked AS recursive_revoked,
-        a2.ap_id AS recursive_ap_id,
-        a2.reply AS recursive_reply,
-        a2.target_object_id AS recursive_target_object_id,
-        a2.actor_id AS recursive_actor_id,
-        a2.target_actor_id AS recursive_target_actor_id,
-        a2.instrument AS recursive_instrument,
-        COALESCE(o.created_at, o2.created_at) AS object_created_at,
-        COALESCE(o.updated_at, o2.updated_at) AS object_updated_at,
-        COALESCE(o.ek_uuid, o2.ek_uuid) AS object_uuid,
-        COALESCE(o.as_type, o2.as_type) AS object_type,
-        COALESCE(o.as_published, o2.as_published) AS object_published,
-        COALESCE(o.as_id, o2.as_id) AS object_as_id,
-        COALESCE(o.as_name, o2.as_name) AS object_name,
-        COALESCE(o.as_url, o2.as_url) AS object_url,
-        COALESCE(o.as_to, o2.as_to) AS object_to,
-        COALESCE(o.as_cc, o2.as_cc) AS object_cc,
-        COALESCE(o.as_tag, o2.as_tag) AS object_tag,
-        COALESCE(o.as_attributed_to, o2.as_attributed_to) AS object_attributed_to,
-        COALESCE(o.as_in_reply_to, o2.as_in_reply_to) AS object_in_reply_to,
-        COALESCE(o.as_content, o2.as_content) AS object_content,
-        COALESCE(o.ap_conversation, o2.ap_conversation) AS object_conversation,
-        COALESCE(o.as_attachment, o2.as_attachment) AS object_attachment,
-        COALESCE(o.as_summary, o2.as_summary) AS object_summary,
-        COALESCE(o.as_preview, o2.as_preview) AS object_preview,
-        COALESCE(o.as_start_time, o2.as_start_time) AS object_start_time,
-        COALESCE(o.as_end_time, o2.as_end_time) AS object_end_time,
-        COALESCE(o.as_one_of, o2.as_one_of) AS object_one_of,
-        COALESCE(o.as_any_of, o2.as_any_of) AS object_any_of,
-        COALESCE(o.ap_voters_count, o2.ap_voters_count) AS object_voters_count,
-        COALESCE(o.ap_sensitive, o2.ap_sensitive) AS object_sensitive,
-        COALESCE(o.ek_metadata, o2.ek_metadata) AS object_metadata,
-        COALESCE(o.ek_profile_id, o2.ek_profile_id) AS object_profile_id,
-        COALESCE(o.ek_instrument, o2.ek_instrument) AS object_instrument,
-        COALESCE(ta.created_at, ta2.created_at) AS actor_created_at,
-        COALESCE(ta.updated_at, ta2.updated_at) AS actor_updated_at,
-        COALESCE(ta.ek_uuid, ta2.ek_uuid) AS actor_uuid,
-        COALESCE(ta.ek_username, ta2.ek_username) AS actor_username,
-        COALESCE(ta.ek_summary_markdown, ta2.ek_summary_markdown) AS actor_summary_markdown,
-        COALESCE(ta.ek_avatar_filename, ta2.ek_avatar_filename) AS actor_avatar_filename,
-        COALESCE(ta.ek_banner_filename, ta2.ek_banner_filename) AS actor_banner_filename,
-        COALESCE(ta.ek_private_key, ta2.ek_private_key) AS actor_private_key,
-        COALESCE(ta.ek_password, ta2.ek_password) AS actor_password,
-        COALESCE(ta.ek_client_public_key, ta2.ek_client_public_key) AS actor_client_public_key,
-        COALESCE(ta.ek_client_private_key, ta2.ek_client_private_key) AS actor_client_private_key,
-        COALESCE(ta.ek_salt, ta2.ek_salt) AS actor_salt,
-        COALESCE(ta.ek_olm_pickled_account, ta2.ek_olm_pickled_account) AS actor_olm_pickled_account,
-        COALESCE(ta.ek_olm_pickled_account_hash, ta2.ek_olm_pickled_account_hash) AS actor_olm_pickled_account_hash,
-        COALESCE(ta.ek_olm_identity_key, ta2.ek_olm_identity_key) AS actor_olm_identity_key,
-        COALESCE(ta.ek_webfinger, ta2.ek_webfinger) AS actor_webfinger,
-        COALESCE(ta.ek_checked_at, ta2.ek_checked_at) AS actor_checked_at,
-        COALESCE(ta.ek_hashtags, ta2.ek_hashtags) AS actor_hashtags,
-        COALESCE(ta.as_type, ta2.as_type) AS actor_type,
-        COALESCE(ta.as_context, ta2.as_context) AS actor_context,
-        COALESCE(ta.as_id, ta2.as_id) AS actor_as_id,
-        COALESCE(ta.as_name, ta2.as_name) AS actor_name,
-        COALESCE(ta.as_preferred_username, ta2.as_preferred_username) AS actor_preferred_username,
-        COALESCE(ta.as_summary, ta2.as_summary) AS actor_summary,
-        COALESCE(ta.as_inbox, ta2.as_inbox) AS actor_inbox,
-        COALESCE(ta.as_outbox, ta2.as_outbox) AS actor_outbox,
-        COALESCE(ta.as_followers, ta2.as_followers) AS actor_followers,
-        COALESCE(ta.as_following, ta2.as_following) AS actor_following,
-        COALESCE(ta.as_liked, ta2.as_liked) AS actor_liked,
-        COALESCE(ta.as_public_key, ta2.as_public_key) AS actor_public_key,
-        COALESCE(ta.as_featured, ta2.as_featured) AS actor_featured,
-        COALESCE(ta.as_featured_tags, ta2.as_featured_tags) AS actor_featured_tags,
-        COALESCE(ta.as_url, ta2.as_url) AS actor_url,
-        COALESCE(ta.as_published, ta2.as_published) AS actor_published,
-        COALESCE(ta.as_tag, ta2.as_tag) AS actor_tag,
-        COALESCE(ta.as_attachment, ta2.as_attachment) AS actor_attachment,
-        COALESCE(ta.as_endpoints, ta2.as_endpoints) AS actor_endpoints,
-        COALESCE(ta.as_icon, ta2.as_icon) AS actor_icon,
-        COALESCE(ta.as_image, ta2.as_image) AS actor_image,
-        COALESCE(ta.as_also_known_as, ta2.as_also_known_as) AS actor_also_known_as,
-        COALESCE(ta.as_discoverable, ta2.as_discoverable) AS actor_discoverable,
-        COALESCE(ta.ap_capabilities, ta2.ap_capabilities) AS actor_capabilities,
-        COALESCE(ta.ek_keys, ta2.ek_keys) AS actor_keys,
-        COALESCE(ta.ek_last_decrypted_activity, ta2.ek_last_decrypted_activity) AS actor_last_decrypted_activity,
-        COALESCE(ta.ap_manually_approves_followers, ta2.ap_manually_approves_followers) AS actor_manually_approves_followers,
-        COALESCE(ta.ek_mls_credentials, ta2.ek_mls_credentials) AS actor_mls_credentials,
-        COALESCE(ta.ek_mls_storage, ta2.ek_mls_storage) AS actor_mls_storage,
-        COALESCE(ta.ek_mls_storage_hash, ta2.ek_mls_storage_hash) AS actor_mls_storage_hash,
-        COALESCE(ta.ek_muted_terms, ta2.ek_muted_terms) AS actor_muted_terms
-"}.to_string()
-}
-
-fn query_end_block(mut query: String) -> String {
-    query.push_str(indoc! {"
-SELECT DISTINCT
-    m.*,
-    COALESCE(JSONB_AGG(jsonb_build_object('id', ac.as_id, 'name', ac.as_name, 'tag', ac.as_tag, 'url', ac.as_url, 'icon', ac.as_icon, 'preferredUsername', ac.as_preferred_username)) FILTER (WHERE a.actor IS NOT NULL
-            AND a.kind = 'announce'), '[]') AS object_announcers,
-    COALESCE(JSONB_AGG(jsonb_build_object('id', ac.as_id, 'name', ac.as_name, 'tag', ac.as_tag, 'url', ac.as_url, 'icon', ac.as_icon, 'preferredUsername', ac.as_preferred_username)) FILTER (WHERE a.actor IS NOT NULL
-            AND a.kind = 'like'), '[]') AS object_likers,
-    JSONB_AGG(DISTINCT jsonb_build_object('id', ac2.as_id, 'name', ac2.as_name, 'tag', ac2.as_tag, 'url', ac2.as_url, 'icon', ac2.as_icon, 'preferredUsername', ac2.as_preferred_username, 'webfinger', ac2.ek_webfinger)) AS object_attributed_to_profiles,
-    announced.object_announced,
-    liked.object_liked,
-    vaulted.*,
-    mls.*
-FROM
-    main m
-    LEFT JOIN attributed_actors ac2 ON ac2.main_id = m.id
-    LEFT JOIN activities a ON (a.target_ap_id = m.object_as_id
-            AND NOT a.revoked
-            AND (a.kind = 'announce'
-                OR a.kind = 'like'))
-    LEFT JOIN actors ac ON (ac.as_id = a.actor)
-    LEFT JOIN announced ON m.id = announced.id
-    LEFT JOIN liked ON m.id = liked.id
-    LEFT JOIN vaulted ON m.id = vaulted.vault_activity_id
-    LEFT JOIN mls ON mls.mls_group_id_conversation = m.object_conversation
-GROUP BY
-    m.id,
-    m.created_at,
-    m.updated_at,
-    m.kind,
-    m.uuid,
-    m.actor,
-    m.ap_to,
-    m.cc,
-    m.target_activity_id,
-    m.target_ap_id,
-    m.revoked,
-    m.ap_id,
-    m.reply,
-    m.instrument,
-    m.recursive_created_at,
-    m.recursive_updated_at,
-    m.recursive_kind,
-    m.recursive_uuid,
-    m.recursive_actor,
-    m.recursive_ap_to,
-    m.recursive_cc,
-    m.recursive_target_activity_id,
-    m.recursive_target_ap_id,
-    m.recursive_revoked,
-    m.recursive_ap_id,
-    m.recursive_reply,
-    m.recursive_target_object_id,
-    m.recursive_actor_id,
-    m.recursive_target_actor_id,
-    m.recursive_instrument,
-    m.object_created_at,
-    m.object_updated_at,
-    m.object_uuid,
-    m.object_type,
-    m.object_published,
-    m.object_as_id,
-    m.object_name,
-    m.object_url,
-    m.object_to,
-    m.object_cc,
-    m.object_tag,
-    m.object_attributed_to,
-    m.object_in_reply_to,
-    m.object_content,
-    m.object_conversation,
-    m.object_attachment,
-    m.object_summary,
-    m.object_preview,
-    m.object_start_time,
-    m.object_end_time,
-    m.object_one_of,
-    m.object_any_of,
-    m.object_voters_count,
-    m.object_sensitive,
-    m.object_metadata,
-    m.object_profile_id,
-    m.object_instrument,
-    m.raw,
-    m.actor_id,
-    m.target_actor_id,
-    m.log,
-    m.target_object_id,
-    m.actor_created_at,
-    m.actor_updated_at,
-    m.actor_uuid,
-    m.actor_username,
-    m.actor_summary_markdown,
-    m.actor_avatar_filename,
-    m.actor_banner_filename,
-    m.actor_private_key,
-    m.actor_password,
-    m.actor_client_public_key,
-    m.actor_client_private_key,
-    m.actor_salt,
-    m.actor_olm_pickled_account,
-    m.actor_olm_pickled_account_hash,
-    m.actor_olm_identity_key,
-    m.actor_webfinger,
-    m.actor_checked_at,
-    m.actor_hashtags,
-    m.actor_type,
-    m.actor_context,
-    m.actor_as_id,
-    m.actor_name,
-    m.actor_preferred_username,
-    m.actor_summary,
-    m.actor_inbox,
-    m.actor_outbox,
-    m.actor_followers,
-    m.actor_following,
-    m.actor_liked,
-    m.actor_public_key,
-    m.actor_featured,
-    m.actor_featured_tags,
-    m.actor_url,
-    m.actor_published,
-    m.actor_tag,
-    m.actor_attachment,
-    m.actor_endpoints,
-    m.actor_icon,
-    m.actor_image,
-    m.actor_also_known_as,
-    m.actor_discoverable,
-    m.actor_capabilities,
-    m.actor_keys,
-    m.actor_last_decrypted_activity,
-    m.actor_manually_approves_followers,
-    m.actor_mls_credentials,
-    m.actor_mls_storage,
-    m.actor_mls_storage_hash,
-    m.actor_muted_terms,
-    announced.object_announced,
-    liked.object_liked,
-    vaulted.vault_id,
-    vaulted.vault_created_at,
-    vaulted.vault_updated_at,
-    vaulted.vault_uuid,
-    vaulted.vault_owner_as_id,
-    vaulted.vault_activity_id,
-    vaulted.vault_data,
-    mls.mls_group_id_id,
-    mls.mls_group_id_created_at,
-    mls.mls_group_id_updated_at,
-    mls.mls_group_id_uuid,
-    mls.mls_group_id_actor_id,
-    mls.mls_group_id_conversation,
-    mls.mls_group_id_mls_group
-"});
-    query
+impl Default for TimelineQueryParams {
+    fn default() -> Self {
+        Self {
+            excluded_words: String::new(),
+            is_local_view: false,
+            to_addresses: vec![],
+            from_addresses: vec![],
+            hashtags: vec![],
+            max_date: "NULL".to_string(),
+            min_date: "NULL".to_string(),
+            order_asc: false,
+            limit: 0,
+            outbox_username: "NULL".to_string(),
+            profile_actor_id: "NULL".to_string(),
+        }
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
-fn build_main_query(
-    filters: &Option<TimelineFilters>,
+fn build_timeline_query<'a>(
+    filters: &'a Option<TimelineFilters>,
     limit: i32,
     min: Option<i64>,
     max: Option<i64>,
-    profile: &Option<Actor>,
-    activity_as_id: Option<String>,
-    activity_uuid: Option<String>,
-    activity_id: Option<i32>,
-) -> QueryParams {
-    let mut params = QueryParams {
+    profile: &'a Option<Actor>,
+    _activity_as_id: Option<String>,
+    _activity_uuid: Option<String>,
+    _activity_id: Option<i32>,
+) -> (&'static str, TimelineQueryParams) {
+    let mut params = TimelineQueryParams {
         limit,
-        activity_as_id,
-        activity_uuid,
-        activity_id,
-        min,
-        max,
         ..Default::default()
     };
 
-    let mut param_gen = parameter_generator();
-
-    let mut query = query_initial_block();
-
-    query.push_str(indoc! {"
-FROM activities a 
-    LEFT JOIN objects o ON (o.id = a.target_object_id)
-    LEFT JOIN actors ta ON (ta.id = a.target_actor_id)
-    LEFT JOIN activities a2 ON (a.target_activity_id = a2.id)
-    LEFT JOIN objects o2 ON (a2.target_object_id = o2.id)
-    LEFT JOIN actors ta2 ON (ta2.id = a2.target_actor_id)
-    LEFT JOIN actors ac ON (a.actor_id = ac.id)
-"});
-
     let mut combined_excluded_words = vec![];
     if let Some(actor_profile) = profile {
+        params.profile_actor_id = actor_profile.id.to_string();
         if let Value::Array(muted_terms_array) = actor_profile.ek_muted_terms.clone() {
             for term_value in muted_terms_array {
                 if let Value::String(term_str) = term_value {
-                    combined_excluded_words.push(term_str.clone());
+                    combined_excluded_words.push(term_str);
                 }
             }
         }
     }
 
-    query.push_str(&format!(
-        "WHERE COALESCE(o.as_content, o2.as_content, '') !~* ('\\m#?(' || {} || ')\\M') ",
-        param_gen()
-    ));
-
-    if params.activity_as_id.is_some() {
-        query.push_str(&format!("AND a.ap_id = {}), ", param_gen()));
-    } else if params.activity_uuid.is_some() {
-        query.push_str(&format!("AND a.uuid = {}), ", param_gen()));
-    } else if params.activity_id.is_some() {
-        query.push_str(&format!("AND a.id = {}), ", param_gen()));
-    } else {
-        if filters.clone().and_then(|x| x.view).is_some() {
-            query.push_str(
-                "AND a.kind IN ('announce','create') \
-                 AND NOT o.as_type IN ('tombstone') ",
-            );
+    if let Some(filters) = filters.clone() {
+        if filters.conversation.is_some() || (min.is_some() && min.unwrap() == 0) {
+            params.order_asc = true;
+        } else if let Some(username) = filters.username {
+            params.to_addresses.extend((*PUBLIC_COLLECTION).clone());
+            params.outbox_username = username;
         } else {
-            query.push_str(
-                "AND a.kind IN ('announce','create','undo','like','follow','accept','delete') ",
-            );
-        }
-
-        if let Some(filters) = filters.clone() {
-            if filters.conversation.is_some() {
-                params.conversation = filters.conversation;
-                query.push_str(&format!("AND o.ap_conversation = {} ", param_gen()));
-            } else if filters.username.is_none() {
-                // The logic here is that if there is a username, we want replies and top posts,
-                // so we don't use a condition. If there isn't, then we just want top posts
-                query.push_str("AND NOT a.reply ");
-            }
-        }
-
-        query.push_str("AND NOT a.revoked AND (a.target_object_id IS NOT NULL OR a.target_activity_id IS NOT NULL) ");
-
-        // Add date filtering to the subquery
-        if let Some(min) = min {
-            if min != 0 {
-                params.date = DateTime::from_timestamp_micros(min).unwrap();
-                query.push_str(&format!("AND a.created_at > {} ", param_gen()));
-            }
-        } else if let Some(max) = max {
-            params.date = DateTime::from_timestamp_micros(max).unwrap();
-            query.push_str(&format!("AND a.created_at < {} ", param_gen()));
-        }
-
-        // Add filters based on the provided options
-        if let Some(filters) = filters {
-            if filters.username.is_some() {
-                params.to.extend((*PUBLIC_COLLECTION).clone());
-                query.push_str(&format!("AND ac.ek_username = {} ", param_gen()));
-                params.username = filters.username.clone();
-            } else if let Some(view) = filters.view.clone() {
-                match view {
-                    TimelineView::Global => {
-                        params.to.extend((*PUBLIC_COLLECTION).clone());
-                    }
-                    TimelineView::Local => {
-                        params.to.extend((*PUBLIC_COLLECTION).clone());
-                        query.push_str("AND o.ek_uuid IS NOT NULL ");
-                    }
-                    TimelineView::Home(leaders) => {
-                        if let Some(profile) = profile.clone() {
-                            params.to.extend(vec![profile.as_id]);
-                            params.to.extend(leaders);
-                        }
-                    }
-                    TimelineView::Direct => {
-                        if let Some(profile) = profile.clone() {
-                            params.direct = true;
-                            params.to.extend(vec![profile.as_id.clone()]);
-                            params.from.extend(vec![profile.as_id]);
-                        }
-                    }
+            match filters.view.clone() {
+                Some(TimelineView::Local) => {
+                    params.is_local_view = true;
                 }
-            } else {
-                params.to.extend((*PUBLIC_COLLECTION).clone());
-                if let Some(profile) = profile.clone() {
-                    params.to.extend(vec![profile.as_id.clone()]);
-                    params.from.extend(vec![profile.as_id]);
+                Some(TimelineView::Home(leaders)) if profile.is_some() => {
+                    let profile = profile.clone().unwrap();
+                    params.to_addresses.extend(leaders);
+                    params.to_addresses.extend(vec![profile.as_id.clone()]);
+                    params.from_addresses.extend(vec![profile.as_id.clone()]);
                 }
-            }
-
-            if !params.to.is_empty() && params.from.is_empty() {
-                query.push_str(&format!(
-                    "AND (a.ap_to ?| {} OR a.cc ?| {}) ",
-                    param_gen(),
-                    param_gen()
-                ));
-            } else if !params.to.is_empty() && !params.from.is_empty() {
-                query.push_str(&format!(
-                    "AND (a.ap_to ?| {} OR a.cc ?| {} OR a.actor = ANY({})) ",
-                    param_gen(),
-                    param_gen(),
-                    param_gen()
-                ));
-            }
-
-            params.hashtags.extend(filters.hashtags.clone());
-            if !params.hashtags.is_empty() {
-                query.push_str(&format!("AND o.ek_hashtags ?| {} ", param_gen()));
-            }
-
-            combined_excluded_words.extend(params.excluded_words);
+                Some(TimelineView::Direct) if profile.is_some() => {
+                    let profile = profile.clone().unwrap();
+                    params.to_addresses.extend(vec![profile.as_id.clone()]);
+                    params.from_addresses.extend(vec![profile.as_id.clone()]);
+                }
+                Some(TimelineView::Global)
+                | Some(TimelineView::Direct)
+                | Some(TimelineView::Home(_))
+                | None => {
+                    //Default to a Public view
+                    params.to_addresses.extend((*PUBLIC_COLLECTION).clone());
+                }
+            };
         }
 
-        if (min.is_some() && min.unwrap() == 0) || params.conversation.clone().is_some() {
-            query.push_str(&format!("ORDER BY created_at ASC LIMIT {}), ", param_gen()));
-        } else {
-            query.push_str(&format!(
-                "ORDER BY created_at DESC LIMIT {}), ",
-                param_gen()
-            ));
+        params.hashtags.extend(filters.hashtags);
+        combined_excluded_words.extend(filters.excluded_words);
+    }
+
+    if let Some(min_val) = min {
+        if min_val != 0 {
+            if let Some(dt) = DateTime::from_timestamp_micros(min_val) {
+                params.min_date = dt.to_rfc3339();
+            }
         }
-    };
+    } else if let Some(max_val) = max {
+        if let Some(dt) = DateTime::from_timestamp_micros(max_val) {
+            params.max_date = dt.to_rfc3339();
+        }
+    }
 
     combined_excluded_words.sort_unstable();
     combined_excluded_words.dedup();
+    params.excluded_words = combined_excluded_words.join("|");
 
-    params.excluded_words = combined_excluded_words;
-
-    if profile.is_some() {
-        query.push_str(&format!(
-            indoc! {"
-announced AS (
-    SELECT
-        m.id,
-        a.ap_id AS object_announced
-    FROM
-        main m
-        LEFT JOIN activities a ON (a.target_ap_id = m.object_as_id 
-            AND NOT a.revoked 
-            AND a.kind = 'announce'
-            AND a.actor_id = {})
-    GROUP BY
-        m.id,
-        a.ap_id
-),
-liked AS (
-    SELECT
-        m.id,
-        a.ap_id AS object_liked
-    FROM
-        main m
-        LEFT JOIN activities a ON (a.target_ap_id = m.object_as_id
-            AND NOT a.revoked
-            AND a.kind = 'like'
-            AND  a.actor_id = {})
-    GROUP BY
-        m.id,
-        a.ap_id
-),
-vaulted AS (
-    SELECT
-        v.id AS vault_id,
-        v.created_at AS vault_created_at,
-        v.updated_at AS vault_updated_at,
-        v.uuid AS vault_uuid,
-        v.owner_as_id AS vault_owner_as_id,
-        v.activity_id AS vault_activity_id,
-        v.data AS vault_data
-    FROM
-        main m
-        LEFT JOIN vault v ON (v.activity_id = m.id
-            AND (m.actor = {} OR m.ap_to @> {})
-            AND v.owner_as_id = {})
-),
-mls AS (
-    SELECT
-        mgc.id AS mls_group_id_id,
-        mgc.created_at AS mls_group_id_created_at,
-        mgc.updated_at AS mls_group_id_updated_at,
-        mgc.uuid AS mls_group_id_uuid,
-        mgc.actor_id AS mls_group_id_actor_id,
-        mgc.conversation AS mls_group_id_conversation,
-        mgc.mls_group AS mls_group_id_mls_group
-    FROM
-        main m
-    LEFT JOIN mls_group_conversations mgc ON (m.object_conversation = mgc.conversation
-            AND mgc.actor_id = {})
-),
-"},
-            param_gen(),
-            param_gen(),
-            param_gen(),
-            param_gen(),
-            param_gen(),
-            param_gen(),
-        ));
+    let query_str = if params.hashtags.is_empty() {
+        include_str!("timeline_public_no_hashtags.sql")
     } else {
-        query.push_str(indoc! {"
-announced AS (
-    SELECT
-        m.id,
-        NULL AS object_announced 
-    FROM
-        main m
-), 
-liked AS (
-    SELECT
-        m.id,
-        NULL AS object_liked 
-    FROM
-        main m
-), 
-vaulted AS (
-    SELECT
-        NULL AS vault_id,
-        NULL AS vault_created_at,
-        NULL AS vault_updated_at, 
-        NULL AS vault_uuid,
-        NULL AS vault_owner_as_id,
-        NULL::INT AS vault_activity_id, 
-        NULL AS vault_data 
-    FROM
-        main m
-), 
-mls AS (
-    SELECT
-        NULL AS mls_group_id_id,
-        NULL AS mls_group_id_created_at,
-        NULL AS mls_group_id_updated_at,
-        NULL AS mls_group_id_uuid,
-        NULL AS mls_group_id_actor_id,
-        NULL AS mls_group_id_conversation,
-        NULL AS mls_group_id_mls_group
-    FROM
-        main m
-),
-"});
-    }
+        include_str!("timeline_public_with_hashtags.sql")
+    };
 
-    query.push_str(indoc! {"
-attributed_actors AS (
-    SELECT DISTINCT
-        m.id AS main_id,
-        ac2.*
-    FROM
-        main m
-    CROSS JOIN LATERAL (
-        SELECT
-            unnested.attr_to
-        FROM (
-            SELECT
-                CASE jsonb_typeof(m.object_attributed_to)
-                WHEN 'string' THEN
-                    m.object_attributed_to #>> '{}'
-                ELSE
-                    NULL
-                END AS attr_to
-        UNION ALL
-        SELECT
-            jsonb_array_elements_text(m.object_attributed_to) AS attr_to
-        WHERE
-            jsonb_typeof(m.object_attributed_to) = 'array') AS unnested
-    WHERE
-        unnested.attr_to IS NOT NULL) AS attributed
-    JOIN actors ac2 ON ac2.as_id = attributed.attr_to
-) 
-"});
-
-    let mut query = query_end_block(query);
-
-    if params.conversation.is_some() {
-        query.push_str("ORDER BY m.created_at ASC");
-    } else {
-        query.push_str("ORDER BY m.created_at DESC");
-    }
-
-    params.query = Some(query);
-
-    params
+    (query_str, params)
 }
 
 //pub async fn add_log_by_as_id(conn: Option<&Db>, as_id: String, entry: Value) -> Result<usize> {
@@ -1741,21 +1261,8 @@ pub async fn get_activities_coalesced<C: DbRunner>(
     uuid: Option<String>,
     id: Option<i32>,
 ) -> Result<Vec<CoalescedActivity>> {
-    let params = build_main_query(
-        &filters,
-        limit,
-        min,
-        max,
-        &profile,
-        as_id.clone(),
-        uuid.clone(),
-        id,
-    );
-
-    //log::debug!("QUERY\n{}", params.query.clone().unwrap_or("".to_string()));
-
     if let Some(conversation) = filters.as_ref().and_then(|f| f.conversation.clone()) {
-        get_thread(
+        return get_thread(
             conn,
             limit,
             min,
@@ -1770,98 +1277,118 @@ pub async fn get_activities_coalesced<C: DbRunner>(
         .map_err(|e| {
             log::error!("{e}");
             e
-        })
-    } else {
-        let query = sql_query(params.query.clone().unwrap()).into_boxed::<DbType>();
-
-        conn.run(move |c| {
-            let query = bind_params(query, params, &profile);
-            query.load::<CoalescedActivity>(c)
-        })
-        .await
+        });
     }
+
+    if as_id.is_some() || uuid.is_some() || id.is_some() {
+        return get_single(conn, limit, min, max, profile, filters, as_id, uuid, id).await;
+    }
+
+    if filters.as_ref().and_then(|f| f.username.clone()).is_some() {
+        return get_outbox(conn, limit, min, max, profile, filters).await;
+    }
+
+    let (query_str, params) =
+        build_timeline_query(&filters, limit, min, max, &profile, as_id, uuid, id);
+
+    conn.run(move |c| {
+        if params.hashtags.is_empty() {
+            // Binding for timeline_public_no_hashtags.sql
+            sql_query(query_str)
+                .bind::<Text, _>(params.excluded_words)
+                .bind::<Bool, _>(params.is_local_view)
+                .bind::<Array<Text>, _>(params.to_addresses)
+                .bind::<Array<Text>, _>(params.from_addresses)
+                .bind::<Text, _>(params.max_date)
+                .bind::<Text, _>(params.min_date)
+                .bind::<Bool, _>(params.order_asc)
+                .bind::<Integer, _>(params.limit)
+                .bind::<Text, _>(params.profile_actor_id)
+                .load::<CoalescedActivity>(c)
+        } else {
+            // Binding for timeline_public_with_hashtags.sql
+            sql_query(query_str)
+                .bind::<Text, _>(params.excluded_words)
+                .bind::<Bool, _>(params.is_local_view)
+                .bind::<Array<Text>, _>(params.to_addresses)
+                .bind::<Array<Text>, _>(params.from_addresses)
+                .bind::<Array<Text>, _>(
+                    params
+                        .hashtags
+                        .iter()
+                        .map(|h| h.to_lowercase())
+                        .collect::<Vec<String>>(),
+                )
+                .bind::<Text, _>(params.max_date)
+                .bind::<Text, _>(params.min_date)
+                .bind::<Bool, _>(params.order_asc)
+                .bind::<Integer, _>(params.limit)
+                .bind::<Text, _>(params.profile_actor_id)
+                .load::<CoalescedActivity>(c)
+        }
+    })
+    .await
 }
 
-fn bind_params<'a>(
-    query: BoxedSqlQuery<'a, DbType, SqlQuery>,
-    params: QueryParams,
-    profile: &Option<Actor>,
-) -> BoxedSqlQuery<'a, DbType, SqlQuery> {
-    use diesel::sql_types::{Array, Integer, Jsonb, Text, Timestamptz};
-    let mut query = query;
+#[allow(clippy::too_many_arguments)]
+pub async fn get_outbox<C: DbRunner>(
+    conn: &C,
+    limit: i32,
+    min: Option<i64>,
+    max: Option<i64>,
+    profile: Option<Actor>,
+    filters: Option<TimelineFilters>,
+) -> Result<Vec<CoalescedActivity>> {
+    use diesel::sql_types::{Array, Bool, Integer, Text};
 
-    let terms = params.excluded_words.join("|");
-    log::debug!("SETTING EXCLUSIONS: {terms}");
-    query = query.bind::<Text, _>(terms);
+    let query = include_str!("outbox.sql");
 
-    if let Some(activity_as_id) = params.activity_as_id.clone() {
-        log::debug!("SETTING ACTIVITY AS_ID: |{activity_as_id}|");
-        query = query.bind::<Text, _>(activity_as_id);
-    } else if let Some(uuid) = params.activity_uuid.clone() {
-        log::debug!("SETTING ACTIVITY AS_ID: |{uuid}|");
-        query = query.bind::<Text, _>(uuid);
-    } else if let Some(id) = params.activity_id {
-        log::debug!("SETTING ACTIVITY AS_ID: |{id}|");
-        query = query.bind::<Integer, _>(id);
+    let to_addresses = (*PUBLIC_COLLECTION).clone();
+    let username = filters
+        .ok_or(anyhow!("Outbox query must specify Username in Filters"))?
+        .username
+        .ok_or(anyhow!("Outbox query must specify Username in Filters"))?;
+
+    let profile_id = profile
+        .map(|x| x.id.to_string())
+        .unwrap_or("NULL".to_string());
+
+    let min = if let Some(min_val) = min {
+        if min_val != 0 {
+            if let Some(dt) = DateTime::from_timestamp_micros(min_val) {
+                dt.to_rfc3339()
+            } else {
+                "NULL".to_string()
+            }
+        } else {
+            "NULL".to_string()
+        }
     } else {
-        if let Some(conversation) = params.conversation.clone() {
-            log::debug!("SETTING CONVERSATION: |{conversation}|");
-            query = query.bind::<Text, _>(conversation);
+        "NULL".to_string()
+    };
+
+    let max = if let Some(max_val) = max {
+        if let Some(dt) = DateTime::from_timestamp_micros(max_val) {
+            dt.to_rfc3339()
+        } else {
+            "NULL".to_string()
         }
+    } else {
+        "NULL".to_string()
+    };
 
-        if (params.min.is_some() && params.min.unwrap() != 0) || params.max.is_some() {
-            log::debug!("SETTING DATE: |{}|", &params.date);
-            query = query.bind::<Timestamptz, _>(params.date);
-        }
-
-        if let Some(username) = params.username.clone() {
-            log::debug!("SETTING USERNAME: |{username}|");
-            query = query.bind::<Text, _>(username);
-        }
-
-        if params.direct {
-            //log::debug!("SETTING DIRECT");
-            //query = query.bind::<Array<Text>, _>((*PUBLIC_COLLECTION).clone());
-            //query = query.bind::<Array<Text>, _>((*PUBLIC_COLLECTION).clone());
-        }
-
-        if !params.to.is_empty() && params.from.is_empty() {
-            log::debug!("SETTING TO: |{:#?}|", &params.to);
-            query = query.bind::<Array<Text>, _>(params.to.clone());
-            query = query.bind::<Array<Text>, _>(params.to.clone());
-        } else if !params.to.is_empty() && !params.from.is_empty() {
-            log::debug!("SETTING TO: |{:#?}|", &params.to);
-            log::debug!("SETTING FROM: |{:#?}|", &params.from);
-            query = query.bind::<Array<Text>, _>(params.to.clone());
-            query = query.bind::<Array<Text>, _>(params.to.clone());
-            query = query.bind::<Array<Text>, _>(params.from.clone());
-        }
-
-        let mut lowercase_hashtags: Vec<String> = vec![];
-        if !params.hashtags.is_empty() {
-            log::debug!("SETTING HASHTAGS: |{:#?}|", &params.hashtags);
-            lowercase_hashtags.extend(params.hashtags.iter().map(|hashtag| hashtag.to_lowercase()));
-            query = query.bind::<Array<Text>, _>(lowercase_hashtags);
-        }
-
-        log::debug!("SETTING LIMIT: |{}|", &params.limit);
-        query = query.bind::<Integer, _>(params.limit);
-    }
-
-    let id;
-    let as_id;
-    if let Some(profile) = profile {
-        id = profile.id;
-        as_id = profile.as_id.clone();
-        query = query.bind::<Integer, _>(id);
-        query = query.bind::<Integer, _>(id);
-        query = query.bind::<Text, _>(as_id.clone());
-        query = query.bind::<Jsonb, _>(json!(as_id.clone()));
-        query = query.bind::<Text, _>(as_id);
-        query = query.bind::<Integer, _>(id);
-    }
-
-    query
+    conn.run(move |c| {
+        sql_query(query)
+            .bind::<Array<Text>, _>(to_addresses)
+            .bind::<Text, _>(username)
+            .bind::<Text, _>(max)
+            .bind::<Text, _>(min)
+            .bind::<Integer, _>(limit)
+            .bind::<Text, _>(profile_id)
+            .bind::<Bool, _>(false)
+            .load::<CoalescedActivity>(c)
+    })
+    .await
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1895,6 +1422,53 @@ pub async fn get_thread<C: DbRunner>(
             .bind::<Bool, _>(include_profile)
             .bind::<Bool, _>(include_descendants)
             .bind::<Bool, _>(include_ancestors)
+            .load::<CoalescedActivity>(c)
+    })
+    .await
+}
+
+#[allow(clippy::too_many_arguments)]
+pub async fn get_single<C: DbRunner>(
+    conn: &C,
+    _limit: i32,
+    _min: Option<i64>,
+    _max: Option<i64>,
+    profile: Option<Actor>,
+    _filters: Option<TimelineFilters>,
+    as_id: Option<String>,
+    uuid: Option<String>,
+    id: Option<i32>,
+) -> Result<Vec<CoalescedActivity>> {
+    use diesel::sql_types::Text;
+
+    let query = include_str!("timeline_single_activity.sql");
+
+    if as_id.is_none() && uuid.is_none() && id.is_none() {
+        return Err(anyhow!(
+            "ActivityPub ID, UUID, or record ID must be specified"
+        ));
+    }
+
+    let profile_id = profile.map(|x| x.id);
+
+    let id = if let Some(id) = id {
+        id.to_string()
+    } else {
+        "NULL".to_string()
+    };
+
+    let profile_id = if let Some(id) = profile_id {
+        id.to_string()
+    } else {
+        "NULL".to_string()
+    };
+
+    conn.run(move |c| {
+        sql_query(query)
+            .bind::<Nullable<Text>, _>(as_id)
+            .bind::<Nullable<Text>, _>(uuid)
+            .bind::<Text, _>(id)
+            .bind::<Text, _>(profile_id)
             .load::<CoalescedActivity>(c)
     })
     .await
@@ -2196,44 +1770,3 @@ pub async fn delete_activities_by_actor<C: DbRunner>(conn: &C, actor: String) ->
 
     conn.run(operation).await
 }
-
-// pub async fn update_target_object(
-//     conn: Option<&Db>,
-//     activity: Activity,
-//     object: Object,
-// ) -> Result<usize> {
-//     let operation = move |c: &mut PgConnection| {
-//         diesel::update(activities::table.find(activity.id))
-//             .set(activities::target_object_id.eq(object.id))
-//             .execute(c)
-//     };
-
-//     crate::db::run_db_op(conn, &crate::POOL, operation).await
-// }
-
-// pub async fn delete_activities_by_domain_pattern(
-//     conn: Option<&Db>,
-//     domain_pattern: String,
-// ) -> Result<usize> {
-//     let operation = move |c: &mut diesel::PgConnection| {
-//         use diesel::sql_types::Text;
-
-//         sql_query("DELETE FROM activities WHERE actor COLLATE \"C\" LIKE $1")
-//             .bind::<Text, _>(format!("https://{domain_pattern}/%"))
-//             .execute(c)
-//     };
-
-//     crate::db::run_db_op(conn, &crate::POOL, operation).await
-// }
-
-// pub async fn delete_activities_by_actor(conn: Option<&Db>, actor: String) -> Result<usize> {
-//     let operation = move |c: &mut diesel::PgConnection| {
-//         use diesel::sql_types::Text;
-
-//         sql_query("DELETE FROM activities WHERE actor = $1")
-//             .bind::<Text, _>(actor)
-//             .execute(c)
-//     };
-
-//     crate::db::run_db_op(conn, &crate::POOL, operation).await
-// }

@@ -20,10 +20,14 @@ RUN mkdir -p proxy/src
 COPY proxy/Cargo.toml proxy/
 RUN mkdir -p tasks/src
 COPY tasks/Cargo.toml tasks/
+RUN mkdir -p launcher/src
+COPY launcher/Cargo.toml launcher/
+
 RUN echo "fn main() {}" > src/bin/enigmatick/mod.rs
 RUN echo "fn main() {}" > src/main.rs
 RUN echo "fn main() {}" > proxy/src/main.rs
 RUN echo "fn main() {}" > tasks/src/main.rs
+RUN echo "fn main() {}" > launcher/src/main.rs
 
 # Build dependencies only
 RUN cargo build --workspace --release --features ffmpeg
@@ -35,11 +39,12 @@ COPY src ./src
 COPY client ./client
 COPY bundled ./bundled
 COPY migrations.pg ./migrations.pg
-COPY launcher ./launcher
-COPY tasks ./tasks
-COPY proxy ./proxy
-RUN cargo build --workspace --release --features ffmpeg
-RUN cd launcher && cargo build --release
+COPY launcher/src ./launcher/src
+COPY launcher/build.rs ./launcher/build.rs
+COPY tasks/src ./tasks/src
+COPY proxy/src ./proxy/src
+RUN cargo build -j6 --workspace --release --features ffmpeg
+RUN cd launcher && cargo build -j6 --release
 
 FROM debian:bookworm-slim AS runtime
 RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \

@@ -1,4 +1,3 @@
-use crate::helper::get_instrument_as_id_from_uuid;
 use crate::models::activities::ActivityType;
 use crate::models::from_serde;
 use crate::models::objects::ObjectType;
@@ -12,8 +11,8 @@ use diesel::sql_types::{Bool, Integer, Jsonb, Nullable, Text, Timestamptz};
 use diesel::Queryable;
 use jdt_activity_pub::{
     ApActivity, ApAddress, ApAnnounce, ApArticle, ApContext, ApCreate, ApDateTime, ApDelete,
-    ApDeleteType, ApFollow, ApFollowType, ApInstrument, ApInstrumentType, ApLike, ApLikeType,
-    ApNote, ApObject, ApQuestion, Ephemeral, MaybeReference,
+    ApDeleteType, ApFollow, ApFollowType, ApInstrument, ApLike, ApLikeType, ApNote, ApObject,
+    ApQuestion, ApUrl, Ephemeral, MaybeReference,
 };
 use jdt_activity_pub::{ApTimelineObject, MaybeMultiple};
 use serde::{Deserialize, Serialize};
@@ -80,9 +79,8 @@ pub struct CoalescedActivity {
     #[diesel(sql_type = Bool)]
     pub reply: bool,
 
-    #[diesel(sql_type = Nullable<Jsonb>)]
-    pub raw: Option<Value>,
-
+    // #[diesel(sql_type = Nullable<Jsonb>)]
+    // pub raw: Option<Value>,
     #[diesel(sql_type = Nullable<Integer>)]
     pub target_object_id: Option<i32>,
 
@@ -92,9 +90,8 @@ pub struct CoalescedActivity {
     #[diesel(sql_type = Nullable<Integer>)]
     pub target_actor_id: Option<i32>,
 
-    #[diesel(sql_type = Nullable<Jsonb>)]
-    pub log: Option<Value>,
-
+    // #[diesel(sql_type = Nullable<Jsonb>)]
+    // pub log: Option<Value>,
     #[diesel(sql_type = Nullable<Jsonb>)]
     pub instrument: Option<Value>,
 
@@ -400,50 +397,49 @@ pub struct CoalescedActivity {
 
     #[diesel(sql_type = Nullable<Jsonb>)]
     pub actor_muted_terms: Option<Value>,
+    // // Vault Fields
+    // #[diesel(sql_type = Nullable<Integer>)]
+    // pub vault_id: Option<i32>,
 
-    // Vault Fields
-    #[diesel(sql_type = Nullable<Integer>)]
-    pub vault_id: Option<i32>,
+    // #[diesel(sql_type = Nullable<Timestamptz>)]
+    // pub vault_created_at: Option<DateTime<Utc>>,
 
-    #[diesel(sql_type = Nullable<Timestamptz>)]
-    pub vault_created_at: Option<DateTime<Utc>>,
+    // #[diesel(sql_type = Nullable<Timestamptz>)]
+    // pub vault_updated_at: Option<DateTime<Utc>>,
 
-    #[diesel(sql_type = Nullable<Timestamptz>)]
-    pub vault_updated_at: Option<DateTime<Utc>>,
+    // #[diesel(sql_type = Nullable<Text>)]
+    // pub vault_uuid: Option<String>,
 
-    #[diesel(sql_type = Nullable<Text>)]
-    pub vault_uuid: Option<String>,
+    // #[diesel(sql_type = Nullable<Text>)]
+    // pub vault_owner_as_id: Option<String>,
 
-    #[diesel(sql_type = Nullable<Text>)]
-    pub vault_owner_as_id: Option<String>,
+    // #[diesel(sql_type = Nullable<Integer>)]
+    // pub vault_activity_id: Option<i32>,
 
-    #[diesel(sql_type = Nullable<Integer>)]
-    pub vault_activity_id: Option<i32>,
+    // #[diesel(sql_type = Nullable<Text>)]
+    // pub vault_data: Option<String>,
 
-    #[diesel(sql_type = Nullable<Text>)]
-    pub vault_data: Option<String>,
+    // // MlsGroupId Fields
+    // #[diesel(sql_type = Nullable<Integer>)]
+    // pub mls_group_id_id: Option<i32>,
 
-    // MlsGroupId Fields
-    #[diesel(sql_type = Nullable<Integer>)]
-    pub mls_group_id_id: Option<i32>,
+    // #[diesel(sql_type = Nullable<Timestamptz>)]
+    // pub mls_group_id_created_at: Option<DateTime<Utc>>,
 
-    #[diesel(sql_type = Nullable<Timestamptz>)]
-    pub mls_group_id_created_at: Option<DateTime<Utc>>,
+    // #[diesel(sql_type = Nullable<Timestamptz>)]
+    // pub mls_group_id_updated_at: Option<DateTime<Utc>>,
 
-    #[diesel(sql_type = Nullable<Timestamptz>)]
-    pub mls_group_id_updated_at: Option<DateTime<Utc>>,
+    // #[diesel(sql_type = Nullable<Text>)]
+    // pub mls_group_id_uuid: Option<String>,
 
-    #[diesel(sql_type = Nullable<Text>)]
-    pub mls_group_id_uuid: Option<String>,
+    // #[diesel(sql_type = Nullable<Integer>)]
+    // pub mls_group_id_actor_id: Option<i32>,
 
-    #[diesel(sql_type = Nullable<Integer>)]
-    pub mls_group_id_actor_id: Option<i32>,
+    // #[diesel(sql_type = Nullable<Text>)]
+    // pub mls_group_id_conversation: Option<String>,
 
-    #[diesel(sql_type = Nullable<Text>)]
-    pub mls_group_id_conversation: Option<String>,
-
-    #[diesel(sql_type = Nullable<Text>)]
-    pub mls_group_id_mls_group: Option<String>,
+    // #[diesel(sql_type = Nullable<Text>)]
+    // pub mls_group_id_mls_group: Option<String>,
 }
 
 impl TryFrom<CoalescedActivity> for ApActivity {
@@ -476,14 +472,12 @@ impl TryFrom<CoalescedActivity> for ApAnnounce {
         })? {
             ObjectType::Note => Ok(ApObject::Note(ApNote::try_from(coalesced.clone())?).into()),
             ObjectType::Article => {
-                log::debug!("Article ObjectType identified");
                 Ok(ApObject::Article(ApArticle::try_from(coalesced.clone())?).into())
             }
             ObjectType::EncryptedNote => {
                 Ok(ApObject::Note(ApNote::try_from(coalesced.clone())?).into())
             }
             ObjectType::Question => {
-                log::debug!("Question ObjectType identified");
                 Ok(ApObject::Question(ApQuestion::try_from(coalesced.clone())?).into())
             }
             _ => {
@@ -529,14 +523,12 @@ impl TryFrom<CoalescedActivity> for ApCreate {
         })? {
             ObjectType::Note => Ok(ApObject::Note(ApNote::try_from(coalesced.clone())?).into()),
             ObjectType::Article => {
-                log::debug!("Article ObjectType identified");
                 Ok(ApObject::Article(ApArticle::try_from(coalesced.clone())?).into())
             }
             ObjectType::EncryptedNote => {
                 Ok(ApObject::Note(ApNote::try_from(coalesced.clone())?).into())
             }
             ObjectType::Question => {
-                log::debug!("Question ObjectType identified");
                 Ok(ApObject::Question(ApQuestion::try_from(coalesced.clone())?).into())
             }
             _ => {
@@ -661,10 +653,11 @@ impl TryFrom<CoalescedActivity> for ApNote {
             .map_err(|e| anyhow::anyhow!("Failed to convert Note object_type: {}", e))?;
 
         let id = coalesced.object_as_id;
+
         let url = coalesced
             .object_url
-            .and_then(from_serde::<MaybeMultiple<String>>)
-            .and_then(|x| x.single().ok());
+            .and_then(from_serde::<MaybeMultiple<ApUrl>>)
+            .unwrap_or(MaybeMultiple::None);
         let to = coalesced
             .object_to
             .and_then(from_serde)
@@ -675,6 +668,7 @@ impl TryFrom<CoalescedActivity> for ApNote {
             .object_attributed_to
             .and_then(from_serde)
             .ok_or_else(|| anyhow::anyhow!("object_attributed_to is None"))?;
+
         let in_reply_to: MaybeMultiple<MaybeReference<ApTimelineObject>> =
             coalesced.object_in_reply_to.into();
         let content = coalesced.object_content;
@@ -686,15 +680,21 @@ impl TryFrom<CoalescedActivity> for ApNote {
             .object_published
             .ok_or_else(|| anyhow::anyhow!("object_published is None"))?
             .into();
+
+        // from_serde now includes enhanced error reporting
+        let announces = from_serde(coalesced.object_announcers.clone());
+        let likes = from_serde(coalesced.object_likers.clone());
+
         let ephemeral = Some(Ephemeral {
             metadata: coalesced.object_metadata.and_then(from_serde),
-            announces: from_serde(coalesced.object_announcers),
-            likes: from_serde(coalesced.object_likers),
+            announces,
+            likes,
             announced: coalesced.object_announced,
             liked: coalesced.object_liked,
             attributed_to: from_serde(coalesced.object_attributed_to_profiles),
             ..Default::default()
         });
+
         let instrument = coalesced.object_instrument.into();
 
         Ok(ApNote {
@@ -734,8 +734,8 @@ impl TryFrom<CoalescedActivity> for ApArticle {
         let name = coalesced.object_name;
         let url = coalesced
             .object_url
-            .and_then(from_serde::<MaybeMultiple<String>>)
-            .and_then(|x| x.single().ok());
+            .and_then(from_serde::<MaybeMultiple<ApUrl>>)
+            .unwrap_or(MaybeMultiple::None);
         let to = coalesced
             .object_to
             .and_then(from_serde)
@@ -802,13 +802,11 @@ impl TryFrom<CoalescedActivity> for ApQuestion {
             .try_into()
             .map_err(|e| anyhow::anyhow!("Failed to convert Question object_type: {}", e))?;
 
-        let id = coalesced
-            .object_as_id
-            .ok_or_else(|| anyhow::anyhow!("object_id is None"))?;
+        let id = coalesced.object_as_id;
         let url = coalesced
             .object_url
-            .and_then(from_serde::<MaybeMultiple<String>>)
-            .and_then(|x| x.single().ok());
+            .and_then(from_serde::<MaybeMultiple<ApUrl>>)
+            .unwrap_or(MaybeMultiple::None);
         let to = coalesced
             .object_to
             .and_then(from_serde)
@@ -871,69 +869,70 @@ impl TryFrom<CoalescedActivity> for ApQuestion {
 impl TryFrom<CoalescedActivity> for Vec<ApInstrument> {
     type Error = anyhow::Error;
 
-    fn try_from(coalesced: CoalescedActivity) -> Result<Self, Self::Error> {
-        let mut instruments: Vec<ApInstrument> = vec![];
+    fn try_from(_coalesced: CoalescedActivity) -> Result<Self, Self::Error> {
+        //let mut instruments: Vec<ApInstrument> = vec![];
 
-        if coalesced.vault_data.is_some() {
-            instruments.push(ApInstrument {
-                kind: ApInstrumentType::VaultItem,
-                id: Some(get_instrument_as_id_from_uuid(
-                    coalesced
-                        .vault_uuid
-                        .clone()
-                        .ok_or(anyhow!("VaultItem must have a UUID"))?,
-                )),
-                content: Some(
-                    coalesced
-                        .vault_data
-                        .ok_or(anyhow!("VaultItem must have content"))?,
-                ),
-                uuid: Some(
-                    coalesced
-                        .vault_uuid
-                        .ok_or(anyhow!("VaultItem must have a UUID"))?,
-                ),
-                hash: None,
-                name: None,
-                url: None,
-                mutation_of: None,
-                conversation: None,
-                activity: None,
-            });
-        }
+        // if coalesced.vault_data.is_some() {
+        //     instruments.push(ApInstrument {
+        //         kind: ApInstrumentType::VaultItem,
+        //         id: Some(get_instrument_as_id_from_uuid(
+        //             coalesced
+        //                 .vault_uuid
+        //                 .clone()
+        //                 .ok_or(anyhow!("VaultItem must have a UUID"))?,
+        //         )),
+        //         content: Some(
+        //             coalesced
+        //                 .vault_data
+        //                 .ok_or(anyhow!("VaultItem must have content"))?,
+        //         ),
+        //         uuid: Some(
+        //             coalesced
+        //                 .vault_uuid
+        //                 .ok_or(anyhow!("VaultItem must have a UUID"))?,
+        //         ),
+        //         hash: None,
+        //         name: None,
+        //         url: None,
+        //         mutation_of: None,
+        //         conversation: None,
+        //         activity: None,
+        //     });
+        // }
 
-        if coalesced.mls_group_id_mls_group.is_some() {
-            instruments.push(ApInstrument {
-                kind: ApInstrumentType::MlsGroupId,
-                id: Some(get_instrument_as_id_from_uuid(
-                    coalesced
-                        .mls_group_id_uuid
-                        .clone()
-                        .ok_or(anyhow!("MlsGroupId must have a UUID"))?,
-                )),
-                content: Some(
-                    coalesced
-                        .mls_group_id_mls_group
-                        .ok_or(anyhow!("MlsGroupId must have Data"))?,
-                ),
-                uuid: Some(
-                    coalesced
-                        .mls_group_id_uuid
-                        .ok_or(anyhow!("MlsGroupId must have a UUID"))?,
-                ),
-                hash: None,
-                name: None,
-                url: None,
-                mutation_of: None,
-                conversation: Some(
-                    coalesced
-                        .mls_group_id_conversation
-                        .ok_or(anyhow!("MlsGroupId must have a conversation"))?,
-                ),
-                activity: None,
-            });
-        }
+        // if coalesced.mls_group_id_mls_group.is_some() {
+        //     instruments.push(ApInstrument {
+        //         kind: ApInstrumentType::MlsGroupId,
+        //         id: Some(get_instrument_as_id_from_uuid(
+        //             coalesced
+        //                 .mls_group_id_uuid
+        //                 .clone()
+        //                 .ok_or(anyhow!("MlsGroupId must have a UUID"))?,
+        //         )),
+        //         content: Some(
+        //             coalesced
+        //                 .mls_group_id_mls_group
+        //                 .ok_or(anyhow!("MlsGroupId must have Data"))?,
+        //         ),
+        //         uuid: Some(
+        //             coalesced
+        //                 .mls_group_id_uuid
+        //                 .ok_or(anyhow!("MlsGroupId must have a UUID"))?,
+        //         ),
+        //         hash: None,
+        //         name: None,
+        //         url: None,
+        //         mutation_of: None,
+        //         conversation: Some(
+        //             coalesced
+        //                 .mls_group_id_conversation
+        //                 .ok_or(anyhow!("MlsGroupId must have a conversation"))?,
+        //         ),
+        //         activity: None,
+        //     });
+        // }
 
-        Ok(instruments)
+        //Ok(instruments)
+        Ok(vec![])
     }
 }

@@ -14,7 +14,7 @@ use crate::{
         },
         actors::Actor,
         cache::{cache_content, Cacheable},
-        objects::{create_or_update_object, Object},
+        objects::{create_object, Object},
     },
     retriever::get_actor,
     runner::{self, get_inboxes, send_to_inboxes, TaskError},
@@ -27,7 +27,7 @@ use deadpool_diesel::postgres::Pool;
 use jdt_activity_pub::MaybeMultiple;
 use jdt_activity_pub::{
     ApActivity, ApAddress, ApAttachment, ApContext, ApCreate, ApImage, ApInstrument, ApNote,
-    ApNoteType, ApObject, Ephemeral,
+    ApNoteType, ApObject, ApUrl, Ephemeral,
 };
 use reqwest::StatusCode;
 use serde_json::Value;
@@ -97,7 +97,7 @@ async fn note_outbox<C: DbRunner>(
         });
 
         note.id = Some(get_object_ap_id_from_uuid(uuid.clone()));
-        note.url = Some(get_object_url_from_uuid(uuid.clone()));
+        note.url = MaybeMultiple::Single(ApUrl::from(get_object_url_from_uuid(uuid.clone())));
         note.published = Utc::now().into();
         note.attributed_to = profile.as_id.clone().into();
 
@@ -137,7 +137,7 @@ async fn note_outbox<C: DbRunner>(
 
     prepare_note_metadata(&mut note, &profile);
 
-    let object = create_or_update_object(conn, (note.clone(), profile.clone()).into())
+    let object = create_object(conn, (note.clone(), profile.clone()).into())
         .await
         .map_err(|e| {
             log::error!("Failed to create or update Object: {e:#?}");
@@ -173,12 +173,6 @@ async fn note_outbox<C: DbRunner>(
     })?;
 
     runner::run(send_note, pool, None, vec![ap_id]).await;
-
-    // tokio::spawn(async move {
-    //     if let Err(e) = send_note(pool, None, vec![ap_id]).await {
-    //         log::error!("Failed to run send_note task: {e:?}");
-    //     }
-    // });
 
     Ok(ActivityJson(ap_activity))
 }

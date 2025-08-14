@@ -12,7 +12,7 @@ use crate::{
         },
         actors::Actor,
         cache::{cache_content, Cacheable},
-        objects::{create_or_update_object, Object},
+        objects::{create_object, Object},
     },
     retriever::get_actor,
     runner::{self, get_inboxes, send_to_inboxes, TaskError},
@@ -25,7 +25,7 @@ use deadpool_diesel::postgres::Pool;
 use jdt_activity_pub::MaybeMultiple;
 use jdt_activity_pub::{
     ApActivity, ApAddress, ApArticle, ApAttachment, ApContext, ApCreate, ApImage, ApInstrument,
-    ApObject, Ephemeral,
+    ApObject, ApUrl, Ephemeral,
 };
 use reqwest::StatusCode;
 use serde_json::Value;
@@ -97,7 +97,7 @@ async fn article_outbox<C: DbRunner>(
         });
 
         article.id = Some(get_object_ap_id_from_uuid(uuid.clone()));
-        article.url = Some(get_object_url_from_uuid(uuid.clone()));
+        article.url = MaybeMultiple::Single(ApUrl::from(get_object_url_from_uuid(uuid.clone())));
         article.published = Utc::now().into();
         article.attributed_to = profile.as_id.clone().into();
 
@@ -131,7 +131,7 @@ async fn article_outbox<C: DbRunner>(
 
     prepare_article_metadata(&mut article, &profile);
 
-    let object = create_or_update_object(conn, (article.clone(), profile.clone()).into())
+    let object = create_object(conn, (article.clone(), profile.clone()).into())
         .await
         .map_err(|e| {
             log::error!("Failed to create or update Object: {e:#?}");

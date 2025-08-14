@@ -36,7 +36,7 @@ pub async fn activities(
     //let server_url = format!("https://{}", *crate::SERVER_NAME);
     //let base_url = base_url.unwrap_or(format!("{server_url}/inbox?page=true&limit={limit}"));
 
-    let activities = get_activities_coalesced(
+    let activities = match get_activities_coalesced(
         conn,
         limit,
         min,
@@ -48,7 +48,13 @@ pub async fn activities(
         None,
     )
     .await
-    .unwrap_or_default();
+    {
+        Ok(activities) => activities,
+        Err(e) => {
+            log::error!("{e}");
+            vec![]
+        }
+    };
 
     let activities = activities
         .into_iter()

@@ -37,7 +37,7 @@ pub async fn remote_undo_announce_task(
 
 pub async fn remote_announce_task(
     pool: Pool,
-    channels: Option<EventChannels>,
+    _channels: Option<EventChannels>,
     ap_ids: Vec<String>,
 ) -> Result<(), TaskError> {
     let conn = pool.get().await.map_err(|_| TaskError::TaskFailed)?;

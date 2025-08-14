@@ -32,11 +32,21 @@ pub fn parameter_generator() -> impl FnMut() -> String {
 }
 
 pub fn from_serde<T: serde::de::DeserializeOwned>(object: Value) -> Option<T> {
-    serde_json::from_value(object).ok()
+    match serde_json::from_value(object.clone()) {
+        Ok(result) => Some(result),
+        Err(e) => {
+            log::debug!(
+                "from_serde deserialization failed for type {}: {e}",
+                std::any::type_name::<T>()
+            );
+            log::trace!("Raw JSON that failed to deserialize: {object}");
+            None
+        }
+    }
 }
 
 pub fn from_serde_option<T: serde::de::DeserializeOwned>(object: Option<Value>) -> Option<T> {
-    object.and_then(|o| serde_json::from_value(o).ok())
+    object.and_then(|o| from_serde(o))
 }
 
 pub struct OffsetPaging {

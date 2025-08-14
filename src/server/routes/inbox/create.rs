@@ -4,7 +4,7 @@ use crate::{
     db::runner::DbRunner,
     models::{
         activities::{create_activity, get_activity_by_ap_id, ActivityTarget, NewActivity},
-        objects::{create_or_update_object, NewObject},
+        objects::{create_object, NewObject},
         unprocessable::create_unprocessable,
     },
     runner,
@@ -39,12 +39,10 @@ impl Inbox for ApCreate {
                 log::debug!("{x:?}");
                 let new_object = NewObject::from(x.clone());
 
-                let object = create_or_update_object(conn, new_object)
-                    .await
-                    .map_err(|e| {
-                        log::error!("FAILED TO CREATE OR UPDATE OBJECT: {e:#?}");
-                        StatusCode::INTERNAL_SERVER_ERROR
-                    })?;
+                let object = create_object(conn, new_object).await.map_err(|e| {
+                    log::error!("FAILED TO CREATE OR UPDATE OBJECT: {e:#?}");
+                    StatusCode::INTERNAL_SERVER_ERROR
+                })?;
 
                 let mut activity = NewActivity::try_from((
                     ApActivity::Create(self.clone()),
@@ -73,12 +71,10 @@ impl Inbox for ApCreate {
                 log::debug!("{article:?}");
                 let new_object = NewObject::from(article.clone());
 
-                let object = create_or_update_object(conn, new_object)
-                    .await
-                    .map_err(|e| {
-                        log::error!("FAILED TO CREATE OR UPDATE ARTICLE: {e:#?}");
-                        StatusCode::INTERNAL_SERVER_ERROR
-                    })?;
+                let object = create_object(conn, new_object).await.map_err(|e| {
+                    log::error!("FAILED TO CREATE OR UPDATE ARTICLE: {e:#?}");
+                    StatusCode::INTERNAL_SERVER_ERROR
+                })?;
 
                 let mut activity = NewActivity::try_from((
                     ApActivity::Create(self.clone()),
@@ -107,12 +103,10 @@ impl Inbox for ApCreate {
                 log::debug!("{question:?}");
                 let new_object = NewObject::from(question.clone());
 
-                let object = create_or_update_object(conn, new_object)
-                    .await
-                    .map_err(|e| {
-                        log::error!("FAILED TO CREATE OR UPDATE Object: {e:#?}");
-                        StatusCode::INTERNAL_SERVER_ERROR
-                    })?;
+                let object = create_object(conn, new_object).await.map_err(|e| {
+                    log::error!("FAILED TO CREATE OR UPDATE Object: {e:#?}");
+                    StatusCode::INTERNAL_SERVER_ERROR
+                })?;
 
                 let mut activity = NewActivity::try_from((
                     ApActivity::Create(self.clone()),

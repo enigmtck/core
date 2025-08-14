@@ -8,7 +8,6 @@ use tokio::time::interval;
 
 use anyhow::Result;
 use chrono::Utc;
-use enigmatick::db::runner::DbRunner;
 
 type TaskResult<'a> =
     Pin<Box<dyn Future<Output = Result<(), Box<dyn std::error::Error + Send + Sync>>> + Send + 'a>>;

@@ -4,12 +4,12 @@ use crate::{
     models::{
         activities::{create_activity, NewActivity},
         actors::Actor,
-        objects::{create_or_update_object, NewObject},
+        objects::{create_object, NewObject},
     },
     runner,
 };
 use deadpool_diesel::postgres::Pool;
-use jdt_activity_pub::{ApActivity, ApCreate, ApObject, MaybeReference};
+use jdt_activity_pub::{ApActivity, ApCreate, ApObject, ApUrl, MaybeMultiple, MaybeReference};
 use reqwest::StatusCode;
 use serde_json::Value;
 
@@ -44,27 +44,33 @@ async fn create_outbox<C: DbRunner>(
         .try_into()
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    let object = create_or_update_object(conn, new_object)
+    let object = create_object(conn, new_object)
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     create.object = match object_to_create.clone() {
         ApObject::Note(mut note) => {
             note.id = Some(object.as_id.clone());
-            // TODO note.url should be a MaybeMultiple<String>
-            note.url = object.as_url.clone().map(|x| x.to_string());
+            note.url = match object.as_url.clone().map(|x| x.to_string()) {
+                Some(url_str) => MaybeMultiple::Single(ApUrl::from(url_str)),
+                None => MaybeMultiple::None,
+            };
             MaybeReference::Actual(ApObject::Note(note))
         }
         ApObject::Question(mut question) => {
-            question.id = object.as_id.clone();
-            // TODO question.url should be a MaybeMultiple<String>
-            question.url = object.as_url.clone().map(|x| x.to_string());
+            question.id = Some(object.as_id.clone());
+            question.url = match object.as_url.clone().map(|x| x.to_string()) {
+                Some(url_str) => MaybeMultiple::Single(ApUrl::from(url_str)),
+                None => MaybeMultiple::None,
+            };
             MaybeReference::Actual(ApObject::Question(question))
         }
         ApObject::Article(mut article) => {
             article.id = Some(object.as_id.clone());
-            // TODO article.url should be a MaybeMultiple<String>
-            article.url = object.as_url.clone().map(|x| x.to_string());
+            article.url = match object.as_url.clone().map(|x| x.to_string()) {
+                Some(url_str) => MaybeMultiple::Single(ApUrl::from(url_str)),
+                None => MaybeMultiple::None,
+            };
             MaybeReference::Actual(ApObject::Article(article))
         }
         _ => MaybeReference::Actual(object_to_create.clone()),

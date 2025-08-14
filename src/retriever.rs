@@ -13,7 +13,7 @@ use crate::models::actors::{
 };
 use crate::models::cache::Cache;
 use crate::models::follows::get_follow;
-use crate::models::objects::{create_or_update_object, get_object_by_as_id, NewObject};
+use crate::models::objects::{create_object, get_object_by_as_id, NewObject};
 use crate::signing::{sign, Method, SignParams};
 use crate::webfinger::WebFinger;
 use crate::{GetWebfinger, LoadEphemeral, WEBFINGER_RE};
@@ -161,7 +161,7 @@ pub async fn get_object<C: DbRunner>(
             let text = resp.text().await?;
             let fetched_ap_object: ApObject = serde_json::from_str(&text)?;
 
-            let created_object_model = create_or_update_object(
+            let created_object_model = create_object(
                 conn,
                 NewObject::try_from(fetched_ap_object.cache(conn).await.clone())?,
             )

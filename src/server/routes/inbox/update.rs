@@ -4,7 +4,7 @@ use crate::{
     models::{
         activities::{create_activity, NewActivity},
         actors::{create_or_update_actor, NewActor},
-        objects::create_or_update_object,
+        objects::create_object,
     },
     GetWebfinger,
 };
@@ -69,13 +69,10 @@ impl Inbox for ApUpdate {
                 ApObject::Note(note) => {
                     log::debug!("{note}");
                     if note.clone().attributed_to == self.actor.clone() {
-                        let object =
-                            create_or_update_object(conn, note.into())
-                                .await
-                                .map_err(|e| {
-                                    log::error!("Failed to create or update Note: {e}");
-                                    StatusCode::INTERNAL_SERVER_ERROR
-                                })?;
+                        let object = create_object(conn, note.into()).await.map_err(|e| {
+                            log::error!("Failed to create or update Note: {e}");
+                            StatusCode::INTERNAL_SERVER_ERROR
+                        })?;
 
                         let mut activity = NewActivity::try_from((activity, Some(object.into())))
                             .map_err(|e| {
@@ -98,12 +95,10 @@ impl Inbox for ApUpdate {
                 ApObject::Article(article) => {
                     log::debug!("{article}");
                     if article.clone().attributed_to == self.actor.clone() {
-                        let object = create_or_update_object(conn, article.into())
-                            .await
-                            .map_err(|e| {
-                                log::error!("Failed to create or update Article: {e}");
-                                StatusCode::INTERNAL_SERVER_ERROR
-                            })?;
+                        let object = create_object(conn, article.into()).await.map_err(|e| {
+                            log::error!("Failed to create or update Article: {e}");
+                            StatusCode::INTERNAL_SERVER_ERROR
+                        })?;
 
                         let mut activity = NewActivity::try_from((activity, Some(object.into())))
                             .map_err(|e| {
@@ -126,12 +121,10 @@ impl Inbox for ApUpdate {
                 ApObject::Question(question) => {
                     log::debug!("{question}");
                     if question.clone().attributed_to == self.actor.clone() {
-                        let object = create_or_update_object(conn, question.into())
-                            .await
-                            .map_err(|e| {
-                                log::error!("Failed to create or update Question: {e}");
-                                StatusCode::INTERNAL_SERVER_ERROR
-                            })?;
+                        let object = create_object(conn, question.into()).await.map_err(|e| {
+                            log::error!("Failed to create or update Question: {e}");
+                            StatusCode::INTERNAL_SERVER_ERROR
+                        })?;
 
                         let mut activity = NewActivity::try_from((activity, Some(object.into())))
                             .map_err(|e| {

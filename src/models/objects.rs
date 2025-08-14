@@ -11,7 +11,7 @@ use diesel::{sql_query, AsChangeset, Identifiable, Insertable, Queryable};
 use jdt_activity_pub::MaybeReference;
 use jdt_activity_pub::{
     ApAddress, ApArticle, ApDateTime, ApHashtag, ApNote, ApNoteType, ApObject, ApQuestion,
-    ApQuestionType, Ephemeral,
+    ApQuestionType, ApUrl, Ephemeral,
 };
 use jdt_activity_pub::{ApArticleType, MaybeMultiple};
 use maplit::{hashmap, hashset};
@@ -394,7 +394,11 @@ impl From<ApNote> for NewObject {
 
         let (ek_uuid, as_id, as_url) = {
             if let Some(id) = note.id.clone() {
-                (None, id, note.url.clone().map(|x| json!(x)))
+                let url_json = note.url.iter().next().map(|u| match u {
+                    ApUrl::String(s) => json!(s),
+                    ApUrl::Link(link) => json!(link.href.as_deref().unwrap_or("")),
+                });
+                (None, id, url_json)
             } else {
                 let uuid = Uuid::new_v4().to_string();
                 (
@@ -416,6 +420,7 @@ impl From<ApNote> for NewObject {
             as_replies: note.replies.into(),
             as_tag: note.tag.into(),
             as_content: note.content.map(|c| ammonia.clean(&c).to_string()),
+            as_name: note.name,
             as_summary: note.summary.map(|x| ammonia.clean(&x).to_string()),
             ap_sensitive: note.sensitive,
             as_in_reply_to: note.in_reply_to.into(),
@@ -509,37 +514,71 @@ impl From<ApArticle> for NewObject {
 
 impl From<ApQuestion> for NewObject {
     fn from(question: ApQuestion) -> Self {
-        // This is unneeded until I fix ApQuestion to have an Optional ID to support
-        // outbox activities in line with Article and Note
-        // let (ek_uuid, as_id) = {
-        //     if let Some(id) = question.id.clone() {
-        //         (None, id)
-        //     } else {
-        //         let uuid = Uuid::new_v4().to_string();
-        //         (Some(uuid.clone()), get_object_ap_id_from_uuid(uuid.clone()))
-        //     }
-        // };
+        let mut ammonia = ammonia::Builder::default();
+
+        ammonia
+            .add_tag_attributes("span", &["class"])
+            .add_tag_attributes("a", &["class"])
+            .tag_attribute_values(hashmap![
+                "span" => hashmap![
+                    "class" => hashset!["h-card"],
+                ],
+                "a" => hashmap![
+                    "class" => hashset!["u-url mention"],
+                ],
+            ]);
+
+        let clean_content_map = {
+            let mut content_map = HashMap::<String, String>::new();
+            if let Some(map) = question.clone().content_map {
+                for (key, value) in map {
+                    content_map.insert(key, ammonia.clean(&value).to_string());
+                }
+            }
+
+            content_map
+        };
+
+        let (ek_uuid, as_id) = {
+            if let Some(id) = question.id.clone() {
+                (None, id)
+            } else {
+                let uuid = Uuid::new_v4().to_string();
+                (Some(uuid.clone()), get_object_ap_id_from_uuid(uuid.clone()))
+            }
+        };
+
+        let hashtags: Vec<ApHashtag> = question.clone().into();
+        let ek_hashtags = json!(hashtags
+            .iter()
+            .map(|x| x.name.clone().to_lowercase())
+            .collect::<Vec<String>>());
 
         NewObject {
             as_type: question.kind.into(),
-            as_id: question.id,
+            as_id,
             as_to: question.to.into(),
             as_cc: question.cc.into(),
             as_end_time: question.end_time.as_deref().cloned(),
             as_published: question.published.as_deref().cloned(),
             as_one_of: question.one_of.into(),
             as_any_of: question.any_of.into(),
-            as_content: question.content,
-            as_content_map: question.content_map.map(|x| json!(x)),
+            as_content: question.content.map(|c| ammonia.clean(&c).to_string()),
+            as_content_map: Some(json!(clean_content_map)),
             as_summary: question.summary,
             ap_voters_count: question.voters_count,
-            as_url: question.url.map(|x| json!(x)),
+            as_url: question.url.iter().next().map(|u| match u {
+                ApUrl::String(s) => json!(s),
+                ApUrl::Link(link) => json!(link.href.as_deref().unwrap_or("")),
+            }),
             ap_conversation: question.conversation,
             as_tag: question.tag.into(),
             as_attachment: question.attachment.into(),
             ap_sensitive: question.sensitive,
             as_in_reply_to: question.in_reply_to.into(),
             as_attributed_to: Some(json!(question.attributed_to.to_string())),
+            ek_uuid,
+            ek_hashtags,
             ..Default::default()
         }
     }
@@ -576,7 +615,11 @@ impl TryFrom<Object> for ApNote {
                 id: Some(object.as_id.clone()),
                 kind: object.as_type.try_into()?,
                 published: object.as_published.unwrap_or(Utc::now()).into(),
-                url: object.as_url.clone().and_then(from_serde),
+                url: object
+                    .as_url
+                    .clone()
+                    .and_then(from_serde::<MaybeMultiple<ApUrl>>)
+                    .unwrap_or(MaybeMultiple::None),
                 to: object
                     .as_to
                     .clone()
@@ -589,6 +632,7 @@ impl TryFrom<Object> for ApNote {
                 )
                 .ok_or(anyhow!("failed to convert from Value"))?,
                 content: object.as_content.clone(),
+                name: object.as_name.clone(),
                 replies: object
                     .as_replies
                     .clone()
@@ -620,7 +664,11 @@ impl TryFrom<Object> for ApArticle {
                 kind: object.as_type.try_into()?,
                 published: object.as_published.unwrap_or(Utc::now()).into(),
                 updated: object.as_updated.map(|u| u.into()),
-                url: object.as_url.clone().and_then(from_serde),
+                url: object
+                    .as_url
+                    .clone()
+                    .and_then(from_serde::<MaybeMultiple<ApUrl>>)
+                    .unwrap_or(MaybeMultiple::None),
                 to: object
                     .as_to
                     .clone()
@@ -688,6 +736,7 @@ impl From<Object> for Vec<ApHashtag> {
         match ApObject::try_from(object) {
             Ok(ApObject::Note(note)) => note.into(),
             Ok(ApObject::Article(article)) => article.into(),
+            Ok(ApObject::Question(question)) => question.into(),
             _ => vec![],
         }
     }
@@ -698,12 +747,16 @@ impl TryFrom<Object> for ApQuestion {
 
     fn try_from(object: Object) -> Result<Self, Self::Error> {
         Ok(ApQuestion {
-            id: object.as_id,
+            id: Some(object.as_id),
             attributed_to: from_serde(object.as_attributed_to.ok_or(anyhow!("no attributed_to"))?)
                 .ok_or(anyhow!("failed to convert from Value"))?,
             to: from_serde(object.as_to.ok_or(anyhow!("as_to is None"))?)
                 .ok_or(anyhow!("failed to deserialize as_to"))?,
             cc: object.as_cc.into(),
+            replies: object
+                .as_replies
+                .clone()
+                .map_or_else(|| MaybeReference::None, |x| x.into()),
             end_time: object.as_end_time.map(ApDateTime::from),
             published: object.as_published.map(ApDateTime::from),
             one_of: object.as_one_of.into(),
@@ -712,7 +765,10 @@ impl TryFrom<Object> for ApQuestion {
             content_map: object.as_content_map.and_then(from_serde),
             summary: object.as_summary,
             voters_count: object.ap_voters_count,
-            url: object.as_url.and_then(from_serde),
+            url: object
+                .as_url
+                .and_then(from_serde::<MaybeMultiple<ApUrl>>)
+                .unwrap_or(MaybeMultiple::None),
             conversation: object.ap_conversation,
             tag: object.as_tag.into(),
             attachment: object.as_attachment.into(),
@@ -721,6 +777,8 @@ impl TryFrom<Object> for ApQuestion {
             ephemeral: Some(Ephemeral {
                 created_at: Some(object.created_at),
                 updated_at: Some(object.updated_at),
+                timestamp: Some(object.created_at),
+                metadata: object.ek_metadata.and_then(from_serde),
                 ..Default::default()
             }),
             ..Default::default()
@@ -728,13 +786,22 @@ impl TryFrom<Object> for ApQuestion {
     }
 }
 
-pub async fn create_or_update_object<C: DbRunner>(conn: &C, object: NewObject) -> Result<Object> {
+pub async fn create_object<C: DbRunner>(conn: &C, object: NewObject) -> Result<Object> {
     conn.run(move |c| {
         diesel::insert_into(objects::table)
             .values(&object)
             .on_conflict(objects::as_id)
             .do_update()
-            .set(&object)
+            .set((
+                objects::as_content.eq(object.as_content.clone()),
+                objects::as_content_map.eq(object.as_content_map.clone()),
+                objects::as_summary.eq(object.as_summary.clone()),
+                objects::ap_voters_count.eq(object.ap_voters_count),
+                objects::as_any_of.eq(object.as_any_of.clone()),
+                objects::as_one_of.eq(object.as_one_of.clone()),
+                objects::as_tag.eq(object.as_tag.clone()),
+                objects::as_attachment.eq(object.as_attachment.clone()),
+            ))
             .get_result(c)
     })
     .await

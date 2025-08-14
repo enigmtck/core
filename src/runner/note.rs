@@ -10,7 +10,7 @@ use crate::events::EventChannels;
 use crate::models::actors::{guaranteed_actor, Actor};
 use crate::models::cache::Cache;
 use crate::models::objects::{self, NewObject};
-use crate::models::objects::{create_or_update_object, get_object_by_as_id, Object};
+use crate::models::objects::{create_object, get_object_by_as_id, Object};
 use crate::retriever::{get_actor, signed_get};
 use crate::server::sanitize_json_fields;
 use crate::{FetchReplies, ANCHOR_RE};
@@ -39,7 +39,7 @@ pub async fn fetch_remote_object<C: DbRunner>(
                 _ => return Err(anyhow!("Unsupported ApObject type")),
             };
 
-            create_or_update_object(conn, cached_object).await
+            create_object(conn, cached_object).await
         }
         StatusCode::GONE => {
             log::debug!("Remote Object no longer exists at source");
@@ -140,15 +140,9 @@ pub async fn handle_object<C: DbRunner>(
         ApObject::Article(mut article) if article.replies.reference().is_some() => {
             let _ = Box::pin(article.fetch_replies(conn, visited).await);
         }
-        // ApObject::Question(question) if question.replies.reference().is_some() => {
-        //     retrieve(
-        //         conn,
-        //         question.replies.reference().unwrap(),
-        //         profile,
-        //         visited,
-        //     )
-        //     .await;
-        // }
+        ApObject::Question(mut question) if question.replies.reference().is_some() => {
+            let _ = Box::pin(question.fetch_replies(conn, visited).await);
+        }
         _ => (),
     }
 
