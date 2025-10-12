@@ -272,6 +272,7 @@ impl TryFrom<CoalescedActivity> for Object {
             as_type: activity.object_type.ok_or(anyhow!("no object type"))?,
             as_published: activity.object_published,
             as_id: activity.object_as_id.ok_or(anyhow!("no object as_id"))?,
+            as_name: activity.object_name,
             as_url: activity.object_url,
             as_to: activity.object_to,
             as_cc: activity.object_cc,

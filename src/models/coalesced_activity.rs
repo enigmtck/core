@@ -653,6 +653,7 @@ impl TryFrom<CoalescedActivity> for ApNote {
             .map_err(|e| anyhow::anyhow!("Failed to convert Note object_type: {}", e))?;
 
         let id = coalesced.object_as_id;
+        let name = coalesced.object_name;
 
         let url = coalesced
             .object_url
@@ -700,6 +701,7 @@ impl TryFrom<CoalescedActivity> for ApNote {
         Ok(ApNote {
             kind,
             id,
+            name,
             url,
             to,
             cc,

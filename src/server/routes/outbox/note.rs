@@ -206,11 +206,16 @@ async fn send_note(
             TaskError::TaskFailed
         })?;
 
-        let note =
-            ApNote::try_from(target_object.clone().ok_or(TaskError::TaskFailed)?).map_err(|e| {
-                log::error!("Failed to build ApNote: {e:#?}");
-                TaskError::TaskFailed
-            })?;
+        let target_object = target_object.clone().ok_or(TaskError::TaskFailed)?;
+
+        log::debug!("Object Name: {:?}", target_object.as_name.clone());
+
+        let note = ApNote::try_from(target_object.clone()).map_err(|e| {
+            log::error!("Failed to build ApNote: {e:#?}");
+            TaskError::TaskFailed
+        })?;
+
+        log::debug!("Note Name: {:?}", note.name);
 
         // For the Svelte client, all images are passed through the server cache. To cache an image
         // that's already on the server seems weird, but I think it's a better choice than trying
@@ -233,7 +238,7 @@ async fn send_note(
                             ApActivity::try_from_extended_activity((
                                 activity,
                                 target_activity,
-                                target_object,
+                                Some(target_object),
                                 target_actor
                             )) {
                                 Some(activity.formalize())
@@ -286,7 +291,7 @@ async fn send_note(
         let inboxes: Vec<ApAddress> = get_inboxes(&conn, activity.clone(), sender.clone()).await;
 
         log::debug!("SENDING ACTIVITY\n{activity:#?}");
-        log::debug!("SENDER\n{sender:#?}");
+        //log::debug!("SENDER\n{sender:#?}");
         log::debug!("INBOXES\n{inboxes:#?}");
 
         send_to_inboxes(&conn, inboxes, sender, activity)
