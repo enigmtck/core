@@ -50,7 +50,7 @@ pub async fn start() {
     // Build the Axum router. We will add migrated routes here.
     // For now, a simple test route proves it's working.
 
-    let app = Router::new()
+    let mut app = Router::new()
         .route(
             "/api/user/{username}/media",
             post(routes::image::upload_media),
@@ -68,7 +68,15 @@ pub async fn start() {
         .nest_service(
             "/media/uploads",
             ServeDir::new(format!("{}/uploads", *crate::MEDIA_DIR)),
-        )
+        );
+
+    // Add custom static directory if configured
+    if let Some(custom_dir) = crate::CUSTOM_STATIC_DIR.as_ref() {
+        log::info!("Serving custom static files from {}", custom_dir.display());
+        app = app.nest_service("/custom", ServeDir::new(custom_dir));
+    }
+
+    let app = app
         .layer(DefaultBodyLimit::max(1024 * 1024 * 100))
         .route(
             "/inbox",

@@ -63,6 +63,17 @@ pub async fn client_login() -> Response {
 }
 
 pub async fn client_index() -> Response {
+    // If custom index is configured, serve that instead
+    if let Some(custom_path) = &*crate::CUSTOM_INDEX_PATH {
+        match tokio::fs::read_to_string(custom_path).await {
+            Ok(content) => return Html(content).into_response(),
+            Err(e) => {
+                log::warn!("Failed to read custom index at {}: {}", custom_path.display(), e);
+                // Fall through to default
+            }
+        }
+    }
+
     serve_200_html()
 }
 

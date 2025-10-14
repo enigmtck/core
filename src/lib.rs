@@ -38,6 +38,7 @@ use serde_json::Value;
 use std::cmp::Ordering;
 use std::collections::HashSet;
 use std::env;
+use std::path::PathBuf;
 use tower as _;
 use tower_http as _;
 
@@ -174,6 +175,17 @@ lazy_static! {
             .ok()
             .and_then(|x| x.parse().ok())
             .unwrap_or(false)
+    };
+
+    // CUSTOM_INDEX_PATH allows deployers to provide a custom landing page at /
+    pub static ref CUSTOM_INDEX_PATH: Option<PathBuf> = {
+        dotenv().ok();
+        env::var("CUSTOM_INDEX_PATH").ok().map(PathBuf::from)
+    };
+
+    // CUSTOM_STATIC_DIR is automatically derived from CUSTOM_INDEX_PATH to serve custom assets
+    pub static ref CUSTOM_STATIC_DIR: Option<PathBuf> = {
+        CUSTOM_INDEX_PATH.as_ref().and_then(|p| p.parent().map(|p| p.to_path_buf()))
     };
 }
 
