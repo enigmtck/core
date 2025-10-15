@@ -1,0 +1,3 @@
+# Cargo configuration for musl static builds
+[target.x86_64-unknown-linux-musl]
+rustflags = ["-C", "link-arg=-lm", "-C", "target-feature=+crt-static"]
