@@ -16,12 +16,14 @@ build:linux-x86_64:
   stage: build
   image: rust:latest
   before_script:
+    - apt-get update && apt-get install -y musl-tools
+    - rustup target add x86_64-unknown-linux-musl
     - rustc --version
     - cargo --version
   script:
-    - ./build-launcher.sh --release
+    - ./build-launcher.sh --release --target x86_64-unknown-linux-musl
     - mkdir -p artifacts
-    - cp launcher/target/release/enigmatick artifacts/enigmatick-linux-x86_64
+    - cp launcher/target/x86_64-unknown-linux-musl/release/enigmatick artifacts/enigmatick-linux-x86_64
     - chmod +x artifacts/enigmatick-linux-x86_64
   artifacts:
     paths:
