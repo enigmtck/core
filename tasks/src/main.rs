@@ -9,6 +9,12 @@ use tokio::time::interval;
 use anyhow::Result;
 use chrono::Utc;
 
+#[cfg(feature = "vendored-openssl")]
+use openssl as _;
+
+#[cfg(feature = "bundled-postgres")]
+use pq_sys as _;
+
 type TaskResult<'a> =
     Pin<Box<dyn Future<Output = Result<(), Box<dyn std::error::Error + Send + Sync>>> + Send + 'a>>;
 

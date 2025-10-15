@@ -24,6 +24,7 @@ fn main() {
     let mut target_args = vec![];
     let mut main_features = vec![];
     let mut proxy_features = vec![];
+    let mut tasks_features = vec![];
 
     if let Some(ref t) = target {
         target_args.push("--target");
@@ -34,6 +35,8 @@ fn main() {
             main_features.push("vendored-openssl");
             main_features.push("bundled-postgres");
             proxy_features.push("vendored-openssl");
+            tasks_features.push("vendored-openssl");
+            tasks_features.push("bundled-postgres");
         }
     }
 
@@ -91,6 +94,10 @@ fn main() {
     }
     for arg in &target_args {
         cmd.arg(arg);
+    }
+    if !tasks_features.is_empty() {
+        cmd.arg("--features");
+        cmd.arg(tasks_features.join(","));
     }
     let status = cmd.status().expect("Failed to build tasks");
 
