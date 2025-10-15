@@ -13,7 +13,3 @@ chrono = { version = "0.4", features = ["serde"] }
 anyhow = "1.0"
 diesel = { version = "2.0", features = ["postgres", "chrono"] }
 enigmatick = { path = ".." }
-
-# For musl static builds
-[target.'cfg(target_env = "musl")'.dependencies]
-openssl = { version = "0.10", features = ["vendored"] }

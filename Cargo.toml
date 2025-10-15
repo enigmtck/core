@@ -1,6 +1,6 @@
 [package]
 name = "enigmatick"
-version = "0.4.7"
+version = "0.4.8"
 edition = "2021"
 license = "GPL-3.0-only"
 description = "Enigmatick is a social media platform that integrates with servers that implement the ActivityPub protocol (e.g., Mastodon)"
@@ -72,10 +72,6 @@ identicon-rs = "7.0.0"
 once_cell = "1.21.3"
 mime_guess = "2.0.5"
 axum-extra = { version = "0.10.1", features = ["query"] }
-
-# For musl static builds
-[target.'cfg(target_env = "musl")'.dependencies]
-openssl = { version = "0.10", features = ["vendored"] }
 
 # Add deadpool-diesel for async database connection pooling
 [dependencies.deadpool-diesel]
