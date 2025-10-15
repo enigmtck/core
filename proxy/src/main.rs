@@ -9,6 +9,9 @@ use std::env;
 use std::path::PathBuf;
 use tower::ServiceExt;
 
+#[cfg(feature = "vendored-openssl")]
+use openssl as _;
+
 lazy_static! {
     pub static ref ACME_PROXY: bool = {
         dotenv().ok();
