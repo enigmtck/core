@@ -28,6 +28,9 @@ use axum::{
     response::{Json, Redirect},
 };
 use image::{imageops::FilterType, io::Reader, DynamicImage};
+use img_parts::jpeg::Jpeg;
+use img_parts::png::Png;
+use img_parts::{ImageEXIF, Bytes as ImgBytes};
 use jdt_activity_pub::{
     ActivityPub, ApActor, ApCollection, ApImage, ApInstrument, ApInstrumentType, ApObject,
     Collectible, FollowersPage, LeadersPage, MaybeReference,
@@ -43,6 +46,28 @@ use super::{AbstractResponse, ActivityJson, LdJson};
 pub struct SummaryUpdate {
     pub content: String,
     pub markdown: String,
+}
+
+/// Strip EXIF and other metadata from an image file
+fn strip_metadata(path: &str) -> Result<(), Box<dyn std::error::Error>> {
+    let bytes = std::fs::read(path)?;
+
+    // Try as JPEG first
+    if let Ok(mut jpeg) = Jpeg::from_bytes(ImgBytes::from(bytes.clone())) {
+        jpeg.set_exif(None);
+        std::fs::write(path, jpeg.encoder().bytes())?;
+        return Ok(());
+    }
+
+    // Try as PNG
+    if let Ok(mut png) = Png::from_bytes(ImgBytes::from(bytes)) {
+        png.set_exif(None);
+        std::fs::write(path, png.encoder().bytes())?;
+        return Ok(());
+    }
+
+    // If neither JPEG nor PNG, that's okay - other formats will be re-encoded anyway
+    Ok(())
 }
 
 fn banner(mut image: DynamicImage) -> DynamicImage {
@@ -67,9 +92,9 @@ fn banner(mut image: DynamicImage) -> DynamicImage {
 fn process_banner(filename: String, media_type: String) -> Option<ApImage> {
     let path = &format!("{}/banners/{}", *crate::MEDIA_DIR, filename);
 
-    let meta = rexiv2::Metadata::new_from_path(path).ok()?;
-    meta.clear();
-    meta.save_to_file(path).ok()?;
+    // Strip EXIF and other metadata
+    strip_metadata(path).ok()?;
+
     let img = Reader::open(path).ok()?;
     let img = img.with_guessed_format().ok()?;
     let decode = img.decode().ok()?;
@@ -111,9 +136,9 @@ fn square(mut image: DynamicImage) -> DynamicImage {
 fn process_avatar(filename: String, media_type: String) -> Option<ApImage> {
     let path = &format!("{}/avatars/{}", *crate::MEDIA_DIR, filename);
 
-    let meta = rexiv2::Metadata::new_from_path(path).ok()?;
-    meta.clear();
-    meta.save_to_file(path).ok()?;
+    // Strip EXIF and other metadata
+    strip_metadata(path).ok()?;
+
     let img = Reader::open(path).ok()?;
     let img = img.with_guessed_format().ok()?;
     let decode = img.decode().ok()?;

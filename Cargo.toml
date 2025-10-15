@@ -50,7 +50,7 @@ crossterm = "0.27"
 diesel = { version = "2.2", features = ["postgres", "sqlite", "chrono", "serde_json", "64-column-tables", "returning_clauses_for_sqlite_3_35"] }
 diesel-derive-enum = { version = "2.1.0", features = ["postgres"] }
 image = "0.24.9"
-rexiv2 = "0.10.0"
+img-parts = "0.4.0"
 enum_dispatch = "0.3.12"
 clap = { version = "4.5.1", features = ["derive"] }
 diesel_migrations = { version = "2.2.0", features = ["postgres", "sqlite"] }
