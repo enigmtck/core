@@ -2,8 +2,8 @@ FROM debian:bookworm AS base
 SHELL ["/bin/bash", "-c"]
 RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
   libpq-dev libsqlite3-dev ssl-cert ca-certificates curl apt-transport-https \
-  lsb-release file git-core build-essential libssl-dev libssl3 libgexiv2-dev \
-  cmake clang ffmpeg nasm pkg-config \
+  lsb-release file git-core build-essential libssl-dev libssl3 \
+  cmake clang pkg-config \
   && apt-get clean && rm -rf /var/lib/apt/lists/*
 
 FROM base AS rust-setup
@@ -30,7 +30,7 @@ RUN echo "fn main() {}" > tasks/src/main.rs
 RUN echo "fn main() {}" > launcher/src/main.rs
 
 # Build dependencies only
-RUN cargo build --workspace --release --features ffmpeg
+RUN cargo build --workspace --release
 RUN rm -rf src target/release/enigmatick* target/release/build/enigmatick* target/release/proxy* target/release/build/proxy* target/release/tasks* target/release/build/tasks*
 
 FROM dependencies AS builder
@@ -43,14 +43,13 @@ COPY launcher/src ./launcher/src
 COPY launcher/build.rs ./launcher/build.rs
 COPY tasks/src ./tasks/src
 COPY proxy/src ./proxy/src
-RUN cargo build -j6 --workspace --release --features ffmpeg
+RUN cargo build -j6 --workspace --release
 RUN cd launcher && cargo build -j6 --release
 
 FROM debian:bookworm-slim AS runtime
 RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
   ssl-cert \
   ca-certificates \
-  libgexiv2-dev \
   libpq-dev \
   && apt-get clean && rm -rf /var/lib/apt/lists/*
 

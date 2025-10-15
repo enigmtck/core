@@ -5,7 +5,7 @@ echo "Building Enigmatick launcher with embedded binaries..."
 
 # Build each component separately
 echo "Building main enigmatick binary..."
-cargo build --bin enigmatick --features ffmpeg ${1:-}
+cargo build --bin enigmatick ${1:-}
 
 echo "Building proxy binary..."
 cd proxy && cargo build --target-dir ../target ${1:-} && cd ..

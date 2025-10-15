@@ -68,9 +68,7 @@ pub async fn upload_media(
             StatusCode::INTERNAL_SERVER_ERROR
         })?
     } else if mime_type_str.starts_with("video/") {
-        #[allow(unused_mut)]
         let mut video_obj = ApVideo::initialize(path.to_string(), filename, mime_type_str.clone());
-        #[cfg(feature = "ffmpeg")]
         video_obj.analyze().map_err(|e| {
             log::error!("Failed to analyze ApVideo ({path}): {e:?}");
             StatusCode::INTERNAL_SERVER_ERROR
