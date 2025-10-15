@@ -1,6 +1,6 @@
 [package]
 name = "enigmatick"
-version = "0.4.8"
+version = "0.4.9"
 edition = "2021"
 license = "GPL-3.0-only"
 description = "Enigmatick is a federated communication platform that integrates with servers that implement the ActivityPub protocol (e.g., Mastodon)"

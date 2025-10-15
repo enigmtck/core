@@ -42,6 +42,9 @@ use std::path::PathBuf;
 use tower as _;
 use tower_http as _;
 
+#[cfg(feature = "vendored-openssl")]
+use openssl as _;
+
 pub mod admin;
 pub mod blocklist;
 pub mod db;
