@@ -45,7 +45,7 @@ esac
 
 # Get latest release tag
 echo "Fetching latest release..."
-LATEST_TAG=$(curl -sL https://gitlab.com/api/v4/projects/enigmatick%2Fenigmatick-core/releases | grep -o '"tag_name": "[^"]*' | head -1 | cut -d'"' -f4)
+LATEST_TAG=$(curl -sL https://gitlab.com/api/v4/projects/enigmatick%2Fenigmatick-core/releases | grep -o '"tag_name":"[^"]*"' | head -1 | cut -d'"' -f4)
 
 if [ -z "$LATEST_TAG" ]; then
     echo "Failed to fetch latest release"
