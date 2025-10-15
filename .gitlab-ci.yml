@@ -29,7 +29,7 @@ build:linux-x86_64:
     expire_in: 1 week
   only:
     - tags
-    - main
+    - master
 
 # Build for macOS (if you have macOS runners)
 # build:macos-x86_64:
@@ -67,7 +67,7 @@ release:
       ### Installation
 
       ```bash
-      curl -sSL https://gitlab.com/enigmatick/enigmatick-core/-/raw/main/install.sh | sh
+      curl -sSL https://gitlab.com/enigmatick/enigmatick-core/-/raw/master/install.sh | sh
       ```
 
       Or download directly:

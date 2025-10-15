@@ -6,7 +6,7 @@
 
 **Option 1: Install script (Recommended)**
 ```bash
-curl -sSL https://gitlab.com/enigmatick/enigmatick-core/-/raw/main/install.sh | sh
+curl -sSL https://gitlab.com/enigmatick/enigmatick-core/-/raw/master/install.sh | sh
 ```
 
 **Option 2: Manual download**
@@ -44,7 +44,7 @@ enigmatick --help    # See all commands
    git add .
    git commit -m "Release v0.4.2"
    git tag v0.4.2
-   git push origin main --tags
+   git push origin master --tags
    ```
 
 4. **GitLab CI will automatically**:

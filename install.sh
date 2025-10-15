@@ -1,6 +1,6 @@
 #!/bin/sh
 # Enigmatick installation script
-# Usage: curl -sSL https://gitlab.com/enigmatick/enigmatick-core/-/raw/main/install.sh | sh
+# Usage: curl -sSL https://gitlab.com/enigmatick/enigmatick-core/-/raw/master/install.sh | sh
 
 set -e
 
