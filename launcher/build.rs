@@ -1,44 +1,80 @@
 use std::env;
-use std::path::Path;
+use std::path::PathBuf;
+use std::process::Command;
 
 fn main() {
     let out_dir = env::var("OUT_DIR").unwrap();
     let profile = env::var("PROFILE").unwrap();
-    
+
     println!("cargo:rerun-if-changed=../src");
     println!("cargo:rerun-if-changed=../proxy/src");
     println!("cargo:rerun-if-changed=../tasks/src");
-    
-    // Look for pre-built binaries in the workspace target directory
-    let workspace_target = "../target";
+
+    // Determine the workspace root (parent of launcher directory)
+    let workspace_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .expect("Failed to get workspace root")
+        .to_path_buf();
+
+    let cargo = env::var("CARGO").unwrap_or_else(|_| "cargo".to_string());
     let build_profile = if profile == "release" { "release" } else { "debug" };
-    
-    let enigmatick_path = format!("{}/{}/enigmatick", workspace_target, build_profile);
-    let proxy_path = format!("{}/{}/proxy", workspace_target, build_profile);
-    let tasks_path = format!("{}/{}/tasks", workspace_target, build_profile);
-    
-    // Check if binaries exist, if not provide helpful error
-    if !Path::new(&enigmatick_path).exists() {
-        panic!("enigmatick binary not found at {}. Please run: cargo build --bin enigmatick", enigmatick_path);
+
+    // Build main enigmatick binary
+    println!("cargo:warning=Building enigmatick binary...");
+    let status = Command::new(&cargo)
+        .current_dir(&workspace_root)
+        .args(&["build", "--bin", "enigmatick"])
+        .args(if profile == "release" { vec!["--release"] } else { vec![] })
+        .status()
+        .expect("Failed to build enigmatick");
+
+    if !status.success() {
+        panic!("Failed to build enigmatick binary");
     }
-    
-    if !Path::new(&proxy_path).exists() {
-        panic!("proxy binary not found at {}. Please run: cd proxy && cargo build --target-dir ../target", proxy_path);
+
+    // Build proxy binary
+    println!("cargo:warning=Building proxy binary...");
+    let status = Command::new(&cargo)
+        .current_dir(workspace_root.join("proxy"))
+        .args(&["build"])
+        .args(&["--target-dir", workspace_root.join("target").to_str().unwrap()])
+        .args(if profile == "release" { vec!["--release"] } else { vec![] })
+        .status()
+        .expect("Failed to build proxy");
+
+    if !status.success() {
+        panic!("Failed to build proxy binary");
     }
-    
-    if !Path::new(&tasks_path).exists() {
-        panic!("tasks binary not found at {}. Please run: cd tasks && cargo build --target-dir ../target", tasks_path);
+
+    // Build tasks binary
+    println!("cargo:warning=Building tasks binary...");
+    let status = Command::new(&cargo)
+        .current_dir(workspace_root.join("tasks"))
+        .args(&["build"])
+        .args(&["--target-dir", workspace_root.join("target").to_str().unwrap()])
+        .args(if profile == "release" { vec!["--release"] } else { vec![] })
+        .status()
+        .expect("Failed to build tasks");
+
+    if !status.success() {
+        panic!("Failed to build tasks binary");
     }
-    
+
     // Copy binaries to OUT_DIR
+    let target_dir = workspace_root.join("target").join(build_profile);
+
+    let enigmatick_path = target_dir.join("enigmatick");
+    let proxy_path = target_dir.join("proxy");
+    let tasks_path = target_dir.join("tasks");
+
     std::fs::copy(&enigmatick_path, format!("{}/enigmatick", out_dir))
         .expect("Failed to copy enigmatick binary");
-    
+
     std::fs::copy(&proxy_path, format!("{}/proxy", out_dir))
         .expect("Failed to copy proxy binary");
-    
+
     std::fs::copy(&tasks_path, format!("{}/tasks", out_dir))
         .expect("Failed to copy tasks binary");
-    
-    println!("cargo:warning=Successfully embedded pre-built binaries");
+
+    println!("cargo:warning=Successfully built and embedded all binaries");
 }

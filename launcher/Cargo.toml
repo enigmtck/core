@@ -1,7 +1,12 @@
 [package]
-name = "launcher"
-version = "0.1.0"
+name = "enigmatick"
+version = "0.4.2"
 edition = "2021"
+license = "GPL-3.0-only"
+description = "Enigmatick is a federated communication platform that integrates with servers that implement the ActivityPub protocol (e.g., Mastodon)"
+repository = "https://gitlab.com/enigmatick"
+documentation = "https://docs.rs/enigmatick/latest/enigmatick/"
+homepage = "https://enigmatick.social/@jdt"
 build = "build.rs"
 
 [workspace]
