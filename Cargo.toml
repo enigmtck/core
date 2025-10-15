@@ -1,6 +1,6 @@
 [package]
 name = "enigmatick"
-version = "0.4.10"
+version = "0.4.11"
 edition = "2021"
 license = "GPL-3.0-only"
 description = "Enigmatick is a social media platform that integrates with servers that implement the ActivityPub protocol (e.g., Mastodon)"
@@ -47,13 +47,13 @@ maplit = "1.0"
 futures-lite = "^2.2"
 webpage = { version = "2.0", features = ["serde"] }
 crossterm = "0.27"
-diesel = { version = "2.2", features = ["postgres", "sqlite", "chrono", "serde_json", "64-column-tables", "returning_clauses_for_sqlite_3_35"] }
+diesel = { version = "2.2", features = ["chrono", "serde_json", "64-column-tables"] }
 diesel-derive-enum = { version = "2.1.0", features = ["postgres"] }
 image = "0.24.9"
 img-parts = "0.4.0"
 enum_dispatch = "0.3.12"
 clap = { version = "4.5.1", features = ["derive"] }
-diesel_migrations = { version = "2.2.0", features = ["postgres", "sqlite"] }
+diesel_migrations = { version = "2.2.0" }
 rust-embed = { version = "8.3.0", features = ["interpolate-folder-path", "compression", "tokio"] }
 cfg-if = "1.0.0"
 atty = "0.2"
@@ -73,6 +73,7 @@ once_cell = "1.21.3"
 mime_guess = "2.0.5"
 axum-extra = { version = "0.10.1", features = ["query"] }
 openssl = { version = "0.10", optional = true }
+pq-sys = { version = "0.6", optional = true }
 
 # Add deadpool-diesel for async database connection pooling
 [dependencies.deadpool-diesel]
@@ -90,6 +91,7 @@ path = "src/bin/enigmatick/mod.rs"
 
 [features]
 default = ["pg"]
-pg =  []
-sqlite = []
+pg = ["diesel/postgres", "diesel_migrations/postgres"]
+sqlite = ["diesel/sqlite", "diesel/returning_clauses_for_sqlite_3_35", "diesel_migrations/sqlite"]
 vendored-openssl = ["openssl/vendored"]
+bundled-postgres = ["pg", "pq-sys/bundled"]
