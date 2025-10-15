@@ -1,0 +1,84 @@
+stages:
+  - build
+  - release
+
+variables:
+  CARGO_HOME: $CI_PROJECT_DIR/.cargo
+
+cache:
+  key: ${CI_COMMIT_REF_SLUG}
+  paths:
+    - .cargo/
+    - target/
+
+# Build for x86_64 Linux (most common)
+build:linux-x86_64:
+  stage: build
+  image: rust:latest
+  before_script:
+    - rustc --version
+    - cargo --version
+  script:
+    - ./build-launcher.sh --release
+    - mkdir -p artifacts
+    - cp launcher/target/release/enigmatick artifacts/enigmatick-linux-x86_64
+    - chmod +x artifacts/enigmatick-linux-x86_64
+  artifacts:
+    paths:
+      - artifacts/enigmatick-linux-x86_64
+    expire_in: 1 week
+  only:
+    - tags
+    - main
+
+# Build for macOS (if you have macOS runners)
+# build:macos-x86_64:
+#   stage: build
+#   tags:
+#     - macos
+#   before_script:
+#     - rustc --version
+#     - cargo --version
+#   script:
+#     - ./build-launcher.sh --release
+#     - mkdir -p artifacts
+#     - cp launcher/target/release/enigmatick artifacts/enigmatick-macos-x86_64
+#     - chmod +x artifacts/enigmatick-macos-x86_64
+#   artifacts:
+#     paths:
+#       - artifacts/enigmatick-macos-x86_64
+#     expire_in: 1 week
+#   only:
+#     - tags
+
+# Create GitLab Release
+release:
+  stage: release
+  image: registry.gitlab.com/gitlab-org/release-cli:latest
+  needs:
+    - build:linux-x86_64
+  script:
+    - echo "Creating release for $CI_COMMIT_TAG"
+  release:
+    tag_name: $CI_COMMIT_TAG
+    description: |
+      ## Enigmatick $CI_COMMIT_TAG
+
+      ### Installation
+
+      ```bash
+      curl -sSL https://gitlab.com/enigmatick/enigmatick-core/-/raw/main/install.sh | sh
+      ```
+
+      Or download directly:
+      - [Linux x86_64](https://gitlab.com/enigmatick/enigmatick-core/-/releases/$CI_COMMIT_TAG/downloads/enigmatick-linux-x86_64)
+
+      ### What's New
+      See CHANGELOG.md for details.
+    assets:
+      links:
+        - name: enigmatick-linux-x86_64
+          url: ${CI_PROJECT_URL}/-/jobs/artifacts/${CI_COMMIT_TAG}/raw/artifacts/enigmatick-linux-x86_64?job=build:linux-x86_64
+          link_type: package
+  only:
+    - tags
