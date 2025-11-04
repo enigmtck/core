@@ -31,7 +31,6 @@ build:linux-x86_64:
     expire_in: 1 week
   only:
     - tags
-    - master
 
 # Build for macOS (if you have macOS runners)
 # build:macos-x86_64:

@@ -93,6 +93,10 @@ These variables control how your instance is presented to the fediverse and to u
 *   `REGISTRATION_APPROVAL_REQUIRED`: If `true`, new user accounts must be approved by an administrator.
 *   `REGISTRATION_MESSAGE`: A message to display on the registration page.
 
+#### Custom Landing Page (Optional)
+
+*   `CUSTOM_INDEX_PATH`: Path to a custom HTML file to serve as your instance's landing page at `/`. When set, this replaces the default Enigmatick landing page with your own HTML content. Any static assets (CSS, JavaScript, images) should be placed in the same directory as the HTML file and referenced using the `/custom/` URL prefix. See the Custom Landing Page section below for a complete example.
+
 ## Operation
 
 ### Database Migrations
@@ -110,6 +114,73 @@ enigmatick migrate
 Enigmatick includes a built-in reverse proxy that can automatically handle TLS using Let's Encrypt. To enable this, set `ACME_PROXY=true` in your `.env` file. Your server must be accessible from the public internet on the `ACME_PORT` (usually 443) for certificate validation to succeed.
 
 If you prefer to use your own reverse proxy (like nginx or Caddy), set `ACME_PROXY=false` and configure your proxy to forward requests to the backend service on `SERVER_ADDRESS`.
+
+### Custom Landing Page
+
+Enigmatick allows you to replace the default landing page with your own custom HTML. This is useful for providing a personalized welcome page, instance-specific information, or redirecting to an external site.
+
+#### Setup
+
+1. Create a directory for your custom landing page:
+```bash
+mkdir -p custom-landing
+```
+
+2. Create your custom HTML file (e.g., `custom-landing/index.html`):
+```html
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Welcome to My Enigmatick Instance</title>
+    <link rel="stylesheet" href="/custom/style.css">
+</head>
+<body>
+    <div class="container">
+        <h1>Welcome to My Instance</h1>
+        <p>This is a custom landing page for my Enigmatick instance.</p>
+        <a href="/timeline">View Timeline</a>
+        <a href="/login">Login</a>
+        <a href="/signup">Sign Up</a>
+    </div>
+    <script src="/custom/script.js"></script>
+</body>
+</html>
+```
+
+3. Add any static assets (CSS, JavaScript, images) to the same directory:
+```bash
+# Example: create a stylesheet
+cat > custom-landing/style.css << 'EOF'
+body {
+    font-family: Arial, sans-serif;
+    margin: 0;
+    padding: 20px;
+    background-color: #f0f0f0;
+}
+.container {
+    max-width: 800px;
+    margin: 0 auto;
+    background: white;
+    padding: 40px;
+    border-radius: 8px;
+}
+EOF
+```
+
+4. Update your `.env` file to point to the custom HTML file:
+```bash
+CUSTOM_INDEX_PATH=/path/to/custom-landing/index.html
+```
+
+**Important Notes:**
+
+- Static assets (CSS, JS, images) in the same directory as your HTML file are automatically served under the `/custom/` URL path
+- In your HTML, reference assets as `/custom/filename.ext` (e.g., `/custom/style.css`, `/custom/logo.png`)
+- The path in `CUSTOM_INDEX_PATH` should be the full absolute path to your HTML file
+- Enigmatick's built-in routes (like `/timeline`, `/login`, `/signup`) remain accessible
+- If the custom HTML file cannot be read, the server automatically falls back to the default landing page
 
 ## Full Example
 
