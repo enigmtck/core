@@ -68,7 +68,11 @@ pub async fn client_index() -> Response {
         match tokio::fs::read_to_string(custom_path).await {
             Ok(content) => return Html(content).into_response(),
             Err(e) => {
-                log::warn!("Failed to read custom index at {}: {}", custom_path.display(), e);
+                log::warn!(
+                    "Failed to read custom index at {}: {}",
+                    custom_path.display(),
+                    e
+                );
                 // Fall through to default
             }
         }

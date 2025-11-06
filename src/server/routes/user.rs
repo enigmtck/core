@@ -30,7 +30,7 @@ use axum::{
 use image::{imageops::FilterType, io::Reader, DynamicImage};
 use img_parts::jpeg::Jpeg;
 use img_parts::png::Png;
-use img_parts::{ImageEXIF, Bytes as ImgBytes};
+use img_parts::{Bytes as ImgBytes, ImageEXIF};
 use jdt_activity_pub::{
     ActivityPub, ApActor, ApCollection, ApImage, ApInstrument, ApInstrumentType, ApObject,
     Collectible, FollowersPage, LeadersPage, MaybeReference,

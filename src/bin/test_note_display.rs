@@ -1,5 +1,5 @@
-use jdt_activity_pub::{ApNote, ApNoteType, ApAddress, ApContext};
 use chrono::Utc;
+use jdt_activity_pub::{ApAddress, ApContext, ApNote, ApNoteType};
 
 fn main() {
     println!("🧪 Testing ApNote Display and Debug implementations");

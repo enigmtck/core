@@ -5,7 +5,7 @@ use std::io::{self, Read};
 
 fn main() {
     let args: Vec<String> = env::args().collect();
-    
+
     let json_input = if args.len() > 1 {
         args[1].clone()
     } else {
@@ -34,7 +34,11 @@ fn main() {
         Ok(value) => {
             println!("✅ Valid JSON structure");
             println!("🔍 Pretty printed:");
-            println!("{}", serde_json::to_string_pretty(&value).unwrap_or_else(|_| "Error pretty printing".to_string()));
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&value)
+                    .unwrap_or_else(|_| "Error pretty printing".to_string())
+            );
             println!();
         }
         Err(e) => {
@@ -46,9 +50,12 @@ fn main() {
     // Try to deserialize to Vec<ApActorTerse>
     match serde_json::from_str::<Vec<ApActorTerse>>(&json_input) {
         Ok(actors) => {
-            println!("🎉 Successfully deserialized to {} ApActorTerse objects!", actors.len());
+            println!(
+                "🎉 Successfully deserialized to {} ApActorTerse objects!",
+                actors.len()
+            );
             println!();
-            
+
             for (i, actor) in actors.iter().enumerate() {
                 println!("📋 Actor {} fields:", i + 1);
                 println!("  ID: {}", actor.id);
@@ -60,7 +67,7 @@ fn main() {
                 println!("  Webfinger: {:?}", actor.webfinger);
                 println!();
             }
-            
+
             // Show the serialized version
             match serde_json::to_string_pretty(&actors) {
                 Ok(serialized) => {

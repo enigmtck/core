@@ -2,29 +2,25 @@ use crate::{
     models::objects::get_object_by_uuid,
     server::{extractors::AxumSigned, AppState},
 };
-use axum::extract::{Query, State};
+use axum::extract::{Path, State};
 use jdt_activity_pub::ApObject;
 use reqwest::StatusCode;
-use serde::Deserialize;
 
 use super::ActivityJson;
-
-#[derive(Deserialize)]
-pub struct ObjectQuery {
-    uuid: String,
-}
 
 pub async fn object_get(
     State(state): State<AppState>,
     _signed: AxumSigned,
-    Query(query): Query<ObjectQuery>,
+    Path(uuid): Path<String>,
 ) -> Result<ActivityJson<ApObject>, StatusCode> {
     let conn = match state.db_pool.get().await {
         Ok(c) => c,
         Err(_) => return Err(StatusCode::INTERNAL_SERVER_ERROR),
     };
 
-    get_object_by_uuid(&conn, query.uuid)
+    log::debug!("Retrieving Object: {uuid}");
+
+    get_object_by_uuid(&conn, uuid)
         .await
         .map_err(|e| {
             log::error!("Unable to retrieve Object: {e:#?}");

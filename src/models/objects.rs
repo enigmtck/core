@@ -1,7 +1,7 @@
 use super::actors::Actor;
 use super::{coalesced_activity::CoalescedActivity, from_serde};
 use crate::db::runner::DbRunner;
-use crate::helper::{get_object_ap_id_from_uuid, get_object_url_from_uuid};
+use crate::helper::get_object_ap_id_from_uuid;
 use crate::schema::objects;
 use anyhow::{anyhow, Result};
 use chrono::{DateTime, Utc};
@@ -394,20 +394,20 @@ impl From<ApNote> for NewObject {
             .collect::<Vec<String>>());
 
         let (ek_uuid, as_id, as_url) = {
-            if let Some(id) = note.id.clone() {
-                let url_json = note.url.iter().next().map(|u| match u {
-                    ApUrl::String(s) => json!(s),
-                    ApUrl::Link(link) => json!(link.href.as_deref().unwrap_or("")),
-                });
-                (None, id, url_json)
-            } else {
-                let uuid = Uuid::new_v4().to_string();
-                (
-                    Some(uuid.clone()),
-                    get_object_ap_id_from_uuid(uuid.clone()),
-                    Some(json!(get_object_url_from_uuid(uuid.clone()))),
-                )
-            }
+            let id = note
+                .id
+                .clone()
+                .expect("note.id must be set before conversion to NewObject");
+            let url_json = note.url.iter().next().map(|u| match u {
+                ApUrl::String(s) => json!(s),
+                ApUrl::Link(link) => json!(link.href.as_deref().unwrap_or("")),
+            });
+            // Extract UUID from ephemeral.internal_uuid if available (local posts)
+            let ek_uuid = note
+                .ephemeral
+                .as_ref()
+                .and_then(|e| e.internal_uuid.clone());
+            (ek_uuid, id, url_json)
         };
 
         NewObject {

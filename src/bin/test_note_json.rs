@@ -5,7 +5,7 @@ use std::io::{self, Read};
 
 fn main() {
     let args: Vec<String> = env::args().collect();
-    
+
     if args.len() > 1 && (args[1] == "--help" || args[1] == "-h") {
         print_help();
         return;
@@ -42,7 +42,11 @@ fn main() {
         Ok(value) => {
             println!("✅ Valid JSON structure");
             println!("🔍 Pretty printed:");
-            println!("{}", serde_json::to_string_pretty(&value).unwrap_or_else(|_| "Error pretty printing".to_string()));
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&value)
+                    .unwrap_or_else(|_| "Error pretty printing".to_string())
+            );
             println!();
         }
         Err(e) => {
@@ -74,7 +78,7 @@ fn main() {
             println!("  Sensitive: {:?}", note.sensitive);
             println!("  Ephemeral: {:?}", note.ephemeral);
             println!();
-            
+
             // Show the serialized version
             match serde_json::to_string_pretty(&note) {
                 Ok(serialized) => {
@@ -90,7 +94,9 @@ fn main() {
             eprintln!("❌ Failed to deserialize to ApNote: {}", e);
             println!();
             println!("💡 This might help debug the issue:");
-            println!("   - Check if required fields are present (type, to, published, attributedTo)");
+            println!(
+                "   - Check if required fields are present (type, to, published, attributedTo)"
+            );
             println!("   - Verify field names match expected camelCase format");
             println!("   - Ensure URL field format is compatible with ApUrl enum");
             println!("   - Check that the 'type' field is a valid note type");
@@ -103,15 +109,30 @@ fn print_help() {
     println!("🧪 ApNote JSON Deserialization Tester");
     println!();
     println!("USAGE:");
-    println!("  {} [JSON_STRING]", env::args().next().unwrap_or_else(|| "test_note_json".to_string()));
-    println!("  echo 'JSON' | {}", env::args().next().unwrap_or_else(|| "test_note_json".to_string()));
+    println!(
+        "  {} [JSON_STRING]",
+        env::args()
+            .next()
+            .unwrap_or_else(|| "test_note_json".to_string())
+    );
+    println!(
+        "  echo 'JSON' | {}",
+        env::args()
+            .next()
+            .unwrap_or_else(|| "test_note_json".to_string())
+    );
     println!();
     println!("EXAMPLES:");
     println!("  # Test with inline JSON:");
     println!("  {} '{{\"type\":\"Note\",\"to\":[\"https://www.w3.org/ns/activitystreams#Public\"],\"published\":\"2023-01-01T00:00:00Z\",\"attributedTo\":\"https://example.com/user\",\"content\":\"Hello world!\"}}'", env::args().next().unwrap_or_else(|| "test_note_json".to_string()));
     println!();
     println!("  # Test with file input:");
-    println!("  cat note.json | {}", env::args().next().unwrap_or_else(|| "test_note_json".to_string()));
+    println!(
+        "  cat note.json | {}",
+        env::args()
+            .next()
+            .unwrap_or_else(|| "test_note_json".to_string())
+    );
     println!();
     println!("  # Test URL handling:");
     println!("  {} '{{\"type\":\"Note\",\"to\":[\"https://www.w3.org/ns/activitystreams#Public\"],\"published\":\"2023-01-01T00:00:00Z\",\"attributedTo\":\"https://example.com/user\",\"url\":[\"https://example.com/note/1\",{{\"type\":\"Link\",\"href\":\"https://mirror.com/note/1\",\"rel\":\"canonical\"}}]}}'", env::args().next().unwrap_or_else(|| "test_note_json".to_string()));
