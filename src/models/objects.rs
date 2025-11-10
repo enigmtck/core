@@ -358,6 +358,17 @@ impl From<AttributedApArticle> for NewObject {
     }
 }
 
+type AttributedApQuestion = (ApQuestion, Actor);
+
+impl From<AttributedApQuestion> for NewObject {
+    fn from((question, actor): AttributedApQuestion) -> NewObject {
+        let mut object: NewObject = question.into();
+        object.ek_profile_id = Some(actor.id);
+
+        object.clone()
+    }
+}
+
 impl From<ApNote> for NewObject {
     fn from(note: ApNote) -> NewObject {
         let mut ammonia = ammonia::Builder::default();
@@ -374,7 +385,7 @@ impl From<ApNote> for NewObject {
                 ],
             ]);
 
-        let published: Option<DateTime<Utc>> = Some(*note.clone().published);
+        let published: Option<DateTime<Utc>> = note.clone().published.map(|p| *p);
 
         let clean_content_map = {
             let mut content_map = HashMap::<String, String>::new();
@@ -541,12 +552,16 @@ impl From<ApQuestion> for NewObject {
         };
 
         let (ek_uuid, as_id) = {
-            if let Some(id) = question.id.clone() {
-                (None, id)
-            } else {
-                let uuid = Uuid::new_v4().to_string();
-                (Some(uuid.clone()), get_object_ap_id_from_uuid(uuid.clone()))
-            }
+            let id = question
+                .id
+                .clone()
+                .expect("question.id must be set before conversion to NewObject");
+            // Extract UUID from ephemeral.internal_uuid if available (local posts)
+            let ek_uuid = question
+                .ephemeral
+                .as_ref()
+                .and_then(|e| e.internal_uuid.clone());
+            (ek_uuid, id)
         };
 
         let hashtags: Vec<ApHashtag> = question.clone().into();
@@ -615,7 +630,7 @@ impl TryFrom<Object> for ApNote {
             Ok(ApNote {
                 id: Some(object.as_id.clone()),
                 kind: object.as_type.try_into()?,
-                published: object.as_published.unwrap_or(Utc::now()).into(),
+                published: object.as_published.map(|dt| dt.into()),
                 url: object
                     .as_url
                     .clone()

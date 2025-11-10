@@ -1,15 +1,27 @@
 use crate::{
     db::runner::DbRunner,
+    events::EventChannels,
     helper::{
         get_conversation_ap_id_from_uuid, get_object_ap_id_from_uuid, get_object_url_from_uuid,
     },
-    models::{activities::NewActivity, actors::Actor, objects::Object},
+    models::{
+        activities::{
+            create_activity, get_activity_by_ap_id, NewActivity, TryFromExtendedActivity,
+        },
+        actors::{self, Actor},
+        objects::{create_object, Object},
+    },
+    retriever::get_actor,
+    runner::{self, get_inboxes, send_to_inboxes, TaskError},
     server::routes::{ActivityJson, Outbox},
+    LoadEphemeral,
 };
+use anyhow::Result;
 use chrono::Utc;
 use deadpool_diesel::postgres::Pool;
 use jdt_activity_pub::{
-    ApActivity, ApContext, ApCreate, ApObject, ApQuestion, ApUrl, Ephemeral, MaybeMultiple,
+    ApActivity, ApAddress, ApContext, ApCreate, ApObject, ApQuestion, ApUrl, Ephemeral,
+    MaybeMultiple,
 };
 use reqwest::StatusCode;
 use serde_json::Value;
@@ -70,7 +82,7 @@ async fn question_outbox<C: DbRunner>(
         })
     }
 
-    fn prepare_note_metadata(question: &mut ApQuestion, profile: &Actor) {
+    fn prepare_question_metadata(question: &mut ApQuestion, profile: &Actor) {
         let uuid = Uuid::new_v4().to_string();
 
         question.ephemeral = Some(Ephemeral {
@@ -91,5 +103,141 @@ async fn question_outbox<C: DbRunner>(
         question.context = Some(ApContext::default());
     }
 
-    return Err(StatusCode::NOT_ACCEPTABLE);
+    prepare_question_metadata(&mut question, &profile);
+
+    let object = create_object(conn, (question.clone(), profile.clone()).into())
+        .await
+        .map_err(|e| {
+            log::error!("Failed to create or update Object: {e:#?}");
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
+
+    let create = build_ap_create(&object)?;
+
+    let activity = create_activity(conn, build_activity(create, conn, &object, raw).await?)
+        .await
+        .map_err(|e| {
+            log::error!("Failed to create Activity: {e:#?}");
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
+
+    let mut ap_activity =
+        ApActivity::try_from_extended_activity((activity.clone(), None, Some(object), None))
+            .map_err(|e| {
+                log::error!("Failed to build ApActivity: {e:#?}");
+                StatusCode::INTERNAL_SERVER_ERROR
+            })?;
+
+    let ap_activity = ap_activity.load_ephemeral(conn, None).await;
+
+    let pool = pool.clone();
+    let ap_id = activity.ap_id.clone().ok_or_else(|| {
+        log::error!("Activity ap_id cannot be None");
+        StatusCode::INTERNAL_SERVER_ERROR
+    })?;
+
+    runner::run(send_question, pool, None, vec![ap_id]).await;
+
+    Ok(ActivityJson(ap_activity))
+}
+
+async fn send_question(
+    pool: Pool,
+    _channels: Option<EventChannels>,
+    ap_ids: Vec<String>,
+) -> Result<(), TaskError> {
+    for ap_id in ap_ids {
+        let conn = pool.get().await.map_err(|_| TaskError::TaskFailed)?;
+        let (activity, target_activity, target_object, target_actor) =
+            get_activity_by_ap_id(&conn, ap_id.clone())
+                .await
+                .map_err(|e| {
+                    log::error!("Failed to retrieve Activity: {e}");
+                    TaskError::TaskFailed
+                })?
+                .ok_or_else(|| {
+                    log::error!("Activity not found: {ap_id}");
+                    TaskError::TaskFailed
+                })?;
+
+        let profile_id = activity.actor_id.ok_or_else(|| {
+            log::error!("Activity actor_id cannot be None");
+            TaskError::TaskFailed
+        })?;
+
+        let sender = actors::get_actor(&conn, profile_id).await.map_err(|e| {
+            log::error!("Failed to retrieve sending Actor: {e}");
+            TaskError::TaskFailed
+        })?;
+
+        let target_object = target_object.clone().ok_or(TaskError::TaskFailed)?;
+
+        log::debug!("Object Name: {:?}", target_object.as_name.clone());
+
+        let question = ApQuestion::try_from(target_object.clone()).map_err(|e| {
+            log::error!("Failed to build ApQuestion: {e:#?}");
+            TaskError::TaskFailed
+        })?;
+
+        log::debug!("Question Content: {:?}", question.content);
+
+        cfg_if::cfg_if! {
+            if #[cfg(feature = "pg")] {
+                let activity = if let Ok(activity) =
+                    ApActivity::try_from_extended_activity((
+                        activity,
+                        target_activity,
+                        Some(target_object),
+                        target_actor
+                    )) {
+                        Some(activity.formalize())
+                    } else {
+                        log::error!("Failed to build ApActivity");
+                        None
+                    };
+            } else if #[cfg(feature = "sqlite")] {
+                let activity = {
+                    if let Ok(activity) = ApActivity::try_from((
+                        (
+                            activity,
+                            target_activity,
+                            target_object
+                        ),
+                        None,
+                    )) {
+                        Some(activity.formalize())
+                    } else {
+                        None
+                    }
+                };
+            }
+        }
+
+        let _ = get_actor(
+            &conn,
+            question.clone().attributed_to.to_string(),
+            Some(sender.clone()),
+            true,
+        )
+        .await;
+
+        let activity = activity.ok_or_else(|| {
+            log::error!("Activity cannot be None");
+            TaskError::TaskFailed
+        })?;
+
+        let inboxes: Vec<ApAddress> = get_inboxes(&conn, activity.clone(), sender.clone()).await;
+
+        log::debug!("SENDING ACTIVITY\n{activity:#?}");
+        log::debug!("INBOXES\n{inboxes:#?}");
+
+        send_to_inboxes(&conn, inboxes, sender, activity)
+            .await
+            .map_err(|e| {
+                log::error!("Failed to send ApActivity: {e:#?}");
+                TaskError::TaskFailed
+            })?;
+    }
+
+    Ok(())
 }

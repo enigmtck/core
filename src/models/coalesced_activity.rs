@@ -677,10 +677,12 @@ impl TryFrom<CoalescedActivity> for ApNote {
         let attachment = coalesced.object_attachment.into();
         let summary = coalesced.object_summary;
         let sensitive = coalesced.object_sensitive;
-        let published = coalesced
-            .object_published
-            .ok_or_else(|| anyhow::anyhow!("object_published is None"))?
-            .into();
+        let published = Some(
+            coalesced
+                .object_published
+                .ok_or_else(|| anyhow::anyhow!("object_published is None"))?
+                .into(),
+        );
 
         // from_serde now includes enhanced error reporting
         let announces = from_serde(coalesced.object_announcers.clone());

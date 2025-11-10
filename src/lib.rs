@@ -15,10 +15,10 @@ use diesel_migrations as _;
 use dotenvy::dotenv;
 use env_logger as _;
 use indicatif as _;
+use jdt_activity_pub::MaybeMultiple;
 use jdt_activity_pub::{
     ActivityPub, ApActivity, ApActor, ApArticle, ApNote, ApObject, ApQuestion, ApTag, Ephemeral,
 };
-use jdt_activity_pub::{ApActorTerse, MaybeMultiple};
 use jdt_activity_pub::{ApCollection, MaybeReference};
 use lazy_static::lazy_static;
 use log4rs as _;
@@ -363,6 +363,102 @@ pub trait LoadEphemeral {
     ) -> Self;
 }
 
+impl LoadEphemeral for ApQuestion {
+    async fn load_ephemeral<C: DbRunner + Send + Sync>(
+        &mut self,
+        conn: &C,
+        requester: Option<Actor>,
+    ) -> Self {
+        if let Ok(actor) = get_actor_by_as_id(conn, self.attributed_to.to_string()).await {
+            let mut ephemeral = self.ephemeral.clone().unwrap_or_default();
+            ephemeral.attributed_to = Some(vec![actor.into()]);
+
+            ephemeral.announced =
+                if let (Some(requester), Some(id)) = (requester.clone(), self.id.clone()) {
+                    get_announced(conn, requester, id).await.unwrap_or(None)
+                } else {
+                    None
+                };
+
+            ephemeral.announces = if let Some(id) = self.id.clone() {
+                get_announcers(conn, None, None, None, id)
+                    .await
+                    .ok()
+                    .map(|x| x.into_iter().collect())
+            } else {
+                None
+            };
+
+            ephemeral.liked = if let (Some(requester), Some(id)) = (requester, self.id.clone()) {
+                get_liked(conn, requester, id).await.unwrap_or(None)
+            } else {
+                None
+            };
+
+            ephemeral.likes = if let Some(id) = self.id.clone() {
+                get_likers(conn, None, None, None, id)
+                    .await
+                    .ok()
+                    .map(|x| x.into_iter().collect())
+            } else {
+                None
+            };
+
+            self.ephemeral = Some(ephemeral);
+        }
+
+        self.clone()
+    }
+}
+
+impl LoadEphemeral for ApArticle {
+    async fn load_ephemeral<C: DbRunner + Send + Sync>(
+        &mut self,
+        conn: &C,
+        requester: Option<Actor>,
+    ) -> Self {
+        if let Ok(actor) = get_actor_by_as_id(conn, self.attributed_to.to_string()).await {
+            let mut ephemeral = self.ephemeral.clone().unwrap_or_default();
+            ephemeral.attributed_to = Some(vec![actor.into()]);
+
+            ephemeral.announced =
+                if let (Some(requester), Some(id)) = (requester.clone(), self.id.clone()) {
+                    get_announced(conn, requester, id).await.unwrap_or(None)
+                } else {
+                    None
+                };
+
+            ephemeral.announces = if let Some(id) = self.id.clone() {
+                get_announcers(conn, None, None, None, id)
+                    .await
+                    .ok()
+                    .map(|x| x.into_iter().collect())
+            } else {
+                None
+            };
+
+            ephemeral.liked = if let (Some(requester), Some(id)) = (requester, self.id.clone()) {
+                get_liked(conn, requester, id).await.unwrap_or(None)
+            } else {
+                None
+            };
+
+            ephemeral.likes = if let Some(id) = self.id.clone() {
+                get_likers(conn, None, None, None, id)
+                    .await
+                    .ok()
+                    .map(|x| x.into_iter().collect())
+            } else {
+                None
+            };
+
+            self.ephemeral = Some(ephemeral);
+        }
+
+        self.clone()
+    }
+}
+
 impl LoadEphemeral for ApNote {
     async fn load_ephemeral<C: DbRunner + Send + Sync>(
         &mut self,
@@ -380,8 +476,26 @@ impl LoadEphemeral for ApNote {
                     None
                 };
 
+            ephemeral.announces = if let Some(id) = self.id.clone() {
+                get_announcers(conn, None, None, None, id)
+                    .await
+                    .ok()
+                    .map(|x| x.into_iter().collect())
+            } else {
+                None
+            };
+
             ephemeral.liked = if let (Some(requester), Some(id)) = (requester, self.id.clone()) {
                 get_liked(conn, requester, id).await.unwrap_or(None)
+            } else {
+                None
+            };
+
+            ephemeral.likes = if let Some(id) = self.id.clone() {
+                get_likers(conn, None, None, None, id)
+                    .await
+                    .ok()
+                    .map(|x| x.into_iter().collect())
             } else {
                 None
             };
@@ -401,14 +515,14 @@ impl LoadEphemeral for ApActivity {
     ) -> Self {
         match self.clone() {
             ApActivity::Create(mut create) => {
-                if let MaybeReference::Actual(ApObject::Note(ref mut note)) = create.object {
-                    note.load_ephemeral(conn, requester).await;
+                if let MaybeReference::Actual(ref mut object) = create.object {
+                    object.load_ephemeral(conn, requester).await;
                 }
                 create.into()
             }
             ApActivity::Announce(mut announce) => {
-                if let MaybeReference::Actual(ApObject::Note(ref mut note)) = announce.object {
-                    note.load_ephemeral(conn, requester).await;
+                if let MaybeReference::Actual(ref mut object) = announce.object {
+                    object.load_ephemeral(conn, requester).await;
                 }
                 announce.into()
             }
@@ -464,166 +578,13 @@ impl LoadEphemeral for ApObject {
     ) -> Self {
         match self {
             ApObject::Note(ref mut note) => {
-                let attributed_to = if let Ok(actor) =
-                    retriever::get_actor(conn, note.attributed_to.clone().to_string(), None, true)
-                        .await
-                {
-                    Some(vec![ApActorTerse::from(actor)])
-                } else {
-                    None
-                };
-
-                let announced =
-                    if let (Some(requester), Some(id)) = (requester.clone(), note.id.clone()) {
-                        get_announced(conn, requester, id).await.unwrap_or(None)
-                    } else {
-                        None
-                    };
-
-                let announces: Option<Vec<ApActorTerse>> = if let Some(id) = note.id.clone() {
-                    get_announcers(conn, None, None, None, id)
-                        .await
-                        .ok()
-                        .map(|x| x.into_iter().collect())
-                } else {
-                    None
-                };
-
-                let liked = if let (Some(requester), Some(id)) = (requester, note.id.clone()) {
-                    get_liked(conn, requester, id).await.unwrap_or(None)
-                } else {
-                    None
-                };
-
-                let likes: Option<Vec<ApActorTerse>> = if let Some(id) = note.id.clone() {
-                    get_likers(conn, None, None, None, id)
-                        .await
-                        .ok()
-                        .map(|x| x.into_iter().collect())
-                } else {
-                    None
-                };
-
-                note.ephemeral = Some(Ephemeral {
-                    liked,
-                    likes,
-                    announced,
-                    announces,
-                    attributed_to,
-                    ..note.ephemeral.clone().unwrap_or(Default::default())
-                });
-                ApObject::Note(note.clone())
+                ApObject::Note(note.load_ephemeral(conn, requester).await)
             }
             ApObject::Article(ref mut article) => {
-                let attributed_to = if let Ok(actor) = retriever::get_actor(
-                    conn,
-                    article.attributed_to.clone().to_string(),
-                    None,
-                    true,
-                )
-                .await
-                {
-                    Some(vec![ApActorTerse::from(actor)])
-                } else {
-                    None
-                };
-
-                let announced =
-                    if let (Some(requester), Some(id)) = (requester.clone(), article.id.clone()) {
-                        get_announced(conn, requester, id).await.unwrap_or(None)
-                    } else {
-                        None
-                    };
-
-                let announces: Option<Vec<ApActorTerse>> = if let Some(id) = article.id.clone() {
-                    get_announcers(conn, None, None, None, id)
-                        .await
-                        .ok()
-                        .map(|x| x.into_iter().collect())
-                } else {
-                    None
-                };
-
-                let liked = if let (Some(requester), Some(id)) = (requester, article.id.clone()) {
-                    get_liked(conn, requester, id).await.unwrap_or(None)
-                } else {
-                    None
-                };
-
-                let likes: Option<Vec<ApActorTerse>> = if let Some(id) = article.id.clone() {
-                    get_likers(conn, None, None, None, id)
-                        .await
-                        .ok()
-                        .map(|x| x.into_iter().collect())
-                } else {
-                    None
-                };
-
-                article.ephemeral = Some(Ephemeral {
-                    liked,
-                    likes,
-                    announced,
-                    announces,
-                    attributed_to,
-                    ..article.ephemeral.clone().unwrap_or(Default::default())
-                });
-                ApObject::Article(article.clone())
+                ApObject::Article(article.load_ephemeral(conn, requester).await)
             }
             ApObject::Question(ref mut question) => {
-                let attributed_to = if let Ok(actor) = retriever::get_actor(
-                    conn,
-                    question.attributed_to.clone().to_string(),
-                    None,
-                    true,
-                )
-                .await
-                {
-                    Some(vec![ApActorTerse::from(actor)])
-                } else {
-                    None
-                };
-
-                let announced =
-                    if let (Some(requester), Some(id)) = (requester.clone(), question.id.clone()) {
-                        get_announced(conn, requester, id).await.unwrap_or(None)
-                    } else {
-                        None
-                    };
-
-                let announces: Option<Vec<ApActorTerse>> = if let Some(id) = question.id.clone() {
-                    get_announcers(conn, None, None, None, id)
-                        .await
-                        .ok()
-                        .map(|x| x.into_iter().collect())
-                } else {
-                    None
-                };
-
-                let liked =
-                    if let (Some(requester), Some(id)) = (requester.clone(), question.id.clone()) {
-                        get_liked(conn, requester, id).await.unwrap_or(None)
-                    } else {
-                        None
-                    };
-
-                let likes: Option<Vec<ApActorTerse>> = if let Some(id) = question.id.clone() {
-                    get_likers(conn, None, None, None, id)
-                        .await
-                        .ok()
-                        .map(|x| x.into_iter().collect())
-                } else {
-                    None
-                };
-
-                question.ephemeral = Some(Ephemeral {
-                    liked,
-                    likes,
-                    announced,
-                    announces,
-                    attributed_to,
-                    ..question.ephemeral.clone().unwrap_or(Default::default())
-                });
-                ApObject::Question(question.clone())
+                ApObject::Question(question.load_ephemeral(conn, requester).await)
             }
             _ => self.clone(),
         }

@@ -14,7 +14,7 @@ fn main() {
         name: Some("Test Note with Name".to_string()),
         content: Some("This is a test note with a name field for question replies".to_string()),
         // Use default implementation for 'to' field
-        published: Utc::now().into(),
+        published: Some(Utc::now().into()),
         ..Default::default()
     };
 
@@ -32,7 +32,7 @@ fn main() {
         name: None,
         content: Some("This is a regular note without a name field".to_string()),
         // Use default implementation for 'to' field
-        published: Utc::now().into(),
+        published: Some(Utc::now().into()),
         ..Default::default()
     };
 
@@ -50,7 +50,7 @@ fn main() {
         name: Some("Vote: Option A".to_string()),
         content: Some("This represents a vote selection".to_string()),
         // Use default implementation for 'to' field
-        published: Utc::now().into(),
+        published: Some(Utc::now().into()),
         ..Default::default()
     };
 

@@ -14,6 +14,7 @@ pub mod objects;
 pub mod profiles;
 pub mod unprocessable;
 pub mod vault;
+pub mod votes;
 use serde_json::Value;
 
 #[derive(Clone, Debug)]

@@ -20,7 +20,7 @@ use jdt_activity_pub::MaybeReference;
 use jdt_activity_pub::{
     ApAccept, ApAcceptType, ApActivity, ApAddress, ApAnnounce, ApAnnounceType, ApContext, ApCreate,
     ApCreateType, ApDelete, ApDeleteType, ApFollow, ApFollowType, ApInstrument, ApLike, ApLikeType,
-    ApNote, ApObject, ApUndo, ApUndoType, ApUpdateType, Ephemeral,
+    ApNote, ApObject, ApQuestion, ApUndo, ApUndoType, ApUpdateType, Ephemeral,
 };
 use jdt_activity_pub::{ApUpdate, PUBLIC_COLLECTION};
 use serde::{Deserialize, Serialize};
@@ -765,11 +765,20 @@ impl TryFromExtendedActivity for ApActivity {
             ))
             .map(|activity| ApActivity::Like(Box::new(activity))),
             ActivityType::Delete => {
-                let note = ApNote::try_from(target_object.unwrap())?;
-                ApDelete::try_from(note).map(|mut delete| {
-                    delete.id = activity.ap_id;
-                    ApActivity::Delete(Box::new(delete))
-                })
+                let target_obj = target_object.unwrap();
+                // Try to convert to Note first, then Question
+                let delete = if let Ok(note) = ApNote::try_from(target_obj.clone()) {
+                    ApDelete::try_from(note)?
+                } else if let Ok(question) = ApQuestion::try_from(target_obj.clone()) {
+                    ApDelete::try_from(question)?
+                } else {
+                    return Err(anyhow!("Delete target must be Note or Question"));
+                };
+
+                Ok(ApActivity::Delete(Box::new(ApDelete {
+                    id: activity.ap_id,
+                    ..delete
+                })))
             }
             ActivityType::Follow => ApFollow::try_from_extended_activity((
                 activity,

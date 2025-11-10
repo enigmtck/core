@@ -15,6 +15,7 @@ use crate::{
         actors::Actor,
         cache::{cache_content, Cacheable},
         objects::{create_object, Object},
+        votes::{get_question_for_vote, is_vote, validate_vote, VoteError},
     },
     retriever::get_actor,
     runner::{self, get_inboxes, send_to_inboxes, TaskError},
@@ -56,19 +57,139 @@ async fn note_outbox<C: DbRunner>(
         return Err(StatusCode::NOT_ACCEPTABLE);
     }
 
+    // Check if this Note is a vote
+    if is_vote(&note) {
+        log::debug!("Local user submitting a vote");
+
+        // Get the Question being voted on
+        let start = std::time::Instant::now();
+        let question = get_question_for_vote(conn, &note)
+            .await
+            .map_err(|e| {
+                log::error!("Error getting question for vote: {e:#?}");
+                StatusCode::INTERNAL_SERVER_ERROR
+            })?
+            .ok_or_else(|| {
+                log::warn!("Question not found for vote");
+                StatusCode::NOT_FOUND
+            })?;
+        log::debug!("get_question_for_vote took {:?}", start.elapsed());
+
+        // Validate the vote
+        let voter_actor_id = profile.as_id.clone();
+
+        let start = std::time::Instant::now();
+        validate_vote(conn, &note, &question, voter_actor_id.clone())
+            .await
+            .map_err(|e| match e {
+                VoteError::VotingEnded => {
+                    log::warn!("Vote rejected: voting period has ended");
+                    StatusCode::FORBIDDEN
+                }
+                VoteError::AlreadyVoted => {
+                    log::warn!("Vote rejected: user has already voted");
+                    StatusCode::CONFLICT
+                }
+                VoteError::InvalidOption => {
+                    log::warn!("Vote rejected: invalid option");
+                    StatusCode::BAD_REQUEST
+                }
+                _ => {
+                    log::error!("Vote validation failed: {e}");
+                    StatusCode::INTERNAL_SERVER_ERROR
+                }
+            })?;
+        log::debug!("validate_vote took {:?}", start.elapsed());
+
+        log::debug!("Vote validated successfully");
+
+        // Check if the Question is local or remote
+        let server_name = &*crate::SERVER_NAME;
+        let is_local_question = question.as_id.contains(server_name);
+
+        if is_local_question {
+            log::debug!(
+                "Vote is on a local Question - storing locally without federating individual vote"
+            );
+
+            // Create the vote Note object locally
+            prepare_note_metadata(&mut note, &profile);
+            let vote_object = create_object(conn, (note.clone(), profile.clone()).into())
+                .await
+                .map_err(|e| {
+                    log::error!("Failed to create vote object: {e:#?}");
+                    StatusCode::INTERNAL_SERVER_ERROR
+                })?;
+
+            log::debug!("Local vote recorded");
+
+            // Queue background task to update counts and potentially send Update(Question)
+            // This is not awaited - it runs asynchronously after the response is sent
+            let pool_clone = pool.clone();
+            let question_id = question.as_id.clone();
+            runner::run(
+                runner::question::update_question_vote_counts_task,
+                pool_clone,
+                None,
+                vec![question_id],
+            )
+            .await;
+
+            // Build response with the vote object
+            let create = build_ap_create(&vote_object)?;
+            let mut activity =
+                NewActivity::try_from((create.clone().into(), Some(vote_object.clone().into())))
+                    .map_err(|e| {
+                        log::error!("Failed to build Activity: {e:#?}");
+                        StatusCode::INTERNAL_SERVER_ERROR
+                    })?
+                    .link_actor(conn)
+                    .await;
+
+            activity.raw = Some(raw);
+
+            let activity = create_activity(conn, activity).await.map_err(|e| {
+                log::error!("Failed to create Activity: {e:#?}");
+                StatusCode::INTERNAL_SERVER_ERROR
+            })?;
+
+            let mut ap_activity = ApActivity::try_from_extended_activity((
+                activity.clone(),
+                None,
+                Some(vote_object),
+                None,
+            ))
+            .map_err(|e| {
+                log::error!("Failed to build ApActivity: {e:#?}");
+                StatusCode::INTERNAL_SERVER_ERROR
+            })?;
+
+            let ap_activity = ap_activity.load_ephemeral(conn, None).await;
+
+            return Ok(ActivityJson(ap_activity));
+        } else {
+            log::debug!("Vote is on a remote Question - will federate vote to origin server");
+            // Fall through to normal Note creation logic which will federate the vote
+        }
+    }
+
     async fn build_activity<C: DbRunner>(
         create: ApCreate,
         conn: &C,
         object: &Object,
         raw: Value,
     ) -> Result<NewActivity, StatusCode> {
-        let mut activity = NewActivity::try_from((create.into(), Some(object.into())))
+        let start = std::time::Instant::now();
+        let mut new_activity = NewActivity::try_from((create.into(), Some(object.into())))
             .map_err(|e| {
                 log::error!("Failed to build Activity: {e:#?}");
                 StatusCode::INTERNAL_SERVER_ERROR
-            })?
-            .link_actor(conn)
-            .await;
+            })?;
+        log::debug!("  NewActivity::try_from took {:?}", start.elapsed());
+
+        let start = std::time::Instant::now();
+        let mut activity = new_activity.link_actor(conn).await;
+        log::debug!("  link_actor took {:?}", start.elapsed());
 
         activity.raw = Some(raw);
 
@@ -98,7 +219,7 @@ async fn note_outbox<C: DbRunner>(
 
         note.id = Some(get_object_ap_id_from_uuid(uuid.clone()));
         note.url = MaybeMultiple::Single(ApUrl::from(get_object_url_from_uuid(uuid.clone())));
-        note.published = Utc::now().into();
+        note.published = Some(Utc::now().into());
         note.attributed_to = profile.as_id.clone().into();
 
         if note.conversation.is_none() {
@@ -137,21 +258,31 @@ async fn note_outbox<C: DbRunner>(
 
     prepare_note_metadata(&mut note, &profile);
 
+    let start = std::time::Instant::now();
     let object = create_object(conn, (note.clone(), profile.clone()).into())
         .await
         .map_err(|e| {
             log::error!("Failed to create or update Object: {e:#?}");
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
+    log::debug!("create_object took {:?}", start.elapsed());
 
+    let start = std::time::Instant::now();
     let create = build_ap_create(&object)?;
+    log::debug!("build_ap_create took {:?}", start.elapsed());
 
-    let activity = create_activity(conn, build_activity(create, conn, &object, raw).await?)
+    let start = std::time::Instant::now();
+    let new_activity = build_activity(create, conn, &object, raw).await?;
+    log::debug!("build_activity took {:?}", start.elapsed());
+
+    let start = std::time::Instant::now();
+    let activity = create_activity(conn, new_activity)
         .await
         .map_err(|e| {
             log::error!("Failed to create Activity: {e:#?}");
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
+    log::debug!("create_activity took {:?}", start.elapsed());
 
     for instrument in process_instruments(note.clone()).await? {
         process_instrument(conn, &profile, &instrument).await?;
