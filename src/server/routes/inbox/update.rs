@@ -6,9 +6,9 @@ use crate::{
         actors::{create_or_update_actor, NewActor},
         objects::create_object,
     },
+    server::AppState,
     GetWebfinger,
 };
-use deadpool_diesel::postgres::Pool;
 use jdt_activity_pub::MaybeReference;
 use jdt_activity_pub::{ApActivity, ApAddress, ApObject, ApUpdate};
 use reqwest::StatusCode;
@@ -18,7 +18,7 @@ impl Inbox for ApUpdate {
     async fn inbox<C: DbRunner>(
         &self,
         conn: &C,
-        _pool: Pool,
+        _state: AppState,
         raw: Value,
     ) -> Result<StatusCode, StatusCode> {
         log::debug!("{:?}", self.clone());

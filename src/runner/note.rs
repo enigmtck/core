@@ -95,7 +95,15 @@ pub async fn handle_object<C: DbRunner>(
     conn: &C,
     mut object: Object,
     visited: &mut HashSet<String>,
+    depth: usize,
 ) -> anyhow::Result<Object> {
+    const MAX_OBJECT_DEPTH: usize = 50;
+
+    if depth >= MAX_OBJECT_DEPTH {
+        log::warn!("Max object processing depth ({}) reached for {}, stopping recursion", MAX_OBJECT_DEPTH, object.as_id);
+        return Ok(object);
+    }
+
     let metadata = metadata_object(&object);
 
     if !metadata.is_empty() {
@@ -135,13 +143,13 @@ pub async fn handle_object<C: DbRunner>(
 
     match ap_object {
         ApObject::Note(mut note) if note.replies.reference().is_some() => {
-            let _ = Box::pin(note.fetch_replies(conn, visited).await);
+            let _ = Box::pin(note.fetch_replies(conn, visited, depth).await);
         }
         ApObject::Article(mut article) if article.replies.reference().is_some() => {
-            let _ = Box::pin(article.fetch_replies(conn, visited).await);
+            let _ = Box::pin(article.fetch_replies(conn, visited, depth).await);
         }
         ApObject::Question(mut question) if question.replies.reference().is_some() => {
-            let _ = Box::pin(question.fetch_replies(conn, visited).await);
+            let _ = Box::pin(question.fetch_replies(conn, visited, depth).await);
         }
         _ => (),
     }
@@ -162,7 +170,7 @@ pub async fn object_task(
 
         match object.as_type {
             ObjectType::Note | ObjectType::Article | ObjectType::Question => {
-                let _ = handle_object(&conn, object.clone(), &mut HashSet::<String>::new()).await;
+                let _ = handle_object(&conn, object.clone(), &mut HashSet::<String>::new(), 0).await;
             }
             _ => (),
         }

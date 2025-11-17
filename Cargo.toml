@@ -74,6 +74,10 @@ mime_guess = "2.0.5"
 axum-extra = { version = "0.10.1", features = ["query"] }
 openssl = { version = "0.10", optional = true }
 pq-sys = { version = "0.6", optional = true }
+tantivy = "0.25"
+tempfile = "3.23"
+tikv-jemallocator = { version = "0.6", features = ["profiling", "stats"], optional = true }
+tikv-jemalloc-ctl = { version = "0.6", features = ["stats"], optional = true }
 
 # Add deadpool-diesel for async database connection pooling
 [dependencies.deadpool-diesel]
@@ -95,3 +99,4 @@ pg = ["diesel/postgres", "diesel_migrations/postgres"]
 sqlite = ["diesel/sqlite", "diesel/returning_clauses_for_sqlite_3_35", "diesel_migrations/sqlite"]
 vendored-openssl = ["openssl/vendored"]
 bundled-postgres = ["pg", "pq-sys/bundled"]
+memory-profiling = ["tikv-jemallocator", "tikv-jemalloc-ctl"]

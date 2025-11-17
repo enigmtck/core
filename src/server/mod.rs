@@ -1,4 +1,4 @@
-use crate::{blocklist::BlockList, events::EventChannels};
+use crate::{blocklist::BlockList, events::EventChannels, search::SearchIndex};
 use axum::{
     extract::DefaultBodyLimit,
     routing::{get, post},
@@ -7,6 +7,7 @@ use axum::{
 use deadpool_diesel::postgres::{Manager, Pool};
 use dotenvy::dotenv;
 use std::net::SocketAddr;
+use std::sync::Arc;
 use tower_http::services::ServeDir;
 
 pub mod extractors;
@@ -22,6 +23,7 @@ pub struct AppState {
     pub db_pool: Pool,
     pub block_list: BlockList,
     pub event_channels: EventChannels,
+    pub search_index: Arc<SearchIndex>,
 }
 
 // The entry point for our Axum server task.
@@ -40,11 +42,19 @@ pub async fn start() {
         .expect("Failed to initialize BlockList for Axum");
     let event_channels = EventChannels::new();
 
+    // Initialize search index
+    let index_path = format!("{}/search_index", *crate::MEDIA_DIR);
+    let search_index = Arc::new(
+        SearchIndex::new(&index_path).expect("Failed to initialize search index")
+    );
+    log::info!("Search index initialized at {}", index_path);
+
     // Create the application state.
     let app_state = AppState {
         db_pool: pool,
         block_list,
         event_channels,
+        search_index,
     };
 
     // Build the Axum router. We will add migrated routes here.
@@ -185,6 +195,8 @@ pub async fn start() {
             get(routes::remote::remote_keys),
         )
         .route("/api/remote/object", get(routes::remote::remote_object))
+        // Search routes
+        .route("/api/search", get(routes::search::search))
         // Admin routes
         .route("/api/user/create", post(routes::admin::create_user))
         .route("/api/system/relay", post(routes::admin::relay_post))
@@ -192,6 +204,7 @@ pub async fn start() {
             "/api/user/{username}/muted-terms",
             get(routes::admin::get_muted_terms).post(routes::admin::manage_muted_terms),
         )
+        .route("/api/admin/memory", get(routes::admin::memory_stats))
         // Client routes
         .route("/login", get(routes::client::client_login))
         .route("/signup", get(routes::client::client_signup))

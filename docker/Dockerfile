@@ -30,7 +30,7 @@ RUN echo "fn main() {}" > tasks/src/main.rs
 RUN echo "fn main() {}" > launcher/src/main.rs
 
 # Build dependencies only
-RUN cargo build --workspace --release
+RUN cargo build --workspace --release --features memory-profiling
 RUN rm -rf src target/release/enigmatick* target/release/build/enigmatick* target/release/proxy* target/release/build/proxy* target/release/tasks* target/release/build/tasks*
 
 FROM dependencies AS builder
@@ -43,8 +43,8 @@ COPY launcher/src ./launcher/src
 COPY launcher/build.rs ./launcher/build.rs
 COPY tasks/src ./tasks/src
 COPY proxy/src ./proxy/src
-RUN cargo build -j6 --workspace --release
-RUN cd launcher && cargo build -j6 --release
+RUN cargo build -j6 --workspace --release --features memory-profiling
+RUN cd launcher && cargo build -j6 --release --features memory-profiling
 
 FROM debian:bookworm-slim AS runtime
 RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \

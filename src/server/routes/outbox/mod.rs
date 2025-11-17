@@ -123,10 +123,10 @@ pub async fn axum_outbox_post(
         match object {
             ActivityPub::Activity(activity) => {
                 activity
-                    .outbox(&conn, state.db_pool, profile, raw.clone())
+                    .outbox(&conn, state.clone(), profile, raw.clone())
                     .await
             }
-            ActivityPub::Object(object) => object.outbox(&conn, state.db_pool, profile, raw).await,
+            ActivityPub::Object(object) => object.outbox(&conn, state, profile, raw).await,
             _ => {
                 create_unprocessable(&conn, raw.into()).await;
                 Err(StatusCode::NOT_IMPLEMENTED)

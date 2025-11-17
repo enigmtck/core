@@ -14,6 +14,7 @@ use crate::{
     },
     runner::{self, get_inboxes, send_to_inboxes, TaskError},
 };
+use crate::server::AppState;
 use deadpool_diesel::postgres::Pool;
 use jdt_activity_pub::{ApActivity, ApAddress, ApUndo};
 use reqwest::StatusCode;
@@ -23,7 +24,7 @@ impl Outbox for Box<ApUndo> {
     async fn outbox<C: DbRunner>(
         &self,
         conn: &C,
-        pool: Pool,
+        state: AppState,
         profile: Actor,
         raw: Value,
     ) -> Result<ActivityJson<ApActivity>, StatusCode> {
@@ -58,7 +59,7 @@ impl Outbox for Box<ApUndo> {
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
 
-        let pool = pool.clone();
+        let pool = state.db_pool.clone();
         let ap_id = undo.ap_id.clone().ok_or_else(|| {
             log::error!("Undo ap_id is None");
             StatusCode::INTERNAL_SERVER_ERROR

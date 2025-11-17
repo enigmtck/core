@@ -1,6 +1,6 @@
 use crate::db::runner::DbRunner;
 use crate::server::routes::Outbox;
-use deadpool_diesel::postgres::Pool;
+use crate::server::AppState;
 use jdt_activity_pub::{ApActivity, ApAnnounce};
 use reqwest::StatusCode;
 
@@ -21,17 +21,17 @@ impl Outbox for ApAnnounce {
     async fn outbox<C: DbRunner>(
         &self,
         conn: &C,
-        pool: Pool,
+        state: AppState,
         profile: Actor,
         raw: Value,
     ) -> Result<ActivityJson<ApActivity>, StatusCode> {
-        announce_outbox(conn, pool, self.clone(), profile, raw).await
+        announce_outbox(conn, state, self.clone(), profile, raw).await
     }
 }
 
 async fn announce_outbox<C: DbRunner>(
     conn: &C,
-    pool: Pool,
+    state: AppState,
     announce: ApAnnounce,
     _profile: Actor,
     raw: Value,
@@ -62,7 +62,7 @@ async fn announce_outbox<C: DbRunner>(
             .clone()
             .ok_or(StatusCode::INTERNAL_SERVER_ERROR)?;
 
-        runner::run(runner::send_activity_task, pool, None, vec![ap_id]).await;
+        runner::run(runner::send_activity_task, state.db_pool, None, vec![ap_id]).await;
 
         let activity: ApActivity =
             ApActivity::try_from_extended_activity((activity, None, Some(object), None)).map_err(

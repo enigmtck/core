@@ -40,6 +40,11 @@ fn main() {
         }
     }
 
+    // Pass through memory-profiling feature if enabled
+    if env::var("CARGO_FEATURE_MEMORY_PROFILING").is_ok() {
+        main_features.push("memory-profiling");
+    }
+
     // Build main enigmatick binary
     println!("cargo:warning=Building enigmatick binary...");
     let mut cmd = Command::new(&cargo);

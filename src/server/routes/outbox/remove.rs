@@ -6,7 +6,7 @@ use crate::{
         actors::Actor,
     },
 };
-use deadpool_diesel::postgres::Pool;
+use crate::server::AppState;
 use jdt_activity_pub::{ApActivity, ApRemove};
 use reqwest::StatusCode;
 use serde_json::Value;
@@ -17,7 +17,7 @@ impl Outbox for ApRemove {
     async fn outbox<C: DbRunner>(
         &self,
         conn: &C,
-        _pool: Pool,
+        _state: AppState,
         _profile: Actor,
         raw: Value,
     ) -> Result<ActivityJson<ApActivity>, StatusCode> {

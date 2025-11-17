@@ -36,6 +36,11 @@ pub enum Commands {
         #[command(subcommand)]
         command: InstanceCommand,
     },
+    /// Manage search index
+    Search {
+        #[command(subcommand)]
+        command: SearchCommand,
+    },
     /// Send various activities
     Send {
         #[command(subcommand)]
@@ -72,6 +77,18 @@ pub enum InstanceCommand {
     List,
     Block { domain: String },
     Unblock { domain: String },
+}
+
+#[derive(Parser)]
+pub enum SearchCommand {
+    /// Rebuild search index from database (full reindex)
+    Index,
+    /// Update search index incrementally (only new/updated content)
+    Update,
+    /// Show search index statistics
+    Status,
+    /// Optimize search index
+    Optimize,
 }
 
 #[derive(Parser)]
@@ -280,6 +297,16 @@ async fn main() {
                     args.push("unblock".to_string());
                     args.push(domain);
                 }
+            }
+            delegate_to_enigmatick(args);
+        }
+        Commands::Search { command } => {
+            let mut args = vec!["search".to_string()];
+            match command {
+                SearchCommand::Index => args.push("index".to_string()),
+                SearchCommand::Update => args.push("update".to_string()),
+                SearchCommand::Status => args.push("status".to_string()),
+                SearchCommand::Optimize => args.push("optimize".to_string()),
             }
             delegate_to_enigmatick(args);
         }

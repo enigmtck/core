@@ -8,7 +8,7 @@ use crate::{
     },
     runner,
 };
-use deadpool_diesel::postgres::Pool;
+use crate::server::AppState;
 use jdt_activity_pub::{ApActivity, ApCreate, ApObject, ApUrl, MaybeMultiple, MaybeReference};
 use reqwest::StatusCode;
 use serde_json::Value;
@@ -19,17 +19,17 @@ impl Outbox for ApCreate {
     async fn outbox<C: DbRunner>(
         &self,
         conn: &C,
-        pool: Pool,
+        state: AppState,
         profile: Actor,
         raw: Value,
     ) -> Result<ActivityJson<ApActivity>, StatusCode> {
-        create_outbox(conn, pool, self.clone(), profile, raw).await
+        create_outbox(conn, state, self.clone(), profile, raw).await
     }
 }
 
 async fn create_outbox<C: DbRunner>(
     conn: &C,
-    pool: Pool,
+    state: AppState,
     mut create: ApCreate,
     _profile: Actor,
     raw: Value,
@@ -95,10 +95,10 @@ async fn create_outbox<C: DbRunner>(
 
     let final_activity = ApActivity::Create(create);
 
-    // let db_pool = pool.clone();
+    // let db_pool = state.db_pool.clone();
     // let message_to_send = final_activity.clone();
 
-    runner::run(runner::send_activity_task, pool, None, vec![ap_id]).await;
+    runner::run(runner::send_activity_task, state.db_pool, None, vec![ap_id]).await;
     // tokio::spawn(async move {
     //     if let Ok(conn) = db_pool.get().await {
     //         let inboxes = runner::user::get_follower_inboxes(&conn, profile.clone()).await;

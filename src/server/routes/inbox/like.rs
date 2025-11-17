@@ -5,8 +5,8 @@ use crate::{
         activities::{create_activity, ActivityTarget, NewActivity},
         objects::get_object_by_as_id,
     },
+    server::AppState,
 };
-use deadpool_diesel::postgres::Pool;
 use jdt_activity_pub::MaybeReference;
 use jdt_activity_pub::{ApActivity, ApAddress, ApLike, ApObject};
 use reqwest::StatusCode;
@@ -16,7 +16,7 @@ impl Inbox for Box<ApLike> {
     async fn inbox<C: DbRunner>(
         &self,
         conn: &C,
-        _pool: Pool,
+        _state: AppState,
         raw: Value,
     ) -> Result<StatusCode, StatusCode> {
         log::debug!("{:?}", self.clone());

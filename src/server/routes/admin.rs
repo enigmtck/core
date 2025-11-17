@@ -162,3 +162,62 @@ pub async fn manage_muted_terms(
         .map(|_| StatusCode::OK)
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
 }
+
+/// Get memory statistics (when memory-profiling feature is enabled)
+#[cfg(feature = "memory-profiling")]
+pub async fn memory_stats() -> Result<Json<serde_json::Value>, StatusCode> {
+    use tikv_jemalloc_ctl::{epoch, stats};
+    use serde_json::json;
+
+    // Advance epoch to get fresh stats
+    epoch::mib()
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .advance()
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    let allocated = stats::allocated::mib()
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .read()
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    let resident = stats::resident::mib()
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .read()
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    let active = stats::active::mib()
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .read()
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    let mapped = stats::mapped::mib()
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .read()
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    let retained = stats::retained::mib()
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .read()
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    Ok(Json(json!({
+        "allocated_bytes": allocated,
+        "allocated_mb": allocated as f64 / 1024.0 / 1024.0,
+        "resident_bytes": resident,
+        "resident_mb": resident as f64 / 1024.0 / 1024.0,
+        "active_bytes": active,
+        "active_mb": active as f64 / 1024.0 / 1024.0,
+        "mapped_bytes": mapped,
+        "mapped_mb": mapped as f64 / 1024.0 / 1024.0,
+        "retained_bytes": retained,
+        "retained_mb": retained as f64 / 1024.0 / 1024.0,
+    })))
+}
+
+#[cfg(not(feature = "memory-profiling"))]
+pub async fn memory_stats() -> Result<Json<serde_json::Value>, StatusCode> {
+    use serde_json::json;
+    Ok(Json(json!({
+        "error": "Memory profiling not enabled. Build with --features memory-profiling"
+    })))
+}

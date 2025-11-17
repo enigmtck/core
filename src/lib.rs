@@ -1,5 +1,14 @@
 #![deny(unused_crate_dependencies)]
 #![allow(async_fn_in_trait)]
+
+// Use jemalloc for better memory profiling when enabled
+#[cfg(feature = "memory-profiling")]
+use tikv_jemallocator::Jemalloc;
+
+#[cfg(feature = "memory-profiling")]
+#[global_allocator]
+static GLOBAL: Jemalloc = Jemalloc;
+
 extern crate diesel;
 extern crate log;
 // #[macro_use]
@@ -16,6 +25,7 @@ use dotenvy::dotenv;
 use env_logger as _;
 use indicatif as _;
 use jdt_activity_pub::MaybeMultiple;
+use tempfile as _;
 use jdt_activity_pub::{
     ActivityPub, ApActivity, ApActor, ApArticle, ApNote, ApObject, ApQuestion, ApTag, Ephemeral,
 };
@@ -68,6 +78,7 @@ pub mod schema;
 #[path = "schema-sqlite.rs"]
 pub mod schema;
 
+pub mod search;
 pub mod server;
 pub mod signing;
 pub mod webfinger;
@@ -290,6 +301,7 @@ pub trait FetchReplies {
         &mut self,
         conn: &C,
         visited: &mut HashSet<String>,
+        depth: usize,
     ) -> Self;
 }
 
@@ -301,14 +313,22 @@ where
         &mut self,
         conn: &C,
         visited: &mut HashSet<String>,
+        depth: usize,
     ) -> Self {
         use futures_lite::StreamExt;
+
+        const MAX_REPLY_DEPTH: usize = 50;
+
+        if depth >= MAX_REPLY_DEPTH {
+            log::warn!("Max reply depth ({}) reached, stopping recursion", MAX_REPLY_DEPTH);
+            return self.clone();
+        }
 
         let Some(replies_url) = self.get_replies().reference() else {
             return self.clone();
         };
 
-        log::debug!("Fetching replies for {replies_url}");
+        log::debug!("Fetching replies for {replies_url} at depth {}", depth);
 
         if visited.contains(&replies_url) {
             log::debug!("Already processed replies for {replies_url}");
@@ -347,7 +367,7 @@ where
             log::debug!("Retrieving reply: {note:?}");
 
             if let Ok(object) = fetch_remote_object(conn, note_id, profile.clone()).await {
-                let _ = Box::pin(handle_object(conn, object, visited)).await;
+                let _ = Box::pin(handle_object(conn, object, visited, depth + 1)).await;
             }
         }
 

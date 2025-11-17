@@ -3,8 +3,8 @@ use crate::{
     db::runner::DbRunner,
     models::activities::{create_activity, NewActivity},
     runner,
+    server::AppState,
 };
-use deadpool_diesel::postgres::Pool;
 use jdt_activity_pub::{ApActivity, ApAddress, ApAnnounce};
 use reqwest::StatusCode;
 use serde_json::Value;
@@ -13,7 +13,7 @@ impl Inbox for ApAnnounce {
     async fn inbox<C: DbRunner>(
         &self,
         conn: &C,
-        pool: Pool,
+        state: AppState,
         raw: Value,
     ) -> Result<StatusCode, StatusCode> {
         log::debug!("{:?}", self.clone());
@@ -27,7 +27,7 @@ impl Inbox for ApAnnounce {
         activity.raw = Some(raw.clone());
 
         if create_activity(conn, activity.clone()).await.is_ok() {
-            let pool = pool.clone();
+            let pool = state.db_pool.clone();
             let ap_id = activity.ap_id.clone().ok_or(StatusCode::BAD_REQUEST)?;
 
             runner::run(

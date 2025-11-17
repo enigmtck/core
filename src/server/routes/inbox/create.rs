@@ -9,9 +9,9 @@ use crate::{
         votes::{get_question_for_vote, is_vote, validate_vote, VoteError},
     },
     runner,
+    server::AppState,
 };
 use anyhow::Result;
-use deadpool_diesel::postgres::Pool;
 use jdt_activity_pub::MaybeReference;
 use jdt_activity_pub::{ApActivity, ApAddress, ApCreate, ApObject};
 use reqwest::StatusCode;
@@ -21,7 +21,7 @@ impl Inbox for ApCreate {
     async fn inbox<C: DbRunner>(
         &self,
         conn: &C,
-        pool: Pool,
+        state: AppState,
         raw: Value,
     ) -> Result<StatusCode, StatusCode> {
         log::debug!("{:?}", self.clone());
@@ -84,7 +84,7 @@ impl Inbox for ApCreate {
                                     log::debug!("Remote vote recorded");
 
                                     // Queue background task to update counts and potentially send Update(Question)
-                                    let pool_clone = pool.clone();
+                                    let pool_clone = state.db_pool.clone();
                                     let question_id = question.as_id.clone();
                                     runner::run(
                                         runner::question::update_question_vote_counts_task,
@@ -144,7 +144,7 @@ impl Inbox for ApCreate {
                     activity.raw = Some(raw);
 
                     if create_activity(conn, activity).await.is_ok() {
-                        let pool = pool.clone();
+                        let pool = state.db_pool.clone();
                         let object_id = object.as_id.clone();
 
                         runner::run(runner::note::object_task, pool, None, vec![object_id]).await;
@@ -177,7 +177,7 @@ impl Inbox for ApCreate {
                 activity.raw = Some(raw);
 
                 if create_activity(conn, activity).await.is_ok() {
-                    let pool = pool.clone();
+                    let pool = state.db_pool.clone();
                     let object_id = object.as_id.clone();
 
                     runner::run(runner::note::object_task, pool, None, vec![object_id]).await;
@@ -209,7 +209,7 @@ impl Inbox for ApCreate {
                 activity.raw = Some(raw);
 
                 if create_activity(conn, activity).await.is_ok() {
-                    let pool = pool.clone();
+                    let pool = state.db_pool.clone();
                     let object_id = object.as_id.clone();
 
                     runner::run(runner::note::object_task, pool, None, vec![object_id]).await;

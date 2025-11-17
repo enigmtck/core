@@ -9,7 +9,7 @@ use crate::{
     },
     runner,
 };
-use deadpool_diesel::postgres::Pool;
+use crate::server::AppState;
 use jdt_activity_pub::{ApActivity, ApLike};
 use reqwest::StatusCode;
 use serde_json::Value;
@@ -18,17 +18,17 @@ impl Outbox for Box<ApLike> {
     async fn outbox<C: DbRunner>(
         &self,
         conn: &C,
-        pool: Pool,
+        state: AppState,
         profile: Actor,
         raw: Value,
     ) -> Result<ActivityJson<ApActivity>, StatusCode> {
-        like_outbox(conn, pool, *self.clone(), profile, raw).await
+        like_outbox(conn, state, *self.clone(), profile, raw).await
     }
 }
 
 async fn like_outbox<C: DbRunner>(
     conn: &C,
-    pool: Pool,
+    state: AppState,
     mut like: ApLike,
     _profile: Actor,
     raw: Value,
@@ -70,7 +70,7 @@ async fn like_outbox<C: DbRunner>(
 
     let final_activity = ApActivity::Like(Box::new(like));
 
-    runner::run(runner::send_activity_task, pool, None, vec![ap_id]).await;
+    runner::run(runner::send_activity_task, state.db_pool, None, vec![ap_id]).await;
 
     // let db_pool = pool.clone();
     // let message_to_send = final_activity.clone();

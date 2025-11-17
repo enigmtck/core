@@ -5,12 +5,14 @@ mod cache;
 mod display;
 mod instances;
 mod muted_terms;
+mod search;
 mod send;
 mod system;
 
 use cache::{handle_cache_command, CacheArgs};
 use instances::{handle_instance_command, InstanceArgs};
 use muted_terms::{handle_muted_terms_command, MutedTermsArgs};
+use search::{handle_search_command, SearchArgs};
 use send::{handle_send_command, SendArgs};
 use system::{handle_init, handle_migrations, handle_system_user, handle_template};
 
@@ -28,6 +30,8 @@ pub enum Commands {
     SystemUser,
     /// Manage federated instances
     Instances(InstanceArgs),
+    /// Manage search index
+    Search(SearchArgs),
     /// Send various activities
     Send(SendArgs),
     /// Manage user muted terms
@@ -65,6 +69,9 @@ async fn main() {
         Commands::Instances(args) => handle_instance_command(args)
             .await
             .expect("instance command failed"),
+        Commands::Search(args) => handle_search_command(args)
+            .await
+            .expect("search command failed"),
         Commands::Send(args) => handle_send_command(args)
             .await
             .expect("send command failed"),

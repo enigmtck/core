@@ -3,7 +3,7 @@ use crate::{
     db::runner::DbRunner,
     models::activities::get_unrevoked_activity_by_kind_actor_id_and_target_ap_id,
 };
-use deadpool_diesel::postgres::Pool;
+use crate::server::AppState;
 use jdt_activity_pub::{ApActivity, ApFollow};
 use reqwest::StatusCode;
 
@@ -23,11 +23,11 @@ impl Outbox for ApFollow {
     async fn outbox<C: DbRunner>(
         &self,
         conn: &C,
-        pool: Pool,
+        state: AppState,
         profile: Actor,
         raw: Value,
     ) -> Result<ActivityJson<ApActivity>, StatusCode> {
-        follow_outbox(conn, pool, self.clone(), profile, raw).await
+        follow_outbox(conn, state, self.clone(), profile, raw).await
     }
 }
 
@@ -50,7 +50,7 @@ impl Outbox for ApFollow {
 /// * `Err(Status)` - An HTTP status code indicating an error.
 async fn follow_outbox<C: DbRunner>(
     conn: &C,
-    pool: Pool,
+    state: AppState,
     follow: ApFollow,
     profile: Actor,
     raw: Value,
@@ -135,7 +135,7 @@ async fn follow_outbox<C: DbRunner>(
         StatusCode::BAD_REQUEST
     })?;
 
-    runner::run(runner::send_activity_task, pool, None, vec![ap_id]).await;
+    runner::run(runner::send_activity_task, state.db_pool, None, vec![ap_id]).await;
 
     // Convert the database activity into an ActivityPub activity for the response.
     let ap_activity =

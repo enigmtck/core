@@ -2,8 +2,8 @@ use super::Inbox;
 use crate::{
     db::runner::DbRunner,
     models::activities::{create_activity, NewActivity},
+    server::AppState,
 };
-use deadpool_diesel::postgres::Pool;
 use jdt_activity_pub::{ApActivity, ApAddress, ApRemove};
 use reqwest::StatusCode;
 use serde_json::Value;
@@ -12,7 +12,7 @@ impl Inbox for ApRemove {
     async fn inbox<C: DbRunner>(
         &self,
         conn: &C,
-        _pool: Pool,
+        _state: AppState,
         raw: Value,
     ) -> Result<StatusCode, StatusCode> {
         log::debug!("{:?}", self.clone());

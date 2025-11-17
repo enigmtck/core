@@ -18,6 +18,7 @@ use crate::{
 };
 use anyhow::Result;
 use chrono::Utc;
+use crate::server::AppState;
 use deadpool_diesel::postgres::Pool;
 use jdt_activity_pub::{
     ApActivity, ApAddress, ApContext, ApCreate, ApObject, ApQuestion, ApUrl, Ephemeral,
@@ -31,17 +32,17 @@ impl Outbox for ApQuestion {
     async fn outbox<C: DbRunner>(
         &self,
         conn: &C,
-        pool: Pool,
+        state: AppState,
         profile: Actor,
         raw: Value,
     ) -> Result<ActivityJson<ApActivity>, StatusCode> {
-        question_outbox(conn, pool, self.clone(), profile, raw).await
+        question_outbox(conn, state, self.clone(), profile, raw).await
     }
 }
 
 async fn question_outbox<C: DbRunner>(
     conn: &C,
-    pool: Pool,
+    state: AppState,
     mut question: ApQuestion,
     profile: Actor,
     raw: Value,
@@ -130,7 +131,7 @@ async fn question_outbox<C: DbRunner>(
 
     let ap_activity = ap_activity.load_ephemeral(conn, None).await;
 
-    let pool = pool.clone();
+    let pool = state.db_pool.clone();
     let ap_id = activity.ap_id.clone().ok_or_else(|| {
         log::error!("Activity ap_id cannot be None");
         StatusCode::INTERNAL_SERVER_ERROR

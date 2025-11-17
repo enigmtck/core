@@ -9,8 +9,8 @@ use crate::{
         follows::delete_follow,
     },
     runner::{self},
+    server::AppState,
 };
-use deadpool_diesel::postgres::Pool;
 use jdt_activity_pub::{ApActivity, ApAddress, ApUndo};
 use reqwest::StatusCode;
 use serde_json::Value;
@@ -19,7 +19,7 @@ impl Inbox for Box<ApUndo> {
     async fn inbox<C: DbRunner>(
         &self,
         conn: &C,
-        pool: Pool,
+        state: AppState,
         raw: Value,
     ) -> Result<StatusCode, StatusCode> {
         log::debug!("{:?}", self.clone());
@@ -97,7 +97,7 @@ impl Inbox for Box<ApUndo> {
                 Ok(StatusCode::ACCEPTED)
             }
             ActivityType::Announce => {
-                let pool = pool.clone();
+                let pool = state.db_pool.clone();
                 let ap_id = target_ap_id.clone();
 
                 tokio::spawn(async move {

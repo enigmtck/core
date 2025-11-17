@@ -327,7 +327,7 @@ pub async fn axum_shared_inbox_post(
     };
 
     if is_authorized {
-        activity.inbox(&conn, state.db_pool.clone(), raw).await
+        activity.inbox(&conn, state, raw).await
     } else {
         log::debug!("Request signature verification failed");
         Err(StatusCode::UNAUTHORIZED)

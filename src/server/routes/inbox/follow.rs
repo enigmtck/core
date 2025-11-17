@@ -11,6 +11,7 @@ use crate::{
         follows::{create_follow, mark_follow_accepted, NewFollow},
     },
     runner::{self, send_to_inboxes, TaskError},
+    server::AppState,
 };
 use deadpool_diesel::postgres::Pool;
 use jdt_activity_pub::{ApAccept, ApActivity, ApAddress, ApFollow};
@@ -32,7 +33,7 @@ impl Inbox for ApFollow {
     async fn inbox<C: DbRunner>(
         &self,
         conn: &C,
-        pool: Pool,
+        state: AppState,
         raw: Value,
     ) -> Result<StatusCode, StatusCode> {
         log::info!("{}", self.clone());
@@ -71,7 +72,7 @@ impl Inbox for ApFollow {
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
 
-        let pool = pool.clone();
+        let pool = state.db_pool.clone();
         let ap_id = activity.ap_id.ok_or(StatusCode::INTERNAL_SERVER_ERROR)?;
 
         runner::run(process, pool, None, vec![ap_id]).await;

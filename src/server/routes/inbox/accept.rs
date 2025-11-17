@@ -11,6 +11,7 @@ use crate::{
         follows::mark_follow_accepted,
     },
     runner::{self, TaskError},
+    server::AppState,
 };
 use deadpool_diesel::postgres::Pool;
 use jdt_activity_pub::MaybeReference;
@@ -23,7 +24,7 @@ impl Inbox for Box<ApAccept> {
     async fn inbox<C: DbRunner>(
         &self,
         conn: &C,
-        pool: Pool,
+        state: AppState,
         raw: Value,
     ) -> Result<StatusCode, StatusCode> {
         log::info!("{self}");
@@ -65,7 +66,7 @@ impl Inbox for Box<ApAccept> {
 
         runner::run(
             process,
-            pool,
+            state.db_pool,
             None,
             vec![accept
                 .ap_id

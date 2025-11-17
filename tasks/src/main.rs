@@ -85,6 +85,9 @@ impl TaskScheduler {
             let handle = tokio::spawn(async move {
                 log::info!("Task '{task_name_for_spawn}' started");
                 let mut interval_timer = interval(task_interval);
+                // Skip missed ticks if task takes longer than interval
+                // This prevents back-to-back execution and waits for next scheduled tick
+                interval_timer.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
                 while *running.read().await {
                     interval_timer.tick().await;
@@ -265,6 +268,40 @@ impl Task for CacheCleanupTask {
     }
 }
 
+/// Search index update task: Incrementally index new/updated content
+pub struct SearchIndexTask;
+
+impl Task for SearchIndexTask {
+    fn name(&self) -> &'static str {
+        "search_index_update"
+    }
+
+    fn interval(&self) -> Duration {
+        Duration::from_secs(3600) // Run every hour
+    }
+
+    fn execute(&self) -> TaskResult {
+        Box::pin(async move {
+            log::info!("Running search index update...");
+
+            // Get database connection
+            let pool = enigmatick::db::POOL.clone();
+
+            // Call the periodic task function
+            match enigmatick::runner::search_index::periodic_search_index_task(pool, None, vec![]).await {
+                Ok(()) => {
+                    log::info!("Search index update completed successfully");
+                    Ok(())
+                }
+                Err(e) => {
+                    log::error!("Search index update failed: {e:?}");
+                    Err(format!("Search index update failed: {e:?}").into())
+                }
+            }
+        })
+    }
+}
+
 #[tokio::main]
 async fn main() {
     env_logger::init();
@@ -284,6 +321,7 @@ async fn main() {
         .register_task(Box::new(ActivityDeliveryRetryTask))
         .await;
     scheduler.register_task(Box::new(CacheCleanupTask)).await;
+    scheduler.register_task(Box::new(SearchIndexTask)).await;
     log::info!("All tasks registered successfully");
 
     // Set up graceful shutdown

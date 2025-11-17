@@ -1,5 +1,4 @@
 use super::Inbox;
-use deadpool_diesel::postgres::Pool;
 use jdt_activity_pub::{ApActivity, ApAddress, ApDelete, ApObject};
 use reqwest::StatusCode;
 
@@ -17,6 +16,7 @@ use crate::{
         },
         Tombstone,
     },
+    server::AppState,
 };
 use jdt_activity_pub::MaybeMultiple;
 use jdt_activity_pub::MaybeReference;
@@ -26,7 +26,7 @@ impl Inbox for Box<ApDelete> {
     async fn inbox<C: DbRunner>(
         &self,
         conn: &C,
-        _pool: Pool,
+        _state: AppState,
         raw: Value,
     ) -> Result<StatusCode, StatusCode> {
         log::debug!("{:?}", self.clone());

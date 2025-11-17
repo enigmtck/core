@@ -10,7 +10,7 @@ use crate::{
     },
     runner,
 };
-use deadpool_diesel::postgres::Pool;
+use crate::server::AppState;
 use jdt_activity_pub::{ApActivity, ApDelete};
 use reqwest::StatusCode;
 use serde_json::Value;
@@ -19,17 +19,17 @@ impl Outbox for Box<ApDelete> {
     async fn outbox<C: DbRunner>(
         &self,
         conn: &C,
-        pool: Pool,
+        state: AppState,
         profile: Actor,
         raw: Value,
     ) -> Result<ActivityJson<ApActivity>, StatusCode> {
-        delete_outbox(conn, pool, *self.clone(), profile, raw).await
+        delete_outbox(conn, state, *self.clone(), profile, raw).await
     }
 }
 
 async fn delete_outbox<C: DbRunner>(
     conn: &C,
-    pool: Pool,
+    state: AppState,
     mut delete: ApDelete,
     _profile: Actor,
     raw: Value,
@@ -74,7 +74,7 @@ async fn delete_outbox<C: DbRunner>(
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
 
-    runner::run(runner::send_activity_task, pool, None, vec![ap_id]).await;
+    runner::run(runner::send_activity_task, state.db_pool, None, vec![ap_id]).await;
 
     let final_activity = ApActivity::Delete(Box::new(delete));
 

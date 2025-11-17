@@ -24,6 +24,7 @@ use crate::{
 };
 use anyhow::Result;
 use chrono::Utc;
+use crate::server::AppState;
 use deadpool_diesel::postgres::Pool;
 use jdt_activity_pub::MaybeMultiple;
 use jdt_activity_pub::{
@@ -38,17 +39,17 @@ impl Outbox for ApNote {
     async fn outbox<C: DbRunner>(
         &self,
         conn: &C,
-        pool: Pool,
+        state: AppState,
         profile: Actor,
         raw: Value,
     ) -> Result<ActivityJson<ApActivity>, StatusCode> {
-        note_outbox(conn, pool, self.clone(), profile, raw).await
+        note_outbox(conn, state, self.clone(), profile, raw).await
     }
 }
 
 async fn note_outbox<C: DbRunner>(
     conn: &C,
-    pool: Pool,
+    state: AppState,
     mut note: ApNote,
     profile: Actor,
     raw: Value,
@@ -125,7 +126,7 @@ async fn note_outbox<C: DbRunner>(
 
             // Queue background task to update counts and potentially send Update(Question)
             // This is not awaited - it runs asynchronously after the response is sent
-            let pool_clone = pool.clone();
+            let pool_clone = state.db_pool.clone();
             let question_id = question.as_id.clone();
             runner::run(
                 runner::question::update_question_vote_counts_task,
@@ -297,7 +298,7 @@ async fn note_outbox<C: DbRunner>(
 
     let ap_activity = ap_activity.load_ephemeral(conn, None).await;
 
-    let pool = pool.clone();
+    let pool = state.db_pool.clone();
     let ap_id = activity.ap_id.clone().ok_or_else(|| {
         log::error!("Activity ap_id cannot be None");
         StatusCode::INTERNAL_SERVER_ERROR

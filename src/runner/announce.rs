@@ -114,7 +114,7 @@ pub async fn remote_announce_task(
         let _ = update_target_object(
             &conn,
             activity.clone(),
-            handle_object(&conn, remote_object, &mut HashSet::<String>::new())
+            handle_object(&conn, remote_object, &mut HashSet::<String>::new(), 0)
                 .await
                 .map_err(|e| {
                     log::error!("Failed to update target Object: {e}");

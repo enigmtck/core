@@ -30,6 +30,7 @@ pub mod announce;
 pub mod cache;
 pub mod note;
 pub mod question;
+pub mod search_index;
 pub mod user;
 
 //pub type DbConnection = r2d2::PooledConnection<ConnectionManager<PgConnection>>;
