@@ -204,6 +204,17 @@ lazy_static! {
     pub static ref CUSTOM_STATIC_DIR: Option<PathBuf> = {
         CUSTOM_INDEX_PATH.as_ref().and_then(|p| p.parent().map(|p| p.to_path_buf()))
     };
+
+    // Global HTTP client for making federated requests
+    // Creating a new client for each request leaks memory (connection pools, TLS buffers)
+    // Reusing a single client is the recommended pattern per reqwest documentation
+    pub static ref HTTP_CLIENT: reqwest::Client = {
+        reqwest::Client::builder()
+            .user_agent(format!("Enigmatick/{}", *INSTANCE_VERSION))
+            .timeout(std::time::Duration::from_secs(30))
+            .build()
+            .expect("Failed to create HTTP client")
+    };
 }
 
 #[derive(Clone, Eq, PartialEq, Serialize, Deserialize, Debug)]

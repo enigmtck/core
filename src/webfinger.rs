@@ -1,6 +1,5 @@
 use crate::{models::actors::Actor, WEBFINGER_ACCT_RE};
 use anyhow::Result;
-use reqwest::Client;
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Clone, Default, Debug)]
@@ -103,12 +102,8 @@ impl From<Actor> for WebFinger {
 pub async fn retrieve_webfinger(domain: String, username: String) -> Result<WebFinger> {
     let url = format!("https://{domain}/.well-known/webfinger?resource=acct:{username}@{domain}");
     let accept = "application/jrd+json";
-    let agent = "Enigmatick/0.1";
 
-    let response = Client::builder()
-        .user_agent(agent)
-        .build()
-        .unwrap()
+    let response = crate::HTTP_CLIENT
         .get(url)
         .header("Accept", accept)
         .send()

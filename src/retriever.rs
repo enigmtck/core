@@ -3,7 +3,6 @@ use crate::models::activities::{get_activities_coalesced, TimelineFilters};
 use anyhow::anyhow;
 use anyhow::{Context, Result};
 use jdt_activity_pub::{ActivityPub, ApActivity, ApCollection, ApObject, CollectionFetcher};
-use reqwest::Client;
 use reqwest::Response;
 use url::Url;
 
@@ -125,12 +124,7 @@ async fn get_remote_webfinger(handle: String) -> Result<WebFinger> {
 
     let url = format!("https://{server}/.well-known/webfinger?resource=acct:{username}@{server}");
 
-    let client = Client::builder()
-        .user_agent("Enigmatick/0.1")
-        .build()
-        .map_err(anyhow::Error::msg)?;
-
-    let response = client
+    let response = crate::HTTP_CLIENT
         .get(&url)
         .header("Accept", "application/jrd+json")
         .send()
@@ -259,11 +253,6 @@ pub async fn get_actor<C: DbRunner>(
 }
 
 pub async fn signed_get(profile: Actor, url: String, accept_any: bool) -> Result<Response> {
-    let client = Client::builder()
-        .user_agent("Enigmatick/0.1")
-        .build()
-        .unwrap();
-
     let accept = if accept_any {
         "*/*"
     } else {
@@ -283,7 +272,7 @@ pub async fn signed_get(profile: Actor, url: String, accept_any: bool) -> Result
         method,
     })?;
 
-    let mut request = client
+    let mut request = crate::HTTP_CLIENT
         .get(url_str)
         .timeout(std::time::Duration::new(5, 0))
         .header("Accept", accept)
@@ -304,8 +293,7 @@ pub fn collection_fetcher() -> CollectionFetcher {
     Box::new(|url: &str| {
         let url = url.to_string();
         Box::pin(async move {
-            let client = reqwest::Client::new();
-            client
+            crate::HTTP_CLIENT
                 .get(&url)
                 .header("Content-Type", "application/activity+json")
                 .send()

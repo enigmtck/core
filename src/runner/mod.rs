@@ -155,10 +155,7 @@ async fn process_all_inboxes<C: DbRunner>(
     conn: &C,
     as_id: String,
 ) -> Result<(), anyhow::Error> {
-    let client = Client::builder()
-        .user_agent("Enigmatick/0.1")
-        .build()
-        .unwrap();
+    let client = crate::HTTP_CLIENT.clone();
 
     let handles: Vec<JoinHandle<LogMessage>> = inboxes
         .into_iter()
