@@ -1,0 +1,1 @@
+import{b as c,h as _,W as o,ap as b,X as d,Y as T,Z as p,e as y,aq as E,s as f}from"./C-PNKZ_s.js";function v(t,i,h=!1){_&&o();var r=new E(t),u=h?b:0;function n(a,s){if(_){const l=d(t)===T;if(a===l){var e=p();y(e),r.anchor=e,f(!1),r.ensure(a,s),f(!0);return}}r.ensure(a,s)}c(()=>{var a=!1;i((s,e=!0)=>{a=!0,n(e,s)}),a||n(!1,null)},u)}export{v as i};

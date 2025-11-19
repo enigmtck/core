@@ -1,0 +1,1 @@
+import{ao as c,ak as h,z as S,ac as q,T as x}from"./C-PNKZ_s.js";function a(i,r){return i===r||(i==null?void 0:i[x])===r}function A(i={},r,k,T){return c(()=>{var s,f;return h(()=>{s=f,f=(T==null?void 0:T())||[],S(()=>{i!==k(...f)&&(r(i,...f),s&&a(k(...s),i)&&r(null,...s))})}),()=>{q(()=>{f&&a(k(...f),i)&&r(null,...f)})}}),i}export{A as b};
