@@ -19,12 +19,9 @@ pub async fn periodic_search_index_task(
         TaskError::TaskFailed
     })?;
 
-    // Initialize search index
-    let index_path = format!("{}/search_index", *crate::MEDIA_DIR);
-    let search_index = crate::search::SearchIndex::new(&index_path).map_err(|e| {
-        log::error!("Failed to initialize search index: {e:#?}");
-        TaskError::TaskFailed
-    })?;
+    // Use the global search index (shared across server and tasks)
+    // This prevents creating new mmap'd index files every hour
+    let search_index = &*crate::SEARCH_INDEX;
 
     // Perform incremental update using shared logic (handles checkpoint internally)
     let (objects_indexed, actors_indexed) = search_index

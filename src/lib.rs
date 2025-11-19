@@ -32,6 +32,7 @@ use jdt_activity_pub::{
 use jdt_activity_pub::{ApCollection, MaybeReference};
 use lazy_static::lazy_static;
 use log4rs as _;
+use std::sync::Arc;
 use models::activities::{get_announced, get_announcers, get_liked, get_likers};
 use models::actors::guaranteed_actor;
 use models::follows::{
@@ -214,6 +215,17 @@ lazy_static! {
             .timeout(std::time::Duration::from_secs(30))
             .build()
             .expect("Failed to create HTTP client")
+    };
+
+    // Global search index
+    // Creating a new SearchIndex repeatedly causes memory-mapped files to accumulate
+    // Reusing a single instance prevents mmap leaks
+    pub static ref SEARCH_INDEX: Arc<search::SearchIndex> = {
+        let index_path = format!("{}/search_index", *MEDIA_DIR);
+        Arc::new(
+            search::SearchIndex::new(&index_path)
+                .expect("Failed to initialize global search index")
+        )
     };
 }
 

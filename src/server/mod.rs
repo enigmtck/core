@@ -42,12 +42,9 @@ pub async fn start() {
         .expect("Failed to initialize BlockList for Axum");
     let event_channels = EventChannels::new();
 
-    // Initialize search index
-    let index_path = format!("{}/search_index", *crate::MEDIA_DIR);
-    let search_index = Arc::new(
-        SearchIndex::new(&index_path).expect("Failed to initialize search index")
-    );
-    log::info!("Search index initialized at {}", index_path);
+    // Use the global search index (shared across server and tasks)
+    let search_index = crate::SEARCH_INDEX.clone();
+    log::info!("Using global search index");
 
     // Create the application state.
     let app_state = AppState {

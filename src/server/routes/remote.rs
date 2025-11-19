@@ -258,11 +258,21 @@ pub async fn remote_object(
     signed: AxumSigned,
     Query(query): Query<IdQuery>,
 ) -> Result<Json<ApObject>, StatusCode> {
-    let url = urlencoding::decode(&query.id).map_err(|_| StatusCode::BAD_REQUEST)?;
+    let url = urlencoding::decode(&query.id).map_err(|e| {
+        log::warn!("Failed to decode URL parameter: {}", e);
+        StatusCode::BAD_REQUEST
+    })?;
     let url = url.to_string();
 
-    let domain = get_domain_from_url(url.clone()).ok_or(StatusCode::BAD_REQUEST)?;
-    if state.block_list.is_blocked(domain) {
+    log::debug!("remote_object request for: {}", url);
+
+    let domain = get_domain_from_url(url.clone()).ok_or_else(|| {
+        log::warn!("Failed to extract domain from URL: {}", url);
+        StatusCode::BAD_REQUEST
+    })?;
+
+    if state.block_list.is_blocked(domain.clone()) {
+        log::info!("Domain {} is blocked, rejecting remote_object request", domain);
         return Err(StatusCode::FORBIDDEN);
     }
 
@@ -270,10 +280,18 @@ pub async fn remote_object(
         .db_pool
         .get()
         .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        .map_err(|e| {
+            log::error!("Failed to get DB connection: {}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
 
-    let object = get_object(&conn, signed.profile(), url)
+    let object = get_object(&conn, signed.profile(), url.clone())
         .await
-        .map_err(|_| StatusCode::NOT_FOUND)?;
+        .map_err(|e| {
+            log::error!("remote_object failed for {}: {:#?}", url, e);
+            StatusCode::NOT_FOUND
+        })?;
+
+    log::debug!("remote_object succeeded for: {}", url);
     Ok(Json(object))
 }

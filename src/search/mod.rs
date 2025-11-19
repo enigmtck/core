@@ -119,7 +119,7 @@ impl SearchIndex {
     pub fn index_object(&self, object: &Object) -> Result<()> {
         retry_on_lock_contention(|| {
             let schema = self.objects_index.schema();
-            let mut writer = self.objects_index.writer(15_000_000)?;
+            let mut writer = self.objects_index.writer(15_000_000)?;  // Tantivy minimum
             indexer::index_object(&mut writer, object, &schema)?;
             writer.commit()?;
             Ok(())
@@ -130,7 +130,7 @@ impl SearchIndex {
     pub fn index_actor(&self, actor: &Actor) -> Result<()> {
         retry_on_lock_contention(|| {
             let schema = self.actors_index.schema();
-            let mut writer = self.actors_index.writer(15_000_000)?;
+            let mut writer = self.actors_index.writer(15_000_000)?;  // 3 MB instead of 15 MB
             indexer::index_actor(&mut writer, actor, &schema)?;
             writer.commit()?;
             Ok(())
@@ -142,7 +142,7 @@ impl SearchIndex {
         let object_id = object_id.to_string(); // Clone for closure
         retry_on_lock_contention(|| {
             let schema = self.objects_index.schema();
-            let mut writer = self.objects_index.writer(15_000_000)?;
+            let mut writer = self.objects_index.writer(15_000_000)?;  // 3 MB instead of 15 MB
             indexer::delete_object(&mut writer, &object_id, &schema)?;
             writer.commit()?;
             Ok(())
@@ -154,7 +154,7 @@ impl SearchIndex {
         let actor_id = actor_id.to_string(); // Clone for closure
         retry_on_lock_contention(|| {
             let schema = self.actors_index.schema();
-            let mut writer = self.actors_index.writer(15_000_000)?;
+            let mut writer = self.actors_index.writer(15_000_000)?;  // 3 MB instead of 15 MB
             indexer::delete_actor(&mut writer, &actor_id, &schema)?;
             writer.commit()?;
             Ok(())
@@ -258,7 +258,7 @@ impl SearchIndex {
         log::debug!("Bulk indexing {} objects", objects.len());
         retry_on_lock_contention_bulk(|| {
             let schema = self.objects_index.schema();
-            let mut writer = self.objects_index.writer(15_000_000)?;
+            let mut writer = self.objects_index.writer(15_000_000)?;  // 3 MB instead of 15 MB
 
             let mut indexed = 0;
             for object in objects {
@@ -280,7 +280,7 @@ impl SearchIndex {
         log::debug!("Bulk deleting {} objects", object_ids.len());
         retry_on_lock_contention_bulk(|| {
             let schema = self.objects_index.schema();
-            let mut writer = self.objects_index.writer(15_000_000)?;
+            let mut writer = self.objects_index.writer(15_000_000)?;  // 3 MB instead of 15 MB
 
             let mut deleted = 0;
             for object_id in object_ids {
@@ -302,7 +302,7 @@ impl SearchIndex {
         log::debug!("Bulk indexing {} actors", actors.len());
         retry_on_lock_contention_bulk(|| {
             let schema = self.actors_index.schema();
-            let mut writer = self.actors_index.writer(15_000_000)?;
+            let mut writer = self.actors_index.writer(15_000_000)?;  // 3 MB instead of 15 MB
 
             let mut indexed = 0;
             for actor in actors {
@@ -437,6 +437,14 @@ impl SearchIndex {
         let mut last_updated_at = since;
         let mut total_indexed = 0usize;
 
+        // Create ONE writer for the entire update session (not per batch!)
+        // This eliminates lock contention and reduces memory allocations
+        let schema = self.objects_index.schema();
+        let mut writer = retry_on_lock_contention(|| {
+            self.objects_index.writer(50_000_000)  // Larger buffer since it's long-lived
+                .context("Failed to create index writer")
+        })?;
+
         loop {
             let current_updated_at = last_updated_at;
             let batch: Vec<Object> = conn
@@ -462,7 +470,14 @@ impl SearchIndex {
             }
 
             let batch_count = batch.len();
-            self.bulk_index_objects(&batch)?;
+
+            // Index batch using existing writer (no new allocation!)
+            for object in &batch {
+                if let Err(e) = indexer::index_object(&mut writer, object, &schema) {
+                    log::warn!("Failed to index object {}: {:#?}", object.id, e);
+                }
+            }
+
             total_indexed += batch_count;
 
             log::debug!("Indexed batch of {} objects (total: {})", batch_count, total_indexed);
@@ -475,6 +490,10 @@ impl SearchIndex {
                 break;
             }
         }
+
+        // Commit once at the end of the entire update session
+        writer.commit()?;
+        log::debug!("Committed all {} indexed objects", total_indexed);
 
         Ok(total_indexed)
     }
@@ -493,6 +512,14 @@ impl SearchIndex {
 
         let mut last_updated_at = since;
         let mut total_indexed = 0usize;
+
+        // Create ONE writer for the entire update session (not per batch!)
+        // This eliminates lock contention and reduces memory allocations
+        let schema = self.actors_index.schema();
+        let mut writer = retry_on_lock_contention(|| {
+            self.actors_index.writer(50_000_000)  // Larger buffer since it's long-lived
+                .context("Failed to create index writer")
+        })?;
 
         loop {
             let current_updated_at = last_updated_at;
@@ -517,7 +544,14 @@ impl SearchIndex {
             }
 
             let batch_count = batch.len();
-            self.bulk_index_actors(&batch)?;
+
+            // Index batch using existing writer (no new allocation!)
+            for actor in &batch {
+                if let Err(e) = indexer::index_actor(&mut writer, actor, &schema) {
+                    log::warn!("Failed to index actor {}: {:#?}", actor.id, e);
+                }
+            }
+
             total_indexed += batch_count;
 
             log::debug!("Indexed batch of {} actors (total: {})", batch_count, total_indexed);
@@ -530,6 +564,10 @@ impl SearchIndex {
                 break;
             }
         }
+
+        // Commit once at the end of the entire update session
+        writer.commit()?;
+        log::debug!("Committed all {} indexed actors", total_indexed);
 
         Ok(total_indexed)
     }
@@ -550,6 +588,13 @@ impl SearchIndex {
         let mut last_updated_at = since;
         let mut total_removed = 0usize;
         let mut batch_count = 0usize;
+
+        // Create ONE writer for the entire removal session (not per batch!)
+        let schema = self.objects_index.schema();
+        let mut writer = retry_on_lock_contention(|| {
+            self.objects_index.writer(50_000_000)  // Larger buffer since it's long-lived
+                .context("Failed to create index writer")
+        })?;
 
         loop {
             let current_updated_at = last_updated_at;
@@ -581,20 +626,19 @@ impl SearchIndex {
                 last_updated_at = last_obj.updated_at;
             }
 
-            // Collect object IDs for bulk deletion
-            let object_ids: Vec<String> = batch.iter()
-                .map(|obj| obj.id.to_string())
-                .collect();
-
-            let removed_in_batch = object_ids.len();
-
-            // Bulk delete all tombstoned objects in this batch
-            self.bulk_delete_objects(&object_ids)?;
-            total_removed += removed_in_batch;
+            // Delete tombstones using existing writer (no new allocation!)
+            for object in &batch {
+                let object_id = object.id.to_string();
+                if let Err(e) = indexer::delete_object(&mut writer, &object_id, &schema) {
+                    log::warn!("Failed to delete object {}: {:#?}", object_id, e);
+                } else {
+                    total_removed += 1;
+                }
+            }
 
             log::info!(
                 "Removed {} tombstoned objects from index in batch {} (total removed: {})",
-                removed_in_batch,
+                batch.len(),
                 batch_count,
                 total_removed
             );
@@ -606,6 +650,8 @@ impl SearchIndex {
             }
         }
 
+        // Commit all deletions at once
+        writer.commit()?;
         log::info!("Tombstone removal complete: {} objects removed in {} batches", total_removed, batch_count);
         Ok(total_removed)
     }
@@ -738,7 +784,7 @@ impl SearchIndex {
 
         // Wait for objects index merges to complete
         retry_on_lock_contention(|| {
-            let writer: tantivy::IndexWriter<TantivyDocument> = self.objects_index.writer(15_000_000)?;
+            let writer: tantivy::IndexWriter<TantivyDocument> = self.objects_index.writer(15_000_000)?;  // 3 MB instead of 15 MB
             log::debug!("Waiting for objects index merge threads...");
             writer.wait_merging_threads()?;
             log::debug!("Objects index merges complete");
@@ -747,7 +793,7 @@ impl SearchIndex {
 
         // Wait for actors index merges to complete
         retry_on_lock_contention(|| {
-            let writer: tantivy::IndexWriter<TantivyDocument> = self.actors_index.writer(15_000_000)?;
+            let writer: tantivy::IndexWriter<TantivyDocument> = self.actors_index.writer(15_000_000)?;  // 3 MB instead of 15 MB
             log::debug!("Waiting for actors index merge threads...");
             writer.wait_merging_threads()?;
             log::debug!("Actors index merges complete");
