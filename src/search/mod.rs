@@ -3,15 +3,14 @@ mod query;
 mod schema;
 
 pub use query::{
-    ActorSearchResult, ObjectSearchResult, SearchContext, SearchFilters,
-    SearchResults, SortOrder,
+    ActorSearchResult, ObjectSearchResult, SearchContext, SearchFilters, SearchResults, SortOrder,
 };
 
 use anyhow::{Context, Result};
 use std::path::{Path, PathBuf};
 use std::thread;
 use std::time::Duration;
-use tantivy::Index;
+use tantivy::{Index, IndexReader, ReloadPolicy};
 
 use crate::models::actors::Actor;
 use crate::models::objects::Object;
@@ -76,6 +75,10 @@ where
 pub struct SearchIndex {
     objects_index: Index,
     actors_index: Index,
+    /// Cached reader for objects index - reused across searches to avoid mmap churn
+    objects_reader: IndexReader,
+    /// Cached reader for actors index - reused across searches to avoid mmap churn
+    actors_reader: IndexReader,
     index_dir: PathBuf,
 }
 
@@ -108,9 +111,25 @@ impl SearchIndex {
             actors_schema,
         )?;
 
+        // Create cached readers with auto-reload on commit
+        // Reusing readers avoids creating new mmap handles on every search
+        let objects_reader = objects_index
+            .reader_builder()
+            .reload_policy(ReloadPolicy::OnCommitWithDelay)
+            .try_into()
+            .context("Failed to create objects index reader")?;
+
+        let actors_reader = actors_index
+            .reader_builder()
+            .reload_policy(ReloadPolicy::OnCommitWithDelay)
+            .try_into()
+            .context("Failed to create actors index reader")?;
+
         Ok(Self {
             objects_index,
             actors_index,
+            objects_reader,
+            actors_reader,
             index_dir,
         })
     }
@@ -119,7 +138,7 @@ impl SearchIndex {
     pub fn index_object(&self, object: &Object) -> Result<()> {
         retry_on_lock_contention(|| {
             let schema = self.objects_index.schema();
-            let mut writer = self.objects_index.writer(15_000_000)?;  // Tantivy minimum
+            let mut writer = self.objects_index.writer(15_000_000)?; // Tantivy minimum
             indexer::index_object(&mut writer, object, &schema)?;
             writer.commit()?;
             Ok(())
@@ -130,7 +149,7 @@ impl SearchIndex {
     pub fn index_actor(&self, actor: &Actor) -> Result<()> {
         retry_on_lock_contention(|| {
             let schema = self.actors_index.schema();
-            let mut writer = self.actors_index.writer(15_000_000)?;  // 3 MB instead of 15 MB
+            let mut writer = self.actors_index.writer(15_000_000)?; // 3 MB instead of 15 MB
             indexer::index_actor(&mut writer, actor, &schema)?;
             writer.commit()?;
             Ok(())
@@ -142,7 +161,7 @@ impl SearchIndex {
         let object_id = object_id.to_string(); // Clone for closure
         retry_on_lock_contention(|| {
             let schema = self.objects_index.schema();
-            let mut writer = self.objects_index.writer(15_000_000)?;  // 3 MB instead of 15 MB
+            let mut writer = self.objects_index.writer(15_000_000)?; // 3 MB instead of 15 MB
             indexer::delete_object(&mut writer, &object_id, &schema)?;
             writer.commit()?;
             Ok(())
@@ -154,7 +173,7 @@ impl SearchIndex {
         let actor_id = actor_id.to_string(); // Clone for closure
         retry_on_lock_contention(|| {
             let schema = self.actors_index.schema();
-            let mut writer = self.actors_index.writer(15_000_000)?;  // 3 MB instead of 15 MB
+            let mut writer = self.actors_index.writer(15_000_000)?; // 3 MB instead of 15 MB
             indexer::delete_actor(&mut writer, &actor_id, &schema)?;
             writer.commit()?;
             Ok(())
@@ -170,22 +189,35 @@ impl SearchIndex {
         limit: usize,
         offset: usize,
     ) -> Result<SearchResults> {
-        let objects = query::search_objects(&self.objects_index, query, context, filters, limit, offset)
-            .unwrap_or_else(|e| {
-                log::error!("Error searching objects: {:#?}", e);
-                Vec::new()
-            });
+        let objects = query::search_objects(
+            &self.objects_index,
+            &self.objects_reader,
+            query,
+            context,
+            filters,
+            limit,
+            offset,
+        )
+        .unwrap_or_else(|e| {
+            log::error!("Error searching objects: {:#?}", e);
+            Vec::new()
+        });
 
-        let actors = query::search_actors(&self.actors_index, query, context, filters, limit, offset)
-            .unwrap_or_else(|e| {
-                log::error!("Error searching actors: {:#?}", e);
-                Vec::new()
-            });
+        let actors = query::search_actors(
+            &self.actors_index,
+            &self.actors_reader,
+            query,
+            context,
+            filters,
+            limit,
+            offset,
+        )
+        .unwrap_or_else(|e| {
+            log::error!("Error searching actors: {:#?}", e);
+            Vec::new()
+        });
 
-        Ok(SearchResults {
-            objects,
-            actors,
-        })
+        Ok(SearchResults { objects, actors })
     }
 
     /// Search only objects
@@ -197,7 +229,15 @@ impl SearchIndex {
         limit: usize,
         offset: usize,
     ) -> Result<Vec<ObjectSearchResult>> {
-        query::search_objects(&self.objects_index, query, context, filters, limit, offset)
+        query::search_objects(
+            &self.objects_index,
+            &self.objects_reader,
+            query,
+            context,
+            filters,
+            limit,
+            offset,
+        )
     }
 
     /// Search only actors
@@ -209,28 +249,26 @@ impl SearchIndex {
         limit: usize,
         offset: usize,
     ) -> Result<Vec<ActorSearchResult>> {
-        query::search_actors(&self.actors_index, query, context, filters, limit, offset)
+        query::search_actors(
+            &self.actors_index,
+            &self.actors_reader,
+            query,
+            context,
+            filters,
+            limit,
+            offset,
+        )
     }
 
     /// Get index statistics
     pub fn get_stats(&self) -> Result<IndexStats> {
-        let objects_reader = self.objects_index
-            .reader_builder()
-            .reload_policy(tantivy::ReloadPolicy::OnCommitWithDelay)
-            .try_into()?;
+        // Force reload to pick up recent commits
+        self.objects_reader.reload()?;
+        let objects_count = self.objects_reader.searcher().num_docs() as usize;
 
         // Force reload to pick up recent commits
-        objects_reader.reload()?;
-        let objects_count = objects_reader.searcher().num_docs() as usize;
-
-        let actors_reader = self.actors_index
-            .reader_builder()
-            .reload_policy(tantivy::ReloadPolicy::OnCommitWithDelay)
-            .try_into()?;
-
-        // Force reload to pick up recent commits
-        actors_reader.reload()?;
-        let actors_count = actors_reader.searcher().num_docs() as usize;
+        self.actors_reader.reload()?;
+        let actors_count = self.actors_reader.searcher().num_docs() as usize;
 
         Ok(IndexStats {
             objects_count,
@@ -258,7 +296,7 @@ impl SearchIndex {
         log::debug!("Bulk indexing {} objects", objects.len());
         retry_on_lock_contention_bulk(|| {
             let schema = self.objects_index.schema();
-            let mut writer = self.objects_index.writer(15_000_000)?;  // 3 MB instead of 15 MB
+            let mut writer = self.objects_index.writer(15_000_000)?; // 3 MB instead of 15 MB
 
             let mut indexed = 0;
             for object in objects {
@@ -270,7 +308,11 @@ impl SearchIndex {
             }
 
             writer.commit()?;
-            log::debug!("Committed batch of {} objects (indexed {} successfully)", objects.len(), indexed);
+            log::debug!(
+                "Committed batch of {} objects (indexed {} successfully)",
+                objects.len(),
+                indexed
+            );
             Ok(())
         })
     }
@@ -280,7 +322,7 @@ impl SearchIndex {
         log::debug!("Bulk deleting {} objects", object_ids.len());
         retry_on_lock_contention_bulk(|| {
             let schema = self.objects_index.schema();
-            let mut writer = self.objects_index.writer(15_000_000)?;  // 3 MB instead of 15 MB
+            let mut writer = self.objects_index.writer(15_000_000)?; // 3 MB instead of 15 MB
 
             let mut deleted = 0;
             for object_id in object_ids {
@@ -292,7 +334,11 @@ impl SearchIndex {
             }
 
             writer.commit()?;
-            log::debug!("Committed batch deletion of {} objects ({} successfully deleted)", object_ids.len(), deleted);
+            log::debug!(
+                "Committed batch deletion of {} objects ({} successfully deleted)",
+                object_ids.len(),
+                deleted
+            );
             Ok(())
         })
     }
@@ -302,7 +348,7 @@ impl SearchIndex {
         log::debug!("Bulk indexing {} actors", actors.len());
         retry_on_lock_contention_bulk(|| {
             let schema = self.actors_index.schema();
-            let mut writer = self.actors_index.writer(15_000_000)?;  // 3 MB instead of 15 MB
+            let mut writer = self.actors_index.writer(15_000_000)?; // 3 MB instead of 15 MB
 
             let mut indexed = 0;
             for actor in actors {
@@ -314,7 +360,11 @@ impl SearchIndex {
             }
 
             writer.commit()?;
-            log::debug!("Committed batch of {} actors (indexed {} successfully)", actors.len(), indexed);
+            log::debug!(
+                "Committed batch of {} actors (indexed {} successfully)",
+                actors.len(),
+                indexed
+            );
             Ok(())
         })
     }
@@ -327,8 +377,8 @@ impl SearchIndex {
         batch_size: i64,
         mut progress_callback: impl FnMut(usize),
     ) -> Result<usize> {
-        use diesel::prelude::*;
         use crate::schema::objects;
+        use diesel::prelude::*;
 
         let mut last_id = 0i32;
         let mut total_indexed = 0usize;
@@ -379,8 +429,8 @@ impl SearchIndex {
         batch_size: i64,
         mut progress_callback: impl FnMut(usize),
     ) -> Result<usize> {
-        use diesel::prelude::*;
         use crate::schema::actors;
+        use diesel::prelude::*;
 
         let mut last_id = 0i32;
         let mut total_indexed = 0usize;
@@ -431,8 +481,8 @@ impl SearchIndex {
         batch_size: i64,
         mut checkpoint_callback: impl FnMut(chrono::DateTime<chrono::Utc>),
     ) -> Result<usize> {
-        use diesel::prelude::*;
         use crate::schema::objects;
+        use diesel::prelude::*;
 
         let mut last_updated_at = since;
         let mut total_indexed = 0usize;
@@ -441,7 +491,8 @@ impl SearchIndex {
         // This eliminates lock contention and reduces memory allocations
         let schema = self.objects_index.schema();
         let mut writer = retry_on_lock_contention(|| {
-            self.objects_index.writer(50_000_000)  // Larger buffer since it's long-lived
+            self.objects_index
+                .writer(50_000_000) // Larger buffer since it's long-lived
                 .context("Failed to create index writer")
         })?;
 
@@ -480,7 +531,11 @@ impl SearchIndex {
 
             total_indexed += batch_count;
 
-            log::debug!("Indexed batch of {} objects (total: {})", batch_count, total_indexed);
+            log::debug!(
+                "Indexed batch of {} objects (total: {})",
+                batch_count,
+                total_indexed
+            );
 
             // Update checkpoint after successful batch
             checkpoint_callback(last_updated_at);
@@ -507,8 +562,8 @@ impl SearchIndex {
         batch_size: i64,
         mut checkpoint_callback: impl FnMut(chrono::DateTime<chrono::Utc>),
     ) -> Result<usize> {
-        use diesel::prelude::*;
         use crate::schema::actors;
+        use diesel::prelude::*;
 
         let mut last_updated_at = since;
         let mut total_indexed = 0usize;
@@ -517,7 +572,8 @@ impl SearchIndex {
         // This eliminates lock contention and reduces memory allocations
         let schema = self.actors_index.schema();
         let mut writer = retry_on_lock_contention(|| {
-            self.actors_index.writer(50_000_000)  // Larger buffer since it's long-lived
+            self.actors_index
+                .writer(50_000_000) // Larger buffer since it's long-lived
                 .context("Failed to create index writer")
         })?;
 
@@ -554,7 +610,11 @@ impl SearchIndex {
 
             total_indexed += batch_count;
 
-            log::debug!("Indexed batch of {} actors (total: {})", batch_count, total_indexed);
+            log::debug!(
+                "Indexed batch of {} actors (total: {})",
+                batch_count,
+                total_indexed
+            );
 
             // Update checkpoint after successful batch
             checkpoint_callback(last_updated_at);
@@ -580,10 +640,13 @@ impl SearchIndex {
         since: chrono::DateTime<chrono::Utc>,
         batch_size: i64,
     ) -> Result<usize> {
-        use diesel::prelude::*;
         use crate::schema::objects;
+        use diesel::prelude::*;
 
-        log::debug!("Starting tombstone removal process for objects updated since {}", since);
+        log::debug!(
+            "Starting tombstone removal process for objects updated since {}",
+            since
+        );
 
         let mut last_updated_at = since;
         let mut total_removed = 0usize;
@@ -592,13 +655,17 @@ impl SearchIndex {
         // Create ONE writer for the entire removal session (not per batch!)
         let schema = self.objects_index.schema();
         let mut writer = retry_on_lock_contention(|| {
-            self.objects_index.writer(50_000_000)  // Larger buffer since it's long-lived
+            self.objects_index
+                .writer(50_000_000) // Larger buffer since it's long-lived
                 .context("Failed to create index writer")
         })?;
 
         loop {
             let current_updated_at = last_updated_at;
-            log::debug!("Querying for tombstones updated since {}", current_updated_at);
+            log::debug!(
+                "Querying for tombstones updated since {}",
+                current_updated_at
+            );
 
             // Query for Tombstone objects that were updated since checkpoint
             let batch: Vec<Object> = conn
@@ -645,14 +712,22 @@ impl SearchIndex {
 
             // If we got fewer than batch_size, we're done
             if batch.len() < batch_size as usize {
-                log::debug!("Batch size ({}) < limit ({}), finishing removal process", batch.len(), batch_size);
+                log::debug!(
+                    "Batch size ({}) < limit ({}), finishing removal process",
+                    batch.len(),
+                    batch_size
+                );
                 break;
             }
         }
 
         // Commit all deletions at once
         writer.commit()?;
-        log::info!("Tombstone removal complete: {} objects removed in {} batches", total_removed, batch_count);
+        log::info!(
+            "Tombstone removal complete: {} objects removed in {} batches",
+            total_removed,
+            batch_count
+        );
         Ok(total_removed)
     }
 
@@ -676,50 +751,48 @@ impl SearchIndex {
         };
 
         // Separate checkpoint file paths for objects and actors
-        let objects_checkpoint_path = format!(
-            "{}/search_index_objects_checkpoint.txt",
-            *crate::MEDIA_DIR
-        );
-        let actors_checkpoint_path = format!(
-            "{}/search_index_actors_checkpoint.txt",
-            *crate::MEDIA_DIR
-        );
+        let objects_checkpoint_path =
+            format!("{}/search_index_objects_checkpoint.txt", *crate::MEDIA_DIR);
+        let actors_checkpoint_path =
+            format!("{}/search_index_actors_checkpoint.txt", *crate::MEDIA_DIR);
 
         // Read last checkpoint time for objects (or use epoch if first run)
-        let objects_last_checkpoint: DateTime<Utc> = if std::path::Path::new(&objects_checkpoint_path).exists() {
-            if let Ok(checkpoint_str) = std::fs::read_to_string(&objects_checkpoint_path) {
-                if let Ok(timestamp) = checkpoint_str.trim().parse::<i64>() {
-                    DateTime::from_timestamp(timestamp, 0).unwrap_or_else(Utc::now)
+        let objects_last_checkpoint: DateTime<Utc> =
+            if std::path::Path::new(&objects_checkpoint_path).exists() {
+                if let Ok(checkpoint_str) = std::fs::read_to_string(&objects_checkpoint_path) {
+                    if let Ok(timestamp) = checkpoint_str.trim().parse::<i64>() {
+                        DateTime::from_timestamp(timestamp, 0).unwrap_or_else(Utc::now)
+                    } else {
+                        log::warn!("Failed to parse objects checkpoint timestamp, using epoch");
+                        DateTime::from_timestamp(0, 0).unwrap()
+                    }
                 } else {
-                    log::warn!("Failed to parse objects checkpoint timestamp, using epoch");
+                    log::warn!("Failed to read objects checkpoint file, using epoch");
                     DateTime::from_timestamp(0, 0).unwrap()
                 }
             } else {
-                log::warn!("Failed to read objects checkpoint file, using epoch");
+                log::info!("No objects checkpoint file found, starting from epoch");
                 DateTime::from_timestamp(0, 0).unwrap()
-            }
-        } else {
-            log::info!("No objects checkpoint file found, starting from epoch");
-            DateTime::from_timestamp(0, 0).unwrap()
-        };
+            };
 
         // Read last checkpoint time for actors (or use epoch if first run)
-        let actors_last_checkpoint: DateTime<Utc> = if std::path::Path::new(&actors_checkpoint_path).exists() {
-            if let Ok(checkpoint_str) = std::fs::read_to_string(&actors_checkpoint_path) {
-                if let Ok(timestamp) = checkpoint_str.trim().parse::<i64>() {
-                    DateTime::from_timestamp(timestamp, 0).unwrap_or_else(Utc::now)
+        let actors_last_checkpoint: DateTime<Utc> =
+            if std::path::Path::new(&actors_checkpoint_path).exists() {
+                if let Ok(checkpoint_str) = std::fs::read_to_string(&actors_checkpoint_path) {
+                    if let Ok(timestamp) = checkpoint_str.trim().parse::<i64>() {
+                        DateTime::from_timestamp(timestamp, 0).unwrap_or_else(Utc::now)
+                    } else {
+                        log::warn!("Failed to parse actors checkpoint timestamp, using epoch");
+                        DateTime::from_timestamp(0, 0).unwrap()
+                    }
                 } else {
-                    log::warn!("Failed to parse actors checkpoint timestamp, using epoch");
+                    log::warn!("Failed to read actors checkpoint file, using epoch");
                     DateTime::from_timestamp(0, 0).unwrap()
                 }
             } else {
-                log::warn!("Failed to read actors checkpoint file, using epoch");
+                log::info!("No actors checkpoint file found, starting from epoch");
                 DateTime::from_timestamp(0, 0).unwrap()
-            }
-        } else {
-            log::info!("No actors checkpoint file found, starting from epoch");
-            DateTime::from_timestamp(0, 0).unwrap()
-        };
+            };
 
         log::info!(
             "Indexing objects updated since: {}, actors updated since: {}",
@@ -735,32 +808,49 @@ impl SearchIndex {
                 .await?;
 
             if tombstones_removed > 0 {
-                log::info!("Removed {} tombstoned objects from search index", tombstones_removed);
+                log::info!(
+                    "Removed {} tombstoned objects from search index",
+                    tombstones_removed
+                );
             }
         }
 
         // Index objects with checkpoint updates after each batch
         let objects_indexed = self
-            .index_objects_updated_since(conn, objects_last_checkpoint, effective_batch_size, |updated_at| {
-                // Update checkpoint after each successful batch
-                if let Err(e) = std::fs::write(&objects_checkpoint_path, updated_at.timestamp().to_string()) {
-                    log::warn!("Failed to update objects checkpoint: {}", e);
-                } else {
-                    log::debug!("Updated objects checkpoint to {}", updated_at);
-                }
-            })
+            .index_objects_updated_since(
+                conn,
+                objects_last_checkpoint,
+                effective_batch_size,
+                |updated_at| {
+                    // Update checkpoint after each successful batch
+                    if let Err(e) =
+                        std::fs::write(&objects_checkpoint_path, updated_at.timestamp().to_string())
+                    {
+                        log::warn!("Failed to update objects checkpoint: {}", e);
+                    } else {
+                        log::debug!("Updated objects checkpoint to {}", updated_at);
+                    }
+                },
+            )
             .await?;
 
         // Index actors with checkpoint updates after each batch
         let actors_indexed = self
-            .index_actors_updated_since(conn, actors_last_checkpoint, effective_batch_size, |updated_at| {
-                // Update checkpoint after each successful batch
-                if let Err(e) = std::fs::write(&actors_checkpoint_path, updated_at.timestamp().to_string()) {
-                    log::warn!("Failed to update actors checkpoint: {}", e);
-                } else {
-                    log::debug!("Updated actors checkpoint to {}", updated_at);
-                }
-            })
+            .index_actors_updated_since(
+                conn,
+                actors_last_checkpoint,
+                effective_batch_size,
+                |updated_at| {
+                    // Update checkpoint after each successful batch
+                    if let Err(e) =
+                        std::fs::write(&actors_checkpoint_path, updated_at.timestamp().to_string())
+                    {
+                        log::warn!("Failed to update actors checkpoint: {}", e);
+                    } else {
+                        log::debug!("Updated actors checkpoint to {}", updated_at);
+                    }
+                },
+            )
             .await?;
 
         log::info!(
@@ -784,7 +874,8 @@ impl SearchIndex {
 
         // Wait for objects index merges to complete
         retry_on_lock_contention(|| {
-            let writer: tantivy::IndexWriter<TantivyDocument> = self.objects_index.writer(15_000_000)?;  // 3 MB instead of 15 MB
+            let writer: tantivy::IndexWriter<TantivyDocument> =
+                self.objects_index.writer(15_000_000)?; // 3 MB instead of 15 MB
             log::debug!("Waiting for objects index merge threads...");
             writer.wait_merging_threads()?;
             log::debug!("Objects index merges complete");
@@ -793,7 +884,8 @@ impl SearchIndex {
 
         // Wait for actors index merges to complete
         retry_on_lock_contention(|| {
-            let writer: tantivy::IndexWriter<TantivyDocument> = self.actors_index.writer(15_000_000)?;  // 3 MB instead of 15 MB
+            let writer: tantivy::IndexWriter<TantivyDocument> =
+                self.actors_index.writer(15_000_000)?; // 3 MB instead of 15 MB
             log::debug!("Waiting for actors index merge threads...");
             writer.wait_merging_threads()?;
             log::debug!("Actors index merges complete");

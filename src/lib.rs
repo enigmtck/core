@@ -25,14 +25,12 @@ use dotenvy::dotenv;
 use env_logger as _;
 use indicatif as _;
 use jdt_activity_pub::MaybeMultiple;
-use tempfile as _;
 use jdt_activity_pub::{
     ActivityPub, ApActivity, ApActor, ApArticle, ApNote, ApObject, ApQuestion, ApTag, Ephemeral,
 };
 use jdt_activity_pub::{ApCollection, MaybeReference};
 use lazy_static::lazy_static;
 use log4rs as _;
-use std::sync::Arc;
 use models::activities::{get_announced, get_announcers, get_liked, get_likers};
 use models::actors::guaranteed_actor;
 use models::follows::{
@@ -50,11 +48,13 @@ use std::cmp::Ordering;
 use std::collections::HashSet;
 use std::env;
 use std::path::PathBuf;
+use std::sync::Arc;
+use tempfile as _;
 use tower as _;
 use tower_http as _;
 
-#[cfg(feature = "vendored-openssl")]
-use openssl as _;
+// #[cfg(feature = "vendored-openssl")]
+// use openssl as _;
 
 #[cfg(feature = "bundled-postgres")]
 use pq_sys as _;
@@ -213,6 +213,10 @@ lazy_static! {
         reqwest::Client::builder()
             .user_agent(format!("Enigmatick/{}", *INSTANCE_VERSION))
             .timeout(std::time::Duration::from_secs(30))
+            // Limit connection pool to reduce memory from TLS buffers (OpenSSL uses glibc malloc)
+            // Federation contacts many unique hosts; without limits, idle connections accumulate
+            .pool_max_idle_per_host(2)  // Max 2 idle connections per remote server
+            .pool_idle_timeout(std::time::Duration::from_secs(30))  // Close idle connections faster
             .build()
             .expect("Failed to create HTTP client")
     };
@@ -343,7 +347,10 @@ where
         const MAX_REPLY_DEPTH: usize = 50;
 
         if depth >= MAX_REPLY_DEPTH {
-            log::warn!("Max reply depth ({}) reached, stopping recursion", MAX_REPLY_DEPTH);
+            log::warn!(
+                "Max reply depth ({}) reached, stopping recursion",
+                MAX_REPLY_DEPTH
+            );
             return self.clone();
         }
 

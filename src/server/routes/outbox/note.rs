@@ -1,5 +1,6 @@
 use super::ActivityJson;
 use crate::server::routes::Outbox;
+use crate::server::AppState;
 use crate::{
     db::runner::DbRunner,
     events::EventChannels,
@@ -24,7 +25,6 @@ use crate::{
 };
 use anyhow::Result;
 use chrono::Utc;
-use crate::server::AppState;
 use deadpool_diesel::postgres::Pool;
 use jdt_activity_pub::MaybeMultiple;
 use jdt_activity_pub::{
@@ -277,12 +277,10 @@ async fn note_outbox<C: DbRunner>(
     log::debug!("build_activity took {:?}", start.elapsed());
 
     let start = std::time::Instant::now();
-    let activity = create_activity(conn, new_activity)
-        .await
-        .map_err(|e| {
-            log::error!("Failed to create Activity: {e:#?}");
-            StatusCode::INTERNAL_SERVER_ERROR
-        })?;
+    let activity = create_activity(conn, new_activity).await.map_err(|e| {
+        log::error!("Failed to create Activity: {e:#?}");
+        StatusCode::INTERNAL_SERVER_ERROR
+    })?;
     log::debug!("create_activity took {:?}", start.elapsed());
 
     for instrument in process_instruments(note.clone()).await? {

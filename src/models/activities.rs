@@ -18,9 +18,10 @@ use jdt_activity_pub::ApRemoveType;
 use jdt_activity_pub::MaybeMultiple;
 use jdt_activity_pub::MaybeReference;
 use jdt_activity_pub::{
-    ApAccept, ApAcceptType, ApActivity, ApAddress, ApAnnounce, ApAnnounceType, ApContext, ApCreate,
-    ApCreateType, ApDelete, ApDeleteType, ApFollow, ApFollowType, ApInstrument, ApLike, ApLikeType,
-    ApNote, ApObject, ApQuestion, ApUndo, ApUndoType, ApUpdateType, Ephemeral,
+    ApAccept, ApAcceptType, ApActivity, ApActor, ApAddress, ApAnnounce, ApAnnounceType, ApContext,
+    ApCreate, ApCreateType, ApDateTime, ApDelete, ApDeleteType, ApFollow, ApFollowType,
+    ApInstrument, ApLike, ApLikeType, ApNote, ApObject, ApQuestion, ApUndo, ApUndoType,
+    ApUpdateType, Ephemeral,
 };
 use jdt_activity_pub::{ApUpdate, PUBLIC_COLLECTION};
 use serde::{Deserialize, Serialize};
@@ -334,6 +335,7 @@ pub struct Activity {
     pub target_actor_id: Option<i32>,
     pub log: Option<Value>,
     pub instrument: Option<Value>,
+    pub as_published: Option<DateTime<Utc>>,
 }
 
 impl Activity {
@@ -366,6 +368,7 @@ pub struct NewActivity {
     pub target_actor_id: Option<i32>,
     pub log: Option<Value>,
     pub instrument: Option<Value>,
+    pub as_published: Option<DateTime<Utc>>,
 }
 
 impl Default for NewActivity {
@@ -389,6 +392,7 @@ impl Default for NewActivity {
             target_actor_id: None,
             log: Some(json!([])),
             instrument: None,
+            as_published: None,
         }
     }
 }
@@ -531,13 +535,15 @@ impl TryFrom<ApActivityTarget> for NewActivity {
                     kind: update.kind.clone().into(),
                     uuid: uuid.clone(),
                     actor: update.actor.to_string(),
+                    ap_to: update.to.clone().into(),
                     target_ap_id: actor.id.map(|x| x.to_string()),
                     revoked: false,
                     ap_id: update
                         .id
                         .clone()
                         .map_or(Some(get_activity_ap_id_from_uuid(uuid)), Some),
-                    raw: Some(json!(update)),
+                    raw: Some(json!(update.clone())),
+                    as_published: update.published.map(|p| *p),
                     ..Default::default()
                 }
                 .link_target(target)
@@ -546,11 +552,13 @@ impl TryFrom<ApActivityTarget> for NewActivity {
                     kind: update.kind.into(),
                     uuid: uuid.clone(),
                     actor: update.actor.to_string(),
+                    ap_to: update.to.clone().into(),
                     target_ap_id: object.id.map(|x| x.to_string()),
                     revoked: false,
                     ap_id: update
                         .id
                         .map_or(Some(get_activity_ap_id_from_uuid(uuid)), Some),
+                    as_published: update.published.map(|p| *p),
                     ..Default::default()
                 }
                 .link_target(target)
@@ -559,11 +567,28 @@ impl TryFrom<ApActivityTarget> for NewActivity {
                     kind: update.kind.into(),
                     uuid: uuid.clone(),
                     actor: update.actor.to_string(),
+                    ap_to: update.to.clone().into(),
                     target_ap_id: object.id.map(|x| x.to_string()),
                     revoked: false,
                     ap_id: update
                         .id
                         .map_or(Some(get_activity_ap_id_from_uuid(uuid)), Some),
+                    as_published: update.published.map(|p| *p),
+                    ..Default::default()
+                }
+                .link_target(target)
+                .clone()),
+                MaybeReference::Actual(ApObject::Article(object)) => Ok(NewActivity {
+                    kind: update.kind.into(),
+                    uuid: uuid.clone(),
+                    actor: update.actor.to_string(),
+                    ap_to: update.to.clone().into(),
+                    target_ap_id: object.id.map(|x| x.to_string()),
+                    revoked: false,
+                    ap_id: update
+                        .id
+                        .map_or(Some(get_activity_ap_id_from_uuid(uuid)), Some),
+                    as_published: update.published.map(|p| *p),
                     ..Default::default()
                 }
                 .link_target(target)
@@ -572,10 +597,12 @@ impl TryFrom<ApActivityTarget> for NewActivity {
                     kind: update.kind.into(),
                     uuid: uuid.clone(),
                     actor: update.actor.to_string(),
+                    ap_to: update.to.clone().into(),
                     revoked: false,
                     ap_id: update
                         .id
                         .map_or(Some(get_activity_ap_id_from_uuid(uuid)), Some),
+                    as_published: update.published.map(|p| *p),
                     ..Default::default()
                 }),
                 _ => Err(anyhow!(
@@ -822,16 +849,34 @@ impl TryFromExtendedActivity for ApUpdate {
     type Error = anyhow::Error;
 
     fn try_from_extended_activity(
-        (activity, _target_activity, _target_object, _target_actor): ExtendedActivity,
+        (activity, _target_activity, target_object, target_actor): ExtendedActivity,
     ) -> Result<Self, Self::Error> {
-        // I wrote this with updating a collection of instruments in mind; for Actor or Object
-        // updates, we probably want to do more here
+        // Reconstruct the object from target_object or target_actor
+        let object = if let Some(obj) = target_object {
+            MaybeReference::Actual(ApObject::try_from(obj)?)
+        } else if let Some(actor) = target_actor {
+            MaybeReference::Actual(ApObject::Actor(ApActor::from(actor)))
+        } else {
+            MaybeReference::None
+        };
+
+        // Extract to addresses from activity.ap_to
+        let to: MaybeMultiple<ApAddress> = activity
+            .ap_to
+            .map(|v| serde_json::from_value(v).unwrap_or_default())
+            .unwrap_or_default();
+
+        // Convert as_published to ApDateTime
+        let published = activity.as_published.map(ApDateTime::from);
+
         Ok(ApUpdate {
             context: Some(ApContext::default()),
             kind: ApUpdateType::default(),
             actor: activity.actor.clone().into(),
             id: Some(activity.ap_id.ok_or(anyhow!("Update must have an ap_id"))?),
-            object: MaybeReference::None,
+            to,
+            object,
+            published,
             ..Default::default()
         })
     }
@@ -1083,6 +1128,7 @@ fn target_to_main(coalesced: CoalescedActivity) -> Option<Activity> {
         target_actor_id: coalesced.recursive_target_actor_id,
         log: None,
         instrument: coalesced.recursive_instrument,
+        as_published: None,
     })
 }
 
@@ -1110,6 +1156,7 @@ impl From<CoalescedActivity> for ExtendedActivity {
             //log: coalesced.log.clone(),
             log: None,
             instrument: coalesced.instrument.clone(),
+            as_published: coalesced.as_published,
         };
 
         let target_activity = target_to_main(coalesced.clone());

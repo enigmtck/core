@@ -1,6 +1,7 @@
 use super::ActivityJson;
 use crate::db::runner::DbRunner;
 use crate::server::routes::Outbox;
+use crate::server::AppState;
 use crate::{
     models::{
         activities::{create_activity, NewActivity},
@@ -9,7 +10,6 @@ use crate::{
     },
     runner,
 };
-use crate::server::AppState;
 use jdt_activity_pub::{ApActivity, ApLike};
 use reqwest::StatusCode;
 use serde_json::Value;

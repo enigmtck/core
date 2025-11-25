@@ -157,42 +157,59 @@ pub async fn get_object<C: DbRunner>(
         let actor = guaranteed_actor(conn, profile.clone()).await;
         log::debug!("Using actor for signed request: {}", actor.as_id);
 
-        let resp = signed_get(actor, id.clone(), false).await
+        let resp = signed_get(actor, id.clone(), false)
+            .await
             .context(format!("Failed to perform signed GET for {}", id))?;
 
         let status = resp.status();
         log::debug!("Remote response status for {}: {}", id, status);
 
         if resp.status().is_success() {
-            let text = resp.text().await
+            let text = resp
+                .text()
+                .await
                 .context(format!("Failed to read response body for {}", id))?;
 
             log::debug!("Response body length for {}: {} bytes", id, text.len());
 
-            let fetched_ap_object: ApObject = serde_json::from_str(&text)
-                .context(format!("Failed to parse ApObject from response for {}: {}", id,
-                    if text.len() > 500 { &text[..500] } else { &text }))?;
+            let fetched_ap_object: ApObject = serde_json::from_str(&text).context(format!(
+                "Failed to parse ApObject from response for {}: {}",
+                id,
+                if text.len() > 500 {
+                    &text[..500]
+                } else {
+                    &text
+                }
+            ))?;
 
             // Log the actual variant name using Debug formatting
             let variant_name = format!("{:?}", fetched_ap_object)
-                .split('(').next().unwrap_or("Unknown").to_string();
+                .split('(')
+                .next()
+                .unwrap_or("Unknown")
+                .to_string();
             log::debug!("Successfully parsed ApObject variant: {}", variant_name);
 
             let cached = fetched_ap_object.cache(conn).await.clone();
 
             let created_object_model = match NewObject::try_from(cached) {
-                Ok(new_obj) => {
-                    create_object(conn, new_obj).await
-                        .context(format!("Failed to create object in database for {}", id))?
-                }
+                Ok(new_obj) => create_object(conn, new_obj)
+                    .await
+                    .context(format!("Failed to create object in database for {}", id))?,
                 Err(e) => {
                     // Save the problematic response to a trace file
-                    let trace_path = format!("{}/trace_object_conversion_error_{}.json",
+                    let trace_path = format!(
+                        "{}/trace_object_conversion_error_{}.json",
                         *crate::MEDIA_DIR,
-                        chrono::Utc::now().timestamp());
+                        chrono::Utc::now().timestamp()
+                    );
 
                     if let Err(write_err) = std::fs::write(&trace_path, &text) {
-                        log::warn!("Failed to write trace file to {}: {}", trace_path, write_err);
+                        log::warn!(
+                            "Failed to write trace file to {}: {}",
+                            trace_path,
+                            write_err
+                        );
                     } else {
                         log::info!("Saved problematic response to trace file: {}", trace_path);
                     }
@@ -209,11 +226,19 @@ pub async fn get_object<C: DbRunner>(
             log::debug!("Successfully stored and loaded object: {}", id);
             Ok(final_ap_object.load_ephemeral(conn, profile).await.clone())
         } else {
-            let error_body = resp.text().await.unwrap_or_else(|_| "(unable to read body)".to_string());
+            let error_body = resp
+                .text()
+                .await
+                .unwrap_or_else(|_| "(unable to read body)".to_string());
             let error_msg = format!(
                 "Failed to fetch object from remote. URL: {}, Status: {}, Body: {}",
-                id, status,
-                if error_body.len() > 500 { &error_body[..500] } else { &error_body }
+                id,
+                status,
+                if error_body.len() > 500 {
+                    &error_body[..500]
+                } else {
+                    &error_body
+                }
             );
             log::error!("{}", error_msg);
             Err(anyhow!(error_msg))

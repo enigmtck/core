@@ -1,14 +1,10 @@
-use axum::{
-    extract::State,
-    http::StatusCode,
-    response::Json,
-};
+use axum::{extract::State, http::StatusCode, response::Json};
 use axum_extra::extract::Query;
 use serde::{Deserialize, Serialize};
 
+use crate::db::runner::DbRunner;
 use crate::models::actors::Actor;
 use crate::models::objects::Object;
-use crate::db::runner::DbRunner;
 use crate::search::{SearchContext, SearchFilters};
 use crate::server::AppState;
 
@@ -81,7 +77,8 @@ fn actor_to_actor_result(actor: &Actor) -> ActorResult {
     };
 
     // Extract avatar URL from as_icon JSONB field
-    let avatar = actor.as_icon
+    let avatar = actor
+        .as_icon
         .as_object()
         .and_then(|obj| obj.get("url"))
         .and_then(|url| url.as_str())
@@ -181,7 +178,15 @@ pub async fn search(
         }
 
         let search_objects = !object_types.is_empty();
-        (search_actors, search_objects, if object_types.is_empty() { None } else { Some(object_types) })
+        (
+            search_actors,
+            search_objects,
+            if object_types.is_empty() {
+                None
+            } else {
+                Some(object_types)
+            },
+        )
     } else {
         // No type filter - search everything (actors and all objects without filtering)
         (true, true, None)
@@ -252,10 +257,7 @@ pub async fn search(
         (Vec::new(), Vec::new())
     };
 
-    Ok(Json(SearchResults {
-        actors,
-        objects,
-    }))
+    Ok(Json(SearchResults { actors, objects }))
 }
 
 /// Hydrate actor results from database
@@ -282,8 +284,8 @@ async fn hydrate_actors(
                 StatusCode::INTERNAL_SERVER_ERROR
             })?
             .run(move |c| {
-                use diesel::prelude::*;
                 use crate::schema::actors;
+                use diesel::prelude::*;
 
                 actors::table
                     .filter(actors::id.eq(actor_id))
@@ -328,8 +330,8 @@ async fn hydrate_objects(
                 StatusCode::INTERNAL_SERVER_ERROR
             })?
             .run(move |c| {
-                use diesel::prelude::*;
                 use crate::schema::objects;
+                use diesel::prelude::*;
 
                 objects::table
                     .filter(objects::id.eq(object_id))

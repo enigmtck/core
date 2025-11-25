@@ -1,9 +1,9 @@
 use anyhow::Result;
+use serde::{Deserialize, Serialize};
 use tantivy::collector::TopDocs;
 use tantivy::query::{BooleanQuery, Occur, Query, QueryParser, TermQuery};
 use tantivy::schema::*;
-use tantivy::{Index, ReloadPolicy};
-use serde::{Deserialize, Serialize};
+use tantivy::{Index, IndexReader};
 
 /// Search context for privacy filtering
 #[derive(Clone, Debug)]
@@ -78,8 +78,10 @@ pub struct SearchResults {
 }
 
 /// Search objects index
+/// Uses the provided cached reader to avoid creating new mmap handles per search
 pub fn search_objects(
     index: &Index,
+    reader: &IndexReader,
     query_str: &str,
     context: &SearchContext,
     filters: &SearchFilters,
@@ -87,10 +89,6 @@ pub fn search_objects(
     offset: usize,
 ) -> Result<Vec<ObjectSearchResult>> {
     let schema = index.schema();
-    let reader = index
-        .reader_builder()
-        .reload_policy(ReloadPolicy::OnCommitWithDelay)
-        .try_into()?;
     let searcher = reader.searcher();
 
     // Build query parser for text fields
@@ -101,7 +99,12 @@ pub fn search_objects(
 
     let query_parser = QueryParser::for_index(
         index,
-        vec![content_field, name_field, summary_field, author_username_field],
+        vec![
+            content_field,
+            name_field,
+            summary_field,
+            author_username_field,
+        ],
     );
 
     let text_query = query_parser.parse_query(query_str)?;
@@ -121,7 +124,10 @@ pub fn search_objects(
                 let facet = Facet::from(&format!("/{}", obj_types[0]));
                 log::debug!("Created facet filter: {:?}", facet);
                 let term = Term::from_facet(type_field, &facet);
-                boolean_queries.push((Occur::Must, Box::new(TermQuery::new(term, IndexRecordOption::Basic))));
+                boolean_queries.push((
+                    Occur::Must,
+                    Box::new(TermQuery::new(term, IndexRecordOption::Basic)),
+                ));
             } else {
                 // Multiple types: create OR query (Should)
                 let mut type_queries: Vec<(Occur, Box<dyn Query>)> = vec![];
@@ -129,7 +135,10 @@ pub fn search_objects(
                     let facet = Facet::from(&format!("/{}", obj_type));
                     log::debug!("Created facet filter: {:?}", facet);
                     let term = Term::from_facet(type_field, &facet);
-                    type_queries.push((Occur::Should, Box::new(TermQuery::new(term, IndexRecordOption::Basic))));
+                    type_queries.push((
+                        Occur::Should,
+                        Box::new(TermQuery::new(term, IndexRecordOption::Basic)),
+                    ));
                 }
                 let type_query = BooleanQuery::new(type_queries);
                 boolean_queries.push((Occur::Must, Box::new(type_query)));
@@ -144,7 +153,10 @@ pub fn search_objects(
         let author_field = schema.get_field("author_id").unwrap();
         let facet = Facet::from(&format!("/{}", author));
         let term = Term::from_facet(author_field, &facet);
-        boolean_queries.push((Occur::Must, Box::new(TermQuery::new(term, IndexRecordOption::Basic))));
+        boolean_queries.push((
+            Occur::Must,
+            Box::new(TermQuery::new(term, IndexRecordOption::Basic)),
+        ));
     }
 
     // Exclude blocked actors
@@ -152,14 +164,20 @@ pub fn search_objects(
         let author_field = schema.get_field("author_id").unwrap();
         let facet = Facet::from(&format!("/{}", blocked_id));
         let term = Term::from_facet(author_field, &facet);
-        boolean_queries.push((Occur::MustNot, Box::new(TermQuery::new(term, IndexRecordOption::Basic))));
+        boolean_queries.push((
+            Occur::MustNot,
+            Box::new(TermQuery::new(term, IndexRecordOption::Basic)),
+        ));
     }
 
     // Exclude Tombstone objects (deleted content)
     let type_field = schema.get_field("type_facet").unwrap();
     let tombstone_facet = Facet::from("/Tombstone");
     let tombstone_term = Term::from_facet(type_field, &tombstone_facet);
-    boolean_queries.push((Occur::MustNot, Box::new(TermQuery::new(tombstone_term, IndexRecordOption::Basic))));
+    boolean_queries.push((
+        Occur::MustNot,
+        Box::new(TermQuery::new(tombstone_term, IndexRecordOption::Basic)),
+    ));
 
     let final_query = BooleanQuery::new(boolean_queries);
 
@@ -173,7 +191,8 @@ pub fn search_objects(
     match &filters.sort_order {
         SortOrder::Relevance => {
             // Default: sort by relevance (BM25 score)
-            let top_docs = searcher.search(&final_query, &TopDocs::with_limit(limit).and_offset(offset))?;
+            let top_docs =
+                searcher.search(&final_query, &TopDocs::with_limit(limit).and_offset(offset))?;
             for (score, doc_address) in top_docs {
                 let retrieved_doc: TantivyDocument = searcher.doc(doc_address)?;
 
@@ -254,8 +273,10 @@ pub fn search_objects(
 }
 
 /// Search actors index
+/// Uses the provided cached reader to avoid creating new mmap handles per search
 pub fn search_actors(
     index: &Index,
+    reader: &IndexReader,
     query_str: &str,
     _context: &SearchContext,
     filters: &SearchFilters,
@@ -263,10 +284,6 @@ pub fn search_actors(
     offset: usize,
 ) -> Result<Vec<ActorSearchResult>> {
     let schema = index.schema();
-    let reader = index
-        .reader_builder()
-        .reload_policy(ReloadPolicy::OnCommitWithDelay)
-        .try_into()?;
     let searcher = reader.searcher();
 
     // Build query parser for text fields
@@ -278,7 +295,13 @@ pub fn search_actors(
 
     let query_parser = QueryParser::for_index(
         index,
-        vec![username_field, display_name_field, summary_field, tags_field, also_known_as_field],
+        vec![
+            username_field,
+            display_name_field,
+            summary_field,
+            tags_field,
+            also_known_as_field,
+        ],
     );
 
     let text_query = query_parser.parse_query(query_str)?;
@@ -290,13 +313,19 @@ pub fn search_actors(
     // Only show discoverable actors (privacy filter)
     let discoverable_field = schema.get_field("is_discoverable").unwrap();
     let term = Term::from_field_bool(discoverable_field, true);
-    boolean_queries.push((Occur::Must, Box::new(TermQuery::new(term, IndexRecordOption::Basic))));
+    boolean_queries.push((
+        Occur::Must,
+        Box::new(TermQuery::new(term, IndexRecordOption::Basic)),
+    ));
 
     // Filter by local only if specified
     if filters.local_only {
         let local_field = schema.get_field("is_local").unwrap();
         let term = Term::from_field_bool(local_field, true);
-        boolean_queries.push((Occur::Must, Box::new(TermQuery::new(term, IndexRecordOption::Basic))));
+        boolean_queries.push((
+            Occur::Must,
+            Box::new(TermQuery::new(term, IndexRecordOption::Basic)),
+        ));
     }
 
     let final_query = BooleanQuery::new(boolean_queries);

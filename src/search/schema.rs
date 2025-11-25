@@ -40,8 +40,8 @@ pub fn create_actors_schema() -> Schema {
     schema_builder.add_text_field("username", TEXT);
     schema_builder.add_text_field("display_name", TEXT);
     schema_builder.add_text_field("summary", TEXT);
-    schema_builder.add_text_field("tags", TEXT);  // Extracted from as_tag and ek_hashtags
-    schema_builder.add_text_field("also_known_as", TEXT);  // Previous/alternate identities
+    schema_builder.add_text_field("tags", TEXT); // Extracted from as_tag and ek_hashtags
+    schema_builder.add_text_field("also_known_as", TEXT); // Previous/alternate identities
 
     // Boolean fields for filtering
     schema_builder.add_bool_field("is_local", INDEXED | STORED);

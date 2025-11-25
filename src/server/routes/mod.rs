@@ -191,7 +191,9 @@ impl Outbox for ApActivity {
             ApActivity::Block(block) => block.outbox(conn, state, profile, raw).await,
             ApActivity::Add(add) => add.outbox(conn, state, profile, raw).await,
             ApActivity::Remove(remove) => remove.outbox(conn, state, profile, raw).await,
-            ApActivity::Move(move_activity) => move_activity.outbox(conn, state, profile, raw).await,
+            ApActivity::Move(move_activity) => {
+                move_activity.outbox(conn, state, profile, raw).await
+            }
         }
     }
 }

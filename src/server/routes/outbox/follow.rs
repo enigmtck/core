@@ -1,9 +1,9 @@
 use crate::server::routes::Outbox;
+use crate::server::AppState;
 use crate::{
     db::runner::DbRunner,
     models::activities::get_unrevoked_activity_by_kind_actor_id_and_target_ap_id,
 };
-use crate::server::AppState;
 use jdt_activity_pub::{ApActivity, ApFollow};
 use reqwest::StatusCode;
 

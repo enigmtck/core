@@ -66,18 +66,22 @@ pub async fn handle_search_command(args: SearchArgs) -> Result<()> {
                         .progress_chars("=> "),
                 );
 
-                search_index.index_all_objects(&conn, 100000, |count| {
-                    pb.set_position(count as u64);
-                }).await?;
+                search_index
+                    .index_all_objects(&conn, 100000, |count| {
+                        pb.set_position(count as u64);
+                    })
+                    .await?;
 
                 pb.finish_with_message("Objects indexed");
                 pb.position() as usize
             } else {
-                search_index.index_all_objects(&conn, 100000, |count| {
-                    if count % 100000 == 0 {
-                        println!("Indexed {} objects...", count);
-                    }
-                }).await?
+                search_index
+                    .index_all_objects(&conn, 100000, |count| {
+                        if count % 100000 == 0 {
+                            println!("Indexed {} objects...", count);
+                        }
+                    })
+                    .await?
             };
 
             println!("Total objects indexed: {}", total_indexed);
@@ -111,18 +115,22 @@ pub async fn handle_search_command(args: SearchArgs) -> Result<()> {
                         .progress_chars("=> "),
                 );
 
-                search_index.index_all_actors(&conn, 100000, |count| {
-                    pb.set_position(count as u64);
-                }).await?;
+                search_index
+                    .index_all_actors(&conn, 100000, |count| {
+                        pb.set_position(count as u64);
+                    })
+                    .await?;
 
                 pb.finish_with_message("Actors indexed");
                 pb.position() as usize
             } else {
-                search_index.index_all_actors(&conn, 100000, |count| {
-                    if count % 100000 == 0 {
-                        println!("Indexed {} actors...", count);
-                    }
-                }).await?
+                search_index
+                    .index_all_actors(&conn, 100000, |count| {
+                        if count % 100000 == 0 {
+                            println!("Indexed {} actors...", count);
+                        }
+                    })
+                    .await?
             };
 
             println!("Total actors indexed: {}", total_indexed_actors);
@@ -137,10 +145,18 @@ pub async fn handle_search_command(args: SearchArgs) -> Result<()> {
             println!("  Objects in index: {}", stats.objects_count);
             println!("  Actors in index: {}", stats.actors_count);
 
-            if stats.objects_count != total_indexed as usize || stats.actors_count != total_indexed_actors as usize {
+            if stats.objects_count != total_indexed as usize
+                || stats.actors_count != total_indexed_actors as usize
+            {
                 eprintln!("\nWarning: Index count mismatch detected!");
-                eprintln!("  Expected objects: {}, Got: {}", total_indexed, stats.objects_count);
-                eprintln!("  Expected actors: {}, Got: {}", total_indexed_actors, stats.actors_count);
+                eprintln!(
+                    "  Expected objects: {}, Got: {}",
+                    total_indexed, stats.objects_count
+                );
+                eprintln!(
+                    "  Expected actors: {}, Got: {}",
+                    total_indexed_actors, stats.actors_count
+                );
             } else {
                 println!("✓ Index verification successful!");
             }
@@ -159,9 +175,8 @@ pub async fn handle_search_command(args: SearchArgs) -> Result<()> {
             })?;
 
             // Perform incremental update using shared logic (handles checkpoint internally)
-            let (objects_indexed, actors_indexed) = search_index
-                .incremental_update(&conn, 1000)
-                .await?;
+            let (objects_indexed, actors_indexed) =
+                search_index.incremental_update(&conn, 1000).await?;
 
             println!("\nSearch index update complete!");
             println!("  Objects indexed: {}", objects_indexed);
@@ -181,7 +196,10 @@ pub async fn handle_search_command(args: SearchArgs) -> Result<()> {
             println!("Index path: {}", stats.index_path.display());
             println!("Objects indexed: {}", stats.objects_count);
             println!("Actors indexed: {}", stats.actors_count);
-            println!("Total documents: {}", stats.objects_count + stats.actors_count);
+            println!(
+                "Total documents: {}",
+                stats.objects_count + stats.actors_count
+            );
         }
 
         SearchCommands::Optimize => {

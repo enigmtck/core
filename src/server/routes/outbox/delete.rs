@@ -2,6 +2,7 @@ use super::ActivityJson;
 use crate::db::runner::DbRunner;
 use crate::models::actors::get_actor_by_as_id;
 use crate::server::routes::Outbox;
+use crate::server::AppState;
 use crate::{
     models::{
         activities::{create_activity, NewActivity},
@@ -10,7 +11,6 @@ use crate::{
     },
     runner,
 };
-use crate::server::AppState;
 use jdt_activity_pub::{ApActivity, ApDelete};
 use reqwest::StatusCode;
 use serde_json::Value;

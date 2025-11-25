@@ -548,7 +548,7 @@ enum PrimaryAttemptFailure {
 pub async fn download_image<C: DbRunner + Send + Sync>(
     conn: &C,
     profile: Option<Actor>,
-    cache_item: NewCacheItem,
+    mut cache_item: NewCacheItem,
 ) -> Result<NewCacheItem> {
     const MAX_ATTEMPTS: u32 = 3; // Total number of attempts
 
@@ -612,12 +612,14 @@ pub async fn download_image<C: DbRunner + Send + Sync>(
                         .unwrap_or_default()
                         .to_lowercase();
 
-                    if !(content_type.starts_with("image/")
-                         || content_type.starts_with("video/")
-                         || content_type.starts_with("audio/")
-                         || content_type.contains("*/*")
-                         || content_type.is_empty())
-                    {
+                    // Check if content type is acceptable media or octet-stream (which we can infer)
+                    let is_media_type = content_type.starts_with("image/")
+                        || content_type.starts_with("video/")
+                        || content_type.starts_with("audio/");
+                    let is_octet_stream = content_type.starts_with("application/octet-stream");
+                    let is_permissive = content_type.contains("*/*") || content_type.is_empty();
+
+                    if !(is_media_type || is_octet_stream || is_permissive) {
                         log::error!(
                             "Primary signed_get for {} returned unusable media content-type: {}. Returning.",
                             cache_item.url,
@@ -625,8 +627,33 @@ pub async fn download_image<C: DbRunner + Send + Sync>(
                         );
                         return Err(PrimaryAttemptFailure::WrongContentType(content_type));
                     }
+
+                    // If server returned octet-stream, try to infer the actual MIME type from URL extension
+                    if is_octet_stream || is_permissive {
+                        // Extract just the path from URL to avoid query params/fragments confusing mime_guess
+                        let path_for_guess = url::Url::parse(&cache_item.url)
+                            .ok()
+                            .map(|u| u.path().to_string())
+                            .unwrap_or_else(|| cache_item.url.clone());
+
+                        if let Some(inferred_type) = mime_guess::from_path(&path_for_guess).first() {
+                            let inferred_str = inferred_type.to_string();
+                            if inferred_str.starts_with("image/")
+                                || inferred_str.starts_with("video/")
+                                || inferred_str.starts_with("audio/")
+                            {
+                                log::debug!(
+                                    "Inferred media type '{}' from URL extension for {}",
+                                    inferred_str,
+                                    cache_item.url
+                                );
+                                cache_item.media_type = Some(inferred_str);
+                            }
+                        }
+                    }
+
                     log::debug!(
-                        "Primary signed_get for {} returned media content-type: {}. Proceeding.",
+                        "Primary signed_get for {} returned content-type: {}. Proceeding.",
                         cache_item.url,
                         content_type
                     );

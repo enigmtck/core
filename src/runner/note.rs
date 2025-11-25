@@ -100,7 +100,11 @@ pub async fn handle_object<C: DbRunner>(
     const MAX_OBJECT_DEPTH: usize = 50;
 
     if depth >= MAX_OBJECT_DEPTH {
-        log::warn!("Max object processing depth ({}) reached for {}, stopping recursion", MAX_OBJECT_DEPTH, object.as_id);
+        log::warn!(
+            "Max object processing depth ({}) reached for {}, stopping recursion",
+            MAX_OBJECT_DEPTH,
+            object.as_id
+        );
         return Ok(object);
     }
 
@@ -170,7 +174,8 @@ pub async fn object_task(
 
         match object.as_type {
             ObjectType::Note | ObjectType::Article | ObjectType::Question => {
-                let _ = handle_object(&conn, object.clone(), &mut HashSet::<String>::new(), 0).await;
+                let _ =
+                    handle_object(&conn, object.clone(), &mut HashSet::<String>::new(), 0).await;
             }
             _ => (),
         }

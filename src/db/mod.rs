@@ -20,6 +20,9 @@ pub static POOL: Lazy<Pool> = Lazy::new(|| {
     let database_url = env::var("DATABASE_URL").expect("DATABASE_URL must be set");
     let manager = Manager::new(database_url, deadpool_diesel::Runtime::Tokio1);
     Pool::builder(manager)
+        // Limit pool size to reduce memory from libpq buffers (uses glibc malloc)
+        // Each connection allocates ~1-2 MB of buffers that glibc may not return to OS
+        .max_size(8) // Reasonable default for most workloads
         .build()
         .expect("Failed to create global pool.")
 });

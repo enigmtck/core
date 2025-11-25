@@ -22,7 +22,7 @@ use crate::{
     signing::{Method, SignParams},
 };
 use jdt_activity_pub::MaybeReference;
-use jdt_activity_pub::{ApActivity, ApActor, ApAddress};
+use jdt_activity_pub::{ApActivity, ApActor, ApAddress, ApObject};
 
 use self::user::get_follower_inboxes;
 
@@ -194,7 +194,22 @@ pub async fn send_to_inboxes<C: DbRunner>(
         anyhow!("Message does not have an ID")
     })?;
 
+    // Debug: Check Update activity before serialization
+    if let ApActivity::Update(ref update) = message {
+        if let MaybeReference::Actual(ApObject::Note(ref note)) = update.object {
+            log::debug!("ApNote.updated before serialization: {:?}", note.updated);
+        }
+    }
+
     let body = serde_json::to_string(&message).map_err(anyhow::Error::msg)?;
+    log::debug!("Serialized body length: {}", body.len());
+
+    // Debug: Check if 'updated' appears in serialized JSON
+    if body.contains("\"updated\"") {
+        log::debug!("✓ 'updated' field found in serialized JSON");
+    } else {
+        log::debug!("✗ 'updated' field NOT found in serialized JSON");
+    }
 
     log::debug!("Processing inboxes: {inboxes:?}");
     process_all_inboxes(inboxes, body, profile, conn, as_id).await?;
@@ -340,6 +355,11 @@ pub async fn send_activity_task(
             TaskError::TaskFailed
         })?;
 
+        // Debug: Check target_object before reconstruction
+        if let Some(ref obj) = target_object {
+            log::debug!("target_object.as_updated from DB: {:?}", obj.as_updated);
+        }
+
         let ap_activity = ApActivity::try_from_extended_activity((
             activity.clone(),
             target_activity,
@@ -351,6 +371,14 @@ pub async fn send_activity_task(
             TaskError::TaskFailed
         })?
         .formalize();
+
+        // Debug: Check reconstructed Update activity
+        if let ApActivity::Update(ref update) = ap_activity {
+            log::debug!("Reconstructed Update activity from DB");
+            if let MaybeReference::Actual(ApObject::Note(ref note)) = update.object {
+                log::debug!("ApNote.updated after reconstruction: {:?}", note.updated);
+            }
+        }
 
         if activity.kind.is_delete()
             && activity.target_actor_id.is_some()

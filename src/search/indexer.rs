@@ -1,6 +1,6 @@
 use anyhow::Result;
-use tantivy::{IndexWriter, TantivyDocument};
 use tantivy::schema::*;
+use tantivy::{IndexWriter, TantivyDocument};
 
 use crate::models::actors::Actor;
 use crate::models::objects::Object;
@@ -57,7 +57,10 @@ pub fn object_to_document(object: &Object, schema: &Schema) -> Result<TantivyDoc
 
     // Publication date - use as_published if available, otherwise fall back to created_at
     let pub_date = object.as_published.unwrap_or(object.created_at);
-    doc.add_date(published, tantivy::DateTime::from_timestamp_secs(pub_date.timestamp()));
+    doc.add_date(
+        published,
+        tantivy::DateTime::from_timestamp_secs(pub_date.timestamp()),
+    );
 
     // Conversation ID for threading
     if let Some(ref conv_id) = object.ap_conversation {

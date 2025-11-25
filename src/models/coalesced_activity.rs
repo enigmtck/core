@@ -95,6 +95,9 @@ pub struct CoalescedActivity {
     #[diesel(sql_type = Nullable<Jsonb>)]
     pub instrument: Option<Value>,
 
+    #[diesel(sql_type = Nullable<Timestamptz>)]
+    pub as_published: Option<DateTime<Utc>>,
+
     // Secondary Activity Fields
     #[diesel(sql_type = Nullable<Timestamptz>)]
     pub recursive_created_at: Option<DateTime<Utc>>,
@@ -165,6 +168,9 @@ pub struct CoalescedActivity {
     //pub object_type: Option<ObjectType>,
     #[diesel(sql_type = Nullable<Timestamptz>)]
     pub object_published: Option<DateTime<Utc>>,
+
+    #[diesel(sql_type = Nullable<Timestamptz>)]
+    pub object_updated: Option<DateTime<Utc>>,
 
     #[diesel(sql_type = Nullable<Text>)]
     pub object_as_id: Option<String>,
@@ -246,6 +252,9 @@ pub struct CoalescedActivity {
 
     #[diesel(sql_type = Nullable<Jsonb>)]
     pub object_instrument: Option<Value>,
+
+    #[diesel(sql_type = Nullable<Jsonb>)]
+    pub object_source: Option<Value>,
 
     // Actor Fields
     #[diesel(sql_type = Nullable<Timestamptz>)]
@@ -700,6 +709,8 @@ impl TryFrom<CoalescedActivity> for ApNote {
 
         let instrument = coalesced.object_instrument.into();
 
+        let source = coalesced.object_source.and_then(from_serde);
+
         Ok(ApNote {
             kind,
             id,
@@ -718,6 +729,7 @@ impl TryFrom<CoalescedActivity> for ApNote {
             published,
             ephemeral,
             instrument,
+            source,
             ..Default::default()
         })
     }
@@ -771,6 +783,7 @@ impl TryFrom<CoalescedActivity> for ApArticle {
             ..Default::default()
         });
         let instrument = coalesced.object_instrument.into();
+        let source = coalesced.object_source.and_then(from_serde);
 
         Ok(ApArticle {
             kind,
@@ -790,6 +803,7 @@ impl TryFrom<CoalescedActivity> for ApArticle {
             published,
             ephemeral,
             instrument,
+            source,
             ..Default::default()
         })
     }
@@ -843,6 +857,7 @@ impl TryFrom<CoalescedActivity> for ApQuestion {
             attributed_to: from_serde(coalesced.object_attributed_to_profiles),
             ..Default::default()
         });
+        let source = coalesced.object_source.and_then(from_serde);
 
         Ok(ApQuestion {
             kind,
@@ -865,6 +880,7 @@ impl TryFrom<CoalescedActivity> for ApQuestion {
             any_of,
             voters_count,
             ephemeral,
+            source,
             ..Default::default()
         })
     }

@@ -166,8 +166,8 @@ pub async fn manage_muted_terms(
 /// Get memory statistics (when memory-profiling feature is enabled)
 #[cfg(feature = "memory-profiling")]
 pub async fn memory_stats() -> Result<Json<serde_json::Value>, StatusCode> {
-    use tikv_jemalloc_ctl::{epoch, stats};
     use serde_json::json;
+    use tikv_jemalloc_ctl::{epoch, stats};
 
     // Advance epoch to get fresh stats
     epoch::mib()

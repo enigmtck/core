@@ -272,18 +272,17 @@ pub async fn remote_object(
     })?;
 
     if state.block_list.is_blocked(domain.clone()) {
-        log::info!("Domain {} is blocked, rejecting remote_object request", domain);
+        log::info!(
+            "Domain {} is blocked, rejecting remote_object request",
+            domain
+        );
         return Err(StatusCode::FORBIDDEN);
     }
 
-    let conn = state
-        .db_pool
-        .get()
-        .await
-        .map_err(|e| {
-            log::error!("Failed to get DB connection: {}", e);
-            StatusCode::INTERNAL_SERVER_ERROR
-        })?;
+    let conn = state.db_pool.get().await.map_err(|e| {
+        log::error!("Failed to get DB connection: {}", e);
+        StatusCode::INTERNAL_SERVER_ERROR
+    })?;
 
     let object = get_object(&conn, signed.profile(), url.clone())
         .await

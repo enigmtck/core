@@ -1,4 +1,5 @@
 use crate::server::routes::Outbox;
+use crate::server::AppState;
 use crate::{
     db::runner::DbRunner,
     events::EventChannels,
@@ -21,7 +22,6 @@ use crate::{
 };
 use anyhow::Result;
 use chrono::Utc;
-use crate::server::AppState;
 use deadpool_diesel::postgres::Pool;
 use jdt_activity_pub::MaybeMultiple;
 use jdt_activity_pub::{

@@ -33,6 +33,8 @@ pub async fn start() {
     let database_url = std::env::var("DATABASE_URL").expect("DATABASE_URL must be set");
     let manager = Manager::new(database_url, deadpool_diesel::Runtime::Tokio1);
     let pool = Pool::builder(manager)
+        // Limit pool size to reduce memory from libpq buffers (uses glibc malloc)
+        .max_size(8)
         .build()
         .expect("Failed to create Axum database pool.");
 

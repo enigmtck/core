@@ -1,7 +1,6 @@
 use super::actors::Actor;
 use super::{coalesced_activity::CoalescedActivity, from_serde};
 use crate::db::runner::DbRunner;
-use crate::helper::get_object_ap_id_from_uuid;
 use crate::schema::objects;
 use anyhow::{anyhow, Result};
 use chrono::{DateTime, Utc};
@@ -20,7 +19,6 @@ use serde_json::json;
 use serde_json::Value;
 use std::collections::HashMap;
 use std::fmt::{self, Debug};
-use uuid::Uuid;
 
 #[derive(
     diesel_derive_enum::DbEnum, Debug, Serialize, Deserialize, Default, Clone, Eq, PartialEq,
@@ -176,6 +174,7 @@ pub struct NewObject {
     pub ek_profile_id: Option<i32>,
     pub ek_uuid: Option<String>,
     pub as_in_reply_to: Option<Value>,
+    pub ap_source: Option<Value>,
 }
 
 #[derive(Identifiable, Queryable, AsChangeset, Serialize, Deserialize, Clone, Default, Debug)]
@@ -237,6 +236,7 @@ pub struct Object {
     pub ek_profile_id: Option<i32>,
     pub ek_uuid: Option<String>,
     pub as_in_reply_to: Option<Value>,
+    pub ap_source: Option<Value>,
 }
 
 impl Object {
@@ -271,6 +271,7 @@ impl TryFrom<CoalescedActivity> for Object {
             ek_uuid: activity.object_uuid,
             as_type: activity.object_type.ok_or(anyhow!("no object type"))?,
             as_published: activity.object_published,
+            as_updated: activity.object_updated,
             as_id: activity.object_as_id.ok_or(anyhow!("no object as_id"))?,
             as_name: activity.object_name,
             as_url: activity.object_url,
@@ -442,6 +443,7 @@ impl From<ApNote> for NewObject {
             ek_uuid,
             ek_instrument: note.instrument.option().map(|x| json!(x)),
             ek_hashtags,
+            ap_source: note.source.map(|s| json!(s)),
             ..Default::default()
         }
     }
@@ -483,12 +485,16 @@ impl From<ApArticle> for NewObject {
             .collect::<Vec<String>>());
 
         let (ek_uuid, as_id) = {
-            if let Some(id) = article.id.clone() {
-                (None, id)
-            } else {
-                let uuid = Uuid::new_v4().to_string();
-                (Some(uuid.clone()), get_object_ap_id_from_uuid(uuid.clone()))
-            }
+            let id = article
+                .id
+                .clone()
+                .expect("article.id must be set before conversion to NewObject");
+            // Extract UUID from ephemeral.internal_uuid if available (local posts)
+            let ek_uuid = article
+                .ephemeral
+                .as_ref()
+                .and_then(|e| e.internal_uuid.clone());
+            (ek_uuid, id)
         };
 
         NewObject {
@@ -519,6 +525,7 @@ impl From<ApArticle> for NewObject {
             ek_instrument: article.instrument.option().map(|x| json!(x)),
             ek_hashtags,
             as_name: article.name,
+            ap_source: article.source.map(|s| json!(s)),
             ..Default::default()
         }
     }
@@ -595,6 +602,7 @@ impl From<ApQuestion> for NewObject {
             as_attributed_to: Some(json!(question.attributed_to.to_string())),
             ek_uuid,
             ek_hashtags,
+            ap_source: question.source.map(|s| json!(s)),
             ..Default::default()
         }
     }
@@ -631,6 +639,7 @@ impl TryFrom<Object> for ApNote {
                 id: Some(object.as_id.clone()),
                 kind: object.as_type.try_into()?,
                 published: object.as_published.map(|dt| dt.into()),
+                updated: object.as_updated.map(|dt| dt.into()),
                 url: object
                     .as_url
                     .clone()
@@ -662,6 +671,7 @@ impl TryFrom<Object> for ApNote {
                     ..Default::default()
                 }),
                 instrument: object.ek_instrument.clone().into(),
+                source: object.ap_source.clone().and_then(from_serde),
                 ..Default::default()
             })
         } else {
@@ -717,7 +727,7 @@ impl TryFrom<Object> for ApArticle {
                 },
                 sensitive: object.ap_sensitive,
                 content_map: object.as_content_map.clone().and_then(from_serde),
-                source: None,                         // Not stored in database
+                source: object.ap_source.clone().and_then(from_serde),
                 dcterms_subject: MaybeMultiple::None, // Not stored in database
                 ephemeral: Some(Ephemeral {
                     timestamp: Some(object.created_at),
@@ -775,6 +785,7 @@ impl TryFrom<Object> for ApQuestion {
                 .map_or_else(|| MaybeReference::None, |x| x.into()),
             end_time: object.as_end_time.map(ApDateTime::from),
             published: object.as_published.map(ApDateTime::from),
+            updated: object.as_updated.map(ApDateTime::from),
             one_of: object.as_one_of.into(),
             any_of: object.as_any_of.into(),
             content: object.as_content,
@@ -797,6 +808,7 @@ impl TryFrom<Object> for ApQuestion {
                 metadata: object.ek_metadata.and_then(from_serde),
                 ..Default::default()
             }),
+            source: object.ap_source.and_then(from_serde),
             ..Default::default()
         })
     }

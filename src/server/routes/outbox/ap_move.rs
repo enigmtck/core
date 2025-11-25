@@ -1,4 +1,5 @@
 use crate::server::routes::Outbox;
+use crate::server::AppState;
 use crate::{
     db::runner::DbRunner,
     models::{
@@ -6,7 +7,6 @@ use crate::{
         actors::Actor,
     },
 };
-use crate::server::AppState;
 use jdt_activity_pub::{ApActivity, ApMove};
 use reqwest::StatusCode;
 use serde_json::Value;

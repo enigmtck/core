@@ -9,8 +9,8 @@ use tokio::time::interval;
 use anyhow::Result;
 use chrono::Utc;
 
-#[cfg(feature = "vendored-openssl")]
-use openssl as _;
+// #[cfg(feature = "vendored-openssl")]
+// use openssl as _;
 
 #[cfg(feature = "bundled-postgres")]
 use pq_sys as _;
@@ -288,7 +288,9 @@ impl Task for SearchIndexTask {
             let pool = enigmatick::db::POOL.clone();
 
             // Call the periodic task function
-            match enigmatick::runner::search_index::periodic_search_index_task(pool, None, vec![]).await {
+            match enigmatick::runner::search_index::periodic_search_index_task(pool, None, vec![])
+                .await
+            {
                 Ok(()) => {
                     log::info!("Search index update completed successfully");
                     Ok(())

@@ -49,6 +49,7 @@ main AS (
         a.actor_id,
         a.target_actor_id,
         a.instrument,
+        a.as_published,
         a2.created_at AS recursive_created_at,
         a2.updated_at AS recursive_updated_at,
         a2.kind AS recursive_kind,
@@ -70,6 +71,7 @@ main AS (
         COALESCE(o.ek_uuid, o2.ek_uuid) AS object_uuid,
         COALESCE(o.as_type, o2.as_type) AS object_type,
         COALESCE(o.as_published, o2.as_published) AS object_published,
+        COALESCE(o.as_updated, o2.as_updated) AS object_updated,
         COALESCE(o.as_id, o2.as_id) AS object_as_id,
         COALESCE(o.as_name, o2.as_name) AS object_name,
         COALESCE(o.as_url, o2.as_url) AS object_url,
@@ -92,6 +94,7 @@ main AS (
         COALESCE(o.ek_metadata, o2.ek_metadata) AS object_metadata,
         COALESCE(o.ek_profile_id, o2.ek_profile_id) AS object_profile_id,
         COALESCE(o.ek_instrument, o2.ek_instrument) AS object_instrument,
+        COALESCE(o.ap_source, o2.ap_source) AS object_source,
         COALESCE(ta.created_at, ta2.created_at) AS actor_created_at,
         COALESCE(ta.updated_at, ta2.updated_at) AS actor_updated_at,
         COALESCE(ta.ek_uuid, ta2.ek_uuid) AS actor_uuid,
@@ -202,9 +205,9 @@ attributed_actors AS (
 )
 SELECT
     m.*,
-    COALESCE(JSONB_AGG(jsonb_build_object('id', ac.as_id, 'name', ac.as_name, 'tag', ac.as_tag, 'url', ac.as_url, 'icon', ac.as_icon, 'preferredUsername', ac.as_preferred_username)) FILTER (WHERE a.actor IS NOT NULL
+    COALESCE(JSONB_AGG(jsonb_build_object('id', ac.as_id, 'name', ac.as_name, 'tag', ac.as_tag, 'url', ac.as_url, 'icon', ac.as_icon, 'preferredUsername', ac.as_preferred_username, 'webfinger', ac.ek_webfinger)) FILTER (WHERE a.actor IS NOT NULL
             AND a.kind = 'announce'), '[]') AS object_announcers,
-    COALESCE(JSONB_AGG(jsonb_build_object('id', ac.as_id, 'name', ac.as_name, 'tag', ac.as_tag, 'url', ac.as_url, 'icon', ac.as_icon, 'preferredUsername', ac.as_preferred_username)) FILTER (WHERE a.actor IS NOT NULL
+    COALESCE(JSONB_AGG(jsonb_build_object('id', ac.as_id, 'name', ac.as_name, 'tag', ac.as_tag, 'url', ac.as_url, 'icon', ac.as_icon, 'preferredUsername', ac.as_preferred_username, 'webfinger', ac.ek_webfinger)) FILTER (WHERE a.actor IS NOT NULL
             AND a.kind = 'like'), '[]') AS object_likers,
     COALESCE(aa.attributed_profiles, '[]') AS object_attributed_to_profiles,
     announced.object_announced,
@@ -220,16 +223,16 @@ FROM
     LEFT JOIN attributed_actors aa ON m.id = aa.main_id
 GROUP BY
     m.id, m.created_at, m.updated_at, m.kind, m.uuid, m.actor, m.ap_to, m.cc, m.target_activity_id,
-    m.target_ap_id, m.revoked, m.ap_id, m.reply, m.instrument, m.recursive_created_at, m.recursive_updated_at,
+    m.target_ap_id, m.revoked, m.ap_id, m.reply, m.instrument, m.as_published, m.recursive_created_at, m.recursive_updated_at,
     m.recursive_kind, m.recursive_uuid, m.recursive_actor, m.recursive_ap_to, m.recursive_cc,
     m.recursive_target_activity_id, m.recursive_target_ap_id, m.recursive_revoked, m.recursive_ap_id,
     m.recursive_reply, m.recursive_target_object_id, m.recursive_actor_id, m.recursive_target_actor_id,
     m.recursive_instrument, m.object_created_at, m.object_updated_at, m.object_uuid, m.object_type,
-    m.object_published, m.object_as_id, m.object_name, m.object_url, m.object_to, m.object_cc, m.object_tag,
+    m.object_published, m.object_updated, m.object_as_id, m.object_name, m.object_url, m.object_to, m.object_cc, m.object_tag,
     m.object_attributed_to, m.object_in_reply_to, m.object_content, m.object_conversation, m.object_attachment,
     m.object_summary, m.object_preview, m.object_start_time, m.object_end_time, m.object_one_of,
     m.object_any_of, m.object_voters_count, m.object_sensitive, m.object_metadata, m.object_profile_id,
-    m.object_instrument, m.actor_id, m.target_actor_id, m.target_object_id, m.actor_created_at,
+    m.object_instrument, m.object_source, m.actor_id, m.target_actor_id, m.target_object_id, m.actor_created_at,
     m.actor_updated_at, m.actor_uuid, m.actor_username, m.actor_summary_markdown, m.actor_avatar_filename,
     m.actor_banner_filename, m.actor_private_key, m.actor_password, m.actor_client_public_key,
     m.actor_client_private_key, m.actor_salt, m.actor_olm_pickled_account, m.actor_olm_pickled_account_hash,

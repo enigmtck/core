@@ -42,6 +42,7 @@ diesel::table! {
         target_actor_id -> Nullable<Int4>,
         log -> Nullable<Jsonb>,
         instrument -> Nullable<Jsonb>,
+        as_published -> Nullable<Timestamptz>,
     }
 }
 
@@ -293,6 +294,7 @@ diesel::table! {
         ek_profile_id -> Nullable<Int4>,
         ek_uuid -> Nullable<Text>,
         as_in_reply_to -> Nullable<Jsonb>,
+        ap_source -> Nullable<Jsonb>,
     }
 }
 
@@ -337,6 +339,7 @@ diesel::table! {
         id -> Int4,
         created_at -> Timestamptz,
         updated_at -> Timestamptz,
+        profile_id -> Int4,
         ap_id -> Varchar,
         ap_to -> Jsonb,
         cc -> Nullable<Jsonb>,
@@ -344,7 +347,6 @@ diesel::table! {
         kind -> Varchar,
         ap_object -> Jsonb,
         processed -> Bool,
-        profile_id -> Int4,
     }
 }
 
