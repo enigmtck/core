@@ -13,7 +13,6 @@ use jdt_activity_pub::{
     ApQuestionType, ApUrl, Ephemeral,
 };
 use jdt_activity_pub::{ApArticleType, MaybeMultiple};
-use maplit::{hashmap, hashset};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use serde_json::Value;
@@ -372,19 +371,7 @@ impl From<AttributedApQuestion> for NewObject {
 
 impl From<ApNote> for NewObject {
     fn from(note: ApNote) -> NewObject {
-        let mut ammonia = ammonia::Builder::default();
-
-        ammonia
-            .add_tag_attributes("span", &["class"])
-            .add_tag_attributes("a", &["class"])
-            .tag_attribute_values(hashmap![
-                "span" => hashmap![
-                    "class" => hashset!["h-card"],
-                ],
-                "a" => hashmap![
-                    "class" => hashset!["u-url mention"],
-                ],
-            ]);
+        use crate::AMMONIA_BUILDER;
 
         let published: Option<DateTime<Utc>> = note.clone().published.map(|p| *p);
 
@@ -392,7 +379,7 @@ impl From<ApNote> for NewObject {
             let mut content_map = HashMap::<String, String>::new();
             if let Some(map) = (note).clone().content_map {
                 for (key, value) in map {
-                    content_map.insert(key, ammonia.clean(&value).to_string());
+                    content_map.insert(key, AMMONIA_BUILDER.clean(&value).to_string());
                 }
             }
 
@@ -432,9 +419,9 @@ impl From<ApNote> for NewObject {
             as_cc: note.cc.into(),
             as_replies: note.replies.into(),
             as_tag: note.tag.into(),
-            as_content: note.content.map(|c| ammonia.clean(&c).to_string()),
+            as_content: note.content.map(|c| AMMONIA_BUILDER.clean(&c).to_string()),
             as_name: note.name,
-            as_summary: note.summary.map(|x| ammonia.clean(&x).to_string()),
+            as_summary: note.summary.map(|x| AMMONIA_BUILDER.clean(&x).to_string()),
             ap_sensitive: note.sensitive,
             as_in_reply_to: note.in_reply_to.into(),
             ap_conversation: note.conversation,
@@ -451,19 +438,7 @@ impl From<ApNote> for NewObject {
 
 impl From<ApArticle> for NewObject {
     fn from(article: ApArticle) -> NewObject {
-        let mut ammonia = ammonia::Builder::default();
-
-        ammonia
-            .add_tag_attributes("span", &["class"])
-            .add_tag_attributes("a", &["class"])
-            .tag_attribute_values(hashmap![
-                "span" => hashmap![
-                    "class" => hashset!["h-card"],
-                ],
-                "a" => hashmap![
-                    "class" => hashset!["u-url mention"],
-                ],
-            ]);
+        use crate::AMMONIA_BUILDER;
 
         let published: Option<DateTime<Utc>> = Some(*article.clone().published);
 
@@ -471,7 +446,7 @@ impl From<ApArticle> for NewObject {
             let mut content_map = HashMap::<String, String>::new();
             if let Some(map) = article.clone().content_map {
                 for (key, value) in map {
-                    content_map.insert(key, ammonia.clean(&value).to_string());
+                    content_map.insert(key, AMMONIA_BUILDER.clean(&value).to_string());
                 }
             }
 
@@ -511,8 +486,8 @@ impl From<ApArticle> for NewObject {
             as_audience: article.audience.into(),
             as_replies: article.replies.into(),
             as_tag: article.tag.into(),
-            as_content: article.content.map(|c| ammonia.clean(&c).to_string()),
-            as_summary: article.summary.map(|x| ammonia.clean(&x).to_string()),
+            as_content: article.content.map(|c| AMMONIA_BUILDER.clean(&c).to_string()),
+            as_summary: article.summary.map(|x| AMMONIA_BUILDER.clean(&x).to_string()),
             ap_sensitive: article.sensitive,
             as_in_reply_to: article.in_reply_to.into(),
             as_content_map: Some(json!(clean_content_map)),
@@ -533,25 +508,13 @@ impl From<ApArticle> for NewObject {
 
 impl From<ApQuestion> for NewObject {
     fn from(question: ApQuestion) -> Self {
-        let mut ammonia = ammonia::Builder::default();
-
-        ammonia
-            .add_tag_attributes("span", &["class"])
-            .add_tag_attributes("a", &["class"])
-            .tag_attribute_values(hashmap![
-                "span" => hashmap![
-                    "class" => hashset!["h-card"],
-                ],
-                "a" => hashmap![
-                    "class" => hashset!["u-url mention"],
-                ],
-            ]);
+        use crate::AMMONIA_BUILDER;
 
         let clean_content_map = {
             let mut content_map = HashMap::<String, String>::new();
             if let Some(map) = question.clone().content_map {
                 for (key, value) in map {
-                    content_map.insert(key, ammonia.clean(&value).to_string());
+                    content_map.insert(key, AMMONIA_BUILDER.clean(&value).to_string());
                 }
             }
 
@@ -586,7 +549,7 @@ impl From<ApQuestion> for NewObject {
             as_published: question.published.as_deref().cloned(),
             as_one_of: question.one_of.into(),
             as_any_of: question.any_of.into(),
-            as_content: question.content.map(|c| ammonia.clean(&c).to_string()),
+            as_content: question.content.map(|c| AMMONIA_BUILDER.clean(&c).to_string()),
             as_content_map: Some(json!(clean_content_map)),
             as_summary: question.summary,
             ap_voters_count: question.voters_count,

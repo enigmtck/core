@@ -36,9 +36,9 @@ pub mod user;
 //pub type DbConnection = r2d2::PooledConnection<ConnectionManager<PgConnection>>;
 
 pub fn clean_text(text: String) -> String {
-    let ammonia = ammonia::Builder::default();
+    use crate::AMMONIA_BUILDER;
 
-    ammonia.clean(&text).to_string()
+    AMMONIA_BUILDER.clean(&text).to_string()
 }
 
 #[derive(Serialize, Clone)]

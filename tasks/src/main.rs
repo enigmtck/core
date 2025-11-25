@@ -9,9 +9,6 @@ use tokio::time::interval;
 use anyhow::Result;
 use chrono::Utc;
 
-// #[cfg(feature = "vendored-openssl")]
-// use openssl as _;
-
 #[cfg(feature = "bundled-postgres")]
 use pq_sys as _;
 

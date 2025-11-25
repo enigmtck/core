@@ -25,6 +25,7 @@ use dotenvy::dotenv;
 use env_logger as _;
 use indicatif as _;
 use jdt_activity_pub::MaybeMultiple;
+use maplit::{hashmap, hashset};
 use jdt_activity_pub::{
     ActivityPub, ApActivity, ApActor, ApArticle, ApNote, ApObject, ApQuestion, ApTag, Ephemeral,
 };
@@ -230,6 +231,34 @@ lazy_static! {
             search::SearchIndex::new(&index_path)
                 .expect("Failed to initialize global search index")
         )
+    };
+
+    // Global HTML sanitizer for ActivityPub content
+    // Creating a new ammonia::Builder for each post causes html5ever parser instances to accumulate
+    // Reusing a single builder prevents memory leaks from repeated parser creation
+    // This is used ~4000+ times per day for incoming posts/articles/questions
+    pub static ref AMMONIA_BUILDER: ammonia::Builder<'static> = {
+        let mut builder = ammonia::Builder::default();
+        builder
+            .add_tag_attributes("span", &["class"])
+            .add_tag_attributes("a", &["class"])
+            .tag_attribute_values(hashmap![
+                "span" => hashmap![
+                    "class" => hashset!["h-card"],
+                ],
+                "a" => hashmap![
+                    "class" => hashset!["u-url mention"],
+                ],
+            ]);
+        builder
+    };
+
+    // Global HTML meta tag selector for link preview metadata extraction
+    // Creating a new Selector for each link causes html5ever parser instances to accumulate
+    // Reusing a single selector prevents memory leaks
+    pub static ref META_SELECTOR: scraper::Selector = {
+        scraper::Selector::parse("meta")
+            .expect("Failed to parse meta tag selector")
     };
 }
 

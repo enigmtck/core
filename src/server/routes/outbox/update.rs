@@ -187,22 +187,10 @@ async fn update_note<C: DbRunner>(
     use crate::schema::objects;
     use diesel::prelude::*;
 
+    use crate::AMMONIA_BUILDER;
+
     let now = Utc::now();
     let object_id = existing.id;
-
-    // Build ammonia sanitizer for content
-    let mut ammonia = ammonia::Builder::default();
-    ammonia
-        .add_tag_attributes("span", &["class"])
-        .add_tag_attributes("a", &["class"])
-        .tag_attribute_values(maplit::hashmap![
-            "span" => maplit::hashmap![
-                "class" => maplit::hashset!["h-card"],
-            ],
-            "a" => maplit::hashmap![
-                "class" => maplit::hashset!["u-url mention"],
-            ],
-        ]);
 
     // Extract hashtags for ek_hashtags field (clone before partial moves)
     let hashtags: Vec<ApHashtag> = note.clone().into();
@@ -212,7 +200,7 @@ async fn update_note<C: DbRunner>(
         .collect::<Vec<String>>());
 
     // Sanitize content
-    let clean_content = note.content.map(|c| ammonia.clean(&c).to_string());
+    let clean_content = note.content.map(|c| AMMONIA_BUILDER.clean(&c).to_string());
 
     // Convert source to JSON if present
     let ap_source: Option<Value> = note.source.map(|s| json!(s));
@@ -253,22 +241,10 @@ async fn update_article<C: DbRunner>(
     use crate::schema::objects;
     use diesel::prelude::*;
 
+    use crate::AMMONIA_BUILDER;
+
     let now = Utc::now();
     let object_id = existing.id;
-
-    // Build ammonia sanitizer for content
-    let mut ammonia = ammonia::Builder::default();
-    ammonia
-        .add_tag_attributes("span", &["class"])
-        .add_tag_attributes("a", &["class"])
-        .tag_attribute_values(maplit::hashmap![
-            "span" => maplit::hashmap![
-                "class" => maplit::hashset!["h-card"],
-            ],
-            "a" => maplit::hashmap![
-                "class" => maplit::hashset!["u-url mention"],
-            ],
-        ]);
 
     // Extract hashtags for ek_hashtags field (clone before partial moves)
     let hashtags: Vec<ApHashtag> = article.clone().into();
@@ -278,8 +254,8 @@ async fn update_article<C: DbRunner>(
         .collect::<Vec<String>>());
 
     // Sanitize content and summary
-    let clean_content = article.content.map(|c| ammonia.clean(&c).to_string());
-    let clean_summary = article.summary.map(|s| ammonia.clean(&s).to_string());
+    let clean_content = article.content.map(|c| AMMONIA_BUILDER.clean(&c).to_string());
+    let clean_summary = article.summary.map(|s| AMMONIA_BUILDER.clean(&s).to_string());
 
     // Convert source to JSON if present
     let ap_source: Option<Value> = article.source.map(|s| json!(s));
@@ -324,22 +300,10 @@ async fn update_question<C: DbRunner>(
     use crate::schema::objects;
     use diesel::prelude::*;
 
+    use crate::AMMONIA_BUILDER;
+
     let now = Utc::now();
     let object_id = existing.id;
-
-    // Build ammonia sanitizer for content
-    let mut ammonia = ammonia::Builder::default();
-    ammonia
-        .add_tag_attributes("span", &["class"])
-        .add_tag_attributes("a", &["class"])
-        .tag_attribute_values(maplit::hashmap![
-            "span" => maplit::hashmap![
-                "class" => maplit::hashset!["h-card"],
-            ],
-            "a" => maplit::hashmap![
-                "class" => maplit::hashset!["u-url mention"],
-            ],
-        ]);
 
     // Extract hashtags for ek_hashtags field (clone before partial moves)
     let hashtags: Vec<ApHashtag> = question.clone().into();
@@ -349,7 +313,7 @@ async fn update_question<C: DbRunner>(
         .collect::<Vec<String>>());
 
     // Sanitize content
-    let clean_content = question.content.map(|c| ammonia.clean(&c).to_string());
+    let clean_content = question.content.map(|c| AMMONIA_BUILDER.clean(&c).to_string());
 
     // Convert source to JSON if present
     let ap_source: Option<Value> = question.source.map(|s| json!(s));
