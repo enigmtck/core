@@ -30,13 +30,11 @@ fn main() {
         target_args.push("--target");
         target_args.push(t.as_str());
 
-        // For musl targets, enable vendored dependencies
+        // For musl targets, enable bundled-postgres (includes vendored openssl)
         if t.contains("musl") {
-            main_features.push("vendored-openssl");
             main_features.push("bundled-postgres");
-            proxy_features.push("vendored-openssl");
-            tasks_features.push("vendored-openssl");
             tasks_features.push("bundled-postgres");
+            // proxy uses rustls, no special features needed
         }
     }
 
