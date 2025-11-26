@@ -701,9 +701,10 @@ impl TryFrom<CoalescedActivity> for ApNote {
             metadata: coalesced.object_metadata.and_then(from_serde),
             announces,
             likes,
-            announced: coalesced.object_announced,
-            liked: coalesced.object_liked,
-            attributed_to: from_serde(coalesced.object_attributed_to_profiles),
+            announced: coalesced.object_announced.clone(),
+            liked: coalesced.object_liked.clone(),
+            attributed_to: from_serde(coalesced.object_attributed_to_profiles.clone()),
+            internal_uuid: coalesced.object_uuid.clone(),
             ..Default::default()
         });
 
@@ -780,6 +781,7 @@ impl TryFrom<CoalescedActivity> for ApArticle {
             announced: coalesced.object_announced,
             liked: coalesced.object_liked,
             attributed_to: from_serde(coalesced.object_attributed_to_profiles),
+            internal_uuid: coalesced.object_uuid.clone(),
             ..Default::default()
         });
         let instrument = coalesced.object_instrument.into();
@@ -855,6 +857,7 @@ impl TryFrom<CoalescedActivity> for ApQuestion {
             announced: coalesced.object_announced,
             liked: coalesced.object_liked,
             attributed_to: from_serde(coalesced.object_attributed_to_profiles),
+            internal_uuid: coalesced.object_uuid.clone(),
             ..Default::default()
         });
         let source = coalesced.object_source.and_then(from_serde);

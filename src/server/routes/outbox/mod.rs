@@ -1,3 +1,4 @@
+use super::inbox::{add_hash_to_tags, convert_hashtags_to_query_string};
 use super::ActivityJson;
 use crate::server::retriever;
 use crate::server::routes::Outbox;
@@ -5,15 +6,17 @@ use crate::{
     models::{
         activities::{TimelineFilters, TimelineView},
         actors::get_actor_by_username,
+        objects::ObjectType,
         unprocessable::create_unprocessable,
     },
     server::{extractors::AxumSigned, AppState},
 };
 use axum::{
-    extract::{Path, Query, State},
+    extract::{Path, State},
     http::StatusCode,
     response::Json,
 };
+use axum_extra::extract::Query;
 use jdt_activity_pub::{ActivityPub, ApActivity, ApObject};
 use serde::Deserialize;
 use serde_json::Value;
@@ -52,6 +55,12 @@ pub struct OutboxQuery {
     max: Option<i64>,
     limit: Option<u8>,
     page: Option<bool>,
+    /// Filter by object type (e.g., "Article", "Note", "Question")
+    #[serde(rename = "type")]
+    object_type: Option<ObjectType>,
+    /// Filter by hashtags
+    #[serde(rename = "hashtags[]")]
+    hashtags: Option<Vec<String>>,
 }
 
 pub async fn axum_outbox_get(
@@ -75,13 +84,34 @@ pub async fn axum_outbox_get(
     let base_url = format!("{server_url}/user/{username}/outbox");
 
     if page {
+        // Process hashtags (add # prefix if provided)
+        let hashtags = query
+            .hashtags
+            .as_ref()
+            .map(|h| add_hash_to_tags(h))
+            .unwrap_or_default();
+
         let filters = TimelineFilters {
             view: Some(TimelineView::Global),
-            hashtags: vec![],
+            hashtags: hashtags.clone(),
             username: Some(username.clone()),
             conversation: None,
             excluded_words: vec![],
             direct: false,
+            object_type: query.object_type.clone(),
+        };
+
+        // Build base URL with type and hashtag parameters if specified
+        let type_param = query
+            .object_type
+            .as_ref()
+            .map(|t| format!("&type={}", t.to_string().to_lowercase()))
+            .unwrap_or_default();
+
+        let hashtags_param = if !hashtags.is_empty() {
+            convert_hashtags_to_query_string(&hashtags)
+        } else {
+            String::new()
         };
 
         Ok(Json(
@@ -92,7 +122,7 @@ pub async fn axum_outbox_get(
                 query.max,
                 profile,
                 filters,
-                format!("{base_url}?page=true&limit={limit}"),
+                format!("{base_url}?page=true&limit={limit}{type_param}{hashtags_param}"),
             )
             .await,
         ))

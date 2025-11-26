@@ -3,7 +3,7 @@ use crate::db::DbType;
 use crate::helper::get_activity_ap_id_from_uuid;
 use crate::models::actors::{get_actor_by_as_id, Actor};
 use crate::models::coalesced_activity::CoalescedActivity;
-use crate::models::objects::Object;
+use crate::models::objects::{Object, ObjectType};
 use crate::schema::{activities, actors};
 use crate::server::InboxView;
 use anyhow::{anyhow, Result};
@@ -292,6 +292,9 @@ pub struct TimelineFilters {
     pub conversation: Option<String>,
     pub excluded_words: Vec<String>,
     pub direct: bool,
+    /// Filter by object type (e.g., Article, Note, Question)
+    /// When None, all types are returned
+    pub object_type: Option<ObjectType>,
 }
 
 #[derive(
@@ -1400,10 +1403,21 @@ pub async fn get_outbox<C: DbRunner>(
     let query = include_str!("outbox.sql");
 
     let to_addresses = (*PUBLIC_COLLECTION).clone();
+    let filters = filters.ok_or(anyhow!("Outbox query must specify Filters"))?;
     let username = filters
-        .ok_or(anyhow!("Outbox query must specify Username in Filters"))?
         .username
+        .clone()
         .ok_or(anyhow!("Outbox query must specify Username in Filters"))?;
+
+    // Convert ObjectType to lowercase string for SQL, or "NULL" if not specified
+    let object_type = filters
+        .object_type
+        .as_ref()
+        .map(|ot| ot.to_string().to_lowercase())
+        .unwrap_or("NULL".to_string());
+
+    // Get hashtags from filters
+    let hashtags = filters.hashtags.clone();
 
     let profile_id = profile
         .map(|x| x.id.to_string())
@@ -1442,6 +1456,8 @@ pub async fn get_outbox<C: DbRunner>(
             .bind::<Integer, _>(limit)
             .bind::<Text, _>(profile_id)
             .bind::<Bool, _>(false)
+            .bind::<Text, _>(object_type)
+            .bind::<Array<Text>, _>(hashtags)
             .load::<CoalescedActivity>(c)
     })
     .await

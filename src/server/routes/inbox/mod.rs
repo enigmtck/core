@@ -186,6 +186,7 @@ pub async fn axum_shared_inbox_get(
                 conversation: None,
                 excluded_words: vec![],
                 direct: false,
+                object_type: None,
             },
             InboxView::Home => TimelineFilters {
                 view: if let Some(profile) = profile.clone() {
@@ -206,6 +207,7 @@ pub async fn axum_shared_inbox_get(
                 conversation: None,
                 excluded_words: vec![],
                 direct: false,
+                object_type: None,
             },
             InboxView::Local => TimelineFilters {
                 view: Some(view.into()),
@@ -214,6 +216,7 @@ pub async fn axum_shared_inbox_get(
                 conversation: None,
                 excluded_words: vec![],
                 direct: false,
+                object_type: None,
             },
             InboxView::Direct => TimelineFilters {
                 view: Some(view.into()),
@@ -222,6 +225,7 @@ pub async fn axum_shared_inbox_get(
                 conversation: None,
                 excluded_words: vec![],
                 direct: true,
+                object_type: None,
             },
         }
     } else {
@@ -232,6 +236,7 @@ pub async fn axum_shared_inbox_get(
             conversation: None,
             excluded_words: vec![],
             direct: false,
+            object_type: None,
         }
     };
 
@@ -427,6 +432,7 @@ pub async fn axum_conversation_get(
         conversation: Some(decoded.to_string()),
         excluded_words: vec![],
         direct: false,
+        object_type: None,
     };
 
     Ok(axum::Json(

@@ -1,0 +1,1 @@
+import{g as c,h as _,a4 as o,av as d,a5 as T,a6 as b,a7 as g,n as v,aw as y,m as f}from"./CPBLXjHw.js";function p(n,i,h=!1){_&&o();var r=new y(n),u=h?d:0;function t(a,s){if(_){const l=T(n)===b;if(a===l){var e=g();v(e),r.anchor=e,f(!1),r.ensure(a,s),f(!0);return}}r.ensure(a,s)}c(()=>{var a=!1;i((s,e=!0)=>{a=!0,t(e,s)}),a||t(!1,null)},u)}export{p as i};

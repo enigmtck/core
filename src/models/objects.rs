@@ -23,6 +23,7 @@ use std::fmt::{self, Debug};
     diesel_derive_enum::DbEnum, Debug, Serialize, Deserialize, Default, Clone, Eq, PartialEq,
 )]
 #[ExistingTypePath = "crate::schema::sql_types::ObjectType"]
+#[serde(try_from = "String")]
 pub enum ObjectType {
     Article,
     Audio,

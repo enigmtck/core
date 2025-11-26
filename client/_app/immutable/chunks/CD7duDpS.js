@@ -1,0 +1,1 @@
+import{e as T,a1 as a,J as c,a2 as q,$ as x}from"./CPBLXjHw.js";function S(i,r){return i===r||(i==null?void 0:i[x])===r}function B(i={},r,h,k){return T(()=>{var s,f;return a(()=>{s=f,f=(k==null?void 0:k())||[],c(()=>{i!==h(...f)&&(r(i,...f),s&&S(h(...s),i)&&r(null,...s))})}),()=>{q(()=>{f&&S(h(...f),i)&&r(null,...f)})}}),i}export{B as b};

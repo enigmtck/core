@@ -12,11 +12,12 @@ WITH top_activities AS (
         WHERE
             a.revoked = false
             AND a.kind IN ('create', 'announce')
-            AND o.as_type IN ('note', 'question', 'article')
+            AND (CASE WHEN $8 <> 'NULL' THEN o.as_type::text = $8 ELSE o.as_type IN ('note', 'question', 'article') END)
             AND (ap_to ?| $1 OR cc ?| $1) -- to_addresses (Uses GIN index)
             AND (CASE WHEN $2 <> 'NULL' THEN ac.ek_username = $2 ELSE TRUE END)
             AND (CASE WHEN $3 <> 'NULL' THEN a.created_at < $3::timestamptz ELSE TRUE END) -- max_date
             AND (CASE WHEN $4 <> 'NULL' THEN a.created_at > $4::timestamptz ELSE TRUE END) -- min_date
+            AND (CASE WHEN CARDINALITY($9::text[]) > 0 THEN o.ek_hashtags ?| $9 ELSE TRUE END) -- hashtags
         -- This ordering is crucial for DISTINCT ON to pick the latest activity per object
         ORDER BY a.target_ap_id, a.created_at DESC
     ) AS latest_activities_per_object
@@ -246,7 +247,7 @@ ORDER BY
     CASE WHEN $7::boolean THEN m.created_at END ASC,
     CASE WHEN NOT $7::boolean THEN m.created_at END DESC;
 
--- 
+--
 -- PARAMETER ORDER:
 -- 1: to_addresses (Text[])
 -- 2: username (Text)
@@ -255,7 +256,17 @@ ORDER BY
 -- 5: limit (Integer)
 -- 6: profile_actor_id (Text)
 -- 7: order_asc (Boolean)
+-- 8: object_type (Text) - Filter by object type (e.g., 'article', 'note', 'question'), or 'NULL' for all types
+-- 9: hashtags (Text[]) - Filter by hashtags (e.g., '{#rust,#programming}'), or empty array '{}' for no filter
 
 -- Example 1: Global Timeline (Unauthenticated)
--- \bind '{"https://www.w3.org/ns/activitystreams#Public","as:Public","Public"}' 'jdt' 'NULL' 'NULL' 20 'NULL' FALSE
+-- \bind '{"https://www.w3.org/ns/activitystreams#Public","as:Public","Public"}' 'jdt' 'NULL' 'NULL' 20 'NULL' FALSE 'NULL' '{}'
+-- \g
+
+-- Example 2: Articles only for a user
+-- \bind '{"https://www.w3.org/ns/activitystreams#Public","as:Public","Public"}' 'jdt' 'NULL' 'NULL' 20 'NULL' FALSE 'article' '{}'
+-- \g
+
+-- Example 3: Posts with specific hashtags
+-- \bind '{"https://www.w3.org/ns/activitystreams#Public","as:Public","Public"}' 'jdt' 'NULL' 'NULL' 20 'NULL' FALSE 'NULL' '{#rust,#activitypub}'
 -- \g

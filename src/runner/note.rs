@@ -188,17 +188,15 @@ pub async fn handle_object<C: DbRunner>(
     let ap_object: ApObject = object.clone().try_into()?;
     let profile = guaranteed_actor(conn, None).await;
 
-    let _ = get_actor(
-        conn,
-        object
-            .attributed_to()
-            .first()
-            .ok_or(anyhow!("Failed to identify attribution"))?
-            .clone(),
-        Some(profile.clone()),
-        true,
-    )
-    .await;
+    let attributed_to = object
+        .attributed_to()
+        .first()
+        .ok_or(anyhow!("Failed to identify attribution"))?
+        .clone();
+
+    if let Err(e) = get_actor(conn, attributed_to.clone(), Some(profile.clone()), true).await {
+        log::error!("Failed to fetch attributed actor {attributed_to}: {e}");
+    }
 
     ap_object.cache(conn).await;
 
