@@ -6,7 +6,7 @@ variables:
   CARGO_HOME: $CI_PROJECT_DIR/.cargo
 
 cache:
-  key: ${CI_COMMIT_REF_SLUG}
+  key: ${CI_COMMIT_REF_SLUG}-v2
   paths:
     - .cargo/
     - target/
