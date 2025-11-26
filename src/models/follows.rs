@@ -21,6 +21,8 @@ pub struct NewFollow {
     pub accepted: bool,
     pub follower_actor_id: Option<i32>,
     pub leader_actor_id: Option<i32>,
+    pub rejected: bool,
+    pub reject_activity_ap_id: Option<String>,
 }
 
 impl NewFollow {
@@ -71,6 +73,8 @@ pub struct Follow {
     pub accepted: bool,
     pub follower_actor_id: Option<i32>,
     pub leader_actor_id: Option<i32>,
+    pub rejected: bool,
+    pub reject_activity_ap_id: Option<String>,
 }
 
 pub async fn create_follow<C: DbRunner>(conn: &C, follower: NewFollow) -> Result<Follow> {
@@ -181,6 +185,25 @@ pub async fn mark_follow_accepted<C: DbRunner>(
 
         sql_query("UPDATE follows SET accepted = 'true', accept_activity_ap_id = $1 WHERE follower_ap_id = $2 AND leader_ap_id = $3 RETURNING *")
             .bind::<Text, _>(accept_ap_id)
+            .bind::<Text, _>(follower_ap_id)
+            .bind::<Text, _>(leader_ap_id)
+            .get_result(c)
+    };
+
+    conn.run(operation).await.ok()
+}
+
+pub async fn mark_follow_rejected<C: DbRunner>(
+    conn: &C,
+    follower_ap_id: String,
+    leader_ap_id: String,
+    reject_ap_id: String,
+) -> Option<Follow> {
+    let operation = move |c: &mut diesel::PgConnection| {
+        use diesel::sql_types::Text;
+
+        sql_query("UPDATE follows SET rejected = 'true', reject_activity_ap_id = $1 WHERE follower_ap_id = $2 AND leader_ap_id = $3 RETURNING *")
+            .bind::<Text, _>(reject_ap_id)
             .bind::<Text, _>(follower_ap_id)
             .bind::<Text, _>(leader_ap_id)
             .get_result(c)

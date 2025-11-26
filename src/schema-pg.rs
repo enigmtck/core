@@ -158,6 +158,8 @@ diesel::table! {
         accepted -> Bool,
         follower_actor_id -> Nullable<Int4>,
         leader_actor_id -> Nullable<Int4>,
+        rejected -> Bool,
+        reject_activity_ap_id -> Nullable<Text>,
     }
 }
 

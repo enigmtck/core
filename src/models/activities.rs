@@ -14,13 +14,14 @@ use diesel::{prelude::*, sql_query};
 use diesel::{AsChangeset, Identifiable, Insertable, Queryable};
 use jdt_activity_pub::ApBlockType;
 use jdt_activity_pub::ApMoveType;
+use jdt_activity_pub::ApRejectType;
 use jdt_activity_pub::ApRemoveType;
 use jdt_activity_pub::MaybeMultiple;
 use jdt_activity_pub::MaybeReference;
 use jdt_activity_pub::{
     ApAccept, ApAcceptType, ApActivity, ApActor, ApAddress, ApAnnounce, ApAnnounceType, ApContext,
     ApCreate, ApCreateType, ApDateTime, ApDelete, ApDeleteType, ApFollow, ApFollowType,
-    ApInstrument, ApLike, ApLikeType, ApNote, ApObject, ApQuestion, ApUndo, ApUndoType,
+    ApInstrument, ApLike, ApLikeType, ApNote, ApObject, ApQuestion, ApReject, ApUndo, ApUndoType,
     ApUpdateType, Ephemeral,
 };
 use jdt_activity_pub::{ApUpdate, PUBLIC_COLLECTION};
@@ -46,6 +47,7 @@ pub enum ActivityType {
     Add,
     Remove,
     Move,
+    Reject,
 }
 
 impl ActivityType {
@@ -95,6 +97,10 @@ impl ActivityType {
 
     pub fn is_move(&self) -> bool {
         self == &ActivityType::Move
+    }
+
+    pub fn is_reject(&self) -> bool {
+        self == &ActivityType::Reject
     }
 }
 
@@ -149,6 +155,7 @@ impl TryFrom<String> for ActivityType {
             "add" => Ok(ActivityType::Add),
             "remove" => Ok(ActivityType::Remove),
             "move" => Ok(ActivityType::Move),
+            "reject" => Ok(ActivityType::Reject),
             _ => Err(anyhow!("unimplemented ActivityType")),
         }
     }
@@ -217,6 +224,12 @@ impl From<ApRemoveType> for ActivityType {
 impl From<ApMoveType> for ActivityType {
     fn from(_: ApMoveType) -> Self {
         ActivityType::Move
+    }
+}
+
+impl From<ApRejectType> for ActivityType {
+    fn from(_: ApRejectType) -> Self {
+        ActivityType::Reject
     }
 }
 
@@ -533,6 +546,27 @@ impl TryFrom<ApActivityTarget> for NewActivity {
                     ))
                 }
             }
+            ApActivity::Reject(reject) => {
+                if let Some(ActivityTarget::Activity(follow)) = target.clone() {
+                    Ok(NewActivity {
+                        kind: reject.kind.into(),
+                        uuid: uuid.clone(),
+                        actor: reject.actor.to_string(),
+                        target_ap_id: follow.ap_id,
+                        revoked: false,
+                        ap_id: reject
+                            .id
+                            .map_or(Some(get_activity_ap_id_from_uuid(uuid)), Some),
+                        ..Default::default()
+                    }
+                    .link_target(target)
+                    .clone())
+                } else {
+                    Err(anyhow!(
+                        "Unable to locate Follow in TryFrom<ApActivityTarget> for NewActivity (Reject)"
+                    ))
+                }
+            }
             ApActivity::Update(update) => match update.object.clone() {
                 MaybeReference::Actual(ApObject::Actor(actor)) => Ok(NewActivity {
                     kind: update.kind.clone().into(),
@@ -831,6 +865,13 @@ impl TryFromExtendedActivity for ApActivity {
                 target_actor,
             ))
             .map(|accept| ApActivity::Accept(Box::new(accept))),
+            ActivityType::Reject => ApReject::try_from_extended_activity((
+                activity,
+                target_activity,
+                target_object,
+                target_actor,
+            ))
+            .map(|reject| ApActivity::Reject(Box::new(reject))),
             ActivityType::Update => ApUpdate::try_from_extended_activity((
                 activity,
                 target_activity,
@@ -911,6 +952,36 @@ impl TryFromExtendedActivity for ApAccept {
                 "FAILED TO MATCH IMPLEMENTED ACCEPT IN TryFrom FOR ApAccept\n{activity:#?}"
             );
             Err(anyhow!("FAILED TO MATCH IMPLEMENTED ACCEPT"))
+        }
+    }
+}
+
+impl TryFromExtendedActivity for ApReject {
+    type Error = anyhow::Error;
+
+    fn try_from_extended_activity(
+        (activity, target_activity, _target_object, _target_actor): ExtendedActivity,
+    ) -> Result<Self, Self::Error> {
+        let follow = ApActivity::try_from_extended_activity((
+            target_activity.ok_or(anyhow!("TARGET_ACTIVITY CANNOT BE NONE"))?,
+            None,
+            None,
+            None,
+        ))?;
+
+        if let ApActivity::Follow(follow) = follow {
+            Ok(ApReject {
+                context: Some(ApContext::default()),
+                kind: ApRejectType::default(),
+                actor: activity.actor.clone().into(),
+                id: Some(activity.ap_id.ok_or(anyhow!("REJECT MUST HAVE AN AP_ID"))?),
+                object: MaybeReference::Actual(ApActivity::Follow(follow)),
+            })
+        } else {
+            log::error!(
+                "FAILED TO MATCH IMPLEMENTED REJECT IN TryFrom FOR ApReject\n{activity:#?}"
+            );
+            Err(anyhow!("FAILED TO MATCH IMPLEMENTED REJECT"))
         }
     }
 }
