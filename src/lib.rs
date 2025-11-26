@@ -190,6 +190,12 @@ lazy_static! {
         dotenv().ok();
         env::var("INSTANCE_DESCRIPTION").expect("INSTANCE_DESCRIPTION must be set")
     };
+    pub static ref INSTALL_SCRIPT_URL: String = {
+        dotenv().ok();
+        env::var("INSTALL_SCRIPT_URL").unwrap_or(
+            "https://gitlab.com/enigmatick/enigmatick-core/-/raw/master/install.sh".to_string(),
+        )
+    };
 
     // SIGNING_OVERRIDE turns off signature checking so that I can test the API using curl
     pub static ref SIGNING_OVERRIDE: bool = {

@@ -79,3 +79,8 @@ pub async fn instance_information(
         Err(StatusCode::NOT_FOUND)
     }
 }
+
+/// Redirects to the install.sh script (configurable via INSTALL_SCRIPT_URL env var)
+pub async fn install_script() -> impl IntoResponse {
+    axum::response::Redirect::temporary(&*crate::INSTALL_SCRIPT_URL)
+}

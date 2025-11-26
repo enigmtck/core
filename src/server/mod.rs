@@ -110,6 +110,7 @@ pub async fn start() {
             "/.well-known/webfinger",
             get(routes::webfinger::axum_webfinger),
         )
+        .route("/install", get(routes::instance::install_script))
         .route(
             "/api/{version}/instance",
             get(routes::instance::instance_information),
