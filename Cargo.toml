@@ -1,6 +1,6 @@
 [package]
 name = "enigmatick"
-version = "0.5.0"
+version = "0.5.1"
 edition = "2021"
 license = "GPL-3.0-only"
 description = "Enigmatick is a social media platform that integrates with servers that implement the ActivityPub protocol (e.g., Mastodon)"
@@ -59,7 +59,7 @@ cfg-if = "1.0.0"
 atty = "0.2"
 convert_case = "0.6.0"
 #jdt_activity_pub = { path = "../../libs/activity_pub/" }
-jdt_activity_pub = "0.2.81"
+jdt_activity_pub = "0.2.82"
 #indoc = "2.0.5"
 indicatif = "0.17"
 comfy-table = "7.1.0"
