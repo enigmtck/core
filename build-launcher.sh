@@ -32,18 +32,18 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-# Common args for all builds (target and release)
-COMMON_ARGS="$RELEASE_FLAG $TARGET_FLAG $FEATURES_FLAG"
+# Common args for all builds (target and release only - features are crate-specific)
+COMMON_ARGS="$RELEASE_FLAG $TARGET_FLAG"
 
 # Build each component separately
 echo "Building main enigmatick binary..."
-cargo build --bin enigmatick $COMMON_ARGS
+cargo build --bin enigmatick $COMMON_ARGS $FEATURES_FLAG
 
 echo "Building proxy binary..."
 cd "$SCRIPT_DIR/proxy" && cargo build --target-dir ../target $COMMON_ARGS && cd "$SCRIPT_DIR"
 
 echo "Building tasks binary..."
-cd "$SCRIPT_DIR/tasks" && cargo build --target-dir ../target $COMMON_ARGS && cd "$SCRIPT_DIR"
+cd "$SCRIPT_DIR/tasks" && cargo build --target-dir ../target $COMMON_ARGS $FEATURES_FLAG && cd "$SCRIPT_DIR"
 
 echo "Building launcher with embedded binaries..."
 cd "$SCRIPT_DIR/launcher" && cargo build $COMMON_ARGS && cd "$SCRIPT_DIR"

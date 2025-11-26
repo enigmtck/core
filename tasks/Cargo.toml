@@ -14,6 +14,7 @@ anyhow = "1.0"
 diesel = { version = "2.0", features = ["postgres", "chrono"] }
 enigmatick = { path = ".." }
 pq-sys = { version = "0.6", optional = true }
+openssl = { version = "0.10", features = ["vendored"], optional = true }
 
 [features]
-bundled-postgres = ["pq-sys/bundled"]
+bundled-postgres = ["pq-sys/bundled", "openssl"]
