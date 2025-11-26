@@ -22,9 +22,9 @@ fn main() {
 
     // Prepare target args and features for musl builds
     let mut target_args = vec![];
-    let mut main_features = vec![];
-    let mut proxy_features = vec![];
-    let mut tasks_features = vec![];
+    let mut main_features: Vec<&str> = vec![];
+    let proxy_features: Vec<&str> = vec![];
+    let mut tasks_features: Vec<&str> = vec![];
 
     if let Some(ref t) = target {
         target_args.push("--target");
