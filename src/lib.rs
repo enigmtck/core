@@ -9,6 +9,10 @@ use tikv_jemallocator::Jemalloc;
 #[global_allocator]
 static GLOBAL: Jemalloc = Jemalloc;
 
+// Vendored OpenSSL for bundled-postgres builds
+#[cfg(feature = "bundled-postgres")]
+use openssl as _;
+
 extern crate diesel;
 extern crate log;
 // #[macro_use]
