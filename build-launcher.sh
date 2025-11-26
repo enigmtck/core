@@ -10,6 +10,7 @@ cd "$SCRIPT_DIR"
 # Parse arguments - separate features from target/release flags
 RELEASE_FLAG=""
 TARGET_FLAG=""
+FEATURES_FLAG=""
 
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -21,6 +22,10 @@ while [[ $# -gt 0 ]]; do
             TARGET_FLAG="--target $2"
             shift 2
             ;;
+        --features)
+            FEATURES_FLAG="--features $2"
+            shift 2
+            ;;
         *)
             shift
             ;;
@@ -28,7 +33,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 # Common args for all builds (target and release)
-COMMON_ARGS="$RELEASE_FLAG $TARGET_FLAG"
+COMMON_ARGS="$RELEASE_FLAG $TARGET_FLAG $FEATURES_FLAG"
 
 # Build each component separately
 echo "Building main enigmatick binary..."
