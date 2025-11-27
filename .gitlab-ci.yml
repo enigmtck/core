@@ -41,7 +41,7 @@ build:windows-x86_64:
   stage: build
   tags:
     - saas-windows-medium-amd64
-  timeout: 2h
+  timeout: 3h
   cache:
     key: ${CI_JOB_NAME}
     paths:
