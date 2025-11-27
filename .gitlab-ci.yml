@@ -5,29 +5,112 @@ stages:
 variables:
   CARGO_HOME: $CI_PROJECT_DIR/.cargo
 
-cache:
-  key: ${CI_COMMIT_REF_SLUG}-v2
-  paths:
-    - .cargo/
-    - target/
+# Cache template for reuse
+.cache_template: &cache_template
+  cache:
+    key: ${CI_JOB_NAME}
+    paths:
+      - .cargo/
+      - target/
 
 # Build for x86_64 Linux (most common)
-build:linux-x86_64:
+# Temporarily disabled for testing Windows build
+# build:linux-x86_64:
+#   stage: build
+#   image: rust:latest
+#   <<: *cache_template
+#   before_script:
+#     - apt-get update && apt-get install -y musl-tools musl-dev perl build-essential
+#     - rustup target add x86_64-unknown-linux-musl
+#     - rustc --version
+#     - cargo --version
+#   script:
+#     - ./build-launcher.sh --release --target x86_64-unknown-linux-musl --features bundled-postgres
+#     - mkdir -p artifacts
+#     - cp launcher/target/x86_64-unknown-linux-musl/release/enigmatick artifacts/enigmatick-linux-x86_64
+#     - chmod +x artifacts/enigmatick-linux-x86_64
+#   artifacts:
+#     paths:
+#       - artifacts/enigmatick-linux-x86_64
+#     expire_in: 1 week
+#   only:
+#     - tags
+
+# Build for Windows x86_64
+build:windows-x86_64:
   stage: build
-  image: rust:latest
+  tags:
+    - saas-windows-medium-amd64
+  timeout: 2h
+  cache:
+    key: ${CI_JOB_NAME}
+    paths:
+      - .cargo/
+      - target/
   before_script:
-    - apt-get update && apt-get install -y musl-tools musl-dev perl build-essential
-    - rustup target add x86_64-unknown-linux-musl
-    - rustc --version
+    # Install Strawberry Perl (required for OpenSSL vendored build)
+    - Write-Host "Downloading Strawberry Perl..."
+    - $perlUrl = "https://strawberryperl.com/download/5.32.1.1/strawberry-perl-5.32.1.1-64bit.msi"
+    - $perlInstaller = "$env:TEMP\strawberry-perl.msi"
+    - Invoke-WebRequest -Uri $perlUrl -OutFile $perlInstaller
+    - Write-Host "Installing Strawberry Perl..."
+    - Start-Process msiexec.exe -ArgumentList "/i $perlInstaller /quiet /norestart" -Wait -NoNewWindow
+    - $env:Path += ";C:\Strawberry\perl\bin;C:\Strawberry\c\bin"
+    # Verify Git is available, install if needed
+    - |
+      if (!(Get-Command git -ErrorAction SilentlyContinue)) {
+        Write-Host "Git not found, downloading portable Git..."
+        $gitUrl = "https://github.com/git-for-windows/git/releases/download/v2.43.0.windows.1/MinGit-2.43.0-64-bit.zip"
+        $gitZip = "$env:TEMP\mingit.zip"
+        $gitDir = "C:\MinGit"
+        Invoke-WebRequest -Uri $gitUrl -OutFile $gitZip
+        Expand-Archive -Path $gitZip -DestinationPath $gitDir -Force
+        $env:Path += ";$gitDir\cmd"
+      }
+    # Install Rust if not present
+    - |
+      if (!(Get-Command cargo -ErrorAction SilentlyContinue)) {
+        Write-Host "Installing Rust..."
+        $rustupUrl = "https://win.rustup.rs/x86_64"
+        $rustupInstaller = "$env:TEMP\rustup-init.exe"
+        Invoke-WebRequest -Uri $rustupUrl -OutFile $rustupInstaller
+        & $rustupInstaller -y --default-toolchain stable --default-host x86_64-pc-windows-msvc
+      }
+    # Add Rust to PATH (use CARGO_HOME from CI variables)
+    - $env:Path = "$env:CI_PROJECT_DIR\.cargo\bin;$env:Path"
+    # Ensure Rust is up to date
+    - rustup update stable
+    - rustup default stable
+    # Verify installations
+    - Write-Host "Verifying build tools..."
+    - perl --version
+    - git --version
     - cargo --version
   script:
-    - ./build-launcher.sh --release --target x86_64-unknown-linux-musl --features bundled-postgres
-    - mkdir -p artifacts
-    - cp launcher/target/x86_64-unknown-linux-musl/release/enigmatick artifacts/enigmatick-linux-x86_64
-    - chmod +x artifacts/enigmatick-linux-x86_64
+    # Build main enigmatick binary with bundled-postgres feature
+    - Write-Host "Building main enigmatick binary..."
+    - cargo build --release --bin enigmatick --features bundled-postgres
+    # Build proxy binary
+    - Write-Host "Building proxy binary..."
+    - Push-Location proxy
+    - cargo build --release --target-dir ../target
+    - Pop-Location
+    # Build tasks binary
+    - Write-Host "Building tasks binary..."
+    - Push-Location tasks
+    - cargo build --release --target-dir ../target --features bundled-postgres
+    - Pop-Location
+    # Build launcher with embedded binaries
+    - Write-Host "Building launcher with embedded binaries..."
+    - Push-Location launcher
+    - cargo build --release
+    - Pop-Location
+    # Create artifacts
+    - New-Item -ItemType Directory -Force -Path artifacts
+    - Copy-Item target/release/enigmatick.exe artifacts/enigmatick-windows-x86_64.exe
   artifacts:
     paths:
-      - artifacts/enigmatick-linux-x86_64
+      - artifacts/enigmatick-windows-x86_64.exe
     expire_in: 1 week
   only:
     - tags
@@ -57,7 +140,8 @@ release:
   stage: release
   image: registry.gitlab.com/gitlab-org/release-cli:latest
   needs:
-    - build:linux-x86_64
+    # - build:linux-x86_64  # Temporarily disabled
+    - build:windows-x86_64
   script:
     - echo "Creating release for $CI_COMMIT_TAG"
   release:
@@ -67,19 +151,21 @@ release:
 
       ### Installation
 
-      ```bash
-      curl -sSL https://gitlab.com/enigmatick/enigmatick-core/-/raw/master/install.sh | sh
-      ```
+      **Windows:**
+      Download `enigmatick-windows-x86_64.exe` below and run from PowerShell or Command Prompt.
 
-      Or download directly:
-      - [Linux x86_64](https://gitlab.com/enigmatick/enigmatick-core/-/releases/$CI_COMMIT_TAG/downloads/enigmatick-linux-x86_64)
+      ### Downloads
+      - [Windows x86_64](${CI_PROJECT_URL}/-/jobs/artifacts/${CI_COMMIT_TAG}/raw/artifacts/enigmatick-windows-x86_64.exe?job=build:windows-x86_64)
 
       ### What's New
       See CHANGELOG.md for details.
     assets:
       links:
-        - name: enigmatick-linux-x86_64
-          url: ${CI_PROJECT_URL}/-/jobs/artifacts/${CI_COMMIT_TAG}/raw/artifacts/enigmatick-linux-x86_64?job=build:linux-x86_64
+        # - name: enigmatick-linux-x86_64
+        #   url: ${CI_PROJECT_URL}/-/jobs/artifacts/${CI_COMMIT_TAG}/raw/artifacts/enigmatick-linux-x86_64?job=build:linux-x86_64
+        #   link_type: package
+        - name: enigmatick-windows-x86_64.exe
+          url: ${CI_PROJECT_URL}/-/jobs/artifacts/${CI_COMMIT_TAG}/raw/artifacts/enigmatick-windows-x86_64.exe?job=build:windows-x86_64
           link_type: package
   only:
     - tags
